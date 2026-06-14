@@ -83,6 +83,15 @@ export type EditableSizeMatrixProps = {
      *  across the sizes). Shown as the box's value; re-applies on Enter/Tab. */
     valueFor?: (rowKey: string) => string | undefined;
   };
+  /** Opt-in (SO / PO entry): once any cell carries a quantity, the FIRST size
+   *  column header turns green and is clickable — clicking hides the all-zero
+   *  size columns BEFORE the first sized column and AFTER the last, collapsing
+   *  the grid to the range actually being ordered. Click again to show them all. */
+  collapsibleSizes?: boolean;
+  /** Opt-in: fired when a qty cell is committed (blur / Enter), with the committed
+   *  value and the value the cell held when editing began. SO-from-ATS uses this
+   *  to warn when the operator orders more than the available-to-ship quantity. */
+  onCellCommit?: (rowKey: string, size: string, value: number, prevValue: number) => void;
 };
 
 /** Cell-state key shared by callers (qty + on-hand maps). */
@@ -129,7 +138,7 @@ function toInt(raw: string, allowNegative: boolean): number {
  * (`/^-?\d*$/` signed, `/^\d*$/` unsigned) and pushes the parsed integer up.
  */
 function QtyCell({
-  rowKey, size, color, value, allowNegative, onChange,
+  rowKey, size, color, value, allowNegative, onChange, onCommit,
 }: {
   rowKey: string;
   size: string;
@@ -137,9 +146,14 @@ function QtyCell({
   value: number;
   allowNegative: boolean;
   onChange: (rowKey: string, size: string, value: number) => void;
+  /** Fired on blur / Enter with the committed value + the value at focus. */
+  onCommit?: (rowKey: string, size: string, value: number, prevValue: number) => void;
 }) {
   const display = value ? String(value) : "";
   const [buf, setBuf] = React.useState(display);
+  // The cell's value when editing began — passed to onCommit so the caller can
+  // offer a "cancel / revert" that restores it.
+  const focusVal = React.useRef(value);
   // Re-sync the buffer when the parent value changes from the outside, but not
   // while the buffer already parses to the same number (avoid clobbering an
   // in-progress "-" or "007"-style entry that resolves to the same value).
@@ -155,13 +169,15 @@ function QtyCell({
       type="text"
       inputMode={allowNegative ? "text" : "numeric"}
       value={buf}
+      onFocus={() => { focusVal.current = value; }}
       onChange={(e) => {
         const next = e.target.value;
         if (!re.test(next)) return; // reject invalid keystrokes
         setBuf(next);
         onChange(rowKey, size, toInt(next, allowNegative));
       }}
-      onBlur={() => { setBuf(value ? String(value) : ""); }}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      onBlur={() => { const committed = toInt(buf, allowNegative); setBuf(value ? String(value) : ""); onCommit?.(rowKey, size, committed, focusVal.current); }}
       placeholder="0"
       aria-label={`Qty ${color || ""} ${size}`}
       style={{ ...cellInput, color: value ? C.text : C.emptyCell }}
@@ -211,9 +227,10 @@ function QuickFillCell({
 
 export function EditableSizeMatrix({
   rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit,
-  allowNegative = false, quickFill,
+  allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
+  const [collapsed, setCollapsed] = React.useState(false);
 
   // Normalise a typed unit value for "set all": blank → null (no stamp); else
   // apply forceDecimals (plain, no commas) so the whole grid lands at 2 dp.
@@ -242,6 +259,22 @@ export function EditableSizeMatrix({
   }
   const leadCols = 1 + (showRise ? 1 : 0);
 
+  // Collapsible size range (opt-in). firstIdx/lastIdx bracket the columns that
+  // actually carry a quantity; collapsing hides the all-zero columns outside
+  // that bracket (mid-range zero sizes stay visible). Recomputed each render so
+  // the visible range tracks the entered quantities live.
+  const hasQty = grandQty > 0;
+  let firstIdx = -1, lastIdx = -1;
+  for (let i = 0; i < sizes.length; i++) {
+    if ((colTotals[sizes[i]] || 0) > 0) { if (firstIdx < 0) firstIdx = i; lastIdx = i; }
+  }
+  const canCollapse = collapsibleSizes && hasQty && firstIdx >= 0 && (firstIdx > 0 || lastIdx < sizes.length - 1);
+  const collapsedActive = collapsibleSizes && collapsed && firstIdx >= 0;
+  const visibleSizes = collapsedActive ? sizes.slice(firstIdx, lastIdx + 1) : sizes;
+  const canToggle = collapsibleSizes && (collapsedActive || canCollapse);
+  const hiddenLeading = collapsedActive ? firstIdx : 0;
+  const hiddenTrailing = collapsedActive ? sizes.length - 1 - lastIdx : 0;
+
   return (
     <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -250,9 +283,28 @@ export function EditableSizeMatrix({
             <th style={{ ...thBase, textAlign: "left" }}>Color</th>
             {showRise && <th style={{ ...thBase, textAlign: "left" }}>{riseLabel}</th>}
             {quickFill && <th style={{ ...thBase, textAlign: "center", minWidth: 64 }} title="Type a total here to auto-fill the sizes from the style's size scale">Qty</th>}
-            {sizes.map((sz) => (
-              <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 56 }}>{sz}</th>
-            ))}
+            {visibleSizes.map((sz, i) => {
+              const isFirst = i === 0;
+              const isLast = i === visibleSizes.length - 1;
+              const green = collapsibleSizes && hasQty && isFirst;
+              const clickable = isFirst && canToggle;
+              return (
+                <th
+                  key={sz}
+                  onClick={clickable ? () => setCollapsed((c) => !c) : undefined}
+                  title={clickable
+                    ? (collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with quantities")
+                    : undefined}
+                  style={{
+                    ...thBase, textAlign: "center", minWidth: 56,
+                    ...(green ? { color: C.green } : {}),
+                    ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
+                  }}
+                >
+                  {collapsedActive && isFirst && hiddenLeading > 0 ? "⋯ " : ""}{sz}{collapsedActive && isLast && hiddenTrailing > 0 ? " ⋯" : ""}
+                </th>
+              );
+            })}
             <th style={{ ...thBase, textAlign: "center" }}>Total</th>
             {unit && (
               // paddingRight matches the per-row unit cell (6px) so the "set all"
@@ -301,7 +353,7 @@ export function EditableSizeMatrix({
                     />
                   </td>
                 )}
-                {sizes.map((sz) => {
+                {visibleSizes.map((sz) => {
                   const k = matrixCellKey(row.key, sz);
                   const oh = onHand ? onHand[k] : undefined;
                   return (
@@ -316,6 +368,7 @@ export function EditableSizeMatrix({
                         value={qty[k] || 0}
                         allowNegative={allowNegative}
                         onChange={onQtyChange}
+                        onCommit={onCellCommit}
                       />
                     </td>
                   );
@@ -354,7 +407,7 @@ export function EditableSizeMatrix({
           <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
             <td colSpan={leadCols} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "left" }}>Grand Total</td>
             {quickFill && <td />}
-            {sizes.map((sz) => (
+            {visibleSizes.map((sz) => (
               <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: colTotals[sz] ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                 {colTotals[sz] || "—"}
               </td>
