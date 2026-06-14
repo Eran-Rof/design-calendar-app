@@ -114,7 +114,7 @@ type Account = {
   status: string;
 };
 
-type ARItem = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
+type ARItem = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string; inseam?: string | null };
 
 type DraftLine = {
   key: number;
@@ -707,7 +707,7 @@ function ARInvoiceModal({
         if (matrixable && item) {
           let sec = sectionMap.get(item.style_code!);
           if (!sec) { sec = { styleCode: item.style_code!, cells: [] }; sectionMap.set(item.style_code!, sec); }
-          sec.cells.push({ color: item.color || null, size: item.size!, qty, unit: centsToDollarsStr(l.unit_price_cents) });
+          sec.cells.push({ color: item.color || null, size: item.size!, inseam: item.inseam ?? null, qty, unit: centsToDollarsStr(l.unit_price_cents) });
         } else {
           flat.push({
             key: flatKey++,

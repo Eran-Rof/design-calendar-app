@@ -288,7 +288,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setSalesOrderId(full.sales_order_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
       if (!full?.lines) return;
-      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
+      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -297,7 +297,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered, unit: dollars });
+          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, unit: dollars });
         } else {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
         }
@@ -337,7 +337,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         notify(`Sales order ${full.so_number || ""} is ${full.status} — a PO can only be created from a draft or confirmed sales order.`, "error");
         return;
       }
-      type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -345,7 +345,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, qty: l.qty_ordered }); // no unit cost
+          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered }); // no unit cost
         } else if (l.inventory_item_id) {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
         }

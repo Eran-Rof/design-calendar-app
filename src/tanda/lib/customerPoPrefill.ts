@@ -135,7 +135,7 @@ export function matchColor(poColor: string | null, actualColors: string[]): stri
   const pc = poColor.toLowerCase().trim();
   const exact = actualColors.find((c) => c.toLowerCase().trim() === pc);
   if (exact) return exact;
-  const toks = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2));
+  const toks = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1));
   const pcToks = toks(pc);
   let best: string | null = null, bestScore = 0;
   for (const c of actualColors) {
@@ -143,7 +143,12 @@ export function matchColor(poColor: string | null, actualColors: string[]): stri
     for (const t of toks(c)) if (pcToks.has(t)) score++;
     if (score > bestScore) { bestScore = score; best = c; }
   }
-  return bestScore > 0 ? best : poColor;
+  // Never fall back to the raw PO text: a colour that isn't one of the style's
+  // actual colours has no rendered matrix row, so the distributed quantity (and
+  // its price) would silently vanish onto a phantom row. Land it on the first
+  // real colour instead (visible + operator-correctable; a warning is raised at
+  // the call site whenever the mapping isn't an exact match).
+  return bestScore > 0 ? best : actualColors[0];
 }
 
 /**
@@ -165,21 +170,31 @@ export async function buildSeedFromResolved(
     let colors: string[] = [];
     try { ({ sizes, colors } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
     const color = matchColor(line.color, colors);
+    // Warn when the PO's colour text was mapped onto a different style colour
+    // (token-overlap or the first-colour fallback) so the operator verifies the
+    // placement — single-colour styles and exact matches don't warn.
+    if (line.color && colors.length > 1 && color && color.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
+      warnings.push({ style: chosen.style_code, detail: `PO colour "${line.color}" mapped to "${color}" — verify it's the right colour row.` });
+    }
     const unit = line.unit_price != null ? String(line.unit_price) : undefined;
     const total = line.total_qty != null ? Math.max(0, Math.floor(line.total_qty)) : 0;
+    // Fall back to a summed size-breakdown when the line carries no scalar total
+    // (some POs give only the per-size rows, even for PPK/assorted lines).
+    const fromBreakdown = (line.size_breakdown || []).reduce((s, sb) => s + Math.max(0, Math.floor(sb.qty)), 0);
+    const effectiveTotal = total > 0 ? total : fromBreakdown;
     const cells: Cell[] = [];
 
     if (isPpkStyle(chosen.style_code)) {
       // PPK: a single PPK<N> size column; the cell value is a CARTON count.
       const ppkSize = sizes.find((s) => /PPK/i.test(s)) || sizes[0] || "";
       const per = extractPpk(ppkSize) || extractPpk(chosen.style_code) || 0;
-      if (ppkSize && per > 0 && total > 0) {
-        const cartons = Math.ceil(total / per);
+      if (ppkSize && per > 0 && effectiveTotal > 0) {
+        const cartons = Math.ceil(effectiveTotal / per);
         cells.push({ color, size: ppkSize, qty: cartons, unit });
-        if (total % per !== 0) {
-          warnings.push({ style: chosen.style_code, detail: `${color || ""} ${total} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(total / per).toFixed(2)}).` });
+        if (effectiveTotal % per !== 0) {
+          warnings.push({ style: chosen.style_code, detail: `${color || ""} ${effectiveTotal} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(effectiveTotal / per).toFixed(2)}).` });
         }
-      } else if (total > 0) {
+      } else if (effectiveTotal > 0) {
         warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton size — left blank, enter cartons manually.` });
       }
     } else {
@@ -198,10 +213,8 @@ export async function buildSeedFromResolved(
           if (isPartialCarton(x.qty)) warnings.push({ style: chosen.style_code, detail: `${color || ""} ${x.size}: ${x.qty} is not a full carton of 24.` });
         }
       } else {
-        // No usable per-size split — use the total (or sum the assorted breakdown)
-        // and distribute across the sizes via the style's size scale.
-        const fromBreakdown = (line.size_breakdown || []).reduce((s, sb) => s + Math.max(0, Math.floor(sb.qty)), 0);
-        const effectiveTotal = total > 0 ? total : fromBreakdown;
+        // No usable per-size split — use the total (or the summed assorted
+        // breakdown) and distribute across the sizes via the style's size scale.
         if (effectiveTotal > 0) {
           // Show the source total in this colour's Qty quick-fill box.
           if (!quickFillByStyle.has(chosen.style_code)) quickFillByStyle.set(chosen.style_code, {});
@@ -292,8 +305,22 @@ export function matchPaymentTerms(terms: string | null, list: { id: string; code
   return null;
 }
 
-/** Normalize a parsed date to YYYY-MM-DD or "" (the model is told to ISO it). */
+/**
+ * Normalize a parsed date to YYYY-MM-DD. The model is told to ISO-format dates,
+ * but it isn't guaranteed to — so accept a US MM/DD/YYYY (or M/D/YY) date too and
+ * convert it MONTH-first (the app-wide US convention) rather than silently
+ * dropping it. Anything else → "".
+ */
 export function isoDate(d: string | null): string {
   if (!d) return "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(d.trim()) ? d.trim() : "";
+  const s = d.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (us) {
+    const mm = us[1].padStart(2, "0"), dd = us[2].padStart(2, "0");
+    let yyyy = us[3];
+    if (yyyy.length === 2) yyyy = `20${yyyy}`;
+    if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) return `${yyyy}-${mm}-${dd}`;
+  }
+  return "";
 }

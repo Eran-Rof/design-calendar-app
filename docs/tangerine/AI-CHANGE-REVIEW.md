@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-06-14 — Two-week deployed-PR bug-audit: order-entry + costing fixes
+
+Audited the ~2 weeks of merged PRs (8 parallel subsystem reviews). This batch fixes the confirmed correctness bugs in **order entry** and the **costing export**:
+
+| Fix | What was wrong | What to verify |
+|----|--------|--------|
+| **Inseam round-trip** (SO/PO/AR matrix) | Editing an existing order — or **Create-PO-from-SO** — for a style with inseams **dropped/overwrote the quantities** (seed cells carried no inseam, so they didn't match the per-inseam matrix rows). Single-inseam styles also lost their cost/on-hand/ATS hints. | Open an existing PO/SO for a denim style with inseams → the previously-ordered qtys now show in the grid; Create PO from such an SO → all sizes/inseams carry over. |
+| **PO carton roll-up math** | A PPK line with no parseable pack size counted **1 carton per unit**; a style with **both** packs and loose eaches dropped the loose cartons; the "complete" flag stayed green while silently computing 0 cartons. | PO header roll-up → cartons/CBM are sane for mixed PPK + each styles; "missing weight/carton/CBM" hint shows when a style lacks `units_per_carton`. |
+| **AI Upload customer PO — colour match** | When the PO colour text didn't token-match a style colour, the qty (and price) landed on a **phantom row** and silently vanished. Now it lands on a real colour (visible) and raises a "verify the colour" note. | Upload a PO whose colour wording differs from our colour names → the qty appears on a colour row + a review note lists the mapping. |
+| **AI Upload — dates & PPK totals** | A US `MM/DD/YYYY` date from the model was silently dropped (only ISO accepted); a PPK line given only a per-size breakdown (no scalar total) was left blank. | Upload a PO with `06/14/2026` dates and a PPK line with only size rows → dates + cartons prefill. |
+| **Costing export — LY Margin %** | The "LY MARGIN %" Excel column exported the raw fraction (`0.2` instead of `20`). | Export the costing grid → LY MARGIN % matches the on-screen value. |
+
+No DB migration; behaviour/display fixes only. (Separate follow-up PRs cover the Manufacturing-module GL/RLS fixes and the nightly received-date sync guard.)
+
 ## 2026-06-09 — PPK prepack matrices seeded (operator CSV)
 
 ⚠️ **REVIEW — production master-data bulk insert.** From the operator's `matrices ppk.csv` (6 templates), Claude **created 116** `prepack_matrices` + their size/inner-pack composition and **refreshed 15** existing RCB matrices → **135 active**. Matched by style prefix + pack token: RBB-PPK48 (8/10/12/14 ×12 = 48), RBB-PPK24 (×6), RCB-PPK60 (4/5/6/7 ×15 = 60), RCB-PPK24 (×6), RYO-PPK18 (SML3/MED6/LRG6/XLG3 = 18, alpha). Each size row carries `qty_per_pack` (carton) **and** `inner_pack_qty`. **Those PPK styles now explode** in the Inventory Matrix (Explode toggle, #1107). **Still open:** **83 PPK styles need operator guidance** → `Producton Orders/PPK_matrices_need_guidance.xlsx` (4 categories): **26 RYB denim** need a WAIST curve (RYB-PPK24 template is ALPHA, doesn't fit); **42** have no template for their prefix (RYG/ACMB/RBG/RBO/RG/RCO/RJO/CYB/SP/R); **14** have no pack-token SKU; **1** (RBB1042-PPK) ambiguous (PPK40/44/48). **Verify:** spot-check a seeded style (e.g. RYO0730PPK → Explode shows SML/MED/LRG/XLG eaches).

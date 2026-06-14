@@ -258,7 +258,14 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // Build EditableSizeMatrix rows for a section payload.
   function rowsFor(payload: MatrixPayload | null): EditableMatrixRow[] {
     if (!payload) return [];
-    const hasInseams = (payload.inseams?.length ?? 0) > 1;
+    // Key every row by the SKU's real inseam whenever the style HAS any inseam
+    // (not only when it has >1). The SKUs are always stored with their real
+    // inseam, so collapsing single-inseam rows to inseam=null made the cost /
+    // on-hand / ATS cell lookups miss AND broke the edit/create-from-SO seed
+    // round-trip (seeded cells carry the line's real inseam). A dedicated Inseam
+    // COLUMN still only shows for >1 inseam (see `showRise` below); single-inseam
+    // styles render one row per color exactly as before, just keyed correctly.
+    const hasInseams = (payload.inseams?.length ?? 0) >= 1;
     const colors = payload.colors.length ? payload.colors : [...new Set((payload.skus || []).map((s) => s.color).filter(Boolean) as string[])];
     const colorList: (string | null)[] = colors.length ? colors : [null];
     const inseamList: (string | null)[] = hasInseams ? payload.inseams : [null];
