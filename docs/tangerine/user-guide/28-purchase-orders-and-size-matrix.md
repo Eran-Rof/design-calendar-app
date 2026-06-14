@@ -185,6 +185,24 @@ FIFO layers and the GL impact (`DR Inventory / CR AP`) are created when the matc
 
 A read-only on-hand view (`src/tanda/InternalInventoryMatrix.tsx`, PRs #729/#737/#759). Pick a style → renders a poMatrixTab-style "Item Matrix": one row per color (× rise when the style spans more than one rise), size columns in scale order, an amber **Total**, green **Avg Cost** + **Total Cost**, and a **Last Received** date.
 
+### Inventory Snapshot (the default view)
+
+When you open the panel with **no style picked**, the **📋 Inventory Snapshot** is shown first — a summary table with **one row per style + color** for the current scope (the brand filter + style search still apply), paginated 25 styles at a time. Toggle to **▦ Size matrices** for the stacked per-style grids (the previous default); the toggle sits above the table.
+
+Columns: **Style · Color · Name · On Hand · Allocated · On SO · ATS Qty · On PO · ATS Qty (Including PO) · Sold · Purchased · Item Category · In Trnst · Avrg Cost**. Click any header to sort. Served by `POST /api/internal/inventory-snapshot` (the page's `style_ids` → per-style-color aggregates, computed as separate set-based queries and merged — never one fan-out join). On Hand is `inventory_layers` (matches the grid); ATS uses the ATS on-hand source clamped ≥ 0 (`on_hand − allocated`), ATS-incl-PO adds open inbound (native + Xoro-mirror POs); Sold/Purchased are **lifetime** (sales history + receipts); In Transit is the in-transit subset of open POs.
+
+**Click a quantity to drill — each opens in a new tab:**
+
+| Click | Opens |
+|---|---|
+| **On Hand** | this Inventory Matrix, focused on that style (`?m=inventory_matrix&style_id=`) |
+| **Allocated** | Allocations workbench searched to the style (`?m=sales_allocations&q=`) |
+| **On SO** | Sales Orders searched to the style (`?m=sales_orders&q=`) |
+| **On PO** | Purchase Orders searched to the style (`?m=purchase_orders&q=`) |
+| **ATS Qty** / **ATS Qty (Including PO)** | the ATS app, filtered to the style (`/ats?style=`) |
+
+(Sold, Purchased, In Trnst and Avrg Cost are display-only.) Sorting is within the current page.
+
 ### Product image (PR #969)
 
 Once a style is picked, its **primary product image** appears as a thumbnail **immediately before the style number** in the meta line above the grid. The image comes from the **same source as the PIM Product Catalog** (`GET /api/internal/pim/styles/:style_id` → the style's `images[]`, primary first), so the two views always match. Styles with no image show a 🖼️ placeholder. **Click the thumbnail to enlarge** — a full-screen lightbox shows the full-resolution image with a **⬇ Download** button (saves the image file to your computer); click anywhere outside or **✕ Close** to dismiss. Only the selected style's image is fetched (one request, no list-wide load).

@@ -366,6 +366,121 @@ const ALL_CATEGORY_SENTINEL   = "__ALL_CATEGORY__";
 const ALL_SUBCATEGORY_SENTINEL = "__ALL_SUBCATEGORY__";
 const MULTI_PAGE_SIZE = 25;
 
+// ── Inventory Snapshot (default all-styles view) ─────────────────────────────
+// One row per (style, color) with the lifecycle quantities, from
+// /api/internal/inventory-snapshot. Each quantity drills into the matching app
+// in a NEW TAB (on-hand → this matrix; SO/PO/Allocations → those windows
+// searched to the style; ATS → the ATS app filtered to the style).
+type SnapshotRow = {
+  style_id: string; style_code: string; description: string;
+  color: string | null; category: string | null;
+  on_hand: number; allocated: number; on_so: number;
+  on_po: number; in_transit: number; ats: number; ats_incl_po: number;
+  sold: number; purchased: number; avg_cost_cents: number | null;
+};
+
+function openTab(url: string) { window.open(url, "_blank", "noopener"); }
+// Same-app (Tangerine) module deep-links — relative so the current /tangerine
+// path is kept and only the query changes.
+const lnkMatrix = (styleId: string) => `?m=inventory_matrix&style_id=${encodeURIComponent(styleId)}`;
+const lnkSO     = (code: string)    => `?m=sales_orders&q=${encodeURIComponent(code)}`;
+const lnkPO     = (code: string)    => `?m=purchase_orders&q=${encodeURIComponent(code)}`;
+const lnkAlloc  = (code: string)    => `?m=sales_allocations&q=${encodeURIComponent(code)}`;
+// ATS is a separate app at /ats; preselect the style via its search filter.
+const lnkATS    = (code: string, inclPo = false) => `/ats?style=${encodeURIComponent(code)}${inclPo ? "&incl_po=1" : ""}`;
+
+const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] = [
+  { key: "style_code",  label: "Style",                  numeric: false },
+  { key: "color",       label: "Color",                  numeric: false },
+  { key: "description", label: "Name",                   numeric: false },
+  { key: "on_hand",     label: "On Hand",                numeric: true },
+  { key: "allocated",   label: "Allocated",              numeric: true },
+  { key: "on_so",       label: "On SO",                  numeric: true },
+  { key: "ats",         label: "ATS Qty",                numeric: true },
+  { key: "on_po",       label: "On PO",                  numeric: true },
+  { key: "ats_incl_po", label: "ATS Qty (Including PO)", numeric: true },
+  { key: "sold",        label: "Sold",                   numeric: true },
+  { key: "purchased",   label: "Purchased",              numeric: true },
+  { key: "category",    label: "Item Category",          numeric: false },
+  { key: "in_transit",  label: "In Trnst",               numeric: true },
+  { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
+];
+
+function SnapshotView({
+  rows, loading, err, sortKey, sortDir, onSort,
+}: {
+  rows: SnapshotRow[];
+  loading: boolean;
+  err: string | null;
+  sortKey: keyof SnapshotRow;
+  sortDir: "asc" | "desc";
+  onSort: (k: keyof SnapshotRow) => void;
+}) {
+  const sorted = useMemo(() => {
+    const r = [...rows];
+    r.sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      let c: number;
+      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      return sortDir === "asc" ? c : -c;
+    });
+    return r;
+  }, [rows, sortKey, sortDir]);
+
+  // A clickable quantity cell (blue link → opens the target in a new tab).
+  const QtyLink = ({ v, url }: { v: number; url: string }) => (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       onClick={(e) => { e.preventDefault(); openTab(url); }}
+       style={{ color: C.base, textDecoration: "none", cursor: "pointer", fontFamily: "monospace" }}>
+      {fmtQty(v)}
+    </a>
+  );
+  const tdNum: React.CSSProperties = { padding: "8px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
+  const tdTxt: React.CSSProperties = { padding: "8px 14px", textAlign: "left", color: C.text };
+
+  if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
+  if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
+  if (rows.length === 0) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>No inventory rows.</div>;
+
+  return (
+    <div style={{ overflowX: "auto", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr>
+            {SNAP_COLS.map((col) => (
+              <th key={col.key as string} onClick={() => onSort(col.key)}
+                  style={{ ...thBase, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
+                {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr key={`${r.style_id}|${r.color ?? ""}`} style={{ borderBottom: `1px solid ${C.rowBdr}` }}>
+              <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>
+              <td style={tdTxt}>{r.color || "—"}</td>
+              <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>
+              <td style={tdNum}><QtyLink v={r.on_hand} url={lnkMatrix(r.style_id)} /></td>
+              <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>
+              <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>
+              <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>
+              <td style={tdNum}><QtyLink v={r.on_po} url={lnkPO(r.style_code)} /></td>
+              <td style={tdNum}><QtyLink v={r.ats_incl_po} url={lnkATS(r.style_code, true)} /></td>
+              <td style={tdNum}>{fmtQty(r.sold)}</td>
+              <td style={tdNum}>{fmtQty(r.purchased)}</td>
+              <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>
+              <td style={tdNum}>{fmtQty(r.in_transit)}</td>
+              <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── component ────────────────────────────────────────────────────────────────
 
 export default function InternalInventoryMatrix() {
@@ -373,7 +488,22 @@ export default function InternalInventoryMatrix() {
   const [scales, setScales]     = useState<SizeScale[]>([]);
   const [brands, setBrands]     = useState<Brand[]>([]);
   const [brandId, setBrandId]   = useState<string>(""); // "" = all brands
-  const [styleId, setStyleId]   = useState<string>("");
+  // Preselect a style from the URL (?style_id=…) — used by the Snapshot's
+  // On-Hand drill, which opens this matrix in a new tab focused on one style.
+  const [styleId, setStyleId]   = useState<string>(() => {
+    try { return new URLSearchParams(window.location.search).get("style_id") || ""; } catch { return ""; }
+  });
+  // Default all-styles view = the Inventory Snapshot summary table; "matrix"
+  // shows the stacked per-style size grids.
+  const [noStyleView, setNoStyleView] = useState<"snapshot" | "matrix">("snapshot");
+  const [snapRows, setSnapRows] = useState<SnapshotRow[]>([]);
+  const [snapLoading, setSnapLoading] = useState(false);
+  const [snapErr, setSnapErr] = useState<string | null>(null);
+  const [snapSortKey, setSnapSortKey] = useState<keyof SnapshotRow>("style_code");
+  const [snapSortDir, setSnapSortDir] = useState<"asc" | "desc">("asc");
+  const onSnapSort = (k: keyof SnapshotRow) => {
+    setSnapSortKey((prev) => { if (prev === k) { setSnapSortDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setSnapSortDir("asc"); return k; });
+  };
   // Dynamic style search (mirrors Style Master): the matrix loads ALL styles on
   // open and this debounced text filters the multi-style view live (e.g. "ppk"
   // → every PPK style). Replaces the old style-picker dropdown.
@@ -615,6 +745,29 @@ export default function InternalInventoryMatrix() {
   // Reset to page 0 whenever the style list scope changes (brand/filter change).
   useEffect(() => { setMultiPage(0); }, [brandStyles]);
 
+  // The style ids on the current page (shared by the matrices fetch + snapshot).
+  const pageStyleIds = useMemo(
+    () => brandStyles.slice(multiPage * MULTI_PAGE_SIZE, multiPage * MULTI_PAGE_SIZE + MULTI_PAGE_SIZE).map((s) => s.id),
+    [brandStyles, multiPage],
+  );
+
+  // Snapshot view (default all-styles): fetch the aggregate rows for this page.
+  useEffect(() => {
+    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
+    if (pageStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
+    let cancelled = false;
+    setSnapLoading(true); setSnapErr(null);
+    fetch("/api/internal/inventory-snapshot", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ style_ids: pageStyleIds }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
+      .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setSnapLoading(false); });
+    return () => { cancelled = true; };
+  }, [styleId, noStyleView, pageStyleIds]);
+
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
   useEffect(() => {
@@ -659,10 +812,12 @@ export default function InternalInventoryMatrix() {
   );
 
   // If the currently-picked style isn't in the brand-narrowed set, clear it so
-  // the matrix doesn't show a style that's hidden from the picker.
+  // the matrix doesn't show a style that's hidden from the picker. Guarded on the
+  // style list being loaded so a URL-preselected style (?style_id=, from the
+  // Snapshot On-Hand drill) isn't wiped during the initial empty-load window.
   useEffect(() => {
-    if (styleId && !brandStyles.some((s) => s.id === styleId)) setStyleId("");
-  }, [brandStyles, styleId]);
+    if (styles.length > 0 && styleId && !brandStyles.some((s) => s.id === styleId)) setStyleId("");
+  }, [styles.length, brandStyles, styleId]);
 
   // brand_id → "CODE Name" so a brand-only search (typing a brand code/name
   // into the Style picker) resolves that brand's styles. Without this the brand
@@ -1238,10 +1393,52 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
+      {/* All-styles view switch — Snapshot summary (default) vs the stacked
+          per-style size grids. Only when no single style is picked. */}
+      {!styleId && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {([["snapshot", "📋 Inventory Snapshot"], ["matrix", "▦ Size matrices"]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setNoStyleView(v)}
+              style={{
+                background: noStyleView === v ? C.primary : "transparent",
+                color: noStyleView === v ? "#fff" : C.textSub,
+                border: `1px solid ${noStyleView === v ? C.primary : C.cardBdr}`,
+                padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
+              }}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Inventory Snapshot — one row per (style, color) with clickable
+          quantities that drill into the matching app in a new tab. Paginated
+          over the same style page as the matrices view. */}
+      {!styleId && noStyleView === "snapshot" && (() => {
+        const totalStyles = brandStyles.length;
+        const totalPages = Math.max(1, Math.ceil(totalStyles / MULTI_PAGE_SIZE));
+        const pageStart = totalStyles === 0 ? 0 : multiPage * MULTI_PAGE_SIZE + 1;
+        const pageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, totalStyles);
+        const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 14px", fontSize: 13, color: C.text };
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13 }}>
+              <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
+              {totalPages > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {totalPages}</span>
+                  <button onClick={() => setMultiPage((p) => Math.min(totalPages - 1, p + 1))} disabled={multiPage >= totalPages - 1} style={{ ...pagBtn, opacity: multiPage >= totalPages - 1 ? 0.4 : 1, cursor: multiPage >= totalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
+                </div>
+              )}
+            </div>
+            <SnapshotView rows={snapRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort} />
+          </div>
+        );
+      })()}
+
       {/* Multi-style view — no specific style selected: render one page of styles
           (MULTI_PAGE_SIZE each) in the current scope (selected brand or all brands),
           stacked with a style header bar each. Paginated via prev/next controls. */}
-      {!styleId && (
+      {!styleId && noStyleView === "matrix" && (
         brandLoading ? (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
             Loading inventory…

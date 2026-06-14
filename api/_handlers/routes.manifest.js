@@ -407,6 +407,7 @@ export default [
   ["/api/internal/planning/promote-style-color"              , "./internal/planning/promote-style-color.js"],
   ["/api/internal/planning/sync-tangerine-supply"            , "./internal/planning/sync-tangerine-supply.js"],
   ["/api/internal/ats-by-size"                               , "./internal/ats-by-size.js"],
+  ["/api/internal/inventory-snapshot"                        , "./internal/inventory-snapshot.js"],
   ["/api/internal/ats-size-matrix"                           , "./internal/ats-size-matrix.js"],
   ["/api/internal/sales-returns/:id/credit-memo"             , "./internal/sales-returns/[id]/credit-memo.js"],
   ["/api/internal/drop-ship/:id"                             , "./internal/drop-ship/[id].js"],

@@ -94,7 +94,13 @@ export default function InternalAllocations() {
     if (typeof window === "undefined") return "";
     try { return (new URLSearchParams(window.location.search).get("so") || "").trim(); } catch { return ""; }
   }, []);
-  const { value: search, debouncedValue: dSearch, setValue: setSearch } = useDebouncedSearch(initialSo, 250);
+  // Generic drill seed: ?q= (e.g. the Inventory Snapshot's Allocated click →
+  // style number) seeds the search WITHOUT the ?so= one-shot SO-focus behavior.
+  const initialQ = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    try { return (new URLSearchParams(window.location.search).get("q") || "").trim(); } catch { return ""; }
+  }, []);
+  const { value: search, debouncedValue: dSearch, setValue: setSearch } = useDebouncedSearch(initialQ || initialSo, 250);
   const [focusSo] = useState(initialSo);
   // The ?so= deep-link seed is one-shot, not sticky: strip it (and its
   // include_all companion) from the URL on exit so re-opening Allocations from
