@@ -31,6 +31,17 @@ function client() {
   return createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 }
 
+// Core (base) style code for the image fallback: a trailing VARIANT suffix that
+// follows the numeric style code is the same garment, so it shares the core
+// style's images. Strips a trailing alpha(+digits) suffix sitting right after a
+// digit — covers B, PPK, PPK24, PL, KO, etc.:
+//   RYB0412B → RYB0412   RYB0412PPK → RYB0412   RYB0981PL → RYB0981
+// Returns the core (UPPER) or null when there's no suffix to strip.
+function coreStyleCode(codeUp) {
+  const m = codeUp.replace(/(\d)[-_]?[A-Z]+\d*$/, "$1");
+  return m !== codeUp ? m : null;
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -60,9 +71,14 @@ export default async function handler(req, res) {
   //    case-sensitive `.in()` would under-match. Pull the (small, ~2k-row)
   //    id/style_code list and match uppercased in JS. Keep ONE id per
   //    code (first wins) plus a reverse id → code map.
+  // Core-style image fallback: a code with no images of its own inherits its
+  // core style's images. Resolve the cores too (add them to the wanted set).
+  const coreByCode = new Map(); // requested CODE_UPPER → core CODE_UPPER
+  for (const c of codes) { const core = coreStyleCode(c); if (core && core !== c) coreByCode.set(c, core); }
   const wanted = new Set(codes); // already UPPER
-  const idToCode = new Map();          // style_master.id → STYLE_CODE_UPPER
-  const codeToId = new Map();          // STYLE_CODE_UPPER → style_master.id
+  for (const core of coreByCode.values()) wanted.add(core);
+  const idToCode = new Map();          // style_master.id → STYLE_CODE_UPPER (requested codes only)
+  const codeToId = new Map();          // STYLE_CODE_UPPER → style_master.id (requested + cores)
   // Paginate — style_master is past PostgREST's 1000-row default cap, so a
   // single select would silently drop styles (and their images).
   const PAGE = 1000;
@@ -113,18 +129,37 @@ export default async function handler(req, res) {
     for (const s of signed || []) if (s && !s.error && s.signedUrl) signedByPath.set(s.path, s.signedUrl);
   }
 
-  // 4. Fill the per-code slots.
+  // 4. Group images by style_id (covers requested codes AND their cores).
+  const imgByStyle = new Map(); // style_id → { default, byColor }
   for (const r of rows || []) {
-    const codeUp = idToCode.get(r.style_id);
-    if (!codeUp) continue;
     const p = preferWeb ? (r.storage_path_web || r.storage_path_thumb) : (r.storage_path_thumb || r.storage_path_web);
     const url = p ? signedByPath.get(p) : null;
     if (!url) continue;
-    const slot = out[codeUp];
-    if (!slot) continue;
-    if (!slot.default) slot.default = url;
+    let g = imgByStyle.get(r.style_id);
+    if (!g) { g = { default: null, byColor: {} }; imgByStyle.set(r.style_id, g); }
+    if (!g.default) g.default = url;
     const key = (r.color || "").toLowerCase().trim();
-    if (key && !slot.byColor[key]) slot.byColor[key] = url;
+    if (key && !g.byColor[key]) g.byColor[key] = url;
+  }
+
+  // 5. Assemble each requested code: its OWN images, else its CORE style's
+  //    images (e.g. RYB0412B → RYB0412). style_id points at whichever style the
+  //    shown images belong to, so the gallery opens the right one.
+  for (const codeUp of codes) {
+    const ownId = codeToId.get(codeUp) ?? null;
+    const own = ownId ? imgByStyle.get(ownId) : null;
+    if (own && own.default) {
+      out[codeUp] = { style_id: ownId, default: own.default, byColor: { ...own.byColor } };
+      continue;
+    }
+    const coreCode = coreByCode.get(codeUp);
+    const coreId = coreCode ? (codeToId.get(coreCode) ?? null) : null;
+    const core = coreId ? imgByStyle.get(coreId) : null;
+    if (core && core.default) {
+      out[codeUp] = { style_id: coreId, default: core.default, byColor: { ...core.byColor } };
+    } else {
+      out[codeUp] = { style_id: ownId, default: null, byColor: {} };
+    }
   }
 
   return res.status(200).json(out);
