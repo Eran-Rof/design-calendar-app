@@ -7,7 +7,7 @@
 //                               historical lines still resolve to color/size)
 //          ?q=<text>          — ILIKE filter on sku_code / style_code / description
 //          ?limit=<n>         — default 200, max 500
-//   Returns: [{ id, sku_code, style_code, description, color, size }]
+//   Returns: [{ id, sku_code, style_code, description, color, size, inseam }]
 //   Active items only (except the ?ids= lookup), ordered by sku_code.
 
 import { createClient } from "@supabase/supabase-js";
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     if (ids.length === 0) return res.status(200).json([]);
     const { data, error } = await admin
       .from("ip_item_master")
-      .select("id, sku_code, style_code, description, color, size")
+      .select("id, sku_code, style_code, description, color, size, inseam")
       .in("id", ids);
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data || []);

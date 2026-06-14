@@ -40,26 +40,38 @@ async function computeLogisticsRollup(admin, lines) {
     : { data: [] };
   const styleByCode = new Map((styles || []).map((s) => [s.style_code, s]));
 
-  // Accumulate per style so cartons round once over the whole-style unit total.
+  // Accumulate per style so non-PPK cartons round once over the whole-style unit
+  // total. PPK and non-PPK units are tracked SEPARATELY: a PPK line's qty is its
+  // own carton count (qty × pack-size = units), while non-PPK qty is loose units
+  // that pack into cartons of units_per_carton. A style can carry both (packs +
+  // loose eaches), so the two carton contributions are ADDED, not chosen between.
   const byStyle = new Map();
   let complete = true;
   for (const l of lines) {
     const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
     if (!it || !it.style_code) { complete = false; continue; }
     const st = styleByCode.get(it.style_code) || {};
-    if (st.unit_weight_kg == null && st.units_per_carton == null && st.carton_cbm_m3 == null) complete = false;
     const per = extractPpk(it.size) || extractPpk(it.style_code);
-    const isPpk = /PPK/i.test(it.size || "") || /PPK/i.test(it.style_code || "");
+    // Only treat as PPK for carton math when we could actually parse a pack size;
+    // a "PPK" token with no number (no `per`) falls through to the loose-eaches
+    // path so we don't count one carton per single unit.
+    const isPpk = !!per && (/PPK/i.test(it.size || "") || /PPK/i.test(it.style_code || ""));
     const qty = Number(l.qty_ordered) || 0;
-    const units = isPpk && per ? qty * per : qty;
-    const acc = byStyle.get(it.style_code) || { uw: Number(st.unit_weight_kg) || 0, upc: Number(st.units_per_carton) || 0, cbm: Number(st.carton_cbm_m3) || 0, units: 0, ppkCartons: 0 };
+    const units = isPpk ? qty * per : qty;
+    const acc = byStyle.get(it.style_code) || { uw: Number(st.unit_weight_kg) || 0, upc: Number(st.units_per_carton) || 0, cbm: Number(st.carton_cbm_m3) || 0, units: 0, ppkUnits: 0, nonPpkUnits: 0, ppkCartons: 0 };
     acc.units += units;
-    if (isPpk) acc.ppkCartons += qty;
+    if (isPpk) { acc.ppkUnits += units; acc.ppkCartons += qty; } else acc.nonPpkUnits += qty;
     byStyle.set(it.style_code, acc);
   }
   let weight = 0, cartons = 0, cbm = 0;
   for (const a of byStyle.values()) {
-    const styleCartons = a.ppkCartons > 0 ? a.ppkCartons : (a.upc > 0 ? Math.ceil(a.units / a.upc) : 0);
+    const nonPpkCartons = a.upc > 0 ? Math.ceil(a.nonPpkUnits / a.upc) : 0;
+    const styleCartons = a.ppkCartons + nonPpkCartons;
+    // The roll-up is only "complete" if every field needed to compute it is set:
+    // weight needs unit_weight_kg; loose units need units_per_carton to form
+    // cartons; CBM needs carton_cbm_m3. Flag (don't silently drop) when missing.
+    if (a.uw <= 0 || a.cbm <= 0) complete = false;
+    if (a.nonPpkUnits > 0 && a.upc <= 0) complete = false;
     weight += a.units * a.uw;
     cartons += styleCartons;
     cbm += styleCartons * a.cbm;
@@ -109,12 +121,12 @@ export default async function handler(req, res, params) {
     const itemIds = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
     let skuById = new Map();
     if (itemIds.length) {
-      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, sku_code").in("id", itemIds);
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, inseam, sku_code").in("id", itemIds);
       skuById = new Map((skus || []).map((s) => [s.id, s]));
     }
     const decorated = (lines || []).map((l) => {
       const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
-      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null };
     });
     const rollup = await computeLogisticsRollup(admin, lines || []);
     return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup });

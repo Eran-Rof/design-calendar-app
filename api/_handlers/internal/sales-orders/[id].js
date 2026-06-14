@@ -71,12 +71,12 @@ export default async function handler(req, res, params) {
     const ids = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
     let skuById = new Map();
     if (ids.length) {
-      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, sku_code").in("id", ids);
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, inseam, sku_code").in("id", ids);
       skuById = new Map((skus || []).map((s) => [s.id, s]));
     }
     const decorated = (lines || []).map((l) => {
       const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
-      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, sku_code: s?.sku_code ?? null };
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null };
     });
     // Resolve the buyer's name (no raw UUID in the UI).
     let buyer_name = null;
