@@ -37,7 +37,7 @@ const numInput: React.CSSProperties = { background: "#0b1220", color: C.text, bo
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 
-type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; attributes?: { size_scale_pack?: SizePack | NestedSizePack } | null };
+type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; brand_id?: string | null; attributes?: { size_scale_pack?: SizePack | NestedSizePack } | null };
 type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number; avg_cost_cents?: number | null };
 type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
@@ -91,13 +91,17 @@ export interface LineMatrixBodyProps {
    *  each section header; the dates ride along on every resolved line of that
    *  style. Opt-in so SO / AR are unchanged. */
   showLineDates?: boolean;
+  /** SO: report the brand of the primary (first) selected style so the header's
+   *  Brand field can auto-populate from the style. null when no style with a
+   *  brand is selected. Fires only when the resolved brand changes. */
+  onPrimaryBrandChange?: (brandId: string | null) => void;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, onPrimaryBrandChange }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -118,10 +122,25 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   const nextSectionId = useRef(1);
   const nextFlatKey = useRef(1);
   const seeded = useRef(false);
+  const lastBrandRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     fetch("/api/internal/style-master?limit=10000").then((r) => (r.ok ? r.json() : [])).then((a) => setStyles(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
+
+  // Surface the primary style's brand (the first section whose style carries a
+  // brand) so the SO header's Brand field auto-populates from the selected
+  // style. Guarded by a ref so the callback fires only when the brand changes.
+  useEffect(() => {
+    if (!onPrimaryBrandChange) return;
+    let brand: string | null = null;
+    for (const s of sections) {
+      if (!s.styleId) continue;
+      const st = styles.find((x) => x.id === s.styleId);
+      if (st?.brand_id) { brand = st.brand_id; break; }
+    }
+    if (brand !== lastBrandRef.current) { lastBrandRef.current = brand; onPrimaryBrandChange(brand); }
+  }, [sections, styles, onPrimaryBrandChange]);
 
   // Fetch the size-matrix payload for a section's style.
   async function loadPayload(styleId: string): Promise<MatrixPayload | null> {
