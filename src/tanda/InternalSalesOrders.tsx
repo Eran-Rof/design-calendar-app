@@ -76,7 +76,16 @@ type SO = {
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
-type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null };
+type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null; is_default?: boolean | null; address?: Record<string, unknown> | null };
+
+// One-line address from a customer_locations.address jsonb ({line1,line2,city,
+// state,postal_code,country}). Empty string when nothing is set.
+function formatShipAddress(a: Record<string, unknown> | null | undefined): string {
+  if (!a || typeof a !== "object") return "";
+  const s = (k: string) => String(a[k] ?? "").trim();
+  const cityLine = [s("city"), [s("state"), s("postal_code")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [s("line1"), s("line2"), cityLine, s("country")].filter(Boolean).join(" · ");
+}
 
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
@@ -352,8 +361,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return () => { cancel = true; };
   }, [isNew, so]);
 
-  // The customer's ship-to locations.  When there is exactly one, auto-select
-  // it so the operator doesn't have to pick it manually on every new SO.
+  // The customer's ship-to locations. Pre-fill the ship-to from the customer
+  // master: pick the customer's DEFAULT location (or the only one) so the
+  // operator doesn't re-key it on every SO. Only fills when none is set yet.
   useEffect(() => {
     if (!customerId) { setShipTos([]); return; }
     let cancel = false;
@@ -363,8 +373,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         if (cancel) return;
         const locs = Array.isArray(a) ? a : [];
         setShipTos(locs);
-        // Auto-select the single location only when no location is already set.
-        if (locs.length === 1 && !shipToLocationId) setShipToLocationId(locs[0].id);
+        // Prefer the explicit default; fall back to the only location.
+        const pre = locs.find((l) => l.is_default) || (locs.length === 1 ? locs[0] : null);
+        if (pre && !shipToLocationId) setShipToLocationId(pre.id);
       })
       .catch(() => {});
     return () => { cancel = true; };
@@ -559,6 +570,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   async function save(confirm: boolean) {
     setErr(null);
     if (!customerId) { setErr("Pick a customer."); return; }
+    if (!shipToLocationId) { setErr("Pick a Ship-to address."); return; }
     if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
@@ -786,10 +798,17 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               placeholder={customerId ? (buyers.length ? "(none)" : "(no buyers on this customer)") : "(pick customer first)"}
               disabled={!editable || !customerId} />
           </Field>
-          <Field label="Ship-to location">
+          <Field label="Ship-to address *">
             <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v)}
               options={[{ value: "", label: "(select)" }, ...shipTos.map((s) => ({ value: s.id, label: s.code ? `${s.code} — ${s.name}` : s.name }))]}
               placeholder={customerId ? "(select)" : "(pick customer first)"} disabled={!editable || !customerId} />
+            {(() => {
+              const sel = shipTos.find((s) => s.id === shipToLocationId);
+              const addr = formatShipAddress(sel?.address);
+              if (sel && addr) return <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{addr}</div>;
+              if (editable && customerId && !shipToLocationId) return <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — pick the ship-to address before adding styles.</div>;
+              return null;
+            })()}
           </Field>
           <Field label="SO number"><input type="text" value={so?.so_number || ""} readOnly disabled placeholder="(assigned on confirm)" style={{ ...inputStyle, opacity: 0.6 }} /></Field>
         </div>
@@ -944,18 +963,27 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
             (95% of styles) + a "+ Add non-matrix line" button for one-offs.
-            The Add buttons stay hidden until a Customer PO # is entered. */}
-        {editable && !customerPo.trim() && (
-          <div style={{ marginBottom: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
-            ⚠️ Enter the <strong>Customer PO #</strong> above to start adding styles.
-          </div>
-        )}
+            The Add buttons stay hidden until the order prerequisites are filled:
+            customer, ship-to address, Customer PO #, and Fulfillment source. */}
+        {editable && (() => {
+          const missing: string[] = [];
+          if (!customerId) missing.push("Customer");
+          if (!shipToLocationId) missing.push("Ship-to address");
+          if (!customerPo.trim()) missing.push("Customer PO #");
+          if (!fulfillmentSource) missing.push("Fulfillment source");
+          if (missing.length === 0) return null;
+          return (
+            <div style={{ marginBottom: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
+              ⚠️ Fill <strong>{missing.join(", ")}</strong> above to start adding styles.
+            </div>
+          );
+        })()}
         <div style={{ marginBottom: 12 }}>
           <LineMatrixBody
             key={seedKey}
             ref={bodyRef}
             editable={editable}
-            canAdd={(editable || canAddStyles) && !!customerPo.trim() && !!fulfillmentSource}
+            canAdd={(editable || canAddStyles) && !!customerId && !!shipToLocationId && !!customerPo.trim() && !!fulfillmentSource}
             onRequestEdit={() => { if (!editable) setAddMode(true); }}
             items={items}
             seed={seed}
