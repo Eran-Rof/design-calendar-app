@@ -3,6 +3,7 @@
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
 **Last updated:** 2026-06-14 (📐 Scale window → horizontal pack matrix, sizes as columns like SO entry; user-guide ch02)
+**Last updated:** 2026-06-14 (SO/PO size matrix — collapsible empty-size columns + SO-from-ATS over-availability warning; user-guide ch27/28)
 
 ## Summary
 
@@ -22,6 +23,7 @@ Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operato
 
 > **Recent cross-cutting landings (2026-06-14)** — not tied to a single phase row:
 > - **📐 Scale window → horizontal pack matrix** — the Style Master pack-ratio editor now lays sizes out **horizontally as columns** (the same orientation as the SO / PO size matrix), instead of a vertical list. Styles with no inseams show a single **Pack qty** row; styles with inseams show **one row per inseam** (each its own size curve) with a Total column per row and a column-totals footer. Pure UI re-layout of the #1320 editor — storage and downstream quick-fill unchanged. User-guide ch02.
+> - **SO/PO size matrix — collapsible empty-size columns + ATS over-availability warning** — (1) once any cell carries a qty, the **first size column header turns green** and is clickable; clicking hides the all-zero columns **before the first** and **after the last** sized column (mid-range zeros stay), collapsing a wide scale to the ordered range (toggle, `⋯` markers). Both SO and PO matrices. (2) On a **Fulfillment = ATS** sales order, committing a cell qty above the available-to-ship figure pops a 3-way warning — **Continue anyway** / **Change to ATS qty** (clamp) / **Cancel** (revert). Both are opt-in props on the shared `EditableSizeMatrix` (`collapsibleSizes`, `onCellCommit`) so adjustment/transfer grids are unchanged; +3 component tests. User-guide ch27/28.
 >
 > **Recent cross-cutting landings (2026-06-13)** — not tied to a single phase row:
 > - **Last-received dates synced from Xoro (nightly)** — inventory layers were all stamped with the 5/31 import date. The actual last-receipt date lives in the Playwright inventory snapshot ("Last Receipt Date"; the REST export has none). New `color_aliases` table (raw Xoro colour → canonical) + `sync_received_dates(jsonb)` RPC (migration `20260879000000`); `api/ats/upload` (which already ingests the snapshot nightly) now parses the raw CSV date (avoiding xlsx DD/MM mis-coercion), bridges the colour, and stamps the newest receipt date onto each SKU's Xoro-seeded layers. One-time backfill set 3,670 SKUs; recurs nightly.

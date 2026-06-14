@@ -110,6 +110,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   const [atsByItem, setAtsByItem] = useState<Record<string, number>>({});
   const [atsAsOf, setAtsAsOf] = useState<string | null>(null);
   const [atsLoading, setAtsLoading] = useState(false);
+  // Pending "ordered more than ATS" warning for one cell (SO-from-ATS only).
+  const [pendingAts, setPendingAts] = useState<
+    | { sectionId: number; rowKey: string; size: string; color: string | null; entered: number; available: number; prevValue: number }
+    | null
+  >(null);
   const nextSectionId = useRef(1);
   const nextFlatKey = useRef(1);
   const seeded = useRef(false);
@@ -145,6 +150,27 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       return { ...s, qty: q };
     }));
   }
+  // ATS available-to-ship for one matrix cell (null = unknown → don't warn):
+  // resolve the cell's SKU, then read its loaded ATS availability.
+  function atsAvailForCell(section: Section, rowKey: string, size: string): number | null {
+    if (!section.payload) return null;
+    const [color, inseam] = rowKey.split("|");
+    const sku = section.payload.skus.find(
+      (k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, size, inseam || null),
+    );
+    if (!sku || !(sku.id in atsByItem)) return null; // no SKU yet / availability not loaded
+    return atsByItem[sku.id] || 0;
+  }
+  // On committing a qty in an ATS-fulfilled SO, warn if it exceeds what's
+  // available to ship (the operator can continue, clamp to ATS, or revert).
+  function checkAtsCommit(section: Section, rowKey: string, size: string, value: number, prevValue: number) {
+    if (!atsMode || !(value > 0)) return;
+    const available = atsAvailForCell(section, rowKey, size);
+    if (available == null || value <= available) return;
+    const [color] = rowKey.split("|");
+    setPendingAts({ sectionId: section.id, rowKey, size, color: color || null, entered: value, available, prevValue });
+  }
+
   // Quick-fill: replace one color row's per-size quantities in a single update.
   // `perSize` carries a qty for every size (0 ⇒ clear that cell).
   function setRowQtys(id: number, rowKey: string, perSize: Record<string, number>) {
@@ -511,6 +537,8 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
                 onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
+                collapsibleSizes={mode === "so" || mode === "po"}
+                onCellCommit={editable && atsMode ? (rk, sz, v, prev) => checkAtsCommit(s, rk, sz, v, prev) : undefined}
                 unit={{ label: moneyLabel, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
                 quickFill={editable ? {
                   onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, packForRow(rk))),
@@ -532,6 +560,35 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         );
       })}
 
+      {/* SO-from-ATS over-availability warning. The operator can keep the qty
+          (back-order beyond stock), clamp it to what's available, or revert. */}
+      {pendingAts && (
+        <div
+          onClick={() => { setQty(pendingAts.sectionId, pendingAts.rowKey, pendingAts.size, pendingAts.prevValue); setPendingAts(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.warn}`, borderRadius: 10, padding: 22, width: "min(460px, 95vw)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.warn, marginBottom: 8 }}>⚠️ Not enough available to ship</div>
+            <div style={{ fontSize: 13, color: C.textSub, lineHeight: 1.5, marginBottom: 18 }}>
+              There is not enough quantity available to fill the order for
+              {" "}<strong>{pendingAts.color || "—"} {pendingAts.size}</strong>. You entered
+              {" "}<strong>{pendingAts.entered.toLocaleString()}</strong>, but only
+              {" "}<strong>{pendingAts.available.toLocaleString()}</strong> is available to ship (ATS).
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button type="button"
+                onClick={() => { setQty(pendingAts.sectionId, pendingAts.rowKey, pendingAts.size, pendingAts.prevValue); setPendingAts(null); }}
+                style={btnSecondary}>Cancel</button>
+              <button type="button"
+                onClick={() => { setQty(pendingAts.sectionId, pendingAts.rowKey, pendingAts.size, pendingAts.available); setPendingAts(null); }}
+                style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Change to ATS qty ({pendingAts.available.toLocaleString()})</button>
+              <button type="button"
+                onClick={() => setPendingAts(null)}
+                style={{ ...btnSecondary, color: C.warn, borderColor: C.warn }}>Continue anyway</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
