@@ -352,12 +352,23 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     return () => { cancel = true; };
   }, [isNew, so]);
 
-  // The customer's ship-to locations.
+  // The customer's ship-to locations.  When there is exactly one, auto-select
+  // it so the operator doesn't have to pick it manually on every new SO.
   useEffect(() => {
     if (!customerId) { setShipTos([]); return; }
     let cancel = false;
-    fetch(`/api/internal/customer-locations?customer_id=${encodeURIComponent(customerId)}`).then((r) => r.ok ? r.json() : []).then((a) => { if (!cancel) setShipTos(Array.isArray(a) ? a : []); }).catch(() => {});
+    fetch(`/api/internal/customer-locations?customer_id=${encodeURIComponent(customerId)}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((a: ShipTo[]) => {
+        if (cancel) return;
+        const locs = Array.isArray(a) ? a : [];
+        setShipTos(locs);
+        // Auto-select the single location only when no location is already set.
+        if (locs.length === 1 && !shipToLocationId) setShipToLocationId(locs[0].id);
+      })
+      .catch(() => {});
     return () => { cancel = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
   // #1156 — the customer's buyers, for the optional Buyer picker.
@@ -630,6 +641,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   }
   async function allocate() {
     if (!so) return;
+    // Gate: if the SO has no ship-to location and the customer has more than
+    // one, ask the operator to assign one before proceeding.
+    if (!shipToLocationId && shipTos.length > 1) {
+      const opts = shipTos.map((s) => `${s.code ? s.code + " — " : ""}${s.name}`).join("\n");
+      const ok = await confirmDialog(
+        `This order has no ship-to location assigned.\n\n` +
+        `${customerId ? `Customer has ${shipTos.length} locations:\n${opts}\n\n` : ""}` +
+        `Please select a ship-to location above before allocating, or continue without one.`,
+        "Select location before allocating",
+      );
+      if (!ok) return;
+    }
     setErr(null); setSubmitting(true);
     try {
       const r = await fetch(`/api/internal/sales-orders/${so.id}/allocate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
