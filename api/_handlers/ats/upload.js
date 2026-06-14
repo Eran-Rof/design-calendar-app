@@ -41,6 +41,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
+import { createClient } from "@supabase/supabase-js";
 import formidable from "formidable";
 import { parseExcelRows, readSheetFromPath } from "../../_lib/ats-parse.js";
 import {
@@ -93,6 +94,67 @@ function summarizeDiff(unknown) {
   const head = unknown.slice(0, 8).map((u) => `"${u.original}" → "${u.normalized}"`);
   const tail = unknown.length > 8 ? ` … +${unknown.length - 8} more` : "";
   return `${unknown.length} unknown SKU normalization${unknown.length === 1 ? "" : "s"}: ${head.join(", ")}${tail}`;
+}
+
+// Parse the snapshot's "Last Receipt Date" (DD/MM/YYYY, a Date, or "Invalid
+// date") to an ISO yyyy-mm-dd, else null.
+function receiptIso(v) {
+  if (v == null) return null;
+  if (v instanceof Date && !isNaN(v)) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+  }
+  const s = String(v).trim();
+  if (!s || s.toLowerCase() === "invalid date") return null;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // DD/MM/YYYY (Xoro UI export)
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return null;
+}
+
+// Minimal RFC-4180 CSV parse (handles quoted fields with commas/quotes).
+function parseCsv(text) {
+  const out = [];
+  let row = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n") { row.push(field); out.push(row); row = []; field = ""; }
+    else if (ch !== "\r") field += ch;
+  }
+  if (field.length || row.length) { row.push(field); out.push(row); }
+  return out;
+}
+
+// Stamp the real last-received date onto Tangerine inventory layers from the
+// Playwright snapshot's "Last Receipt Date" column (the REST export has none).
+// Reads the RAW csv text — NOT the xlsx-parsed rows — because cellDates coercion
+// mangles ambiguous DD/MM/YYYY dates. Best-effort: returns # layers updated.
+async function syncReceivedDates(SB_URL, SB_KEY, invPath) {
+  const text = readFileSync(invPath, "utf8");
+  const csv = parseCsv(text);
+  if (csv.length < 2) return 0;
+  const header = csv[0].map((h) => h.replace(/^﻿/, "").trim());
+  const iStyle = header.indexOf("Base Part No");
+  const iColor = header.indexOf("Option 1 Value");
+  const iDate = header.indexOf("Last Receipt Date");
+  if (iStyle < 0 || iColor < 0 || iDate < 0) return 0;
+  const rows = [];
+  for (let r = 1; r < csv.length; r++) {
+    const line = csv[r];
+    const style = (line[iStyle] || "").trim();
+    const color = (line[iColor] || "").trim();
+    const d = receiptIso(line[iDate]);
+    if (style && color && d) rows.push({ s: style, c: color, d });
+  }
+  if (rows.length === 0) return 0;
+  const admin = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+  const { data, error } = await admin.rpc("sync_received_dates", { p_rows: rows });
+  if (error) throw new Error(error.message);
+  return data || 0;
 }
 
 export default async function handler(req, res) {
@@ -193,10 +255,21 @@ export default async function handler(req, res) {
     await saveBaseData(SB_URL, SB_KEY, baseData);
     await saveExcelData(SB_URL, SB_KEY, data);
 
+    // 6b. (additive) Stamp real last-received dates onto Tangerine inventory
+    // layers from the snapshot's "Last Receipt Date". Best-effort — a failure
+    // here must never fail the ATS upload.
+    let receivedUpdated = 0;
+    try {
+      receivedUpdated = await syncReceivedDates(SB_URL, SB_KEY, invPath);
+    } catch (e) {
+      console.warn(`[ats/upload ${requestId}] received-date sync failed:`, e.message);
+    }
+
     const reviewRequired = unknown.length > 0;
     return res.status(200).json({
       processed: true,
       review_required: reviewRequired,
+      received_dates_updated: receivedUpdated,
       request_id: requestId,
       inventory: {
         rows: invRows.length,
