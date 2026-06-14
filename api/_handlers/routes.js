@@ -303,6 +303,7 @@ import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-cou
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
 import r_internal_inventory_cycle_counts_lines from "./internal/inventory-cycle-counts/lines.js";
+import r_internal_inventory_snapshot from "./internal/inventory-snapshot.js";
 import r_internal_inventory_transfers_id from "./internal/inventory-transfers/[id].js";
 import r_internal_inventory_transfers_index from "./internal/inventory-transfers/index.js";
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
@@ -1117,6 +1118,7 @@ export const ROUTES = [
   { pattern: "/api/internal/buyer-scope-master", handler: r_internal_buyer_scope_master_index },
   { pattern: "/api/internal/customer-locations", handler: r_internal_customer_locations_index },
   { pattern: "/api/internal/customer-scorecard", handler: r_internal_customer_scorecard_index },
+  { pattern: "/api/internal/inventory-snapshot", handler: r_internal_inventory_snapshot },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },
   { pattern: "/api/cron/ai-proactive-insights", handler: r_cron_ai_proactive_insights },
   { pattern: "/api/cron/compliance-automation", handler: r_cron_compliance_automation },

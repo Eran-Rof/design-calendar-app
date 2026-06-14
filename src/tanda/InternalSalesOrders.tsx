@@ -116,7 +116,9 @@ export default function InternalSalesOrders() {
   // this panel lands pre-filtered to that order (mirrors the ?customer= seed).
   // Server-side q is all-field (search_sales_orders RPC): matches SO #, notes,
   // customer name/code, and any line's style / SKU / line description.
-  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("so"), 200);
+  // Seed from ?q= (generic drill, e.g. the Inventory Snapshot's On-SO click →
+  // style number) or the legacy ?so= deep-link.
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("q") || readDrillParam("so"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
 

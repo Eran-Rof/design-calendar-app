@@ -233,6 +233,16 @@ function ATSReport() {
   // master. Captured into state so the Toolbar re-renders with the real
   // option set the moment the cache resolves.
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
+  // Deep-link: ?style=<code> (e.g. the Inventory Snapshot's ATS / ATS-incl-PO
+  // click) seeds the search filter so the grid lands focused on that style.
+  // One-shot on mount.
+  useEffect(() => {
+    try {
+      const s = new URLSearchParams(window.location.search).get("style");
+      if (s && s.trim()) setSearch(s.trim());
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     let cancelled = false;
     // Load the item master AND the brand list together so the first
