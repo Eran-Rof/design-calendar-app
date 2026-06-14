@@ -20,6 +20,16 @@ Audited the ~2 weeks of merged PRs (8 parallel subsystem reviews). This batch fi
 
 No DB migration; behaviour/display fixes only. (Separate follow-up PRs cover the Manufacturing-module GL/RLS fixes and the nightly received-date sync guard.)
 
+## 2026-06-14 — Manufacturing-module bug-audit fixes (GL integrity + RLS)
+
+⚠️ **REVIEW — financial-integrity fixes in the new Manufacturing module.** From the two-week deployed-PR audit:
+
+- **Cancel of an ISSUED build is now blocked.** An issued build has already FIFO-consumed its parts/styles into WIP and posted the DR-WIP entry; the old PATCH let it flip to `cancelled` with **no reversing entry**, stranding the WIP balance and destroying the consumed inventory. Only draft/released builds (nothing consumed yet) can be cancelled until an explicit reverse-issue path exists.
+- **Per-component WIP cost write-back is now positional.** `issue.js` keyed the FIFO consume results by `part_id` / `component_item_id`, so a BOM that legitimately lists the **same part or style on two lines** collapsed to one cost — mis-stamping the line and making `accumulated_cost_cents` diverge from the GL WIP debit (WIP wouldn't net to zero on completion). Now aligned by position (the drains return one result per component in declared order). **Verify:** a build with a duplicated component completes with WIP back to 0.
+- **RLS enabled on `part_master`, `service_item_master`, `part_type_master`** (migration `20260892000000`) — they shipped without it, unlike every sibling mfg table, leaving part costs / vendors writable via the anon key with no entity scoping. Same `anon_all` + `auth_internal` policy pair as `mfg_bom`. Idempotent.
+
+**Investigated, NOT a bug (no change):** the finished-goods account allegedly resolving differently between the manual-complete and PO-receipt paths — both pass a null brand and `accountByCode` already filters to postable, so the two resolvers return the identical account. **Deferred (P2, documented):** the finished FIFO layer is valued at `floor(total/qty)×qty`, up to (qty−1) cents under the GL debit — standard integer-cents FIFO drift; GL stays balanced.
+
 ## 2026-06-09 — PPK prepack matrices seeded (operator CSV)
 
 ⚠️ **REVIEW — production master-data bulk insert.** From the operator's `matrices ppk.csv` (6 templates), Claude **created 116** `prepack_matrices` + their size/inner-pack composition and **refreshed 15** existing RCB matrices → **135 active**. Matched by style prefix + pack token: RBB-PPK48 (8/10/12/14 ×12 = 48), RBB-PPK24 (×6), RCB-PPK60 (4/5/6/7 ×15 = 60), RCB-PPK24 (×6), RYO-PPK18 (SML3/MED6/LRG6/XLG3 = 18, alpha). Each size row carries `qty_per_pack` (carton) **and** `inner_pack_qty`. **Those PPK styles now explode** in the Inventory Matrix (Explode toggle, #1107). **Still open:** **83 PPK styles need operator guidance** → `Producton Orders/PPK_matrices_need_guidance.xlsx` (4 categories): **26 RYB denim** need a WAIST curve (RYB-PPK24 template is ALPHA, doesn't fit); **42** have no template for their prefix (RYG/ACMB/RBG/RBO/RG/RCO/RJO/CYB/SP/R); **14** have no pack-token SKU; **1** (RBB1042-PPK) ambiguous (PPK40/44/48). **Verify:** spot-check a seeded style (e.g. RYO0730PPK → Explode shows SML/MED/LRG/XLG eaches).

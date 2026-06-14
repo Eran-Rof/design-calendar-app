@@ -2,8 +2,9 @@
 //
 // GET    — build header + components (resolved labels) + finished-item label +
 //          a WIP cost rollup (parts / consumed-style / service / total).
-// PATCH  — notes, cancel (status→cancelled from draft|released|issued),
-//          conversion_po_id / conversion_po_line_id linkage.
+// PATCH  — notes, cancel (status→cancelled from draft|released only — an issued
+//          build has consumed stock into WIP, so it can't be cancelled without
+//          a reversing entry), conversion_po_id / conversion_po_line_id linkage.
 // DELETE — only a draft or cancelled build (components cascade).
 
 import { UUID_RE, corsHeaders, client } from "./_shared.js";
@@ -89,6 +90,12 @@ export default async function handler(req, res) {
     }
     if (body.status === "cancelled") {
       if (build.status === "completed") return res.status(409).json({ error: "Cannot cancel a completed build" });
+      // An ISSUED build has already FIFO-consumed its parts/styles into WIP and
+      // posted the DR-WIP journal entry. Flipping it to cancelled would strand
+      // that WIP balance and destroy the consumed inventory with no reversing
+      // entry. Block it until an explicit reverse-issue path exists; only draft
+      // / released builds (nothing consumed yet) can be cancelled.
+      if (build.status === "issued") return res.status(409).json({ error: "Cannot cancel an issued build — its parts/styles are already consumed into WIP. Complete the build, or have accounting reverse the issue posting first." });
       patch.status = "cancelled";
     } else if (body.status != null) {
       return res.status(400).json({ error: "Use the /release, /issue, /complete endpoints to advance status; PATCH only cancels." });

@@ -72,12 +72,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: err?.message || String(err), code: err?.code || "post_failed", details: err?.details || null });
   }
 
-  // Write back per-component actual cost from consume results.
-  const partCogs = new Map((postResult.part_consume_results || []).map((r) => [r.part_id, Number(r.cogs_cents)]));
-  const styleCogs = new Map((postResult.consume_results || []).map((r) => [r.item_id, Number(r.cogs_cents)]));
-  let total = 0;
+  // Write back per-component actual cost from the consume results. The drains
+  // return one result PER component in declared order (parts in component order,
+  // styles in component order — postEvent keeps zero-cogs entries in these
+  // arrays, only dropping their JE lines), so align POSITIONALLY. Keying by
+  // part_id / component_item_id (as before) collapsed a BOM that legitimately
+  // lists the same part/style on more than one line, which both mis-stamped the
+  // per-line cost AND made accumulated_cost_cents diverge from the GL WIP debit
+  // (so WIP would not net to zero on completion).
+  const partResults = postResult.part_consume_results || [];
+  const styleResults = postResult.consume_results || [];
+  let pi = 0, si = 0, total = 0;
   for (const c of consumable) {
-    const cost = c.component_kind === "part" ? (partCogs.get(c.part_id) || 0) : (styleCogs.get(c.component_item_id) || 0);
+    const cost = c.component_kind === "part"
+      ? Number(partResults[pi++]?.cogs_cents || 0)
+      : Number(styleResults[si++]?.cogs_cents || 0);
     total += cost;
     await admin.from("mfg_build_components").update({ actual_cost_cents: cost, qty_consumed: c.qty_required }).eq("id", c.id);
   }
