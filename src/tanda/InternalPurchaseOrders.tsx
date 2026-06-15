@@ -562,14 +562,16 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {/* Dates */}
         <Section title="Dates">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+            {/* Row 1 */}
             <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Requested delivery / in-DC"><input type="date" value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Port date"><input type="date" value={portDate} onChange={(e) => setPortDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            {/* Row 2 */}
             <Field label="Ship window start"><input type="date" value={shipWindowStart} onChange={(e) => setShipWindowStart(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Ship window end"><input type="date" value={shipWindowEnd} onChange={(e) => setShipWindowEnd(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Port date"><input type="date" value={portDate} onChange={(e) => setPortDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Vendor-confirmed / ack."><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Vendor-confirmed / ack."><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           </div>
         </Section>
 
@@ -578,11 +580,11 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="Ship-to location / warehouse">
               <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v || "")}
-                options={[{ value: "", label: "(none)" }, ...warehouses.map((w) => ({ value: w.id, label: w.code ? `${w.code} — ${w.name}` : w.name }))]} placeholder="(none)" disabled={!editable} />
+                options={[{ value: "", label: "(none)" }, ...warehouses.map((w) => ({ value: w.id, label: w.name, searchHaystack: `${w.name} ${w.code || ""}` }))]} placeholder="(none)" disabled={!editable} />
             </Field>
             <Field label="Bill-to entity">
               <SearchableSelect value={billToEntityId || null} onChange={(v) => setBillToEntityId(v || "")}
-                options={[{ value: "", label: "(default entity)" }, ...entities.map((e) => ({ value: e.id, label: e.code || e.legal_name || e.name || e.id.slice(0, 8) }))]} placeholder="(default entity)" disabled={!editable} />
+                options={[{ value: "", label: "(default entity)" }, ...entities.map((e) => ({ value: e.id, label: e.legal_name || e.name || e.code || e.id.slice(0, 8), searchHaystack: `${e.legal_name || e.name || ""} ${e.code || ""}` }))]} placeholder="(default entity)" disabled={!editable} />
             </Field>
             <Field label="Ship method / mode">
               <select value={shipMethod} onChange={(e) => setShipMethod(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
@@ -599,7 +601,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="Brand">
               <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
-                options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.code ? `${b.code} — ${b.name}` : b.name }))]} placeholder="(entity default)" disabled={!editable} />
+                options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.name} ${b.code || ""}` }))]} placeholder="(entity default)" disabled={!editable} />
             </Field>
             <Field label="Season">
               <SearchableSelect value={season || null} onChange={(v) => setSeason(v || "")}
@@ -607,7 +609,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             </Field>
             <Field label="Channel">
               <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v || "")}
-                options={[{ value: "", label: "(none)" }, ...channels.map((c) => ({ value: c.id, label: c.code ? `${c.code} — ${c.name}` : c.name }))]} placeholder="(none)" disabled={!editable} />
+                options={[{ value: "", label: "(none)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.code || ""}` }))]} placeholder="(none)" disabled={!editable} />
             </Field>
             <Field label="Department">
               <SearchableSelect value={departmentCategoryId || null} onChange={(v) => setDepartmentCategoryId(v || "")}
@@ -776,11 +778,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// Grouped header section — a titled bordered block for the rich PO header.
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// Grouped header section — a bordered block for the rich PO header. The group
+// title is intentionally not rendered (operator: no per-box header); the prop is
+// kept optional so callers can stay self-documenting.
+function Section({ children }: { title?: string; children: React.ReactNode }) {
   return (
     <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>{title}</div>
       {children}
     </div>
   );
