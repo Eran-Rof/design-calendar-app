@@ -26,7 +26,7 @@ import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
 import CostSuggestModal from "./CostSuggestModal";
 import SizeCurveModal from "./SizeCurveModal";
-import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
+import { DEFAULT_PRESETS } from "../../tanda/components/dateRangeMath";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
 import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
@@ -541,6 +541,14 @@ export default function CostingGrid() {
   }
   const weightedMargin = totalSales > 0 ? ((totalSales - totalCost) / totalSales) * 100 : 0;
 
+  // Which preset (if any) matches the current comp window — keeps the preset
+  // dropdown reflecting the active range after manual edits / remounts.
+  const activePresetKey = DEFAULT_PRESETS.find((p) => {
+    if (p.key === "custom") return false;
+    const c = p.compute(new Date());
+    return c.from && c.to && c.from === compFrom && c.to === compTo;
+  })?.key ?? "";
+
   return (
     <div style={{ marginTop: 20 }}>
       {/* Awarded rows render all their fonts green. !important overrides the
@@ -648,7 +656,7 @@ export default function CostingGrid() {
 
             Tangerine T7 <DateRangePresets/> chips (LY / This Month / Last
             Month / …) feed the same draft. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
           <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Comp period</span>
           <input
             type="date"
@@ -675,6 +683,33 @@ export default function CostingGrid() {
               colorScheme: "dark",
             }}
           />
+          {/* Preset dropdown — folds the old chip row into one compact select,
+              placed next to the end date so the whole comp-period row stays on
+              the Vendor RFQ line instead of wrapping below it. */}
+          <select
+            value={activePresetKey}
+            onChange={(e) => {
+              const p = DEFAULT_PRESETS.find((pp) => pp.key === e.target.value);
+              if (!p) return;
+              const { from, to } = p.compute(new Date());
+              // "Custom…" returns empty strings — clear and let the operator
+              // pick from/to manually; otherwise apply the computed range.
+              if (!from && !to) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
+              applyCompRange(from, to);
+            }}
+            title="Quick comp-period presets"
+            style={{
+              background: "#0F172A", color: "#E2E8F0",
+              border: "1px solid #334155", borderRadius: 4,
+              padding: "4px 6px", fontSize: 11, outline: "none",
+              colorScheme: "dark", cursor: "pointer",
+            }}
+          >
+            <option value="">Presets…</option>
+            {DEFAULT_PRESETS.map((p) => (
+              <option key={p.key} value={p.key}>{p.label}</option>
+            ))}
+          </select>
           {(compFrom || compTo) && (
             <button
               type="button"
@@ -687,16 +722,6 @@ export default function CostingGrid() {
               }}
             >reset</button>
           )}
-          <DateRangePresets
-            from={compFrom}
-            to={compTo}
-            onChange={(from, to) => {
-              // "Custom…" returns empty strings — clear and let the operator
-              // pick manually; otherwise apply the computed range.
-              if (!from && !to) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
-              applyCompRange(from, to);
-            }}
-          />
         </div>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
