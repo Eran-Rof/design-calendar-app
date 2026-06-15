@@ -103,7 +103,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     exploded.push({
       store:           r.store ?? "Unknown",
-      gender:          r.gender ?? r.category ?? "?",
+      gender:          r.master_gender ?? r.gender ?? r.category ?? "?",
       base,
       color,
       description:     r.description ?? "",

@@ -39,6 +39,10 @@ export interface ATSRow {
   // carries no brand.
   master_brand_id?: string | null;
   master_brand?: string | null;
+  // Gender code resolved from ip_item_master.attributes->>'gender' (the
+  // truth). The Gender filter + reports prefer this over the feed-sourced
+  // r.gender, which is often blank. Null when the row is unmatched.
+  master_gender?: string | null;
   master_match_source?: "sku" | "style" | null;
   // Phase 3 collapse mode: present on synthetic aggregate rows produced by
   // collapseRows(). Leaf rows from compute.ts never set this. UI uses it to

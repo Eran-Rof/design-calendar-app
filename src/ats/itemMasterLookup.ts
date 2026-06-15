@@ -77,6 +77,12 @@ export interface ResolvedStyle {
   // unmatched or the master row carries no brand. Resolve to a NAME
   // via brandLookup.brandNameById().
   brand_id: string | null;
+  // Raw gender code from ip_item_master.attributes->>'gender' (Xoro's
+  // GenderCode, e.g. "M" / "WMS" / "B" / "C" / "G" / "U"). The ATS feed
+  // doesn't reliably carry gender per row, so callers prefer this master
+  // value over the feed's r.gender. Falls back to the style-level row when
+  // a variant carries none. Null when unmatched / unset.
+  gender: string | null;
   match_source: "sku" | "style" | null; // null = unmatched
 }
 
@@ -94,6 +100,7 @@ const NULL_RESULT: ResolvedStyle = {
   description: null,
   pack_size: 1,
   brand_id: null,
+  gender: null,
   match_source: null,
 };
 
@@ -120,6 +127,21 @@ function resolveBrandId(rec: ItemMasterRecord): string | null {
   if (rec.style_code) {
     const styleRow = byStyleCode?.get(rec.style_code.toUpperCase());
     if (styleRow?.brand_id) return styleRow.brand_id;
+  }
+  return null;
+}
+
+// Resolve a record's gender (attributes->>'gender'), falling back to its
+// style-level row when the variant carries none (mirrors resolveBrandId).
+// Variant rows usually DO carry the code, but the fallback covers any row
+// whose own attributes are empty.
+function resolveGender(rec: ItemMasterRecord): string | null {
+  const own = rec.attributes?.gender?.trim();
+  if (own) return own;
+  if (rec.style_code) {
+    const styleRow = byStyleCode?.get(rec.style_code.toUpperCase());
+    const fromStyle = styleRow?.attributes?.gender?.trim();
+    if (fromStyle) return fromStyle;
   }
   return null;
 }
@@ -343,6 +365,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       description: resolveCleanDescription(skuHit),
       pack_size: skuHit.pack_size ?? 1,
       brand_id: resolveBrandId(skuHit),
+      gender: resolveGender(skuHit),
       match_source: "sku",
     };
   }
@@ -375,6 +398,7 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
           description: resolveCleanDescription(styleHit),
           pack_size: styleHit.pack_size ?? 1,
           brand_id: resolveBrandId(styleHit),
+          gender: resolveGender(styleHit),
           match_source: "style",
         };
       }
