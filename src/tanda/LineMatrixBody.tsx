@@ -58,7 +58,7 @@ export interface LineMatrixBodyHandle {
   getDocumentLines: () => OrderDocLine[];
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; quickFill?: Record<string, string> };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string> };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -91,10 +91,15 @@ export interface LineMatrixBodyProps {
    *  calls onRequestEdit() first so the newly-added row is editable. */
   canAdd?: boolean;
   onRequestEdit?: () => void;
-  /** PO: show a per-style "Requested ship" + "Vendor-confirmed" date pair in
+  /** PO: show a per-style "Requested in DC" + "Vendor-confirmed" date pair in
    *  each section header; the dates ride along on every resolved line of that
    *  style. Opt-in so SO / AR are unchanged. */
   showLineDates?: boolean;
+  /** PO: default date (YYYY-MM-DD) used to PRE-FILL a newly-added style's
+   *  "Requested in DC" (and, copied from it, "Vendor-confirmed") — sourced from
+   *  the header "Requested in DC". Only applied to sections added via the button,
+   *  never to seeded/existing lines. */
+  lineDateDefault?: string | null;
   /** SO: report the brand of the primary (first) selected style so the header's
    *  Brand field can auto-populate from the style. null when no style with a
    *  brand is selected. Fires only when the resolved brand changes. */
@@ -109,7 +114,7 @@ export type BodyTotals = { qty: number; cents: number; costCents: number; margin
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, onPrimaryBrandChange, onAddLine }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -167,8 +172,19 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
 
   // New style/line pickers prepend (on TOP of existing styles, not the bottom),
   // and request edit mode so a just-added row is editable on a confirmed order.
-  function addSection() { onRequestEdit?.(); onAddLine?.(); setSections((p) => [{ id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null }, ...p]); }
+  function addSection() {
+    onRequestEdit?.(); onAddLine?.();
+    // Pre-fill the new style's line dates from the header "Requested in DC" (PO).
+    // Vendor-confirmed is copied from the same date. Adding a style also COLLAPSES
+    // the date pickers on every previously-entered style (click to re-open).
+    const seedDates = (showLineDates && lineDateDefault) ? { requested: lineDateDefault, confirmed: lineDateDefault } : undefined;
+    setSections((p) => [
+      { id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null, dates: seedDates, datesOpen: true },
+      ...p.map((s) => ({ ...s, datesOpen: false })),
+    ]);
+  }
   function removeSection(id: number) { setSections((p) => p.filter((s) => s.id !== id)); }
+  function setSectionDatesOpen(id: number, open: boolean) { setSections((p) => p.map((s) => (s.id === id ? { ...s, datesOpen: open } : s))); }
   function setQty(id: number, rowKey: string, size: string, n: number) {
     setSections((p) => p.map((s) => {
       if (s.id !== id) return s;
@@ -572,9 +588,19 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 placeholder="(pick a style…)" />
               {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
             </div>
-            {showLineDates && (
-              <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap" }}>
-                <label style={{ fontSize: 11, color: C.textMuted }}>Requested ship<br />
+            {showLineDates && (s.datesOpen === false ? (
+              // Collapsed (a later style was added) — show a compact summary; click to edit.
+              <div role="button" tabIndex={0} onClick={() => setSectionDatesOpen(s.id, true)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSectionDatesOpen(s.id, true); }}
+                title="Click to edit this style's dates"
+                style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 10, fontSize: 12, color: C.textMuted, cursor: "pointer" }}>
+                <span>📅 In DC: <b style={{ color: C.textSub }}>{s.dates?.requested ? fmtDateDisplay(s.dates.requested) : "—"}</b></span>
+                <span>Vendor-confirmed: <b style={{ color: C.textSub }}>{s.dates?.confirmed ? fmtDateDisplay(s.dates.confirmed) : "—"}</b></span>
+                <span style={{ color: C.primary }}>✎ edit</span>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <label style={{ fontSize: 11, color: C.textMuted }}>Requested in DC<br />
                   <input type="date" value={s.dates?.requested || ""} disabled={!editable} onChange={(e) => setSectionDate(s.id, "requested", e.target.value)}
                     style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 13, colorScheme: "dark", marginTop: 2 }} />
                 </label>
@@ -582,8 +608,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   <input type="date" value={s.dates?.confirmed || ""} disabled={!editable} onChange={(e) => setSectionDate(s.id, "confirmed", e.target.value)}
                     style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 13, colorScheme: "dark", marginTop: 2 }} />
                 </label>
+                <button type="button" onClick={() => setSectionDatesOpen(s.id, false)} style={{ ...btnSecondary, fontSize: 11, padding: "4px 8px" }} title="Hide these dates">▴ hide</button>
               </div>
-            )}
+            ))}
             {s.loading && <div style={{ color: C.textMuted, fontSize: 13, padding: 8 }}>Loading size grid…</div>}
             {s.err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, fontSize: 13 }}>{s.err}</div>}
             {s.payload && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}

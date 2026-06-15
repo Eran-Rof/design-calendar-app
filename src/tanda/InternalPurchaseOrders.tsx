@@ -54,6 +54,21 @@ function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
   return `${neg ? "-" : ""}$${Math.trunc(abs / 100).toLocaleString()}.${String(Math.round(abs % 100)).padStart(2, "0")}`;
 }
+
+// PO "Requested in DC" date derived from a Sales Order cancel date: the 1st of
+// the cancel-date's month, AS LONG AS that's at least 20 days before the cancel
+// date; otherwise (cancel date − 20 days). Returns YYYY-MM-DD (local, no TZ
+// shift). Empty string if the input isn't a YYYY-MM-DD date.
+function requestedInDcFromCancel(cancelIso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((cancelIso || "").trim());
+  if (!m) return "";
+  const y = Number(m[1]), mon = Number(m[2]), d = Number(m[3]);
+  const firstOfMonth = new Date(y, mon - 1, 1);
+  const twentyPrior = new Date(y, mon - 1, d - 20); // JS normalizes day underflow into the previous month
+  const chosen = firstOfMonth.getTime() <= twentyPrior.getTime() ? firstOfMonth : twentyPrior;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${chosen.getFullYear()}-${pad(chosen.getMonth() + 1)}-${pad(chosen.getDate())}`;
+}
 const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, issued: C.primary, in_transit: C.warn, received: C.success, cancelled: C.danger,
@@ -359,7 +374,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       if (full.customer_id) setCustomerId(full.customer_id);
       if (full.brand_id) setBrandId(full.brand_id);
       if (full.channel_id) setChannelId(full.channel_id);
-      if (full.requested_ship_date) setRequestedDeliveryDate(full.requested_ship_date);
+      // Requested-in-DC = 1st of the SO cancel month, but ≥20 days before the
+      // cancel date (else cancel − 20 days). Falls back to the SO ship date.
+      if (full.cancel_date) setRequestedDeliveryDate(requestedInDcFromCancel(full.cancel_date) || full.requested_ship_date || "");
+      else if (full.requested_ship_date) setRequestedDeliveryDate(full.requested_ship_date);
       if (full.cancel_date) setCancelDate(full.cancel_date);
       setSeedKey((k) => k + 1);
       const sections = [...byStyle.values()];
@@ -615,7 +633,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             {/* Row 1 */}
             <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Requested delivery / in-DC"><input type="date" value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Requested in DC"><input type="date" value={requestedDeliveryDate} onChange={(e) => setRequestedDeliveryDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Port date"><input type="date" value={portDate} onChange={(e) => setPortDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Expected date"><input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             {/* Row 2 */}
@@ -714,6 +732,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             seed={seed}
             showOnHand={false}
             showLineDates
+            lineDateDefault={requestedDeliveryDate}
             onAddLine={() => setHeaderCollapsed(true)}
           />
         </div>
