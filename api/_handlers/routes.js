@@ -303,7 +303,9 @@ import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-cou
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
 import r_internal_inventory_cycle_counts_lines from "./internal/inventory-cycle-counts/lines.js";
+import r_internal_inventory_purchased_detail from "./internal/inventory-purchased-detail.js";
 import r_internal_inventory_snapshot from "./internal/inventory-snapshot.js";
+import r_internal_inventory_sold_detail from "./internal/inventory-sold-detail.js";
 import r_internal_inventory_transfers_id from "./internal/inventory-transfers/[id].js";
 import r_internal_inventory_transfers_index from "./internal/inventory-transfers/index.js";
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
@@ -1097,12 +1099,14 @@ export const ROUTES = [
   { pattern: "/api/vendor/bulk/:id", handler: r_vendor_bulk_id_index },
   { pattern: "/api/vendor/rfqs/:id", handler: r_vendor_rfqs_id_index },
   { pattern: "/api/b2b/orders/:id", handler: r_b2b_orders_id },
+  { pattern: "/api/internal/inventory-purchased-detail", handler: r_internal_inventory_purchased_detail },
   { pattern: "/api/internal/notification-preferences", handler: r_internal_notification_preferences_index },
   { pattern: "/api/cron/walmart-settlements-weekly", handler: r_cron_walmart_settlements_weekly },
   { pattern: "/api/internal/inventory-cycle-counts", handler: r_internal_inventory_cycle_counts_index },
   { pattern: "/api/internal/style-customer-numbers", handler: r_internal_style_customer_numbers_index },
   { pattern: "/api/cron/notification-digest-flush", handler: r_cron_notification_digest_flush },
   { pattern: "/api/internal/inventory-adjustments", handler: r_internal_inventory_adjustments_index },
+  { pattern: "/api/internal/inventory-sold-detail", handler: r_internal_inventory_sold_detail },
   { pattern: "/api/internal/phase-change-requests", handler: r_internal_phase_change_requests_index },
   { pattern: "/api/internal/style-classifications", handler: r_internal_style_classifications_index },
   { pattern: "/api/cron/shopify-refunds-backfill", handler: r_cron_shopify_refunds_backfill },
