@@ -7,6 +7,7 @@ import {
   parseBillRows,
   buildInvoicePayload,
   buildLineRows,
+  makeItemResolver,
 } from "../ap-bill-sync.js";
 
 describe("toCents / toMoney", () => {
@@ -107,7 +108,7 @@ describe("buildInvoicePayload / buildLineRows", () => {
     expect(p).not.toHaveProperty("entity_id"); // relies on column default
   });
 
-  it("builds line rows keyed by invoice_id + line_index, no inventory_item_id", () => {
+  it("builds line rows keyed by invoice_id + line_index; unit_cost_cents + null inventory_item_id without a resolver", () => {
     const lines = buildLineRows(bill, "inv-uuid");
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
@@ -116,8 +117,32 @@ describe("buildInvoicePayload / buildLineRows", () => {
       description: "Freight",
       quantity: 1,
       unit_price: 250,
+      unit_cost_cents: 25000, // P3-grain cost mirrors unit_price
       line_total: 250,
+      inventory_item_id: null, // no resolver supplied
     });
-    expect(lines[0]).not.toHaveProperty("inventory_item_id");
+  });
+
+  it("links a bill line to its SKU via the Item Number resolver", () => {
+    const sized = parseBillRows([
+      { "Bill Number": "ROF-B006029", "Bill Date": "06/03/2026", "Due Date": "", "Vendor Name": "ZJ", Currency: "USD", "Item Number": "RYB0412-AUTUMN GRIZZLY CAMO-32", Description: "Cargo Short", Qty: "100", "Unit Price": "5.90", Amount: "590.00", "Bill Status": "Posted", "Payment Status": "Unpaid" },
+    ])[0];
+    const resolveId = makeItemResolver([
+      { id: "sku-1", sku_code: "RYB0412-AUTUMNGRIZZLYCAMO-32", style_code: "RYB0412", color: "Autumn Grizzly Camo", size: "32" },
+    ]);
+    const lines = buildLineRows(sized, "inv-uuid", resolveId);
+    expect(lines[0].inventory_item_id).toBe("sku-1");
+    expect(lines[0].unit_cost_cents).toBe(590);
+  });
+
+  it("falls back to a colour-grain SKU when the Item Number has no size", () => {
+    const colorGrain = parseBillRows([
+      { "Bill Number": "ROF-B006030", "Bill Date": "06/03/2026", "Due Date": "", "Vendor Name": "ZJ", Currency: "USD", "Item Number": "RYB0412-AUTUMN GRIZZLY CAMO", Description: "Cargo Short", Qty: "3732", "Unit Price": "5.90", Amount: "22018.80", "Bill Status": "Posted", "Payment Status": "Unpaid" },
+    ])[0];
+    const resolveId = makeItemResolver([
+      { id: "sku-30", sku_code: "RYB0412-AUTUMNGRIZZLYCAMO-30", style_code: "RYB0412", color: "Autumn Grizzly Camo", size: "30" },
+    ]);
+    const lines = buildLineRows(colorGrain, "inv-uuid", resolveId);
+    expect(lines[0].inventory_item_id).toBe("sku-30"); // representative SKU of the colour
   });
 });

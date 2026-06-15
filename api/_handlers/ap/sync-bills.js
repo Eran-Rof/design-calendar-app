@@ -29,7 +29,27 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import { resolveVendorId } from "../../_lib/xoro-mirror/ap.js";
-import { parseBillRows, buildInvoicePayload, buildLineRows } from "../../_lib/ap-bill-sync.js";
+import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber } from "../../_lib/ap-bill-sync.js";
+
+// Fetch ip_item_master rows for the styles referenced by a batch of bills so
+// each bill line can be linked to its SKU. Paginated OR-ilike by style prefix.
+async function fetchMasterForBills(admin, bills) {
+  const styles = [...new Set(bills.flatMap((b) => b.lines.map((l) => parseItemNumber(l.item_number)?.style).filter(Boolean)).map((s) => String(s).replace(/[^A-Za-z0-9]/g, "")))].filter(Boolean);
+  const rows = [];
+  const PAGE = 1000;
+  for (let i = 0; i < styles.length; i += 25) {
+    const orExpr = styles.slice(i, i + 25).map((s) => `style_code.ilike.${s}%`).join(",");
+    if (!orExpr) continue;
+    for (let from = 0; from < 50000; from += PAGE) {
+      const { data, error } = await admin.from("ip_item_master").select("id, sku_code, style_code, color, size").or(orExpr).range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const batch = data || [];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+    }
+  }
+  return rows;
+}
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -127,6 +147,13 @@ export default async function handler(req, res) {
 
   const vendorCache = new Map();
 
+  // Item Number → SKU resolver so each bill line links to its ip_item_master
+  // row (feeds the Inventory Snapshot Purchased drill). Best-effort: a build
+  // failure must not block the bill sync, so degrade to no linkage.
+  let resolveId = null;
+  try { resolveId = makeItemResolver(await fetchMasterForBills(admin, bills)); }
+  catch (e) { result.errors.push({ reason: `item resolver build failed: ${e?.message || String(e)}` }); }
+
   for (const bill of bills) {
     // Resolve vendor by name (CSV "Vendor Code" is the Xoro int id, which
     // doesn't map to our vendors table — the name/alias match is the join).
@@ -197,7 +224,7 @@ export default async function handler(req, res) {
       result.inserted += 1;
     }
 
-    const lineRows = buildLineRows(bill, invoiceId);
+    const lineRows = buildLineRows(bill, invoiceId, resolveId);
     if (lineRows.length > 0) {
       const { error: lineErr } = await admin.from("invoice_line_items").insert(lineRows);
       if (lineErr) {

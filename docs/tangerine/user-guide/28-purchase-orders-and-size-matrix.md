@@ -207,7 +207,7 @@ Columns: **Image · Style · Color · Name · On Hand · Allocated · On SO · A
 
 In the **Sold** popup the **invoice number** is clickable → a full-invoice popup (header + lines) with an **✎ Edit (new tab)** button that opens the AR Invoice. In the **Purchased** popup the bill **Ref #** is clickable → a full-bill popup with **✎ Edit (new tab)** → the AP Bill. (In Trnst and Avrg Cost are display-only; sorting is within the current page.)
 
-> Historical purchase detail (unit price / bill #) for pre-Tangerine purchases needs a Xoro REST sync to enrich `ip_receipts_history`; until then those Xoro receipt rows show qty + receipt date only, while Tangerine-native bills show full detail. (Operator-confirmed model: historical from Xoro, live from Tangerine.)
+> **Bill ↔ SKU linkage.** The nightly Xoro AP-bill sync (`rest_ap_sync.py` → `/api/ap/sync-bills`) now **links each bill line to its SKU** by reconciling the bill's Xoro Item Number against `ip_item_master` (exact sku_code, then `style·color·size` tuple, then a representative SKU of the colour for colour-grain bills) and writes `unit_cost_cents` alongside the legacy `unit_price`. That's what lets the Purchased drill find historical AP bills (vendor, unit price, clickable Ref #, bill date). **Re-run the AP bill sync once** to re-link bills synced before this change (the sync rewrites lines idempotently). The Xoro receipt mirror (`ip_receipts_history`) still carries qty + receipt date only — it has no unit price / bill #, so those rows show the quantity and date; full purchase detail comes from the AP bill. (Operator-confirmed model: historical from Xoro, live from Tangerine.)
 
 ### Product image (PR #969)
 

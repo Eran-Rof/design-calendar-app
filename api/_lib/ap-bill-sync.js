@@ -152,18 +152,56 @@ export function buildInvoicePayload(bill, vendor_id, nowIso) {
   };
 }
 
-// Build invoice_line_items rows for a parsed bill given its invoice_id.
-// Only sku-free header fields are written — inventory_item_id /
-// expense_account_id stay NULL (the CSV's Item Number is a SKU string we do
-// not reconcile here; line_index + invoice_id are the only NOT NULL cols).
-export function buildLineRows(bill, invoice_id) {
+// ── Item Number → SKU reconciliation ─────────────────────────────────────────
+// The Xoro bill "Item Number" is the ItemNumber string (STYLE-COLOR[-SIZE];
+// colour may contain spaces, never dashes — "-" is only the field separator).
+// Linking each bill line to its ip_item_master SKU lets the Inventory Snapshot
+// "Purchased" drill find the bill (it joins invoice_line_items.inventory_item_id).
+export function skuSafe(s) { return String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
+export function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+export function parseItemNumber(n) {
+  const parts = String(n ?? "").split("-").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return null;                                  // not style-grain
+  if (parts.length === 2) return { style: parts[0], color: parts[1], size: null }; // colour-grain
+  return { style: parts[0], size: parts[parts.length - 1], color: parts.slice(1, -1).join("-") };
+}
+// Build a resolver itemNumber → ip_item_master.id from master rows
+// [{id, sku_code, style_code, color, size}]. Tries: exact sku_code (loose),
+// then (style,color,size) tuple, then a representative SKU of (style,color)
+// for colour-grain bills. Returns null when nothing matches.
+export function makeItemResolver(masterRows) {
+  const byLoose = new Map(), byTuple = new Map(), byStyleColor = new Map();
+  for (const m of masterRows || []) {
+    if (m.sku_code) { const lk = looseKey(m.sku_code); if (!byLoose.has(lk)) byLoose.set(lk, m.id); }
+    const sc = skuSafe(m.style_code), col = skuSafe(m.color), sz = skuSafe(m.size);
+    if (m.style_code && m.color != null && m.size != null) { const k = `${sc}|${col}|${sz}`; if (!byTuple.has(k)) byTuple.set(k, m.id); }
+    if (m.style_code && m.color != null) { const k = `${sc}|${col}`; if (!byStyleColor.has(k)) byStyleColor.set(k, m.id); }
+  }
+  return (itemNumber) => {
+    if (!itemNumber) return null;
+    const lk = looseKey(itemNumber); if (byLoose.has(lk)) return byLoose.get(lk);
+    const p = parseItemNumber(itemNumber); if (!p) return null;
+    if (p.size != null) { const k = `${skuSafe(p.style)}|${skuSafe(p.color)}|${skuSafe(p.size)}`; if (byTuple.has(k)) return byTuple.get(k); }
+    const sk = `${skuSafe(p.style)}|${skuSafe(p.color)}`; if (byStyleColor.has(sk)) return byStyleColor.get(sk);
+    return null;
+  };
+}
+
+// Build invoice_line_items rows for a parsed bill given its invoice_id. When a
+// `resolveId(itemNumber) → uuid|null` is supplied, each line is linked to its
+// SKU (inventory_item_id) so the Inventory Snapshot Purchased drill finds it.
+// Writes BOTH the legacy `unit_price` (numeric money) and the P3 `unit_cost_cents`
+// so cost-by-cents readers (the drill / snapshot) resolve.
+export function buildLineRows(bill, invoice_id, resolveId = null) {
   return bill.lines.map((l) => ({
     invoice_id,
     line_index: l.line_index,
+    inventory_item_id: resolveId ? (resolveId(l.item_number) || null) : null,
     description: l.description,
     quantity: l.qty,
     quantity_invoiced: l.qty,
     unit_price: l.unit_price,
+    unit_cost_cents: l.unit_price != null ? toCents(l.unit_price) : null,
     line_total: toMoney(l.line_total_cents),
   }));
 }

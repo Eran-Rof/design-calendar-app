@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     // ── Tangerine AP vendor bills ─────────────────────────────────────────────
     const liRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("invoice_line_items").select("invoice_id, inventory_item_id, quantity, unit_cost_cents").in("inventory_item_id", ids));
+      admin.from("invoice_line_items").select("invoice_id, inventory_item_id, quantity, unit_cost_cents, unit_price").in("inventory_item_id", ids));
     const invIds = [...new Set(liRows.map((l) => l.invoice_id).filter(Boolean))];
     const invById = new Map();
     if (invIds.length) {
@@ -95,7 +95,10 @@ export default async function handler(req, res) {
       }
       const q = Number(l.quantity) || 0;
       r.qty += q;
-      if (l.unit_cost_cents != null) { r._amt += (Number(l.unit_cost_cents) / 100) * q; r._q += q; }
+      // Prefer the P3 cents column; fall back to the legacy unit_price (money)
+      // for bills synced before lines carried unit_cost_cents.
+      const unit = l.unit_cost_cents != null ? Number(l.unit_cost_cents) / 100 : (l.unit_price != null ? Number(l.unit_price) : null);
+      if (unit != null) { r._amt += unit * q; r._q += q; }
     }
     for (const r of billMap.values()) {
       const { _amt, _q, ...rest } = r;
