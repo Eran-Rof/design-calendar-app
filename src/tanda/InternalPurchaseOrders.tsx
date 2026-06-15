@@ -11,6 +11,7 @@ import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
+import { openOrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -518,6 +519,40 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     onClose();
   }
 
+  // Open the printable / downloadable PO document (logo + header + line items).
+  function openView() {
+    const fields: { label: string; value: string }[] = [];
+    const add = (label: string, value: string | null | undefined) => { if (value && String(value).trim()) fields.push({ label, value: String(value) }); };
+    add("Customer", customers.find((c) => c.id === customerId)?.name);
+    add("PO type", poType);
+    add("Vendor ref #", vendorRef);
+    add("Order date", orderDate ? fmtDateDisplay(orderDate) : "");
+    add("Requested delivery", requestedDeliveryDate ? fmtDateDisplay(requestedDeliveryDate) : "");
+    add("Ship window", shipWindowStart || shipWindowEnd ? `${shipWindowStart ? fmtDateDisplay(shipWindowStart) : "?"} – ${shipWindowEnd ? fmtDateDisplay(shipWindowEnd) : "?"}` : "");
+    add("Port date", portDate ? fmtDateDisplay(portDate) : "");
+    add("Expected date", expectedDate ? fmtDateDisplay(expectedDate) : "");
+    add("Vendor-confirmed", acknowledgedDate ? fmtDateDisplay(acknowledgedDate) : "");
+    add("Cancel date", cancelDate ? fmtDateDisplay(cancelDate) : "");
+    add("Ship to", warehouses.find((w) => w.id === shipToLocationId)?.name);
+    add("Payment terms", paymentTerms.find((t) => t.id === paymentTermsId)?.name);
+    add("Brand", brands.find((b) => b.id === brandId)?.name);
+    add("Season", season);
+    add("Channel", channels.find((c) => c.id === channelId)?.name);
+    add("COO", coo);
+    openOrderDocument({
+      kind: "po",
+      title: "Purchase Order",
+      number: po?.po_number || "(draft)",
+      status: po?.status || (isNew ? "draft" : null),
+      partyLabel: "Vendor",
+      partyName: vendors.find((v) => v.id === vendorId)?.name || "",
+      moneyLabel: "Unit Cost $",
+      fields,
+      lines: bodyRef.current?.getDocumentLines() || [],
+      notes,
+    });
+  }
+
   return (
     <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
@@ -694,6 +729,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
+          <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">🖨 View</button>
           {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Save draft" : "Save draft"}</button>}
           {editable && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
           {!isNew && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}

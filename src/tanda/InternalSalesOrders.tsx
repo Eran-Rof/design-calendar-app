@@ -10,6 +10,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import { readDrillParam } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
+import { openOrderDocument } from "./orderDocument";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -759,9 +760,36 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     onClose();
   }
 
+  // Open the printable / downloadable SO document (logo + header + line items).
+  function openView() {
+    const fields: { label: string; value: string }[] = [];
+    const add = (label: string, value: string | null | undefined) => { if (value && String(value).trim()) fields.push({ label, value: String(value) }); };
+    add("Customer PO #", customerPo);
+    add("Order date", orderDate ? fmtDateDisplay(orderDate) : "");
+    add("Requested ship", reqShip ? fmtDateDisplay(reqShip) : "");
+    add("Cancel date", cancelDate ? fmtDateDisplay(cancelDate) : "");
+    add("Payment terms", paymentTerms.find((t) => t.id === paymentTermsId)?.name);
+    add("Brand", brands.find((b) => b.id === brandId)?.name);
+    add("Channel", channels.find((c) => c.id === channelId)?.name);
+    add("Fulfillment", fulfillmentSource);
+    openOrderDocument({
+      kind: "so",
+      title: "Sales Order",
+      number: so?.so_number || "(draft)",
+      status: so?.status || (isNew ? "draft" : null),
+      partyLabel: "Customer",
+      partyName: customers.find((c) => c.id === customerId)?.name || "",
+      moneyLabel: "Unit $",
+      fields,
+      lines: bodyRef.current?.getDocumentLines() || [],
+      notes,
+    });
+  }
+
   const saveCloseButtons = (
     <>
       <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
+      <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">🖨 View</button>
       {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
       {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
       {!editable && !isNew && so?.status === "confirmed" && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
