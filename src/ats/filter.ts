@@ -127,7 +127,10 @@ export function filterRows(rows: ATSRow[], opts: RowFilterOpts): ATSRow[] {
     if (wantStyle !== null) {
       if (!wantStyle.has(r.master_style ?? "")) return false;
     }
-    if (wantGender !== null && !wantGender.has(normForCompare(r.gender))) return false;
+    // Gender pulls from master_gender (the truth) with a fallback to the
+    // feed's r.gender — the ATS upload's per-row Gender column is frequently
+    // blank even when the item master knows the gender (e.g. RYB1477 = M).
+    if (wantGender !== null && !wantGender.has(normForCompare(r.master_gender ?? r.gender))) return false;
     if (wantBrand !== null && !wantBrand.has(r.master_brand ?? "")) return false;
     const todayQty = r.dates[todayKey] ?? r.onHand;
     if (opts.filterStatus !== "All") {

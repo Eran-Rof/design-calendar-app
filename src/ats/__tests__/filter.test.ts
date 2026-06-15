@@ -88,6 +88,24 @@ describe("filterRows", () => {
     expect(out.map(r => r.sku)).toEqual(["C"]);
   });
 
+  it("gender filter prefers master_gender, falls back to feed gender, and is case/whitespace tolerant", () => {
+    const rows = [
+      // master_gender wins even though the feed gender column is blank
+      // (the RYB1477 case: item master says M, feed carries nothing).
+      row({ sku: "M1", master_gender: "M", gender: "" }),
+      // no master match → falls back to the feed's gender
+      row({ sku: "M2", master_gender: null, gender: "M" }),
+      // womens, via master (raw Xoro code "WMS"); dropdown picks "Wms"
+      row({ sku: "W1", master_gender: " wms ", gender: "" }),
+      // boys, should be excluded by a Mens filter
+      row({ sku: "B1", master_gender: "B", gender: "M" }),
+    ];
+    const mens = filterRows(rows, { ...defaults, filterGender: ["M"] });
+    expect(mens.map(r => r.sku)).toEqual(["M1", "M2"]);
+    const womens = filterRows(rows, { ...defaults, filterGender: ["Wms"] });
+    expect(womens.map(r => r.sku)).toEqual(["W1"]);
+  });
+
   it("store filter", () => {
     const out = filterRows(base, { ...defaults, storeFilter: ["ROF ECOM"] });
     expect(out.map(r => r.sku)).toEqual(["B"]);

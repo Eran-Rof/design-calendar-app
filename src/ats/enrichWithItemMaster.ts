@@ -57,6 +57,10 @@ export function enrichRowsWithItemMaster(rows: ATSRow[]): { rows: ATSRow[]; summ
       // last-resort fallback for styles absent from style_master.
       master_brand_id: brandIdForStyle(resolved.style) ?? resolved.brand_id,
       master_brand: brandNameForStyle(resolved.style) ?? brandNameById(resolved.brand_id),
+      // Gender from the master (Xoro GenderCode). The ATS feed's per-row
+      // Gender column is frequently blank, so this is the authoritative
+      // value the filter/reports prefer over r.gender.
+      master_gender: resolved.gender,
       master_match_source: resolved.match_source,
     };
   });
