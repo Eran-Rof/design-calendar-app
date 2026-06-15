@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const { data, error } = await admin.from("costing_line_vendors")
-      .select("*, vendor:vendors(id, code, legal_name)")
+      .select("*, vendor:vendors(id, code, name, legal_name)")
       .eq("costing_line_id", lineId)
       .order("quoted_date", { ascending: false });
     if (error) return res.status(500).json({ error: error.message });

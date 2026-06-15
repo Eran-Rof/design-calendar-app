@@ -78,7 +78,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "waist_type",     label: "Waist",    width: 90 },
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
-  { key: "_vendor",        label: "Vendor",   width: 130 },
+  { key: "_vendor",        label: "Vendor",   width: 200 },
   { key: "avg_cost",       label: "Avg Cost", width: 130, align: "right" },
   { key: "_history",       label: "PO History", width: 100, align: "center" },
   { key: "target_cost",    label: "Tgt Cost", width: 80,  align: "right", numeric: true },
