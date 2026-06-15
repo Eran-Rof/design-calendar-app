@@ -128,10 +128,10 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 
 ### Day-to-day
 
-1. **New PO** → fill the **rich document header**, grouped into sections:
+1. **New PO** → fill the **rich document header**, grouped into bordered boxes (the boxes have no titles; all lookups show the **name only**, no codes):
    - **Identity & status** — PO type (stock / replenishment / made-to-order / sample / drop-ship), Customer, an editable **PO number prefix** (overrides `PO-` when the order is issued), and the read-only PO number / status.
    - **Vendor / supplier** — Vendor (lookup), vendor contact + email, vendor PO / ref #, factory / production location, COO (country lookup).
-   - **Dates** — order, requested delivery / in-DC, ship-window start–end, port date, vendor-confirmed / acknowledged, expected, cancel.
+   - **Dates** — two rows: row 1 = order, requested delivery / in-DC, port, expected; row 2 = ship-window start, ship-window end, cancel, vendor-confirmed / acknowledged.
    - **Logistics & destination** — ship-to location / warehouse, bill-to entity (multi-entity), ship method (sea / air / ground), consolidator / freight forwarder.
    - **Classification & terms** — brand, season (from the Season master), channel, **Department** (main category from the Category master), payment terms.
    - **Roll-up (read-only)** — **total weight / cartons / CBM**, computed from each style's **Pack / logistics** fields in Style Master (units × unit weight; units ÷ units-per-carton, rounded up; cartons × carton CBM). It populates after the first save; a note appears if any style is missing those fields. *(The status flow itself is unchanged — draft → issued → in_transit → received → cancelled.)*
