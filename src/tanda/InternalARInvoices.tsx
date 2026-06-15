@@ -386,7 +386,7 @@ export default function InternalARInvoices() {
           onChange={(e) => setToDate(e.target.value)}
           style={{ ...inputStyle, width: 140 }}
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}

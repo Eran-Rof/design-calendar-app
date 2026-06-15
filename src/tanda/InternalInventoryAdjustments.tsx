@@ -309,7 +309,7 @@ export default function InternalInventoryAdjustments() {
           onChange={(e) => setFilterTo(e.target.value)}
           placeholder="To"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={filterFrom}
           to={filterTo}
           onChange={(f, t) => { setFilterFrom(f); setFilterTo(t); }}

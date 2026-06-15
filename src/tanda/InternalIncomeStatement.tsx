@@ -432,7 +432,7 @@ export default function InternalIncomeStatement() {
             style={{ ...inputStyle, width: 160 }}
           />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => { setFrom(f); setTo(t); }}

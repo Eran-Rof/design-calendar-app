@@ -195,14 +195,13 @@ describe("<InternalMarketplaceStatus /> — rendering", () => {
     });
   });
 
-  it("renders the DateRangePresets chip row with date-input pair", async () => {
+  it("renders the DateRangePresets dropdown with date-input pair", async () => {
     mockFetchOnce({ feeds: makeFeedStatuses() });
     render(<InternalMarketplaceStatus />);
     await waitFor(() => expect(screen.getByLabelText(/From date/i)).toBeInTheDocument());
     expect(screen.getByLabelText(/To date/i)).toBeInTheDocument();
-    // At least one preset chip
-    const chips = screen.getAllByRole("button").filter((b) => b.getAttribute("data-preset-key"));
-    expect(chips.length).toBeGreaterThan(0);
+    // Presets are folded into a single dropdown <select>.
+    expect(screen.getByTestId("date-range-presets-dropdown")).toBeInTheDocument();
   });
 
   it("Manual 'Run now' buttons are disabled when no cached auth user", async () => {

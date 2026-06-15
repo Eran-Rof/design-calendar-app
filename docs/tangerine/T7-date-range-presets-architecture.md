@@ -54,8 +54,18 @@ This is a small UI cross-cutter — a drop-in `<DateRangePresets>` component tha
   onChange={(from, to) => { ... }}             // single callback when a preset is picked
   presets={DEFAULT_PRESETS}                     // optional override; default = the 12 above
   align="left"                                  // "left" | "right" — for chip alignment
+  variant="dropdown"                            // "chips" (default) | "dropdown"
 />
 ```
+
+**`variant` (added 2026-06-15, PR #1342):** `"chips"` (default) renders the
+original wrap-row of preset chips; `"dropdown"` folds the same presets into a
+single compact `<select>` (`data-testid="date-range-presets-dropdown"`) so the
+control sits inline next to the date inputs without wrapping to a second line.
+The `onChange` contract is identical in both modes (including the `"custom"`
+empty-string case). **All 17 Tangerine report panels + the Costing comp-period
+row use `variant="dropdown"`** as of the sweep below; the chip variant remains
+for any caller that wants it.
 
 The component itself owns the math for each preset (today's date, start-of-month, start-of-year, etc.). All preset functions are pure + unit-testable.
 

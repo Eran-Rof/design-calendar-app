@@ -388,7 +388,7 @@ export default function InternalAuditLog() {
             data-testid="audit-to-date"
           />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}

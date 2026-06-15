@@ -176,7 +176,7 @@ export default function InternalCashFlow() {
           To:
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 160 }} />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => { setFrom(f); setTo(t); }}

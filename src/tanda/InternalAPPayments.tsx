@@ -166,7 +166,7 @@ export default function InternalAPPayments() {
           To&nbsp;
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => { setFrom(f); setTo(t); }}

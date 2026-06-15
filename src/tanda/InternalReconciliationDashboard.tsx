@@ -584,7 +584,7 @@ export default function InternalReconciliationDashboard() {
           style={inputStyle}
           data-testid="recon-to"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => setRange({ from: f, to: t })}

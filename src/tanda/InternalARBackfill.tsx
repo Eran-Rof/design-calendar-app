@@ -207,7 +207,7 @@ export default function InternalARBackfill() {
           </div>
         </div>
         <div style={{ marginTop: 8 }}>
-          <DateRangePresets
+          <DateRangePresets variant="dropdown"
             from={startDate}
             to={endDate}
             onChange={(f, t) => { setStartDate(f); setEndDate(t); }}
