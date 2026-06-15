@@ -146,3 +146,36 @@ describe("<DateRangePresets /> — props", () => {
     expect(chip.style.fontWeight).toBe("700");
   });
 });
+
+describe("<DateRangePresets /> — dropdown variant", () => {
+  it("renders a single select with one option per preset (+ placeholder), no chips", () => {
+    render(<DateRangePresets from="" to="" onChange={vi.fn()} variant="dropdown" />);
+    const select = screen.getByTestId("date-range-presets-dropdown") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(select.querySelectorAll("option")).toHaveLength(DEFAULT_PRESETS.length + 1);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("selecting a preset fires onChange with its computed range", () => {
+    const onChange = vi.fn();
+    render(<DateRangePresets from="" to="" onChange={onChange} variant="dropdown" />);
+    const mtd = DEFAULT_PRESETS.find((p) => p.key === "mtd")!;
+    const computed = mtd.compute(new Date());
+    fireEvent.change(screen.getByTestId("date-range-presets-dropdown"), {
+      target: { value: "mtd" },
+    });
+    expect(onChange).toHaveBeenCalledWith(
+      computed.from,
+      computed.to,
+      expect.objectContaining({ key: "mtd" }),
+    );
+  });
+
+  it("reflects the active preset as the selected value", () => {
+    const mtd = DEFAULT_PRESETS.find((p) => p.key === "mtd")!;
+    const c = mtd.compute(new Date());
+    render(<DateRangePresets from={c.from} to={c.to} onChange={vi.fn()} variant="dropdown" />);
+    const select = screen.getByTestId("date-range-presets-dropdown") as HTMLSelectElement;
+    expect(select.value).toBe("mtd");
+  });
+});

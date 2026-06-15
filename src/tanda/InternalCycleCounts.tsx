@@ -206,7 +206,7 @@ export default function InternalCycleCounts() {
           onChange={(e) => setToDate(e.target.value)}
           placeholder="To date"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}

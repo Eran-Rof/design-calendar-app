@@ -26,8 +26,15 @@ type Props = {
   presets?: Preset[];
   /** Chip row alignment within its container. */
   align?: "left" | "right";
-  /** Optional style override applied to every chip. */
+  /** Optional style override applied to every chip (or the dropdown). */
   buttonStyle?: React.CSSProperties;
+  /**
+   * Render style. "chips" (default) = the original wrap-row of chips.
+   * "dropdown" = a single compact <select> of the same presets — folds the
+   * row into one control so it can sit inline next to the date inputs without
+   * wrapping. Same onChange contract (incl. the "custom" empty-string case).
+   */
+  variant?: "chips" | "dropdown";
 };
 
 const chipStyle: React.CSSProperties = {
@@ -48,6 +55,18 @@ const chipActive: React.CSSProperties = {
   borderColor: "#3B82F6",
 };
 
+const dropdownStyle: React.CSSProperties = {
+  background: "#0F172A",
+  color: "#E2E8F0",
+  border: "1px solid #334155",
+  borderRadius: 6,
+  padding: "5px 8px",
+  fontSize: 12,
+  cursor: "pointer",
+  outline: "none",
+  colorScheme: "dark",
+};
+
 export default function DateRangePresets({
   from,
   to,
@@ -55,8 +74,43 @@ export default function DateRangePresets({
   presets = DEFAULT_PRESETS,
   align = "left",
   buttonStyle,
+  variant = "chips",
 }: Props) {
   const today = new Date();
+
+  // Dropdown variant — one compact <select> instead of the chip row. The
+  // option whose computed range matches (from, to) is shown as selected.
+  if (variant === "dropdown") {
+    const activeKey =
+      presets.find((p) => {
+        if (p.key === "custom") return false;
+        const c = p.compute(today);
+        return c.from !== "" && c.to !== "" && c.from === from && c.to === to;
+      })?.key ?? "";
+    return (
+      <select
+        value={activeKey}
+        onChange={(e) => {
+          const p = presets.find((pp) => pp.key === e.target.value);
+          if (!p) return;
+          const c = p.compute(today);
+          // "custom" returns empty strings — same contract as the chips.
+          onChange(c.from, c.to, p);
+        }}
+        style={{ ...dropdownStyle, ...buttonStyle }}
+        aria-label="Date range presets"
+        title="Quick date-range presets"
+        data-testid="date-range-presets-dropdown"
+      >
+        <option value="">Presets…</option>
+        {presets.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
 
   return (
     <div

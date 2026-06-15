@@ -355,7 +355,7 @@ export default function InternalMarketplaceStatus() {
           style={inputStyle}
           aria-label="To date"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { if (f) setFromDate(f); if (t) setToDate(t); }}

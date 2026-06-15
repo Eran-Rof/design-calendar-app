@@ -322,13 +322,12 @@ describe("<InternalShopifyRefunds /> — toolbar cross-cutters", () => {
     cleanup();
   });
 
-  it("renders the DateRangePresets chip row", async () => {
+  it("renders the DateRangePresets dropdown", async () => {
     mockShopifyFetch(state);
     render(<InternalShopifyRefunds />);
-    // T7 chips carry data-preset-key. At least one preset chip must appear.
+    // T7 presets are folded into a single dropdown <select>.
     await waitFor(() => {
-      const chips = screen.getAllByRole("button").filter((b) => b.getAttribute("data-preset-key"));
-      expect(chips.length).toBeGreaterThan(0);
+      expect(screen.getByTestId("date-range-presets-dropdown")).toBeInTheDocument();
     });
   });
 
