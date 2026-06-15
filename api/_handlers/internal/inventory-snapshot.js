@@ -110,6 +110,12 @@ export default async function handler(req, res) {
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
   const styleIds = Array.isArray(body?.style_ids) ? [...new Set(body.style_ids.filter((x) => UUID_RE.test(String(x))))] : [];
   if (styleIds.length === 0) return res.status(200).json({ rows: [] });
+  // Optional date range for the historical Sold / Purchased columns (the header
+  // date picker). Point-in-time columns (on-hand / allocated / ATS / SO / PO)
+  // ignore it. Empty = lifetime.
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const from = DATE_RE.test(String(body?.from || "")) ? String(body.from) : null;
+  const to = DATE_RE.test(String(body?.to || "")) ? String(body.to) : null;
 
   try {
     const eid = await entityId(admin);
@@ -219,18 +225,49 @@ export default async function handler(req, res) {
       }
     }
 
-    // ── Sold (lifetime) — wholesale qty + ecom net_qty, keyed by sku_id ───────
-    const whRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids));
+    // ── Sold — wholesale qty + ecom net_qty, keyed by sku_id (date-ranged) ────
+    const whRows = await fetchChunked(itemIds, (ids) => {
+      let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids);
+      if (from) q = q.gte("txn_date", from);
+      if (to) q = q.lte("txn_date", to);
+      return q;
+    });
     for (const r of whRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += Number(r.qty) || 0; }
-    const ecRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids));
+    const ecRows = await fetchChunked(itemIds, (ids) => {
+      let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids);
+      if (from) q = q.gte("order_date", from);
+      if (to) q = q.lte("order_date", to);
+      return q;
+    });
     for (const r of ecRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += Number(r.net_qty) || 0; }
 
-    // ── Purchased (lifetime) — receipts, keyed by sku_id ──────────────────────
-    const rcRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids));
+    // ── Purchased — Xoro receipts (date-ranged on received_date) + Tangerine AP
+    //     vendor-bill line qty (date-ranged on invoice_date). Mirrors the
+    //     purchased-detail drill so the column total matches the popup. ──────────
+    const rcRows = await fetchChunked(itemIds, (ids) => {
+      let q = admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids);
+      if (from) q = q.gte("received_date", from);
+      if (to) q = q.lte("received_date", to);
+      return q;
+    });
     for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += Number(r.qty) || 0; }
+    const billLines = await fetchChunked(itemIds, (ids) =>
+      admin.from("invoice_line_items").select("inventory_item_id, quantity, invoice_id").in("inventory_item_id", ids));
+    const billInvIds = [...new Set(billLines.map((l) => l.invoice_id).filter(Boolean))];
+    const billDateOk = new Map(); // invoice_id → included?
+    if (billInvIds.length) {
+      const invs = await fetchChunked(billInvIds, (ids) => {
+        let q = admin.from("invoices").select("id").in("id", ids).in("invoice_kind", ["vendor_bill", "vendor_credit_memo"]);
+        if (from) q = q.gte("invoice_date", from);
+        if (to) q = q.lte("invoice_date", to);
+        return q;
+      });
+      for (const v of invs) billDateOk.set(v.id, true);
+    }
+    for (const l of billLines) {
+      if (!billDateOk.get(l.invoice_id)) continue;
+      const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += Number(l.quantity) || 0;
+    }
 
     // ── Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour ────
     const stems = [...new Set(itemRows.map((r) => String(r.sku_code ?? "").split("-")[0].trim()).filter(Boolean))];

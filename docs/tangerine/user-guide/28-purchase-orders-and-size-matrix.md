@@ -187,21 +187,27 @@ A read-only on-hand view (`src/tanda/InternalInventoryMatrix.tsx`, PRs #729/#737
 
 ### Inventory Snapshot (the default view)
 
-When you open the panel with **no style picked**, the **📋 Inventory Snapshot** is shown first — a summary table with **one row per style + color** for the current scope (the brand filter + style search still apply), paginated 25 styles at a time. Toggle to **▦ Size matrices** for the stacked per-style grids (the previous default); the toggle sits above the table.
+When you open the panel with **no style picked**, the **📋 Inventory Snapshot** is shown first — a summary table with **one row per style + color** for the current scope (the brand filter + style search still apply), paginated 25 styles at a time. Toggle to **▦ Size matrices** for the stacked per-style grids (the previous default); the toggle sits above the table. Each row shows the style's **colour-matched product image** and a **colour swatch**, highlights on hover, and renders at a comfortable size (double row spacing, larger font). A **⚙ Columns** button shows/hides any column (your choice is remembered per browser).
 
-Columns: **Style · Color · Name · On Hand · Allocated · On SO · ATS Qty · On PO · ATS Qty (Including PO) · Sold · Purchased · Item Category · In Trnst · Avrg Cost**. Click any header to sort. Served by `POST /api/internal/inventory-snapshot` (the page's `style_ids` → per-style-color aggregates, computed as separate set-based queries and merged — never one fan-out join). On Hand is `inventory_layers` (matches the grid); ATS uses the ATS on-hand source clamped ≥ 0 (`on_hand − allocated`), ATS-incl-PO adds open inbound (native + Xoro-mirror POs); Sold/Purchased are **lifetime** (sales history + receipts); In Transit is the in-transit subset of open POs.
+Columns: **Image · Style · Color · Name · On Hand · Allocated · On SO · ATS Qty · On PO · ATS Qty (Including PO) · Sold · Purchased · Item Category · In Trnst · Avrg Cost**. Click any header to sort. Served by `POST /api/internal/inventory-snapshot` (the page's `style_ids` → per-style-color aggregates, computed as separate set-based queries and merged — never one fan-out join). On Hand is `inventory_layers` (matches the grid); ATS uses the ATS on-hand source clamped ≥ 0 (`on_hand − allocated`), ATS-incl-PO adds open inbound (native + Xoro-mirror POs); In Transit is the in-transit subset of open POs.
 
-**Click a quantity to drill — each opens in a new tab:**
+**Date range.** A **From / To** date picker in the snapshot header narrows the **Sold** and **Purchased** column totals (the point-in-time columns ignore it). Empty = lifetime. The header range also **seeds the drill popups**, each of which has its own date picker to narrow further.
+
+**Click a quantity to drill:**
 
 | Click | Opens |
 |---|---|
-| **On Hand** | this Inventory Matrix, focused on that style (`?m=inventory_matrix&style_id=`) |
-| **Allocated** | Allocations workbench searched to the style (`?m=sales_allocations&q=`) |
-| **On SO** | Sales Orders searched to the style (`?m=sales_orders&q=`) |
-| **On PO** | Purchase Orders searched to the style (`?m=purchase_orders&q=`) |
-| **ATS Qty** / **ATS Qty (Including PO)** | the ATS app, filtered to the style (`/ats?style=`) |
+| **On Hand** | this Inventory Matrix, focused on that style — new tab (`?m=inventory_matrix&style_id=`) |
+| **Allocated** | Allocations workbench searched to the style — new tab (`?m=sales_allocations&q=`) |
+| **On SO** | Sales Orders searched to the style — new tab (`?m=sales_orders&q=`) |
+| **On PO** | Purchase Orders searched to the style — new tab (`?m=purchase_orders&q=`) |
+| **ATS Qty** / **ATS Qty (Including PO)** | the ATS app, filtered to the style — new tab (`/ats?style=`) |
+| **Sold** | **Qty Sold popup** — colour totals + grand total, then the invoice list (colour, store, qty, invoice #, customer, unit price, date) with its own date range. `GET /api/internal/inventory-sold-detail` (sales history). |
+| **Purchased** | **Purchased popup** — colour totals + grand total, then receipts & bills (colour, vendor, qty, unit price, Ref #, type, receipt/bill dates). `GET /api/internal/inventory-purchased-detail`: Tangerine **AP vendor bills** (full detail + clickable Ref #) plus the **Xoro receipt** mirror for history (qty + receipt date; the receipt feed carries no unit price / bill #). |
 
-(Sold, Purchased, In Trnst and Avrg Cost are display-only.) Sorting is within the current page.
+In the **Sold** popup the **invoice number** is clickable → a full-invoice popup (header + lines) with an **✎ Edit (new tab)** button that opens the AR Invoice. In the **Purchased** popup the bill **Ref #** is clickable → a full-bill popup with **✎ Edit (new tab)** → the AP Bill. (In Trnst and Avrg Cost are display-only; sorting is within the current page.)
+
+> Historical purchase detail (unit price / bill #) for pre-Tangerine purchases needs a Xoro REST sync to enrich `ip_receipts_history`; until then those Xoro receipt rows show qty + receipt date only, while Tangerine-native bills show full detail. (Operator-confirmed model: historical from Xoro, live from Tangerine.)
 
 ### Product image (PR #969)
 

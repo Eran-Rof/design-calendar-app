@@ -19,7 +19,8 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
-import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
+import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
+import { ColorSwatch } from "../shared/ui/ColorSwatch";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 import { drillToModule } from "./scorecardDrill";
 
@@ -406,8 +407,10 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
 ];
 
+const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
+
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -415,7 +418,22 @@ function SnapshotView({
   sortKey: keyof SnapshotRow;
   sortDir: "asc" | "desc";
   onSort: (k: keyof SnapshotRow) => void;
+  thumbs: Map<string, StyleThumbInfo>;
+  onOpenSold: (r: SnapshotRow) => void;
+  onOpenPurchased: (r: SnapshotRow) => void;
 }) {
+  // Column show/hide — persisted per browser. "image" is a pseudo-column.
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
+  });
+  const [colsOpen, setColsOpen] = useState(false);
+  const toggleCol = (k: string) => setHidden((prev) => {
+    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k);
+    try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
+    return next;
+  });
+  const show = (k: string) => !hidden.has(k);
+
   const sorted = useMemo(() => {
     const r = [...rows];
     r.sort((a, b) => {
@@ -428,55 +446,314 @@ function SnapshotView({
     return r;
   }, [rows, sortKey, sortDir]);
 
-  // A clickable quantity cell (blue link → opens the target in a new tab).
+  // Quantity cell — opens a URL in a new tab.
   const QtyLink = ({ v, url }: { v: number; url: string }) => (
     <a href={url} target="_blank" rel="noopener noreferrer"
        onClick={(e) => { e.preventDefault(); openTab(url); }}
-       style={{ color: C.base, textDecoration: "none", cursor: "pointer", fontFamily: "monospace" }}>
-      {fmtQty(v)}
-    </a>
+       style={{ color: C.base, textDecoration: "none", cursor: "pointer", fontFamily: "monospace" }}>{fmtQty(v)}</a>
   );
-  const tdNum: React.CSSProperties = { padding: "8px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
-  const tdTxt: React.CSSProperties = { padding: "8px 14px", textAlign: "left", color: C.text };
+  // Quantity cell — opens a drill modal (Sold / Purchased).
+  const QtyBtn = ({ v, onClick }: { v: number; onClick: () => void }) => (
+    <span role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
+       style={{ color: C.base, cursor: "pointer", fontFamily: "monospace", textDecoration: "underline dotted" }}>{fmtQty(v)}</span>
+  );
+  // Double the row spacing and bump the font to 125% (operator request).
+  const tdNum: React.CSSProperties = { padding: "16px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
+  const tdTxt: React.CSSProperties = { padding: "16px 14px", textAlign: "left", color: C.text };
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
   if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
   if (rows.length === 0) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>No inventory rows.</div>;
 
   return (
-    <div style={{ overflowX: "auto", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead>
-          <tr>
-            {SNAP_COLS.map((col) => (
-              <th key={col.key as string} onClick={() => onSort(col.key)}
-                  style={{ ...thBase, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
-                {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
-              </th>
+    <div>
+      {/* Column show/hide */}
+      <div style={{ position: "relative", display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <button onClick={() => setColsOpen((o) => !o)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>⚙ Columns</button>
+        {colsOpen && (
+          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
+            {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
+              <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                <input type="checkbox" checked={show(col.key as string)} onChange={() => toggleCol(col.key as string)} />
+                {col.label}
+              </label>
             ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => (
-            <tr key={`${r.style_id}|${r.color ?? ""}`} style={{ borderBottom: `1px solid ${C.rowBdr}` }}>
-              <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>
-              <td style={tdTxt}>{r.color || "—"}</td>
-              <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>
-              <td style={tdNum}><QtyLink v={r.on_hand} url={lnkMatrix(r.style_id)} /></td>
-              <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>
-              <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>
-              <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>
-              <td style={tdNum}><QtyLink v={r.on_po} url={lnkPO(r.style_code)} /></td>
-              <td style={tdNum}><QtyLink v={r.ats_incl_po} url={lnkATS(r.style_code, true)} /></td>
-              <td style={tdNum}>{fmtQty(r.sold)}</td>
-              <td style={tdNum}>{fmtQty(r.purchased)}</td>
-              <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>
-              <td style={tdNum}>{fmtQty(r.in_transit)}</td>
-              <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>
+          </div>
+        )}
+      </div>
+
+      <div style={{ overflowX: "auto", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
+          <thead>
+            <tr>
+              {show("image") && <th style={{ ...thBase, textAlign: "center" }}>Image</th>}
+              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => (
+                <th key={col.key as string} onClick={() => onSort(col.key)}
+                    style={{ ...thBase, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
+                  {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const thumbUrl = thumbs.get(r.style_id)?.byColor[(r.color || "").toLowerCase().trim()] ?? thumbs.get(r.style_id)?.default ?? null;
+              return (
+                <tr key={`${r.style_id}|${r.color ?? ""}`}
+                    style={{ borderBottom: `1px solid ${C.rowBdr}` }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                  {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
+                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>}
+                  {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
+                  {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
+                  {show("on_hand") && <td style={tdNum}><QtyLink v={r.on_hand} url={lnkMatrix(r.style_id)} /></td>}
+                  {show("allocated") && <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>}
+                  {show("on_so") && <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>}
+                  {show("ats") && <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>}
+                  {show("on_po") && <td style={tdNum}><QtyLink v={r.on_po} url={lnkPO(r.style_code)} /></td>}
+                  {show("ats_incl_po") && <td style={tdNum}><QtyLink v={r.ats_incl_po} url={lnkATS(r.style_code, true)} /></td>}
+                  {show("sold") && <td style={tdNum}><QtyBtn v={r.sold} onClick={() => onOpenSold(r)} /></td>}
+                  {show("purchased") && <td style={tdNum}><QtyBtn v={r.purchased} onClick={() => onOpenPurchased(r)} /></td>}
+                  {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
+                  {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
+                  {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Drill modals (Sold / Purchased + Invoice / Bill detail) ──────────────────
+type SoldDetail = {
+  color_totals: { color: string | null; qty: number; avg_unit_price: number | null }[];
+  grand_total: number;
+  rows: { color: string | null; store: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
+};
+type PurchasedDetail = {
+  color_totals: { color: string | null; qty: number }[];
+  grand_total: number;
+  rows: { color: string | null; vendor: string | null; qty: number; unit_price: number | null; ref: string | null; bill_id: string | null; receipt_type: string; receipt_date: string | null; bill_date: string | null }[];
+};
+
+const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 };
+const modalCard: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(1000px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 20 };
+const dl/* date-label */: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 };
+const dateInput: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 8px", fontSize: 13, colorScheme: "dark" };
+const money = (n: number | null | undefined) => n == null ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// DateRange — two native date inputs seeded from the header range.
+function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <label style={dl}>From <input type="date" value={from} onChange={(e) => onChange(e.target.value, to)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+      <label style={dl}>To <input type="date" value={to} onChange={(e) => onChange(from, e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+      {(from || to) && <button onClick={() => onChange("", "")} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>Clear</button>}
+    </div>
+  );
+}
+
+function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+  onOpenInvoice: (arId: string, num: string, customer: string | null) => void;
+}) {
+  const [from, setFrom] = useState(headerFrom);
+  const [to, setTo] = useState(headerTo);
+  const [data, setData] = useState<SoldDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; setLoading(true); setErr(null);
+    const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    fetch(`/api/internal/inventory-sold-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [row.style_id, from, to]);
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  const thR: React.CSSProperties = { ...th, textAlign: "right" };
+  const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
+  const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  return (
+    <div style={modalBackdrop} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Qty Sold — {row.style_code}{row.color ? ` · ${row.color}` : ""}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ marginBottom: 12 }}><DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} /></div>
+        {loading ? <div style={{ color: C.textMuted, padding: 16 }}>Loading…</div> : err ? <div style={{ background: "#7f1d1d", color: "#fff", padding: 10, borderRadius: 6 }}>{err}</div> : data && (
+          <>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
+              <thead><tr><th style={th}>Color</th><th style={thR}>Qty Sold</th><th style={thR}>Avg Unit Price</th></tr></thead>
+              <tbody>
+                {data.color_totals.map((c) => (
+                  <tr key={c.color ?? ""}><td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}</span></td><td style={tdR}>{fmtQty(c.qty)}</td><td style={tdR}>{money(c.avg_unit_price)}</td></tr>
+                ))}
+                <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td><td style={tdR} /></tr>
+              </tbody>
+            </table>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Invoices</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr><th style={th}>Color</th><th style={th}>Store</th><th style={thR}>Sold</th><th style={th}>Invoice #</th><th style={th}>Customer</th><th style={thR}>Unit Price</th><th style={th}>Date</th></tr></thead>
+              <tbody>
+                {data.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={td}>{r.color || "—"}</td>
+                    <td style={td}>{r.store || "—"}</td>
+                    <td style={tdR}>{fmtQty(r.qty)}</td>
+                    <td style={td}>{r.invoice_number ? (r.ar_invoice_id ? <span role="button" tabIndex={0} onClick={() => onOpenInvoice(r.ar_invoice_id!, r.invoice_number!, r.customer)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.invoice_number}</span> : r.invoice_number) : "—"}</td>
+                    <td style={td}>{r.customer || "—"}</td>
+                    <td style={tdR}>{money(r.unit_price)}</td>
+                    <td style={td}>{r.date ? fmtDate(String(r.date).slice(0, 10)) : "—"}</td>
+                  </tr>
+                ))}
+                {data.rows.length === 0 && <tr><td style={td} colSpan={7}>No invoices in this range.</td></tr>}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+  onOpenBill: (billId: string, ref: string, vendor: string | null) => void;
+}) {
+  const [from, setFrom] = useState(headerFrom);
+  const [to, setTo] = useState(headerTo);
+  const [data, setData] = useState<PurchasedDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; setLoading(true); setErr(null);
+    const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    fetch(`/api/internal/inventory-purchased-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [row.style_id, from, to]);
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  const thR: React.CSSProperties = { ...th, textAlign: "right" };
+  const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
+  const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  return (
+    <div style={modalBackdrop} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Purchased — {row.style_code}{row.color ? ` · ${row.color}` : ""}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer" }}>✕</button>
+        </div>
+        <div style={{ marginBottom: 12 }}><DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} /></div>
+        {loading ? <div style={{ color: C.textMuted, padding: 16 }}>Loading…</div> : err ? <div style={{ background: "#7f1d1d", color: "#fff", padding: 10, borderRadius: 6 }}>{err}</div> : data && (
+          <>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
+              <thead><tr><th style={th}>Color</th><th style={thR}>Purchased</th></tr></thead>
+              <tbody>
+                {data.color_totals.map((c) => (
+                  <tr key={c.color ?? ""}><td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}</span></td><td style={tdR}>{fmtQty(c.qty)}</td></tr>
+                ))}
+                <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td></tr>
+              </tbody>
+            </table>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Receipts &amp; bills</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr><th style={th}>Color</th><th style={th}>Vendor</th><th style={thR}>Purchased</th><th style={thR}>Unit Price</th><th style={th}>Ref #</th><th style={th}>Type</th><th style={th}>Receipt Date</th><th style={th}>Bill Date</th></tr></thead>
+              <tbody>
+                {data.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={td}>{r.color || "—"}</td>
+                    <td style={td}>{r.vendor || "—"}</td>
+                    <td style={tdR}>{fmtQty(r.qty)}</td>
+                    <td style={tdR}>{money(r.unit_price)}</td>
+                    <td style={td}>{r.ref ? (r.bill_id ? <span role="button" tabIndex={0} onClick={() => onOpenBill(r.bill_id!, r.ref!, r.vendor)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.ref}</span> : r.ref) : "—"}</td>
+                    <td style={td}>{r.receipt_type}</td>
+                    <td style={td}>{r.receipt_date ? fmtDate(String(r.receipt_date).slice(0, 10)) : "—"}</td>
+                    <td style={td}>{r.bill_date ? fmtDate(String(r.bill_date).slice(0, 10)) : "—"}</td>
+                  </tr>
+                ))}
+                {data.rows.length === 0 && <tr><td style={td} colSpan={8}>No purchases in this range.</td></tr>}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Full invoice / bill detail popup. `kind` picks AR vs AP. Customer/vendor name
+// is passed in (the [id] endpoint returns only the uuid — no-UUID rule).
+function DocDetailModal({ kind, id, number, party, onClose }: {
+  kind: "ar" | "ap"; id: string; number: string; party: string | null; onClose: () => void;
+}) {
+  const [doc, setDoc] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; setLoading(true); setErr(null);
+    fetch(`/api/internal/${kind === "ar" ? "ar-invoices" : "ap-invoices"}/${id}`)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((j) => { if (!cancelled) setDoc(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [kind, id]);
+  const editUrl = `?m=${kind === "ar" ? "ar_invoices" : "ap_invoices"}&q=${encodeURIComponent(number)}`;
+  const lines = (doc?.lines as Record<string, unknown>[]) || [];
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  const thR: React.CSSProperties = { ...th, textAlign: "right" };
+  const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
+  const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  const centsCol = kind === "ar" ? "unit_price_cents" : "unit_cost_cents";
+  return (
+    <div style={{ ...modalBackdrop, zIndex: 210 }} onClick={onClose}>
+      <div style={{ ...modalCard, width: "min(820px, 96vw)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{kind === "ar" ? "Invoice" : "Bill"} {number}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => openTab(editUrl)} style={{ background: "transparent", color: C.primary, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "5px 14px", fontSize: 13, cursor: "pointer" }}>✎ Edit (new tab)</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer" }}>✕</button>
+          </div>
+        </div>
+        {loading ? <div style={{ color: C.textMuted, padding: 16 }}>Loading…</div> : err ? <div style={{ background: "#7f1d1d", color: "#fff", padding: 10, borderRadius: 6 }}>{err}</div> : doc && (
+          <>
+            <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13, color: C.textSub, marginBottom: 14 }}>
+              <div><span style={dl}>{kind === "ar" ? "Customer" : "Vendor"}</span><br />{party || "—"}</div>
+              <div><span style={dl}>Date</span><br />{doc.invoice_date ? fmtDate(String(doc.invoice_date).slice(0, 10)) : "—"}</div>
+              <div><span style={dl}>Status</span><br />{String(doc.gl_status ?? "—")}</div>
+              <div><span style={dl}>Total</span><br />{doc.total_amount_cents != null ? `$${money(Number(doc.total_amount_cents) / 100)}` : "—"}</div>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr><th style={th}>#</th><th style={th}>Description</th><th style={thR}>Qty</th><th style={thR}>Unit</th><th style={thR}>Line Total</th></tr></thead>
+              <tbody>
+                {lines.map((l, i) => {
+                  const qty = Number(l.quantity) || 0;
+                  const unit = l[centsCol] != null ? Number(l[centsCol]) / 100 : null;
+                  const lineTotal = l.line_total_cents != null ? Number(l.line_total_cents) / 100 : (unit != null ? unit * qty : null);
+                  return (
+                    <tr key={i}>
+                      <td style={td}>{String(l.line_number ?? i + 1)}</td>
+                      <td style={td}>{String(l.description ?? "—")}</td>
+                      <td style={tdR}>{fmtQty(qty)}</td>
+                      <td style={tdR}>{money(unit)}</td>
+                      <td style={tdR}>{lineTotal != null ? `$${money(lineTotal)}` : "—"}</td>
+                    </tr>
+                  );
+                })}
+                {lines.length === 0 && <tr><td style={td} colSpan={5}>No lines.</td></tr>}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -504,6 +781,15 @@ export default function InternalInventoryMatrix() {
   const onSnapSort = (k: keyof SnapshotRow) => {
     setSnapSortKey((prev) => { if (prev === k) { setSnapSortDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setSnapSortDir("asc"); return k; });
   };
+  // Header date range — filters the Sold/Purchased columns AND seeds the drills.
+  const [snapFrom, setSnapFrom] = useState("");
+  const [snapTo, setSnapTo] = useState("");
+  // Per-row thumbnails for the snapshot (style + colour matched).
+  const snapThumbs = useStyleThumbs(snapRows.map((r) => r.style_id));
+  // Open drill modals.
+  const [soldFor, setSoldFor] = useState<SnapshotRow | null>(null);
+  const [purchasedFor, setPurchasedFor] = useState<SnapshotRow | null>(null);
+  const [docModal, setDocModal] = useState<{ kind: "ar" | "ap"; id: string; number: string; party: string | null } | null>(null);
   // Dynamic style search (mirrors Style Master): the matrix loads ALL styles on
   // open and this debounced text filters the multi-style view live (e.g. "ppk"
   // → every PPK style). Replaces the old style-picker dropdown.
@@ -759,14 +1045,14 @@ export default function InternalInventoryMatrix() {
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: pageStyleIds }),
+      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, pageStyleIds]);
+  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo]);
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1420,8 +1706,10 @@ export default function InternalInventoryMatrix() {
         const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 14px", fontSize: 13, color: C.text };
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13, gap: 12, flexWrap: "wrap" }}>
               <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
+              {/* Header date range — filters the Sold/Purchased columns and seeds each drill. */}
+              <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
               {totalPages > 1 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
@@ -1430,10 +1718,24 @@ export default function InternalInventoryMatrix() {
                 </div>
               )}
             </div>
-            <SnapshotView rows={snapRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort} />
+            <SnapshotView rows={snapRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+              thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} />
           </div>
         );
       })()}
+
+      {/* Drill modals */}
+      {soldFor && (
+        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setSoldFor(null)}
+          onOpenInvoice={(arId, num, customer) => setDocModal({ kind: "ar", id: arId, number: num, party: customer })} />
+      )}
+      {purchasedFor && (
+        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setPurchasedFor(null)}
+          onOpenBill={(billId, ref, vendor) => setDocModal({ kind: "ap", id: billId, number: ref, party: vendor })} />
+      )}
+      {docModal && (
+        <DocDetailModal kind={docModal.kind} id={docModal.id} number={docModal.number} party={docModal.party} onClose={() => setDocModal(null)} />
+      )}
 
       {/* Multi-style view — no specific style selected: render one page of styles
           (MULTI_PAGE_SIZE each) in the current scope (selected brand or all brands),
