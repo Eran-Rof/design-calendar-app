@@ -199,6 +199,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [expectedDate, setExpectedDate] = useState(po?.expected_date || "");
   const [paymentTermsId, setPaymentTermsId] = useState(po?.payment_terms_id || "");
   const [notes, setNotes] = useState(po?.notes || "");
+  // Collapse the rich document header (boxes) down to just the vendor name once
+  // the operator starts adding lines, so the size matrix has room. Toggleable.
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
@@ -520,6 +523,19 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New purchase order" : `Purchase order ${po?.po_number || "(draft)"} — ${po?.status}`}</h3>
 
+        {/* Header collapse bar — when collapsed, only the vendor name shows; the
+            full document header is one click away. Auto-collapses when the
+            operator adds a style / line (see onAddLine on the matrix below). */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: C.textMuted }}>
+            Vendor <b style={{ color: C.text, marginLeft: 6 }}>{vendors.find((v) => v.id === vendorId)?.name || (isNew ? "— not selected" : "—")}</b>
+          </div>
+          <button type="button" onClick={() => setHeaderCollapsed((c) => !c)} style={{ ...btnSecondary, fontSize: 12 }}>
+            {headerCollapsed ? "▾ Show header details" : "▴ Hide header details"}
+          </button>
+        </div>
+
+        {!headerCollapsed && (<>
         {/* Identity & status */}
         <Section title="Identity &amp; status">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
@@ -623,6 +639,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         </Section>
 
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
+        </>)}
 
         {/* Totals roll-up from Style Master logistics (read-only). On a new PO it
             populates after the first save (the server computes it from the lines). */}
@@ -662,6 +679,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             seed={seed}
             showOnHand={false}
             showLineDates
+            onAddLine={() => setHeaderCollapsed(true)}
           />
         </div>
 
