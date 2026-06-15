@@ -25,6 +25,7 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { confirmDialog } from "../shared/ui/warn";
+import type { OrderDocLine } from "./orderDocument";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -52,6 +53,9 @@ export interface LineMatrixBodyHandle {
   /** Set the per-row unit (e.g. an awarded cost) for the given styles IN PLACE —
    *  does NOT touch quantities. Map key = style_code, value = unit string. */
   applyUnitByStyle: (byStyle: Record<string, string>) => void;
+  /** Current filled lines for a printable document view — read-only, NO SKU
+   *  resolution / side effects (unlike resolve()). Matrix cells + flat lines. */
+  getDocumentLines: () => OrderDocLine[];
 }
 
 type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; quickFill?: Record<string, string> };
@@ -417,6 +421,28 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         for (const r of rowsFor(s.payload)) unit[r.key] = byStyle[code]; // set price on every row; qty untouched
         return { ...s, unit };
       }));
+    },
+    getDocumentLines(): OrderDocLine[] {
+      const out: OrderDocLine[] = [];
+      for (const s of sections) {
+        const st = styles.find((x) => x.id === s.styleId);
+        const code = s.payload?.style?.style_code || st?.style_code || "";
+        const desc = st?.style_name || st?.description || null;
+        for (const [cell, n] of Object.entries(s.qty)) {
+          if (!(n > 0)) continue;
+          const [rowKey, size] = cell.split("__");
+          const [color, inseam] = rowKey.split("|");
+          out.push({ style: code, description: desc, color: color || null, inseam: inseam || null, size: size || null, qty: n, unitDollars: Number((s.unit[rowKey] || "").replace(/,/g, "")) || 0 });
+        }
+      }
+      for (const l of flat) {
+        const q = Number(l.qty_ordered) || 0;
+        const totalStr = (l.line_total_dollars || "").replace(/,/g, "").trim();
+        if (!(q > 0) && totalStr === "") continue;
+        const unit = q > 0 ? Number((l.unit_price_dollars || "").replace(/,/g, "")) || 0 : (Number(totalStr) || 0);
+        out.push({ style: l.label || "(line)", description: l.description || null, color: null, inseam: null, size: null, qty: q > 0 ? q : 1, unitDollars: unit });
+      }
+      return out;
     },
   }), [sections, flat, styles]);
 
