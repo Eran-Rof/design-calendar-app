@@ -115,6 +115,7 @@ export function parseBillRows(csvRows) {
     bill.lines.push({
       line_index: bill.lines.length,
       item_number: itemNumber || null,
+      po_number: str(r["PO Number"]) || null,
       description: str(r["Description"]) || null,
       qty: qtyRaw === "" ? null : Number(qtyRaw),
       unit_price: str(r["Unit Price"]) === "" ? null : Number(String(r["Unit Price"]).replace(/[$,]/g, "")),
@@ -197,6 +198,7 @@ export function buildLineRows(bill, invoice_id, resolveId = null) {
     invoice_id,
     line_index: l.line_index,
     inventory_item_id: resolveId ? (resolveId(l.item_number) || null) : null,
+    po_number: l.po_number || null,
     description: l.description,
     quantity: l.qty,
     quantity_invoiced: l.qty,
