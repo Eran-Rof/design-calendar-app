@@ -95,13 +95,17 @@ export interface LineMatrixBodyProps {
    *  Brand field can auto-populate from the style. null when no style with a
    *  brand is selected. Fires only when the resolved brand changes. */
   onPrimaryBrandChange?: (brandId: string | null) => void;
+  /** Fires when the operator adds a style (matrix) or a non-matrix line. Lets the
+   *  owning modal react — e.g. collapse the document header to make room for
+   *  line entry. */
+  onAddLine?: () => void;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, onPrimaryBrandChange }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, onPrimaryBrandChange, onAddLine }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -159,7 +163,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
 
   // New style/line pickers prepend (on TOP of existing styles, not the bottom),
   // and request edit mode so a just-added row is editable on a confirmed order.
-  function addSection() { onRequestEdit?.(); setSections((p) => [{ id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null }, ...p]); }
+  function addSection() { onRequestEdit?.(); onAddLine?.(); setSections((p) => [{ id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null }, ...p]); }
   function removeSection(id: number) { setSections((p) => p.filter((s) => s.id !== id)); }
   function setQty(id: number, rowKey: string, size: string, n: number) {
     setSections((p) => p.map((s) => {
@@ -218,7 +222,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function setAllUnit(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
 
-  function addFlat() { onRequestEdit?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
+  function addFlat() { onRequestEdit?.(); onAddLine?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
   function updateFlat(idx: number, patch: Partial<FlatLine>) { setFlat((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l))); }
   function removeFlat(idx: number) { setFlat((p) => p.filter((_, i) => i !== idx)); }
 
