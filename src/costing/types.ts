@@ -153,7 +153,7 @@ export interface CostingLineVendor {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  vendor?: { id: string; code: string | null; legal_name: string | null } | null;
+  vendor?: { id: string; code: string | null; name: string | null; legal_name: string | null } | null;
 }
 
 export interface CostingLineCompliance {

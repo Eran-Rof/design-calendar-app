@@ -81,10 +81,14 @@ export default function VendorGridCell({ lineId }: Props) {
   const lookup = selected?.vendor_id
     ? vendors.find((v) => v.id === selected.vendor_id)
     : null;
+  // Prefer the human-readable NAME over the code. vendors.legal_name is often
+  // NULL on backfilled rows, so fall through legal_name → name → the picker's
+  // already-resolved label BEFORE ever showing the raw code.
   const selectedName =
     selected?.vendor?.legal_name
-    || selected?.vendor?.code
+    || selected?.vendor?.name
     || lookup?.legal_name
+    || selected?.vendor?.code
     || lookup?.code
     || "";
 
