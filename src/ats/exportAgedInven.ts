@@ -82,7 +82,12 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
   const exploded: ColorRecord[] = [];
   for (const r of rows) {
     if (!r.onHand || r.onHand <= 0) continue;
-    if (category !== "All" && r.category !== category) continue;
+    // Match the Category dropdown, which lists master_category values (the
+    // item-master-resolved "truth"), NOT the freeform r.category from the
+    // raw feed. Comparing against r.category here made every single-category
+    // run come back empty because the two fields differ. Fall back to
+    // r.category for rows the master didn't resolve.
+    if (category !== "All" && (r.master_category ?? r.category) !== category) continue;
     const { base, color } = parseSku(r.sku);
 
     let lrIso = DEFAULT_LAST_RECEIVED;
