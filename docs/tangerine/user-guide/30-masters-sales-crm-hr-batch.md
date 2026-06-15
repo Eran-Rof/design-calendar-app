@@ -99,13 +99,13 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 The target panel reads `?q=` on mount and seeds its search box, filtering to the single matching record (`invoice_number` / `po_number` `ilike`) so the clicked transaction is the only row shown. Draft POs (no PO number) are not clickable. The vendor's name/code is always shown — never a raw UUID.
 
-**Customer Scorecard** still uses the original in-place drill: a **"Drill to:"** bar above the metric tiles, clickable tiles, and per-tab "Open in … ↗" buttons that swap the active Tangerine module (via `?m=<target>&customer|q=…` + `popstate`) to the matching list, pre-filtered to that customer:
+**Customer Scorecard — per-line drill opens an in-place popup (2026-06-15).** The customer scorecard's **"Drill to:"** bar and the per-tab **"Open in … ↗"** buttons have been **removed**. Instead, **each row in the Invoices / Sales Orders / Journal Entries tabs is clickable** (cursor pointer + row hover highlight; the number/date renders in the accent colour). Click a row to open that exact record in a **popup over the scorecard**:
 
-| Scorecard | Drill target (`?m=`) | Filter seeded |
-|---|---|---|
-| **Customer** | Sales Orders (`sales_orders`) | `?customer=<customer_id>` → seeds the panel's **customer filter** (exact `customer_id`). |
-| **Customer** | AR Invoices (`ar_invoices`) | `?customer=<customer_id>` → seeds the **customer filter**. |
-| **Customer** | Journal Entries (`journal_entries`) | `?q=<customer code/name>` → seeds the JE **text filter** (JE has no party column). |
+- The popup shows the record's **header** (customer/date/status/total — for a JE: type + description) and its **line items** (invoice/SO: item/description · qty · unit · line total; JE: account *(resolved to `code — name`, never a UUID)* · memo · debit · credit).
+- **✎ Edit (new tab)** opens the full record in the matching module in a **new browser tab** (`?m=ar_invoices|sales_orders|journal_entries&q=<number>`), so the scorecard stays open behind it.
+- **✕** (or the backdrop, or **Esc**) closes the popup and **returns you to the scorecard** unchanged.
+
+Sourced from the existing single-record endpoints (`/api/internal/ar-invoices/:id`, `/sales-orders/:id`, `/journal-entries/:id`); the metric tiles still drill in place as before.
 
 ---
 
