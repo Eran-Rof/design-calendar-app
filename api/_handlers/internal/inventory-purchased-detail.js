@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     // ── Tangerine AP vendor bills ─────────────────────────────────────────────
     const liRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("invoice_line_items").select("invoice_id, inventory_item_id, quantity, unit_cost_cents, unit_price").in("inventory_item_id", ids));
+      admin.from("invoice_line_items").select("invoice_id, inventory_item_id, quantity, unit_cost_cents, unit_price, po_number").in("inventory_item_id", ids));
     const invIds = [...new Set(liRows.map((l) => l.invoice_id).filter(Boolean))];
     const invById = new Map();
     if (invIds.length) {
@@ -87,18 +87,34 @@ export default async function handler(req, res) {
       if (!r) {
         r = {
           color, vendor: vendName.get(inv.vendor_id) || null, qty: 0, _amt: 0, _q: 0,
-          ref: inv.invoice_number ?? null, bill_id: inv.id,
+          ref: inv.invoice_number ?? null, bill_id: inv.id, po_number: null,
           receipt_type: inv.invoice_kind === "vendor_credit_memo" ? "Credit" : "Bill",
           receipt_date: null, bill_date: inv.invoice_date ?? null,
         };
         billMap.set(key, r);
       }
+      if (!r.po_number && l.po_number) r.po_number = l.po_number; // first PO on the (bill,colour)
       const q = Number(l.quantity) || 0;
       r.qty += q;
       // Prefer the P3 cents column; fall back to the legacy unit_price (money)
       // for bills synced before lines carried unit_cost_cents.
       const unit = l.unit_cost_cents != null ? Number(l.unit_cost_cents) / 100 : (l.unit_price != null ? Number(l.unit_price) : null);
       if (unit != null) { r._amt += unit * q; r._q += q; }
+    }
+    // Bridge each bill row to a goods-receipt date via its PO number
+    // (ip_receipts_history.po_number → latest received_date). Best-effort:
+    // stays null when the receipt feed has no matching PO.
+    const billPoNums = [...new Set([...billMap.values()].map((r) => r.po_number).filter(Boolean))];
+    if (billPoNums.length) {
+      const recv = await fetchChunked(billPoNums, (ids) =>
+        admin.from("ip_receipts_history").select("po_number, received_date").in("po_number", ids));
+      const recvByPo = new Map();
+      for (const rr of recv) {
+        if (!rr.po_number || !rr.received_date) continue;
+        const cur = recvByPo.get(rr.po_number);
+        if (!cur || String(rr.received_date) > cur) recvByPo.set(rr.po_number, String(rr.received_date));
+      }
+      for (const r of billMap.values()) if (r.po_number && recvByPo.has(r.po_number)) r.receipt_date = recvByPo.get(r.po_number);
     }
     for (const r of billMap.values()) {
       const { _amt, _q, ...rest } = r;

@@ -123,9 +123,9 @@ describe("buildInvoicePayload / buildLineRows", () => {
     });
   });
 
-  it("links a bill line to its SKU via the Item Number resolver", () => {
+  it("links a bill line to its SKU via the Item Number resolver + captures PO number", () => {
     const sized = parseBillRows([
-      { "Bill Number": "ROF-B006029", "Bill Date": "06/03/2026", "Due Date": "", "Vendor Name": "ZJ", Currency: "USD", "Item Number": "RYB0412-AUTUMN GRIZZLY CAMO-32", Description: "Cargo Short", Qty: "100", "Unit Price": "5.90", Amount: "590.00", "Bill Status": "Posted", "Payment Status": "Unpaid" },
+      { "Bill Number": "ROF-B006029", "Bill Date": "06/03/2026", "Due Date": "", "Vendor Name": "ZJ", Currency: "USD", "Item Number": "RYB0412-AUTUMN GRIZZLY CAMO-32", "PO Number": "ROF-P000080", Description: "Cargo Short", Qty: "100", "Unit Price": "5.90", Amount: "590.00", "Bill Status": "Posted", "Payment Status": "Unpaid" },
     ])[0];
     const resolveId = makeItemResolver([
       { id: "sku-1", sku_code: "RYB0412-AUTUMNGRIZZLYCAMO-32", style_code: "RYB0412", color: "Autumn Grizzly Camo", size: "32" },
@@ -133,6 +133,7 @@ describe("buildInvoicePayload / buildLineRows", () => {
     const lines = buildLineRows(sized, "inv-uuid", resolveId);
     expect(lines[0].inventory_item_id).toBe("sku-1");
     expect(lines[0].unit_cost_cents).toBe(590);
+    expect(lines[0].po_number).toBe("ROF-P000080");
   });
 
   it("falls back to a colour-grain SKU when the Item Number has no size", () => {
