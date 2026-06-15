@@ -44,7 +44,10 @@ export default async function handler(req, res) {
   const isAll = limitParam === "all";
   const limitNum = isAll ? HARD_CEILING : Math.min(parseInt(limitParam, 10) || 50, HARD_CEILING);
 
-  const cols = "id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric:base_fabric_legacy, lifecycle_status";
+  // base_fabric is resolved from the authoritative FK (base_fabric_code_id →
+  // fabric_codes.code) so the costing line seeds the SAME fabric shown in Style
+  // Master; the legacy free-text column is only a fallback for un-migrated rows.
+  const cols = "id, entity_id, style_code, style_name, description, gender_code, category_id, season, base_fabric_legacy, base_fabric_ref:base_fabric_code_id ( code, name ), lifecycle_status";
   const buildQuery = (from, to) => {
     let qy = admin.from("style_master")
       .select(cols)
@@ -73,5 +76,16 @@ export default async function handler(req, res) {
     offset += batch.length;
   }
 
-  return res.status(200).json({ rows });
+  // Flatten the fabric FK join into the legacy `base_fabric` string the client
+  // expects (the costing line stores a fabric CODE). Prefer the FK code, fall
+  // back to the legacy free-text for styles not yet migrated to the FK.
+  const mapped = rows.map((r) => {
+    const ref = r.base_fabric_ref;
+    const base_fabric = (ref && (ref.code || ref.name)) || r.base_fabric_legacy || null;
+    // Drop the join helpers; surface a clean `base_fabric` string.
+    const { base_fabric_ref, base_fabric_legacy, ...rest } = r;
+    return { ...rest, base_fabric };
+  });
+
+  return res.status(200).json({ rows: mapped });
 }
