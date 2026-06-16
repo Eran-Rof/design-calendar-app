@@ -3,17 +3,15 @@ import { buildExportPayload } from "../exportExcel";
 import type { ExportOptions } from "../panels/ExportOptionsModal";
 import type { ATSRow } from "../types";
 
-// Sls Prc @ Margin now ships LIVE Excel formulas: Mrgn % = (Sls Prc − unit
-// cost)/Sls Prc and Total $ = Sls Prc × Total qty, both keyed off the editable
-// Sls Prc cell. The unit cost is parked on a separate "Cost (delete before
-// sending)" tab so a customer-facing export can be pasted-as-values and the
-// cost tab deleted. Customer Facing no longer strips the Sls Prc column.
-
-const COST_SHEET = "Cost (delete before sending)";
+// Buyer worksheet = the live internal pricing view: Avg Cost INLINE + editable
+// Sls Prc with LIVE Mrgn % / Total $ formulas (margin references the inline
+// Avg Cost cell — no separate cost sheet). Customer Facing reverts to its safe
+// original (strips cost + Sls Prc). The BP-max implied price is outlier-guarded
+// so one corrupt cost can't poison a whole style (the RYB1416 bug).
 
 function baseOpts(over: Partial<ExportOptions> = {}): ExportOptions {
   return {
-    subtotals: true, avgCost: false, slsPrcAtMrgn: true, slsMarginPct: 21,
+    subtotals: true, avgCost: false, slsPrcAtMrgn: false, slsMarginPct: 21,
     trailing3: false, spLY: false, customerEnabled: false, customer: "",
     showCustomerMargin: true, customerFacing: false, hideZeroColumns: false,
     hideATSData: false, hideEmptyHistoryRows: false, customSalesRangeEnabled: false,
@@ -39,55 +37,61 @@ function headerIdx(p: any, label: string): number {
   }
   return -1;
 }
-const costAoa = (p: any): any[][] => (p?.extraSheets ?? []).find((s: any) => s.name === COST_SHEET)?.aoa ?? [];
 
-describe("Sls Prc @ Margin — live formulas + Cost sheet", () => {
-  it("Mrgn % is a formula referencing the Cost sheet; Sls Prc stays a value", () => {
-    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts(), null, undefined, true)!;
-    const mrgn = allCells(p).find((c) => typeof c.f === "string" && c.f.includes(COST_SHEET));
+describe("Buyer worksheet — live formulas with inline cost", () => {
+  it("Mrgn % is a same-sheet formula (no Cost tab); Avg Cost shows inline", () => {
+    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ buyerWorksheet: true }), null, undefined, true)!;
+    // Avg Cost column is forced on and stays on the main sheet.
+    expect(headerIdx(p, "Avg Cost")).toBeGreaterThanOrEqual(0);
+    expect(headerIdx(p, "Sls Prc @ 21%")).toBeGreaterThanOrEqual(0);
+    expect(headerIdx(p, "Total $")).toBeGreaterThanOrEqual(0);
+    // No separate cost sheet — the margin references the inline Avg Cost cell.
+    expect(wbNames(p)).not.toContain("Cost (delete before sending)");
+    const mrgn = allCells(p).find((c) => typeof c.f === "string" && /\(([A-Z]+\d+)-([A-Z]+\d+)\)\//.test(c.f));
     expect(mrgn).toBeTruthy();
-    // (SlsPrcCell − 'Cost ...'!A<row>) / SlsPrcCell
-    expect(mrgn.f).toMatch(/-'Cost \(delete before sending\)'!A\d+\)\//);
-
-    // The Sls Prc cell itself is a plain editable number (no formula).
-    const slsIdx = headerIdx(p, "Sls Prc @ 21%");
-    expect(slsIdx).toBeGreaterThanOrEqual(0);
-    const slsBody = (p.aoa as any[][]).find((r) => r && r[slsIdx] && typeof r[slsIdx].v === "number" && !r[slsIdx].f);
-    expect(slsBody).toBeTruthy();
+    expect(mrgn.f).not.toContain("Cost (");
   });
 
   it("Total $ is a live formula = Sls Prc × Total qty", () => {
-    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts(), null, undefined, true)!;
-    expect(headerIdx(p, "Total $")).toBeGreaterThanOrEqual(0);
+    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ buyerWorksheet: true }), null, undefined, true)!;
     const ttl = allCells(p).find((c) => typeof c.f === "string" && /^IF\([A-Z]+\d+="",0,[A-Z]+\d+\*[A-Z]+\d+\)$/.test(c.f));
     expect(ttl).toBeTruthy();
   });
 
-  it("adds the Cost tab with the unit cost aligned to the formula's row", () => {
-    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts(), null, undefined, true)!;
-    expect(wbNames(p)).toContain(COST_SHEET);
-    const mrgn = allCells(p).find((c) => typeof c.f === "string" && c.f.includes(COST_SHEET));
-    const refRow = Number(/!A(\d+)\)/.exec(mrgn.f)![1]);
-    // The Cost sheet carries the unit cost (10) at the SAME AoA row the formula
-    // points to (index = row − 1), so the cross-sheet reference resolves.
-    const ca = costAoa(p);
-    expect(ca[refRow - 1]?.[0]?.v).toBe(10);
-    // A red "delete this sheet" warning sits at the top.
-    expect(String(ca[0]?.[0]?.v ?? "")).toMatch(/DELETE THIS SHEET/i);
-  });
-
-  it("Customer Facing keeps Sls Prc @ Margin but drops Avg Cost from the main sheet", () => {
-    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ customerFacing: true }), null, undefined, true)!;
-    expect(headerIdx(p, "Sls Prc @ 21%")).toBeGreaterThanOrEqual(0); // kept
-    expect(headerIdx(p, "Total $")).toBeGreaterThanOrEqual(0);        // kept
-    expect(headerIdx(p, "Avg Cost")).toBe(-1);                        // stripped from main
-    expect(wbNames(p)).toContain(COST_SHEET);                         // cost moved to its own tab
-  });
-
-  it("no Cost tab and no Total $ / formulas when Sls Prc @ Margin is off", () => {
-    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ slsPrcAtMrgn: false }), null, undefined, true)!;
-    expect(wbNames(p)).not.toContain(COST_SHEET);
+  it("Customer Facing reverts to safe original — strips Avg Cost AND Sls Prc", () => {
+    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ customerFacing: true, slsPrcAtMrgn: true, avgCost: true }), null, undefined, true)!;
+    expect(headerIdx(p, "Avg Cost")).toBe(-1);
+    expect(headerIdx(p, "Sls Prc @ 21%")).toBe(-1);
     expect(headerIdx(p, "Total $")).toBe(-1);
-    expect(allCells(p).some((c) => typeof c.f === "string" && c.f.includes(COST_SHEET))).toBe(false);
+  });
+
+  it("plain Sls Prc @ Margin (no buyer worksheet) keeps static margin, no Total $", () => {
+    const p = buildExportPayload([row()], PERIODS, [], null, baseOpts({ slsPrcAtMrgn: true }), null, undefined, true)!;
+    expect(headerIdx(p, "Sls Prc @ 21%")).toBeGreaterThanOrEqual(0);
+    expect(headerIdx(p, "Total $")).toBe(-1); // Total $ is buyer-worksheet-only
+    // Mrgn % is a static value, not a formula.
+    const hasMrgnFormula = allCells(p).some((c) => typeof c.f === "string" && /\)\/[A-Z]+\d+/.test(c.f));
+    expect(hasMrgnFormula).toBe(false);
+  });
+});
+
+describe("BP-max implied price is outlier-guarded (RYB1416 bug)", () => {
+  it("one corrupt 20x cost does not set the whole style's Sls Prc", () => {
+    // Two colors of one style: a normal $10 cost and a corrupt $200 (pack cost
+    // mis-keyed as a unit cost). The implied price must come from $10, not $200.
+    const rows: ATSRow[] = [
+      row({ sku: "OUT - Good", master_color: "Good", master_style: "OUT", avgCost: 10 }),
+      row({ sku: "OUT - Bad",  master_color: "Bad",  master_style: "OUT", avgCost: 200 }),
+    ];
+    const p = buildExportPayload(rows, PERIODS, [], null, baseOpts({ buyerWorksheet: true }), null, undefined, true)!;
+    const slsIdx = headerIdx(p, "Sls Prc @ 21%");
+    expect(slsIdx).toBeGreaterThanOrEqual(0);
+    const slsValues = (p.aoa as any[][])
+      .filter((r) => r && r[slsIdx] && typeof r[slsIdx].v === "number")
+      .map((r) => r[slsIdx].v as number);
+    expect(slsValues.length).toBeGreaterThan(0);
+    // $10 / (1 − 0.21) rounded up to $0.05 = 12.70. The corrupt $200 would give
+    // ~$253 — guard keeps every variant at the sane price.
+    for (const v of slsValues) expect(v).toBeLessThan(20);
   });
 });

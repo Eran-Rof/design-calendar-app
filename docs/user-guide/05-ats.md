@@ -199,9 +199,10 @@ Choosing **Export Excel…** opens an options panel. Tick what you want, then **
 
 - **Subtotals (per style)** — subtotal rows per style.
 - **Avg Cost** — adds Avg Cost and Total Cost columns.
-- **Sls Prc @ Margin** — adds three columns: the implied **Sls Prc** (price = cost ÷ (1 − margin), editable), a **Mrgn %**, and a **Total $** (Sls Prc × qty). **Mrgn % and Total $ are live Excel formulas** — change a sale price in the sheet and the margin % and total recalculate instantly. The unit cost the margin needs is parked on a separate **“Cost (delete before sending)”** worksheet that the formulas reference.
+- **Sls Prc @ Margin** — adds the implied **Sls Prc** (price = cost ÷ (1 − margin)) and a **Mrgn %** column. All variants of a style show the same price (the highest implied across the style, so nothing is under-priced) — a single wildly-out-of-line cost is ignored as a likely data error so it can't inflate the rest.
 - **Trailing 3 & SP LY sales** — adds quantity / sale price / margin for the last 3 months and the same period last year.
-- **Customer Facing** — drops the cost-basis columns (Avg Cost, Total Cost, T3/LY Mrgn %) from the main sheet. You can now combine it with **Sls Prc @ Margin** to build an editable quote: adjust prices, watch margins update, then **paste the report sheet as Values** (so the numbers freeze) and **delete the “Cost (delete before sending)” tab** — leaving a clean, cost-free workbook to send.
+- **Customer Facing** — strips **every** cost and margin column (Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %), so the workbook is safe to send to the customer.
+- **Buyer worksheet** — the live internal **pricing tool** (shows cost — *not* for customers). Adds an **Avg Cost** column, an editable **Sls Prc**, a **Mrgn %**, and a **Total $**, where **Mrgn % and Total $ are live Excel formulas**: type a new sale price into a Sls Prc cell and the margin % and total recalculate instantly. Uses the **Margin %** you set as the starting price. Mutually exclusive with Customer Facing.
 - **Hide zero columns** — drops any data column that's entirely empty.
 - **By Size Matrix** — adds the size breakdown worksheet (below).
 - **Hide ATS data** — drops the date/availability columns and keeps the identity + history blocks (useful for a pure sales-history pull). This mode lets you set a **custom date range** for the trailing/last-year windows.
