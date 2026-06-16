@@ -155,8 +155,9 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
    - **Unsaved-changes guard** — on a **new** PO that already has data (vendor, lines, or any header field), **Close** or a click outside the modal first asks *"This purchase order hasn't been saved. Close and discard your changes?"*, so a PO built from an SO or by hand isn't lost to an accidental click.
 3. **Audit trail** — re-open any saved PO to see the **Audit trail** timeline at the bottom (the shared T11 `RowHistory`): every header/line field change is recorded with the changed columns, before/after values, and timestamp (`row_changes`, via the universal audit trigger now attached to `purchase_orders` + `purchase_order_lines`).
 3. **Save draft** — header + lines persist; `po_number` stays null.
-4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). Lines become line-locked. The PO number is **never** reassigned.
-5. **Mark in-transit / Mark received** — advance status.
+4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). The PO number is **never** reassigned.
+5. **✎ Edit (revise an issued PO)** — re-open a saved PO and click **✎ Edit** in the footer to unlock **everything** (header *and* lines) for revision — no more cancel-and-recreate. Saving (**💾 Save revision**) sends a **"Purchase order revised" notification** to the vendor's portal users (bell + email) when the vendor is connected to the Vendor Portal (`notifyVendor` over `vendor_users`; a no-op if they have no portal login). The change is recorded in the Audit trail. Server-side this is `PATCH {revise:true, …}`, which lifts the draft-only line lock for that one save. **Cancel edit** discards. _(Note: open-PO commitment rows aren't yet re-derived on a line-changing revision — folded into the receiving/GL rework below.)_
+6. **Mark in-transit / Mark received** — advance status. ⚠️ **Today "Mark received" is a status flag only** (see below) — the real receipt-posting + 3-way match is the next build.
 
 **Finding a PO (list search).** The **Search PO #, vendor, style…** box is **all-field**: the server matches the typed text against the **PO number**, the **vendor name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring), alongside the **Vendor** and **Status** filters (all ANDed), updating as you type (200 ms debounce). The whole search runs in the `search_purchase_orders` SQL function, so it spans the entire book — not just the loaded rows — including the line-level style/SKU match.
 
@@ -177,7 +178,7 @@ FIFO layers and the GL impact (`DR Inventory / CR AP`) are created when the matc
 | `GET` | `/api/internal/purchase-orders` | List headers. Filters `status`, `vendor_id`, `q` (po_number ilike), `limit` (≤500, default 200). Brand-scoped. |
 | `POST` | `/api/internal/purchase-orders` | Create a **draft** (lines with `qty_ordered > 0`; zero/empty lines skipped). |
 | `GET` | `/api/internal/purchase-orders/:id` | Header + lines. |
-| `PATCH` | `/api/internal/purchase-orders/:id` | Update mutable header fields, replace lines (**drafts only**), and/or change `status`. Issuing assigns `po_number`. |
+| `PATCH` | `/api/internal/purchase-orders/:id` | Update mutable header fields, replace lines (**drafts**, or any status with **`revise:true`**), and/or change `status`. Issuing assigns `po_number`. A `revise:true` save on a non-draft notifies the vendor's portal users (`notifyVendor`, bell + email) and returns `vendor_notified` (count). |
 | `DELETE` | `/api/internal/purchase-orders/:id` | **Drafts only** (409 otherwise — cancel an issued PO instead). Cascades lines. |
 
 ---

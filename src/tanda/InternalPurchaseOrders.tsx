@@ -207,7 +207,12 @@ export default function InternalPurchaseOrders() {
 
 function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
   const isNew = po === null;
-  const editable = isNew || po?.status === "draft";
+  // ✎ Edit unlocks a saved (issued/in-transit/received) PO for revision — the
+  // operator can change anything; saving fires a "PO revised" notification to
+  // the vendor's portal users (if connected). Drafts + new POs are editable as-is.
+  const [editMode, setEditMode] = useState(false);
+  const isRevisable = !isNew && po != null && po.status !== "draft" && po.status !== "cancelled";
+  const editable = isNew || po?.status === "draft" || editMode;
 
   const [vendorId, setVendorId] = useState(po?.vendor_id || "");
   const [brandId, setBrandId] = useState(po?.brand_id || "");
@@ -488,6 +493,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       season: season || null, channel_id: channelId || null, department_category_id: departmentCategoryId || null,
       sales_order_id: salesOrderId || null,
     };
+    // Revising an already-saved (non-draft) PO: tell the server to allow the edit
+    // past the draft-only line lock + notify the vendor.
+    if (!isNew && po && po.status !== "draft") body.revise = true;
     if (isNew) {
       const r = await fetch("/api/internal/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -500,8 +508,12 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   }
 
   async function saveDraft() {
+    const revising = !isNew && po != null && po.status !== "draft";
     setSubmitting(true);
-    try { const id = await save(); if (id) { notify("Purchase order saved.", "success"); onSaved(); } }
+    try {
+      const id = await save();
+      if (id) { notify(revising ? "Revision saved — vendor notified (if on the portal)." : "Purchase order saved.", "success"); onSaved(); }
+    }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setSubmitting(false); }
   }
@@ -761,10 +773,19 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
           <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">🖨 View</button>
-          {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Save draft" : "Save draft"}</button>}
-          {editable && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
-          {!isNew && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
-          {!isNew && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
+
+          {/* Draft / new — the original save + issue flow. */}
+          {(isNew || po?.status === "draft") && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
+          {(isNew || po?.status === "draft") && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
+
+          {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
+          {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}
+          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
+
+          {/* Revising a saved PO — save the revision (notifies the vendor) or cancel. */}
+          {isRevisable && editMode && <button onClick={() => setEditMode(false)} style={btnSecondary} disabled={submitting}>Cancel edit</button>}
+          {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "💾 Save revision"}</button>}
         </div>
       </div>
 
