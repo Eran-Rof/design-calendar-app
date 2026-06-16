@@ -130,6 +130,12 @@ You'll be warned — with the option to **delete the incomplete rows and continu
    Sell**. The vendor's own target *cost* (what they quote against) is shown
    separately on the RFQ itself, not in this comparison.
 
+> **Deleting a line that's already on an RFQ is a revision.** If you delete a
+> costing-project line whose style was already sent on an RFQ, that line is
+> **removed from the RFQ** — it drops off both the **vendor portal** and the ROF
+> **RFQ list** (the line count updates), and the invited vendor is **notified** of
+> the revision. So an RFQ never keeps showing a style you've since removed.
+
 > **Number formatting.** Throughout the module — Compare RFQs and the costing
 > grid — unit prices, per-line extended amounts, margins and percentages display
 > to **two decimal places**. The roll-up **grand totals** (each vendor's quote

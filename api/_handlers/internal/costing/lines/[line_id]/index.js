@@ -232,6 +232,72 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    // Deleting a costing line that's already on an RFQ is a REVISION: pull the
+    // linked rfq_line_item(s) (+ their vendor quote lines) BEFORE the delete so
+    // the style drops off the vendor portal AND the ROF RFQ grid, then notify
+    // the invited vendor(s). The FK is ON DELETE SET NULL — if we let the
+    // costing_line delete fire first, costing_line_id is nulled and the RFQ
+    // line is left orphaned (the "RFQ still shows 2" bug). Best-effort: a sync/
+    // notify hiccup must never block the delete itself.
+    try {
+      const { data: liRows } = await admin.from("rfq_line_items")
+        .select("id, rfq_id, description, style_code, entity_id")
+        .eq("costing_line_id", lineId);
+      const lineItemIds = (liRows || []).map((r) => r.id);
+      if (lineItemIds.length > 0) {
+        const rfqIds = [...new Set((liRows || []).map((r) => r.rfq_id).filter(Boolean))];
+        const nowIso = new Date().toISOString();
+
+        // Append-only revision history (best-effort) — record the removal.
+        for (const li of liRows || []) {
+          try {
+            await admin.from("rfq_line_revisions").insert({
+              rfq_line_item_id: li.id,
+              rfq_id: li.rfq_id,
+              costing_line_id: lineId,
+              revised_at: nowIso,
+              changed_fields: ["_removed"],
+              old_values: { description: li.description ?? null, style_code: li.style_code ?? null },
+              new_values: {},
+              revised_by: "ROF",
+              entity_id: li.entity_id || null,
+            });
+          } catch { /* history is best-effort */ }
+        }
+
+        // Drop the vendor quote lines that referenced these RFQ lines, then the
+        // RFQ lines themselves (so line_count + the vendor view both update).
+        try { await admin.from("rfq_quote_lines").delete().in("rfq_line_item_id", lineItemIds); } catch { /* may already cascade */ }
+        await admin.from("rfq_line_items").delete().in("id", lineItemIds);
+
+        // Notify the invited vendor(s) of every affected RFQ (a line was removed).
+        const { data: invs } = await admin.from("rfq_invitations").select("rfq_id, vendor_id").in("rfq_id", rfqIds);
+        if (invs && invs.length > 0) {
+          const { data: rfqMeta } = await admin.from("rfqs").select("id, title").in("id", rfqIds);
+          const titleById = Object.fromEntries((rfqMeta || []).map((r) => [r.id, r.title]));
+          const origin = `https://${req.headers.host}`;
+          await Promise.all(invs.map((inv) =>
+            fetch(`${origin}/api/send-notification`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                event_type: "rfq_revised",
+                title: `An RFQ was revised: ${titleById[inv.rfq_id] || "RFQ"}`,
+                body: "Ring of Fire removed a line from this RFQ. Open it to review the current items.",
+                link: `/vendor/rfqs/${inv.rfq_id}`,
+                metadata: { rfq_id: inv.rfq_id },
+                recipient: { vendor_id: inv.vendor_id },
+                dedupe_key: `rfq_revised_${inv.rfq_id}_${inv.vendor_id}_${nowIso}`,
+                email: true,
+              }),
+            }).catch(() => {})
+          ));
+        }
+      }
+    } catch (e) {
+      console.warn(`[costing-line] RFQ line removal on delete failed for line ${lineId}: ${e && e.message ? e.message : String(e)}`);
+    }
+
     const { error } = await admin.from("costing_lines").delete().eq("id", lineId);
     if (error) return res.status(500).json({ error: error.message });
     return res.status(204).end();
