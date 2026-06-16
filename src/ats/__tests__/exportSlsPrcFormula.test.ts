@@ -94,4 +94,20 @@ describe("BP-max implied price is outlier-guarded (RYB1416 bug)", () => {
     // ~$253 — guard keeps every variant at the sane price.
     for (const v of slsValues) expect(v).toBeLessThan(20);
   });
+
+  it("the corrupt-cost row shows the BP representative cost, not the 20x outlier", () => {
+    const rows: ATSRow[] = [
+      row({ sku: "OUT - Good", master_color: "Good", master_style: "OUT", avgCost: 10 }),
+      row({ sku: "OUT - Bad",  master_color: "Bad",  master_style: "OUT", avgCost: 200 }),
+    ];
+    const p = buildExportPayload(rows, PERIODS, [], null, baseOpts({ buyerWorksheet: true }), null, undefined, true)!;
+    const acIdx = headerIdx(p, "Avg Cost");
+    expect(acIdx).toBeGreaterThanOrEqual(0);
+    const costs = (p.aoa as any[][])
+      .filter((r) => r && r[acIdx] && typeof r[acIdx].v === "number")
+      .map((r) => r[acIdx].v as number);
+    // No row (incl. the corrupt one) shows the 200 outlier — it falls back to
+    // the BP's representative $10, so margins stay sane (no −1700% row).
+    for (const c of costs) expect(c).toBeLessThan(50);
+  });
 });

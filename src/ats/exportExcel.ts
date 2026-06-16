@@ -606,8 +606,11 @@ export function buildExportPayload(
   // BP-max implied price AND the grand-total weighted average, so it can't
   // inflate either. Shared via isOutlierCost() below.
   const bpCostCap = new Map<string, number>();
+  // Cheapest valued variant per BP (grain-adjusted). Used both for the cap and
+  // as the REPRESENTATIVE cost a corrupt-outlier row falls back to, so its
+  // Avg Cost / Total Cost / margin render consistently with its siblings.
+  const bpMinCost = new Map<string, number>();
   {
-    const minByBp = new Map<string, number>();
     for (const r of rows) {
       const styleKey = r.master_style ?? "";
       if (!styleKey) continue;
@@ -615,10 +618,10 @@ export function buildExportPayload(
       const rCostMul = (explodePpk ?? true) ? 1 : rMult;
       const rAvgCost = (r.avgCost ?? 0) * rCostMul;
       if (rAvgCost <= 0) continue;
-      const cur = minByBp.get(styleKey);
-      if (cur === undefined || rAvgCost < cur) minByBp.set(styleKey, rAvgCost);
+      const cur = bpMinCost.get(styleKey);
+      if (cur === undefined || rAvgCost < cur) bpMinCost.set(styleKey, rAvgCost);
     }
-    for (const [k, v] of minByBp) bpCostCap.set(k, v * COST_OUTLIER_FACTOR);
+    for (const [k, v] of bpMinCost) bpCostCap.set(k, v * COST_OUTLIER_FACTOR);
   }
   // A grain-adjusted cost is an outlier when the BP has >1 valued variant and
   // the cost exceeds that BP's cap. Single-variant BPs are never flagged.
@@ -1165,7 +1168,18 @@ export function buildExportPayload(
     // avgCost on the row is per-UNIT. When the grid is in pack mode
     // (explodePpk=false) we display it per-PACK by multiplying by
     // ppkMult so the operator sees the same grain as the grid.
-    const avgCostV = (r.avgCost ?? 0) * costMul;
+    const rawAvgCostV = (r.avgCost ?? 0) * costMul;
+    // A corrupt per-BP outlier cost (e.g. a pack cost mis-keyed as a unit cost,
+    // like RYB1416's 171.60 vs the real 7.50) falls back to the BP's
+    // representative (cheapest) cost, so this row's Avg Cost / Total Cost /
+    // margin render consistently with its siblings instead of a wild negative
+    // margin. The implied Sls Prc was already BP-uniform, so this keeps the
+    // whole row coherent.
+    const styleKeyForCost = r.master_style ?? "";
+    const bpRepCost = bpMinCost.get(styleKeyForCost);
+    const avgCostV = (bpRepCost != null && isOutlierCost(styleKeyForCost, rawAvgCostV, bpValuedCount.get(styleKeyForCost) ?? 1))
+      ? bpRepCost
+      : rawAvgCostV;
     // Total cost = avgCost × the row's total qty across periods.
     // Both avgCostV and rowPeriodTotal have already been scaled by
     // costMul / qtyDiv (inverses); the product is grain-invariant.
