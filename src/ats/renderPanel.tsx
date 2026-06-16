@@ -63,10 +63,15 @@ interface ATSDerivedCtx {
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   filtered: ATSRow[];
   statFiltered: ATSRow[];
+  // LEAF rows (collapse NOT applied), filtered + sorted. Feeds the Excel
+  // export, reports, and the AI snapshot so they're identical on any grid
+  // view — the grid's collapse is a display-only transform carried by
+  // pageRows. (ATS passes its `sortedLeaves` here.)
   sortedFiltered: ATSRow[];
   // Calc sets = filtered/sortedFiltered MINUS excluded ("X") rows. Feed
   // every aggregation + report; the grid display still uses filtered/pageRows
   // so excluded rows stay visible (greyed) and can be unchecked.
+  // calcSortedFiltered is leaf-grain (see sortedFiltered above).
   calcFiltered: ATSRow[];
   calcSortedFiltered: ATSRow[];
   // Distinct excluded rows currently loaded — drives the pre-report warning.
