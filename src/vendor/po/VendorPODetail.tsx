@@ -179,12 +179,14 @@ export default function VendorPODetail() {
         setLines(lineData);
         setShipments((shipRes.data ?? []) as ShipmentRow[]);
 
-        // Acknowledge check keyed by po_number
-        if (vu && poRes.data) {
+        // Acknowledge check keyed by po_number (source-agnostic — works for both
+        // Xoro tanda_pos rows and Tangerine purchase_orders, so use the resolved
+        // poData, not only the tanda_pos result).
+        if (vu && poData) {
           const { data: ackRow } = await supabaseVendor
             .from("po_acknowledgments")
             .select("id")
-            .eq("po_number", poRes.data.po_number)
+            .eq("po_number", poData.po_number)
             .eq("vendor_user_id", vu.id)
             .maybeSingle();
           setAcked(!!ackRow);
