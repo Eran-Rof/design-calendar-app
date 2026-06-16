@@ -114,7 +114,10 @@ You'll be warned — with the option to **delete the incomplete rows and continu
      asked to confirm before a duplicate is created and sent.
 2. In the **RFQ list**, the **Fabric** column shows `CODE — Description`, and clicking a
    row opens that RFQ's **source project in a new tab** (the title cell still opens the
-   RFQ editor).
+   RFQ editor). Click the **▸ chevron** next to an RFQ's code to **expand it inline** —
+   each style (line item) is listed with its target price and **each vendor's quoted
+   unit price** (when they've quoted), so you can compare a multi-style RFQ at a glance
+   without leaving the list.
 3. **Compare RFQs** lays quotes side-by-side; **Award** picks the winner. Each
    line's **Sell $** reference is the project's **Sell Tgt** (the price you sell
    at — editable inline per line), and per-vendor **margin = (Sell − quoted) ÷

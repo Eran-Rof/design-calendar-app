@@ -301,6 +301,11 @@ export interface RfqLineItem {
   waist_type: string | null;
   /** Per-unit cost target the vendor is asked to quote against (= costing_lines.target_cost). */
   target_price: number | null;
+  /** Style/color snapshot mirrored from the source costing line (present in DB; returned by the detail GET). */
+  style_code?: string | null;
+  color?: string | null;
+  /** Back-pointer to the source costing line (for per-line award write-back). */
+  costing_line_id?: string | null;
   created_at: string;
 }
 
@@ -318,10 +323,32 @@ export interface RfqInvitation {
   } | null;
 }
 
+export interface RfqQuoteLine {
+  quote_id: string;
+  rfq_line_item_id: string;
+  unit_price: number | null;
+  quantity: number | null;
+  notes: string | null;
+}
+export interface RfqQuoteSummary {
+  id: string;
+  vendor_id: string;
+  vendor_name: string | null;
+  status: string;
+  total_price: number | null;
+  lead_time_days: number | null;
+  valid_until: string | null;
+  submitted_at: string | null;
+  notes: string | null;
+  lines: RfqQuoteLine[];
+}
+
 export interface RfqDetail {
   rfq: RfqListRow;
   line_items: RfqLineItem[];
   invitations: RfqInvitation[];
+  /** Vendor quotes + per-line prices (RFQ-list inline expand). */
+  quotes?: RfqQuoteSummary[];
   // The destined vendor on a not-yet-sent draft (no invitation row exists yet).
   intended_vendor?: {
     id: string;
