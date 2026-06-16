@@ -136,12 +136,47 @@ export default async function handler(req, res) {
       intendedVendor = iv || null;
     }
 
+    // Vendor quotes + their per-line prices, so the RFQ-list inline expand can
+    // show "quoted $X" against each style when a vendor has actually quoted.
+    let quotes = [];
+    try {
+      const { data: qRows } = await admin.from("rfq_quotes")
+        .select("id, vendor_id, status, total_price, lead_time_days, valid_until, submitted_at, notes, vendor:vendors(id, name, legal_name, code)")
+        .eq("rfq_id", id);
+      const quoteIds = (qRows || []).map((q) => q.id);
+      const linesByQuote = new Map();
+      if (quoteIds.length > 0) {
+        const { data: qLines } = await admin.from("rfq_quote_lines")
+          .select("quote_id, rfq_line_item_id, unit_price, quantity, notes")
+          .in("quote_id", quoteIds);
+        for (const l of qLines || []) {
+          if (!linesByQuote.has(l.quote_id)) linesByQuote.set(l.quote_id, []);
+          linesByQuote.get(l.quote_id).push(l);
+        }
+      }
+      quotes = (qRows || []).map((q) => ({
+        id: q.id,
+        vendor_id: q.vendor_id,
+        vendor_name: q.vendor?.legal_name || q.vendor?.name || q.vendor?.code || null,
+        status: q.status,
+        total_price: q.total_price,
+        lead_time_days: q.lead_time_days,
+        valid_until: q.valid_until,
+        submitted_at: q.submitted_at,
+        notes: q.notes,
+        lines: linesByQuote.get(q.id) || [],
+      }));
+    } catch (e) {
+      console.warn("[costing/rfqs/:id] quotes enrichment failed:", e.message);
+    }
+
     return res.status(200).json({
       rfq,
       line_items: items,
       invitations: invitations || [],
       intended_vendor: intendedVendor,
       source_project: project,
+      quotes,
     });
   }
 

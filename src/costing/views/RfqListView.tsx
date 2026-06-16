@@ -8,13 +8,13 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq, publishRfq, awardRfq, stripExcelPrefix } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq, awardRfq, stripExcelPrefix, getRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
-import type { RfqListRow, RfqStatus } from "../types";
+import type { RfqListRow, RfqStatus, RfqDetail, RfqLineItem, RfqQuoteSummary } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
   draft:     { bg: "#F3F4F6", fg: "#6B7280" },
@@ -42,6 +42,23 @@ export default function RfqListView() {
   const [sending, setSending] = useState<Set<string>>(new Set());
   // RFQ ids with an in-flight Award (disable + show "Awarding…").
   const [awarding, setAwarding] = useState<Set<string>>(new Set());
+  // Inline expand: which RFQ row is expanded + lazy-loaded detail cache.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailById, setDetailById] = useState<Record<string, RfqDetail>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (!detailById[id]) {
+      setDetailLoadingId(id);
+      try {
+        const d = await getRfq(id);
+        setDetailById((m) => ({ ...m, [id]: d }));
+      } catch { /* error shown inline */ }
+      finally { setDetailLoadingId((cur) => (cur === id ? null : cur)); }
+    }
+  };
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -338,13 +355,14 @@ export default function RfqListView() {
             )}
             {sortedRows.map((r) => {
               const sc = STATUS_COLOR[r.status] || STATUS_COLOR.draft;
+              const isExpanded = expandedId === r.id;
               return (
+                <React.Fragment key={r.id}>
                 <tr
-                  key={r.id}
                   onClick={() => onOpenProject(r)}
-                  style={{ borderTop: "1px solid #334155", cursor: "pointer" }}
+                  style={{ borderTop: "1px solid #334155", cursor: "pointer", background: isExpanded ? "#243042" : "transparent" }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "#334155"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = isExpanded ? "#243042" : "transparent"; }}
                   title={r.source_costing_project_id ? "Open source project in new tab" : "Click to view + edit RFQ"}
                 >
                   <Td align="center">
@@ -358,16 +376,26 @@ export default function RfqListView() {
                     />
                   </Td>
                   <Td>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
-                      title="Open RFQ"
-                      style={{
-                        background: "transparent", border: "none", padding: 0, cursor: "pointer",
-                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap",
-                        textDecoration: "underline", textDecorationColor: "#475569",
-                      }}
-                    >{r.code || "—"}</button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void toggleExpand(r.id); }}
+                        title={isExpanded ? "Collapse line items" : "Expand to see styles + quoted prices"}
+                        style={{
+                          background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                          color: "#94A3B8", fontSize: 11, lineHeight: 1, width: 12, flexShrink: 0,
+                        }}
+                      >{isExpanded ? "▾" : "▸"}</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
+                        title="Open RFQ"
+                        style={{
+                          background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap",
+                          textDecoration: "underline", textDecorationColor: "#475569",
+                        }}
+                      >{r.code || "—"}</button>
+                    </div>
                   </Td>
                   <Td>
                     <button
@@ -452,6 +480,18 @@ export default function RfqListView() {
                     </div>
                   </Td>
                 </tr>
+                {isExpanded && (
+                  <tr style={{ background: "#0F172A" }}>
+                    <td colSpan={14} style={{ padding: 0, borderTop: "1px solid #334155" }}>
+                      <RfqExpandPanel
+                        detail={detailById[r.id]}
+                        loading={detailLoadingId === r.id}
+                        currency={r.currency || "USD"}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -469,4 +509,68 @@ function Th({ children, align }: { children: React.ReactNode; align?: "left" | "
 }
 function Td({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
   return <td style={{ padding: "8px 12px", color: "#E2E8F0", textAlign: align || "left" }}>{children}</td>;
+}
+
+// Inline-expand panel: each RFQ line (style) × the vendors' quoted unit prices.
+// Lets the operator see, at a glance, which styles a vendor has actually quoted.
+function RfqExpandPanel({ detail, loading, currency }: { detail?: RfqDetail; loading: boolean; currency: string }) {
+  const pad: React.CSSProperties = { padding: "12px 16px 12px 34px", color: "#94A3B8", fontSize: 12 };
+  if (loading && !detail) return <div style={pad}>Loading line items…</div>;
+  if (!detail) return <div style={pad}>Could not load line items.</div>;
+  const items: RfqLineItem[] = detail.line_items || [];
+  const quotes: RfqQuoteSummary[] = detail.quotes || [];
+  if (items.length === 0) return <div style={pad}>This RFQ has no line items.</div>;
+
+  // quoteId → (rfq_line_item_id → unit_price)
+  const lookup = new Map<string, Map<string, number | null>>();
+  for (const q of quotes) {
+    const m = new Map<string, number | null>();
+    for (const l of q.lines) m.set(l.rfq_line_item_id, l.unit_price);
+    lookup.set(q.id, m);
+  }
+  const money = (n: number | null | undefined) =>
+    typeof n === "number" && Number.isFinite(n) ? `${currency} ${n.toFixed(2)}` : "—";
+  const cellL: React.CSSProperties = { padding: "5px 10px", textAlign: "left", whiteSpace: "nowrap" };
+  const cellR: React.CSSProperties = { padding: "5px 10px", textAlign: "right", whiteSpace: "nowrap" };
+
+  return (
+    <div style={{ padding: "10px 16px 14px 34px" }}>
+      <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr style={{ color: "#94A3B8", textTransform: "uppercase", fontSize: 10, letterSpacing: ".04em" }}>
+            <th style={cellL}>Style / Item</th>
+            <th style={cellR}>Qty</th>
+            <th style={cellR}>Target</th>
+            {quotes.map((q) => (
+              <th key={q.id} style={cellR}>{q.vendor_name || "Vendor"}{q.status ? ` · ${q.status}` : ""}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((li) => (
+            <tr key={li.id} style={{ borderTop: "1px solid #1E293B" }}>
+              <td style={cellL}>
+                <span style={{ fontWeight: 600, color: "#E2E8F0" }}>{li.style_code || li.description || "(item)"}</span>
+                {li.color ? <span style={{ color: "#94A3B8" }}> · {li.color}</span> : null}
+              </td>
+              <td style={cellR}>{typeof li.quantity === "number" ? li.quantity.toLocaleString() : "—"}</td>
+              <td style={{ ...cellR, color: "#94A3B8" }}>{money(li.target_price)}</td>
+              {quotes.map((q) => {
+                const price = lookup.get(q.id)?.get(li.id);
+                const quoted = typeof price === "number";
+                return (
+                  <td key={q.id} style={{ ...cellR, color: quoted ? "#A7F3D0" : "#64748B", fontWeight: quoted ? 600 : 400 }}>
+                    {money(price ?? null)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {quotes.length === 0 && (
+        <div style={{ marginTop: 8, color: "#64748B", fontSize: 11 }}>No vendor has submitted quoted prices yet.</div>
+      )}
+    </div>
+  );
 }
