@@ -167,6 +167,13 @@ export default async function handler(req, res, params) {
 
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+      // 'received' is not a manual flag — it's set only when a goods receipt is
+      // POSTED (procurement/receipts/:id/post rolls qty_received + flips the
+      // header). Reject a direct manual flip so the status always reflects a
+      // real, GL'd receipt. (in_transit stays a manual logistics flag.)
+      if (body.status === "received" && po.status !== "received") {
+        return res.status(409).json({ error: "Mark a PO received by posting a goods receipt in Receiving — not by a manual status change." });
+      }
       patch.status = body.status;
       // Assign the immutable PO number when first issued (po_number is immutable once set).
       if (body.status === "issued" && !po.po_number) {

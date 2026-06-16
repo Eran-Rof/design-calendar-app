@@ -157,15 +157,19 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 3. **Save draft** — header + lines persist; `po_number` stays null.
 4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). The PO number is **never** reassigned.
 5. **✎ Edit (revise an issued PO)** — re-open a saved PO and click **✎ Edit** in the footer to unlock **everything** (header *and* lines) for revision — no more cancel-and-recreate. Saving (**💾 Save revision**) sends a **"Purchase order revised" notification** to the vendor's portal users (bell + email) when the vendor is connected to the Vendor Portal (`notifyVendor` over `vendor_users`; a no-op if they have no portal login). The change is recorded in the Audit trail. Server-side this is `PATCH {revise:true, …}`, which lifts the draft-only line lock for that one save. **Cancel edit** discards. _(Note: open-PO commitment rows aren't yet re-derived on a line-changing revision — folded into the receiving/GL rework below.)_
-6. **Mark in-transit / Mark received** — advance status. ⚠️ **Today "Mark received" is a status flag only** (see below) — the real receipt-posting + 3-way match is the next build.
+6. **Mark in-transit** — manual logistics flag. **📥 Receive** — opens the **Receiving** panel for this PO (`?m=receiving&po=<id>`). "Received" is **no longer a manual flip**: a PO becomes `received` (or `in_transit` for a partial) **only when a goods receipt is POSTED** in Receiving — which creates the FIFO inventory layers + the GR/IR journal entry and rolls each line's `qty_received`. A direct manual `status:'received'` PATCH is rejected.
 
 **Finding a PO (list search).** The **Search PO #, vendor, style…** box is **all-field**: the server matches the typed text against the **PO number**, the **vendor name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring), alongside the **Vendor** and **Status** filters (all ANDed), updating as you type (200 ms debounce). The whole search runs in the `search_purchase_orders` SQL function, so it spans the entire book — not just the loaded rows — including the line-level style/SKU match.
 
-### What receiving does NOT do
+### Receiving → GL → AP 3-way match (P13)
 
-> **Marking a PO `received` is a pure status flip. It does NOT create FIFO inventory layers, post a JE, or update on-hand.** The `[id].js` PATCH handler only changes `status`; `qty_received` is not written by this path.
+Receiving a native PO posts real accounting through the **Receiving** panel (`m=receiving`, `src/tanda/InternalReceiving.tsx`) and the procurement posting service — **not** a status flip:
 
-FIFO layers and the GL impact (`DR Inventory / CR AP`) are created when the matching **AP invoice** is posted — see [chapter 11 §11.1.x](11-inventory-operations.md). Treat the PO as a *commitment/tracking* document; the receipt-to-inventory bridge is the AP invoice, not the PO status. (This corrects an earlier assumption that PO receipt creates layers — the current code does not.)
+1. **Goods receipt** (`POST /api/internal/procurement/receipts` → `…/:id/post`) creates a **FIFO `inventory_layers`** row per accepted line (`source_kind='po_receipt'`) at landed cost and posts the **GR/IR journal entry**: `DR Inventory / CR GR/IR Clearing (2050)` (+ `CR Accrued Landed (2150)` for capitalized freight/duty rollups). It then **rolls the native PO**: bumps each `purchase_order_lines.qty_received`, flips fully-received lines to `received`, and sets the header to `received` (all in) or `in_transit` (partial). **This is the only thing that makes a PO `received`.**
+2. **Vendor AP invoice** is matched 3-way (PO ↔ receipt ↔ invoice) via **Vendor Invoice Drafts** (`procurement/vendor-invoice-drafts`). A matched invoice posts `ap_invoice_grir_match`: `DR GR/IR (2050) / CR AP`, clearing the GR/IR liability and booking any price difference to **PO Variance (6320)**. It does **not** re-debit inventory or create a second layer — **so goods are counted once.**
+3. **Bookkeeper** finalizes via the **Bookkeeper Queue** (`procurement/bookkeeper-queue`).
+
+The `GR/IR Clearing (2050)` account already exists (migration `20260717120000`); no new account was needed. _(This corrects the earlier note that the AP invoice debits inventory — for a PO-matched goods bill the **receipt** debits inventory and the invoice clears GR/IR. Non-PO/expense bills still post `DR Expense / CR AP` via the generic AP flow.)_
 
 ### Tables
 
