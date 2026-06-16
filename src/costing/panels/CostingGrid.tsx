@@ -437,18 +437,31 @@ export default function CostingGrid() {
     await addLine({});
   };
 
-  // Item 9 — operator edits Margin %; back-solve the cost. DDP → Tgt DDP Cost;
-  // otherwise solve FOB so landed hits the implied cost (duty/freight/insur/
-  // other held fixed). Needs a positive Sell Tgt to solve.
+  // Item 9 — operator edits Margin %. BIDIRECTIONAL so a margin always does
+  // something sensible regardless of which leg is already filled:
+  //  • Sell Tgt already set → back-solve the COST (DDP → Tgt DDP Cost; else FOB
+  //    so landed hits the implied cost), holding the sell fixed. (worked already)
+  //  • Sell Tgt NOT set, but a cost basis exists → CREATE the Sell Tgt from the
+  //    cost + margin (sell = cost / (1 − m/100)), same math as "Sell Tgt Frm
+  //    Mrgn", and remember the margin link (sell_target_margin_pct).
   const onMarginEdit = (line: CostingLine, raw: string) => {
     const m = Number(String(raw).replace(/[^0-9.\-]/g, ""));
     if (!isFinite(m)) return;
-    if (!(cnum(line.sell_target) > 0)) {
-      notify("Enter a Sell Tgt first — margin needs a selling price to solve the cost.", "info");
+    if (cnum(line.sell_target) > 0) {
+      const patch = solveCostFromMargin(line, isDdp, m);
+      if (patch) void updateLineGuarded(line.id, patch);
       return;
     }
-    const patch = solveCostFromMargin(line, isDdp, m);
-    if (patch) void updateLineGuarded(line.id, patch);
+    // No Sell Tgt yet → derive it from the cost basis + entered margin.
+    if (!(lineCostBasis(line, isDdp) > 0)) {
+      notify(isDdp
+        ? "Enter a Sell Tgt or a Tgt DDP Cost first — margin needs one to solve the other."
+        : "Enter a Sell Tgt or a cost (FOB/Landed) first — margin needs one to solve the other.", "info");
+      return;
+    }
+    const sell = solveSellFromMargin(line, isDdp, m);
+    if (sell == null) { notify("Margin must be below 100%.", "info"); return; }
+    void updateLineGuarded(line.id, { sell_target: sell, sell_target_margin_pct: m });
   };
 
   // "Sell Tgt Frm Mrgn" — operator types a target gross-margin %; auto-derive
@@ -1061,8 +1074,8 @@ export default function CostingGrid() {
                         defaultValue={hasMargin ? fmtPct.format(marginVal) : ""}
                         type="text"
                         title={isDdp
-                          ? "Edit margin → back-solves Tgt DDP Cost (needs a Sell Tgt)"
-                          : "Edit margin → back-solves FOB so Landed hits the target (needs a Sell Tgt)"}
+                          ? "Edit margin → with no Sell Tgt set yet it creates the Sell Tgt from the cost; with a Sell Tgt set it back-solves Tgt DDP Cost"
+                          : "Edit margin → with no Sell Tgt set yet it creates the Sell Tgt from the cost; with a Sell Tgt set it back-solves FOB so Landed hits target"}
                         placeholder="—"
                         onBlur={(e) => onMarginEdit(line, e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}

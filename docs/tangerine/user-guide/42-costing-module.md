@@ -74,7 +74,13 @@ Margin % = (Sell Tgt − cost basis) / Sell Tgt × 100
 - **Non-DDP mode** → solves **FOB** so that Landed hits the implied cost, holding Duty %,
   Freight, Insurance and Other fixed.
 
-A **Sell Tgt** must be entered first (you can't solve a cost without a selling price).
+The **Margin %** column is **bidirectional**, so it always does the sensible thing:
+
+- If a **Sell Tgt is already set**, editing the margin **back-solves the cost** (above).
+- If **no Sell Tgt is set yet** but a cost exists, editing the margin **creates the Sell
+  Tgt** from the cost (`Sell Tgt = cost ÷ (1 − margin/100)`) — the same result as the
+  **Sell Tgt Frm Mrgn** field. So you can start from either a cost or a sell price and
+  let the margin fill in the other.
 
 ### LY / T3 comparison
 
