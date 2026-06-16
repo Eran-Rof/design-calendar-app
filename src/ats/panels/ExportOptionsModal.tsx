@@ -94,6 +94,13 @@ export interface ExportOptions {
   // fetches the thumbnails before building the workbook. Optional so existing
   // ExportOptions constructors (defaults, tests) stay valid.
   images?: boolean;
+  // Buyer worksheet: the live internal pricing view. Shows the Avg Cost column
+  // INLINE plus an editable Sls Prc with LIVE Mrgn % / Total $ Excel formulas
+  // that recompute when a price is edited. NOT customer-safe (cost + margin are
+  // visible) — it's a working tool. Forces Avg Cost + Sls Prc @ Margin on and
+  // is mutually exclusive with Customer Facing. Optional so existing
+  // ExportOptions constructors (defaults, tests) stay valid.
+  buyerWorksheet?: boolean;
 }
 
 interface Props {
@@ -124,6 +131,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [hideATSData, setHideATSData]         = useState(false);
   const [bySizeMatrix, setBySizeMatrix]       = useState(false);
   const [includeImages, setIncludeImages]     = useState(false);
+  const [buyerWorksheet, setBuyerWorksheet]   = useState(false);
   // Sub-panel state revealed when Hide ATS data is on. Pre-seeded with
   // "last 3 months from today" so the date inputs render a meaningful
   // default even before the operator interacts with them.
@@ -191,6 +199,10 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
     bySizeMatrix,
     images: includeImages,
+    // Buyer worksheet forces Avg Cost + Sls Prc @ Margin on and the live
+    // formulas; the export layer applies that. Suppressed under Hide ATS data
+    // (no cost/price columns survive that mode).
+    buyerWorksheet: hideATSData ? false : buyerWorksheet,
   });
 
   // Custom-range validity is only meaningful when both Hide ATS data
@@ -311,16 +323,26 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           )}
 
           <CheckRow
-            label="Customer Facing (hide Avg Cost / Total Cost + T3/LY Mrgn % from the main sheet)"
+            label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
             checked={customerFacing}
-            onChange={setCustomerFacing}
+            onChange={(v) => { setCustomerFacing(v); if (v) setBuyerWorksheet(false); }}
           />
-          {customerFacing && slsPrcAtMrgn && !hideATSData && (
-            <div style={{ marginLeft: 26, marginTop: -4, marginBottom: 6, fontSize: 11, color: "#94A3B8", lineHeight: 1.4 }}>
-              Sls Prc, Mrgn % &amp; Total $ stay as <b>live formulas</b> (edit a price → margin recalcs). The unit cost is on a
-              separate <b>“{`Cost (delete before sending)`}”</b> tab — paste the report as values, then delete that tab before sending.
-            </div>
-          )}
+
+          <div>
+            <CheckRow
+              label="Buyer worksheet (live pricing: Avg Cost + editable Sls Prc with auto-updating Mrgn % & Total $)"
+              checked={buyerWorksheet && !hideATSData}
+              onChange={(v) => { setBuyerWorksheet(v); if (v) setCustomerFacing(false); }}
+              disabled={hideATSData}
+              disabledTitle="Disabled because Hide ATS data is on — the cost / price columns live in the hidden block"
+            />
+            {buyerWorksheet && !hideATSData && (
+              <div style={{ marginLeft: 28, marginTop: 6, fontSize: 11, color: "#94A3B8", lineHeight: 1.4 }}>
+                Internal tool — shows cost. <b>Mrgn %</b> and <b>Total $</b> are live Excel formulas: edit a <b>Sls Prc</b> and they
+                recalculate. Uses the Margin % above for the starting price.
+              </div>
+            )}
+          </div>
 
           <CheckRow
             label="Hide zero columns (drop any data column whose body is empty / all zero)"

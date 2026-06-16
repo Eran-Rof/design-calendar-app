@@ -128,7 +128,18 @@ export function buildExportPayload(
     customSalesRangeStart:    options?.customSalesRangeStart    ?? "",
     customSalesRangeEnd:      options?.customSalesRangeEnd      ?? "",
     bySizeMatrix:             options?.bySizeMatrix             ?? false,
+    buyerWorksheet:           options?.buyerWorksheet           ?? false,
   };
+  // Buyer worksheet = the live pricing view for an internal buyer: shows the
+  // Avg Cost column INLINE plus an editable Sls Prc with LIVE Mrgn % / Total $
+  // formulas that recompute when a price is edited. It is NOT customer-safe
+  // (cost + margin are visible) — that's intentional; it's a working tool, not
+  // a customer hand-out. Force the columns it needs on.
+  if (opts.buyerWorksheet) {
+    opts.avgCost = true;
+    opts.slsPrcAtMrgn = true;
+    opts.customerFacing = false; // mutually exclusive — buyer view shows cost
+  }
   // hideATSData drops the entire ATS-data block — including Avg Cost,
   // Total Cost, and Sls Prc @ Mrgn. Force the optional-column toggles
   // off here so allocation skips them entirely (mirrors how
@@ -139,21 +150,19 @@ export function buildExportPayload(
     opts.avgCost = false;
     opts.slsPrcAtMrgn = false;
   }
-  // Customer-facing mode strips the cost-basis columns from the MAIN sheet
-  // (Avg Cost / Total Cost). It NO LONGER strips Sls Prc @ Margin — the
-  // operator wants the implied sale price + a LIVE margin on a customer quote.
-  // The margin formula needs the unit cost, so when Sls Prc @ Margin is on we
-  // park the cost on a separate "Cost (delete before sending)" sheet that the
-  // margin/total formulas reference. The operator paste-values the main sheet
-  // and deletes the Cost sheet before sending, leaving a clean customer file.
+  // Customer-facing mode strips EVERY column that exposes our cost basis or
+  // margin (Avg Cost, Total Cost, Sls Prc @ Mrgn) so the workbook is safe to
+  // send to a customer. (The live-pricing view now lives in the separate
+  // "Buyer worksheet" option, which is NOT customer-safe by design.)
   if (opts.customerFacing) {
-    opts.avgCost = false; // no Avg Cost / Total Cost columns on the main sheet
+    opts.avgCost = false;
+    opts.slsPrcAtMrgn = false;
   }
-  // When Sls Prc @ Margin is on we always emit LIVE Excel formulas (Mrgn % and
-  // Total $) tied to the editable Sls Prc cell, with the unit cost referenced
-  // from the separate Cost sheet. Edit a price → margin % + total $ recompute.
-  const slsPrcFormulaMode = opts.slsPrcAtMrgn;
-  const COST_SHEET_NAME = "Cost (delete before sending)";
+  // LIVE Excel formulas (editable Sls Prc → Mrgn % + Total $) are the Buyer
+  // worksheet behavior ONLY. The margin formula references the Avg Cost column
+  // INLINE on the same sheet (no separate cost sheet). Plain Sls Prc @ Margin
+  // (without buyer worksheet) keeps its original static values.
+  const slsPrcFormulaMode = opts.buyerWorksheet;
   // Margin column appears in trailing/SPLY blocks always when no
   // customer is selected; when a customer IS selected, only when the
   // operator opted in. Customer-facing mode forces the margin column
@@ -309,7 +318,8 @@ export function buildExportPayload(
   // Total $ — implied sale price × the row's Total qty. A live Excel formula
   // (Sls Prc cell × Total qty cell) so it tracks any sale-price edit. Ships
   // alongside Sls Prc @ Margin.
-  const COL_SLS_TTL:     number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
+  // Total $ ships only in the Buyer worksheet (live-formula) view.
+  const COL_SLS_TTL:     number | undefined = slsPrcFormulaMode ? nextCol++ : undefined;
   const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_TTL_SLS:  number | undefined = opts.trailing3    ? nextCol++ : undefined;
@@ -580,15 +590,63 @@ export function buildExportPayload(
   // conversion and round-up-to-$0.05). Rows with no master_style or
   // non-positive avgCost are skipped here AND fall through to the
   // per-row formula at body time.
-  const bpMaxSlsPrc = new Map<string, number>();
-  if (COL_SLS_PRC || COL_SLS_MRGN_PCT) {
+  //
+  // OUTLIER GUARD: a single corrupt cost must not become the whole BP's price.
+  // Real example (RYB1416, a NON-prepack style): two variants carried a
+  // pack-grain unit_cost of 171.60 while every other variant was 7.50 — the
+  // 171.60 → $222.90 implied price then propagated to every variant, so normal
+  // rows showed a 96.8% margin. A unit/pack mix-up always lands the cost many×
+  // the real unit cost, so we drop any variant whose cost exceeds 8× the
+  // CHEAPEST variant in the BP before taking the max. Legit same-style
+  // variation (rarely > 2×) is well under that; a 12–72-unit pack cost is well
+  // over it.
+  const COST_OUTLIER_FACTOR = 8;
+  // Per-BP cost cap = cheapest variant × 8. A cost above the cap is treated as
+  // corrupt (a pack cost mis-keyed as a unit cost) and excluded from BOTH the
+  // BP-max implied price AND the grand-total weighted average, so it can't
+  // inflate either. Shared via isOutlierCost() below.
+  const bpCostCap = new Map<string, number>();
+  {
+    const minByBp = new Map<string, number>();
     for (const r of rows) {
       const styleKey = r.master_style ?? "";
       if (!styleKey) continue;
       const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
       const rCostMul = (explodePpk ?? true) ? 1 : rMult;
       const rAvgCost = (r.avgCost ?? 0) * rCostMul;
-      if (rAvgCost <= 0 || slsMargin >= 1) continue;
+      if (rAvgCost <= 0) continue;
+      const cur = minByBp.get(styleKey);
+      if (cur === undefined || rAvgCost < cur) minByBp.set(styleKey, rAvgCost);
+    }
+    for (const [k, v] of minByBp) bpCostCap.set(k, v * COST_OUTLIER_FACTOR);
+  }
+  // A grain-adjusted cost is an outlier when the BP has >1 valued variant and
+  // the cost exceeds that BP's cap. Single-variant BPs are never flagged.
+  const isOutlierCost = (styleKey: string, grainCost: number, bpCount: number): boolean => {
+    if (bpCount <= 1) return false;
+    const cap = bpCostCap.get(styleKey);
+    return cap !== undefined && grainCost > cap;
+  };
+  // BP variant counts (valued rows) so isOutlierCost can skip single-variant BPs.
+  const bpValuedCount = new Map<string, number>();
+  for (const r of rows) {
+    const styleKey = r.master_style ?? "";
+    if (!styleKey) continue;
+    const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+    const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+    if ((r.avgCost ?? 0) * rCostMul > 0) bpValuedCount.set(styleKey, (bpValuedCount.get(styleKey) ?? 0) + 1);
+  }
+
+  const bpMaxSlsPrc = new Map<string, number>();
+  if ((COL_SLS_PRC || COL_SLS_MRGN_PCT) && slsMargin < 1) {
+    for (const r of rows) {
+      const styleKey = r.master_style ?? "";
+      if (!styleKey) continue;
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+      const rAvgCost = (r.avgCost ?? 0) * rCostMul;
+      if (rAvgCost <= 0) continue;
+      if (isOutlierCost(styleKey, rAvgCost, bpValuedCount.get(styleKey) ?? 1)) continue; // corrupt cost — skip
       const rPrice = Math.ceil((rAvgCost / (1 - slsMargin)) * 20) / 20;
       const cur = bpMaxSlsPrc.get(styleKey);
       if (cur === undefined || rPrice > cur) bpMaxSlsPrc.set(styleKey, rPrice);
@@ -603,11 +661,6 @@ export function buildExportPayload(
   // the pair so the qty value sits vertically centered in the taller
   // merged cell. Matches the planner's reference image exactly.
   const dataRows: any[][] = [];
-  // Per-row unit cost for the separate "Cost" sheet (only when Sls Prc @
-  // Margin is on). `excelRow` is the body row's 1-based AoA row number; the
-  // Cost sheet places each value at the same row so the margin formula's
-  // cross-sheet reference lines up after the shared banner row-shift.
-  const costSheetRows: Array<{ excelRow: number; unitCost: number }> = [];
   // Image column support: an empty fill-matched cell per row (so the zebra/band
   // shows behind the thumbnail), plus a per-data-row anchor list the embedded
   // images are built from after the AOA is assembled.
@@ -840,6 +893,11 @@ export function buildExportPayload(
       for (const x of group) {
         const xAvg = x.avgCost ?? 0;
         if (xAvg <= 0) continue;
+        // Skip per-BP corrupt cost outliers so they don't inflate the subtotal.
+        const xKey = x.master_style ?? "";
+        const xMult = (typeof x.ppkMult === "number" && x.ppkMult > 0) ? x.ppkMult : 1;
+        const xGrain = xAvg * ((explodePpk ?? true) ? 1 : xMult);
+        if (xKey && isOutlierCost(xKey, xGrain, bpValuedCount.get(xKey) ?? 1)) continue;
         let xRowTotal = 0;
         for (let i = 0; i < numPeriods; i++) xRowTotal += periodValueOf(x, i);
         totalQtyForCost += xRowTotal;
@@ -1151,24 +1209,45 @@ export function buildExportPayload(
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
-    // Cost for the margin formula lives on the separate Cost sheet (so it can
-    // be deleted before sending). Record it at this row's AoA row number; the
-    // Cost sheet places the value at the same row so the cross-sheet ref lines
-    // up after the shared logo-banner row shift.
-    if (slsPrcFormulaMode && avgCostV > 0) {
-      costSheetRows.push({ excelRow: qtyExcelRow, unitCost: avgCostV });
-    }
-
-    // Mrgn % — LIVE formula = (Sls Prc − unit cost) / Sls Prc, with the cost
-    // pulled from the Cost sheet. Edit the Sls Prc cell → margin recomputes.
-    // The cached `v` keeps the cell readable before Excel recalcs.
+    // Mrgn %. Buyer worksheet → LIVE formula = (Sls Prc − Avg Cost) / Sls Prc,
+    // referencing the INLINE Avg Cost cell on the same sheet, so editing the
+    // Sls Prc recomputes the margin. Otherwise (plain Sls Prc @ Margin) keep
+    // the original static value with its customer-T3 / last-price priority +
+    // blue/red coloring.
     if (COL_SLS_MRGN_PCT) {
-      const m = (slsPrcV > 0 && avgCostV > 0) ? (slsPrcV - avgCostV) / slsPrcV : 0;
-      const styled = { ...bodyNumStyle(fill), numFmt: "0.0%" };
-      const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${qtyExcelRow}` : "";
-      qtyRow[COL_SLS_MRGN_PCT - 1] = (slsPrcV > 0 && avgCostV > 0)
-        ? { v: m, f: `IF(${slsRef}=0,"",(${slsRef}-'${COST_SHEET_NAME}'!A${qtyExcelRow})/${slsRef})`, t: "n", s: styled }
-        : { v: "", t: "s", s: styled };
+      if (slsPrcFormulaMode && COL_AVG_COST) {
+        const m = (slsPrcV > 0 && avgCostV > 0) ? (slsPrcV - avgCostV) / slsPrcV : 0;
+        const styled = { ...bodyNumStyle(fill), numFmt: "0.0%" };
+        const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${qtyExcelRow}` : "";
+        const costRef = `${colLetter(COL_AVG_COST)}${qtyExcelRow}`;
+        qtyRow[COL_SLS_MRGN_PCT - 1] = (slsPrcV > 0 && avgCostV > 0)
+          ? { v: m, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: styled }
+          : { v: "", t: "s", s: styled };
+      } else {
+        let derivedPrice = slsPrcV;
+        let mrgnColor: "default" | "blue" | "red" = "default";
+        if (avgCostV > 0) {
+          const styleKey = r.master_style ?? "";
+          const sAgg = styleKey ? t3ByStyleMap?.get(styleKey) : undefined;
+          if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+            derivedPrice = sAgg.totalPrice / sAgg.qty;
+            mrgnColor = "blue";
+          }
+          const cl = lastCustPriceMap?.get(r.sku);
+          if (cl && cl.price > 0) {
+            derivedPrice = cl.price;
+            mrgnColor = "red";
+          }
+        }
+        const m = (derivedPrice > 0 && avgCostV > 0) ? (derivedPrice - avgCostV) / derivedPrice : 0;
+        const base = bodyNumStyle(fill);
+        const styled = mrgnColor === "default"
+          ? { ...base, numFmt: "0.0%" }
+          : { ...base, numFmt: "0.0%", font: { ...base.font, bold: true, color: { rgb: mrgnColor === "blue" ? MRGN_BLUE : MRGN_RED } } };
+        qtyRow[COL_SLS_MRGN_PCT - 1] = m === 0
+          ? { v: "", t: "s", s: styled }
+          : { v: m, t: "n", s: styled };
+      }
     }
 
     // Total $ — LIVE formula = Sls Prc × Total qty. Recomputes on a price edit.
@@ -1396,6 +1475,12 @@ export function buildExportPayload(
     for (const r of rows) {
       const a = r.avgCost ?? 0;
       if (a <= 0) continue;
+      // Exclude per-BP corrupt cost outliers (see isOutlierCost) so a mis-keyed
+      // pack cost can't inflate the grand-total weighted avg / implied price.
+      const styleKey = r.master_style ?? "";
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const grainCost = a * ((explodePpk ?? true) ? 1 : rMult);
+      if (styleKey && isOutlierCost(styleKey, grainCost, bpValuedCount.get(styleKey) ?? 1)) continue;
       let q = 0;
       for (let i = 0; i < numPeriods; i++) q += periodValueOf(r, i);
       qtyForCost += q;
@@ -2060,33 +2145,6 @@ export function buildExportPayload(
     }
   }
 
-  // ── Cost sheet ──────────────────────────────────────────────────────────
-  // When Sls Prc @ Margin is on, the per-row Mrgn % / Total $ formulas pull
-  // the unit cost from THIS sheet via a cross-sheet reference. It's a separate
-  // tab so the operator can paste the main report as values, then DELETE this
-  // sheet before sending — leaving a clean, cost-free customer workbook.
-  // Each cost is placed at the SAME AoA row as its main-sheet body row; both
-  // sheets get the identical 2-row logo-banner offset, so the references line
-  // up after the renderer's row-shift.
-  if (slsPrcFormulaMode && costSheetRows.length > 0) {
-    const maxRow = Math.max(...costSheetRows.map((c) => c.excelRow));
-    const costAoa: any[][] = [];
-    costAoa[0] = [{
-      v: "Unit cost basis — DELETE THIS SHEET before sending to the customer. (First paste the report sheet as Values so its prices/margins freeze, then delete this tab.)",
-      t: "s",
-      s: { font: { bold: true, sz: 11, color: { rgb: "9C2A2A" }, name: "Calibri" } },
-    }];
-    for (const { excelRow, unitCost } of costSheetRows) {
-      costAoa[excelRow - 1] = [{ v: unitCost, t: "n", s: { numFmt: "$#,##0.00", font: { sz: 11, name: "Calibri" } } }];
-    }
-    for (let i = 0; i < maxRow; i++) if (!costAoa[i]) costAoa[i] = [];
-    sheetSpecs.push({
-      sheetName: COST_SHEET_NAME,
-      allRows: costAoa,
-      cols: [{ wch: 60 }],
-      rowHeights: costAoa.map(() => ({ hpt: 15 })),
-    });
-  }
 
   const { wb } = buildMultiSheetWorkbook(`ATS_Report_${fmtDate(new Date())}.xlsx`, sheetSpecs);
   const extraSheets = sheetSpecs.slice(1).map((s) => ({ name: s.sheetName, aoa: s.allRows }));
