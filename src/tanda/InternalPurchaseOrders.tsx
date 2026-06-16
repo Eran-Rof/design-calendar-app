@@ -781,7 +781,11 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
           {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}
           {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
-          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && <button onClick={() => void transition("received")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>📥 Mark received</button>}
+          {/* "Received" is no longer a manual flip — it's set when a goods receipt
+              is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
+            <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">📥 Receive…</button>
+          )}
 
           {/* Revising a saved PO — save the revision (notifies the vendor) or cancel. */}
           {isRevisable && editMode && <button onClick={() => setEditMode(false)} style={btnSecondary} disabled={submitting}>Cancel edit</button>}

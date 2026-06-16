@@ -69,6 +69,15 @@ export default function InternalReceiving() {
   const [statusFilter, setStatusFilter] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
+  // Deep-link from the PO modal's 📥 Receive button: ?po=<purchase_order_id>
+  // auto-opens a new receipt for that PO. One-shot on mount.
+  const [initialPoId, setInitialPoId] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const po = new URLSearchParams(window.location.search).get("po");
+      if (po) { setInitialPoId(po); setEditing(null); setModalOpen(true); }
+    } catch { /* noop */ }
+  }, []);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -138,20 +147,21 @@ export default function InternalReceiving() {
       {modalOpen && (
         <ReceiptModal
           receipt={editing}
-          onClose={() => { setModalOpen(false); setEditing(null); }}
-          onSaved={() => { setModalOpen(false); setEditing(null); void load(); }}
+          initialPoId={initialPoId}
+          onClose={() => { setModalOpen(false); setEditing(null); setInitialPoId(null); }}
+          onSaved={() => { setModalOpen(false); setEditing(null); setInitialPoId(null); void load(); }}
         />
       )}
     </div>
   );
 }
 
-function ReceiptModal({ receipt, onClose, onSaved }: { receipt: Receipt | null; onClose: () => void; onSaved: () => void }) {
+function ReceiptModal({ receipt, initialPoId, onClose, onSaved }: { receipt: Receipt | null; initialPoId?: string | null; onClose: () => void; onSaved: () => void }) {
   const isNew = receipt === null;
   const editable = isNew || receipt?.status === "draft";
 
   const [savedId, setSavedId] = useState<string | null>(receipt?.id || null);
-  const [poId, setPoId] = useState(receipt?.purchase_order_id || "");
+  const [poId, setPoId] = useState(receipt?.purchase_order_id || initialPoId || "");
   const [receiptDate, setReceiptDate] = useState(receipt?.receipt_date || new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState(receipt?.notes || "");
   const [lines, setLines] = useState<RLine[]>([]);

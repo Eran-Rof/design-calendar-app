@@ -321,6 +321,38 @@ export default async function handler(req, res) {
   // ── 6. Flip the receipt to posted + stamp the JE ────────────────────────────
   await admin.from("tanda_po_receipts").update({ status: "posted", landed_cost_cents: capTotal, je_id: jeId }).eq("id", id);
 
+  // ── 6b. Roll the receipt up onto the native PO so "received" is REAL ─────────
+  // Bump each PO line's qty_received (+ flip its line status when fully received)
+  // and recompute the PO header status: 'received' when every line is fully in,
+  // else 'in_transit' (partial). This is the ONLY path that sets a PO 'received'
+  // — the modal's manual flip is blocked — so the status always reflects a posted,
+  // GL'd goods receipt.
+  if (rcpt.purchase_order_id) {
+    const { data: poLines } = await admin.from("purchase_order_lines")
+      .select("id, qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const recvByLine = new Map();
+    for (const l of lines) recvByLine.set(l.purchase_order_line_id, (recvByLine.get(l.purchase_order_line_id) || 0) + Number(l.qty_received || 0));
+    for (const pl of poLines || []) {
+      const add = recvByLine.get(pl.id) || 0;
+      if (add <= 0) continue;
+      const newRecv = Number(pl.qty_received || 0) + add;
+      const fully = newRecv >= Number(pl.qty_ordered || 0);
+      await admin.from("purchase_order_lines")
+        .update({ qty_received: newRecv, ...(fully && pl.status !== "cancelled" ? { status: "received" } : {}) })
+        .eq("id", pl.id);
+    }
+    // Recompute header status from the (now-updated) lines.
+    const { data: after } = await admin.from("purchase_order_lines")
+      .select("qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const active = (after || []).filter((l) => l.status !== "cancelled");
+    const anyRecv = active.some((l) => Number(l.qty_received || 0) > 0);
+    const allRecv = active.length > 0 && active.every((l) => Number(l.qty_received || 0) >= Number(l.qty_ordered || 0));
+    const newStatus = allRecv ? "received" : (anyRecv ? "in_transit" : null);
+    if (newStatus) {
+      await admin.from("purchase_orders").update({ status: newStatus }).eq("id", rcpt.purchase_order_id).neq("status", "cancelled");
+    }
+  }
+
   const rollupCount = rollupInvoices.filter((x) => x.invoice_id).length;
   return res.status(200).json({
     receipt_id: id, status: "posted",
