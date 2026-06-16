@@ -537,6 +537,17 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     onClose();
   }
 
+  // Audit trail for Vendor-confirmed ship changes: every time a style's
+  // Vendor-confirmed date is edited, append a dated line to the order Notes
+  // (operator: "keep track of all changes in the notes section, incl. the date").
+  function logVendorConfirmedChange(styleCode: string, prev: string, next: string) {
+    const today = fmtDateDisplay(new Date().toISOString().slice(0, 10));
+    const from = prev ? fmtDateDisplay(prev) : "—";
+    const to = next ? fmtDateDisplay(next) : "—";
+    const entry = `[${today}] ${styleCode} Vendor-confirmed ship: ${from} → ${to}`;
+    setNotes((n) => (n && n.trim() ? `${n}\n${entry}` : entry));
+  }
+
   // Open the printable / downloadable PO document (logo + header + line items).
   function openView() {
     const fields: { label: string; value: string }[] = [];
@@ -691,7 +702,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           </div>
         </Section>
 
-        <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
+        <Field label="Notes"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} placeholder="optional — Vendor-confirmed ship changes are logged here automatically" /></Field>
         </>)}
 
         {/* Totals roll-up from Style Master logistics (read-only). On a new PO it
@@ -734,6 +745,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             showLineDates
             lineDateDefault={requestedDeliveryDate}
             onAddLine={() => setHeaderCollapsed(true)}
+            onVendorConfirmedChange={logVendorConfirmedChange}
           />
         </div>
 

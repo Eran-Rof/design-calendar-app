@@ -108,13 +108,17 @@ export interface LineMatrixBodyProps {
    *  owning modal react — e.g. collapse the document header to make room for
    *  line entry. */
   onAddLine?: () => void;
+  /** PO: fires when the operator CHANGES a style's "Vendor-confirmed ship" date
+   *  (not the initial prefill). Lets the owning modal record an audit trail —
+   *  e.g. append the change (with today's date) to the order notes. */
+  onVendorConfirmedChange?: (styleCode: string, prev: string, next: string) => void;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -228,7 +232,19 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     }));
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
-  function setSectionDate(id: number, which: "requested" | "confirmed", v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, dates: { ...(s.dates || {}), [which]: v } } : s))); }
+  function setSectionDate(id: number, which: "requested" | "confirmed", v: string) {
+    // Report a user EDIT of the Vendor-confirmed date (the initial prefill goes
+    // through addSection, not here, so this only fires on a real change).
+    if (which === "confirmed" && onVendorConfirmedChange) {
+      const sec = sections.find((x) => x.id === id);
+      const prev = sec?.dates?.confirmed || "";
+      if (sec && v !== prev) {
+        const code = sec.payload?.style?.style_code || styles.find((st) => st.id === sec.styleId)?.style_code || "";
+        if (code) onVendorConfirmedChange(code, prev, v);
+      }
+    }
+    setSections((p) => p.map((s) => (s.id === id ? { ...s, dates: { ...(s.dates || {}), [which]: v } } : s)));
+  }
   // Carton conform — round every partial-carton cell in a section UP to the next
   // full carton of 24 (after the operator confirms via the clickable warning).
   async function conformCartons(id: number) {
