@@ -206,3 +206,37 @@ describe("collapse: style aggregate shows the clean style description", () => {
     expect(ryb300.description).toBe("(1 items)");
   });
 });
+
+// Regression: Excel export was sourced from the collapse-aware row set, so a
+// collapsed grid exported NOTHING (the export drops `__collapsed` aggregates)
+// and prepack rows lost their ppkMult. The fix feeds the export the LEAF set
+// (sortedLeaves) regardless of grid collapse. This test pins the invariant the
+// export relies on: leaf rows survive the export's `!__collapsed` filter and
+// keep ppkMult; the collapsed set does not.
+describe("export uses leaf rows on any grid view (blank-on-collapse + PPK explode regression)", () => {
+  const leaves: ATSRow[] = [
+    row({ sku: "RYB100PPK - Black", store: "ROF", master_category: "DENIM", master_style: "RYB100PPK", onHand: 240, ppkMult: 24 }),
+    row({ sku: "RYB100PPK - Indigo", store: "ROF", master_category: "DENIM", master_style: "RYB100PPK", onHand: 120, ppkMult: 24 }),
+    row({ sku: "RYB200 - Sand", store: "ROF", master_category: "DENIM", master_style: "RYB200", onHand: 7, ppkMult: 1 }),
+  ];
+  // Mirror NavBar.prepareExportArgs: baseRows.filter(r => !r.__collapsed).
+  const exportSelect = (rows: ATSRow[]) => rows.filter(r => !r.__collapsed);
+
+  it("collapsed display set exports BLANK (the bug); leaf set exports every row", () => {
+    const collapsedSet = collapseRows(sortRows(leaves, null, "asc"), "style", new Set());
+    expect(exportSelect(collapsedSet)).toHaveLength(0); // aggregates only → dropped → blank
+    // sortedLeaves is what the export now uses — collapse never applied.
+    const leafSet = sortRows(leaves, null, "asc");
+    expect(exportSelect(leafSet).map(r => r.sku).sort()).toEqual(["RYB100PPK - Black", "RYB100PPK - Indigo", "RYB200 - Sand"]);
+  });
+
+  it("leaf rows retain ppkMult so the export can explode PPK quantities", () => {
+    const leafSet = exportSelect(sortRows(leaves, null, "asc"));
+    const ppk = leafSet.filter(r => (r.ppkMult ?? 1) > 1);
+    expect(ppk.map(r => r.ppkMult)).toEqual([24, 24]);
+    // explodePpk=true → qty shown as-is (already unit-grain); off → / ppkMult.
+    const black = leafSet.find(r => r.sku === "RYB100PPK - Black")!;
+    expect(black.onHand).toBe(240);                 // exploded units
+    expect(black.onHand / (black.ppkMult ?? 1)).toBe(10); // pack-grain
+  });
+});

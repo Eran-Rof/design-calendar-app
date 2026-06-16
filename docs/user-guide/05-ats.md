@@ -195,6 +195,8 @@ Every report lives under the green **Reports** menu (top-right). Each one opens 
 
 Choosing **Export Excel…** opens an options panel. Tick what you want, then **View** (preview) or **Export** (download):
 
+> Export works on **any** grid view. Collapsing the grid (Category / Sub Cat / Style) is display-only — the export and every report always run over the full filtered SKU list, and prepack quantities follow the **EXPLODE PPK** toggle, regardless of how the grid is collapsed.
+
 - **Subtotals (per style)** — subtotal rows per style.
 - **Avg Cost** — adds Avg Cost and Total Cost columns.
 - **Sls Prc @ Margin** — adds the sale price implied by a margin % you enter (price = cost ÷ (1 − margin)).

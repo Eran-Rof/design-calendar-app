@@ -1044,7 +1044,9 @@ function ATSReport() {
   // Build customer SKU set for filtering
   // Filtered/sorted/paginated row chain lives in useRowFiltering.
   const {
-    customerSkuSet, filtered, statFiltered, sortedFiltered, pageRows, totalPages, filteredSkuSet,
+    // sortedLeaves (NOT the collapse-aware sortedFiltered) feeds export /
+    // reports / AI; pageRows + totalPages carry the collapsed display set.
+    customerSkuSet, filtered, statFiltered, sortedLeaves, pageRows, totalPages, filteredSkuSet,
   } = useRowFiltering({
     rows: matchedRows, excelData, search, filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand, filterStatus, minATS, storeFilter,
     customerFilter, activeSort, sortCol, sortDir, displayPeriods, today,
@@ -1059,7 +1061,13 @@ function ATSReport() {
   // by the Neg/Aged reports) gets its own exclusion filter at report time.
   // (excludedSet is declared up top so the report builders can use it.)
   const calcFiltered = useMemo(() => excludeRows(filtered, excludedSet), [filtered, excludedSet]);
-  const calcSortedFiltered = useMemo(() => excludeRows(sortedFiltered, excludedSet), [sortedFiltered, excludedSet]);
+  // Calc set for export/reports = LEAF rows (sortedLeaves), NOT the collapse-
+  // aware sortedFiltered. The export drops `__collapsed` aggregate rows, so
+  // sourcing it from the collapsed set yielded a blank export on a collapsed
+  // grid (and stripped per-row ppkMult so PPK stopped exploding). Leaves are
+  // identical to sortedFiltered when collapse is off, so non-collapsed
+  // behavior is unchanged.
+  const calcSortedFiltered = useMemo(() => excludeRows(sortedLeaves, excludedSet), [sortedLeaves, excludedSet]);
   const calcSkuSet = useMemo(() => new Set(calcFiltered.map(r => r.sku)), [calcFiltered]);
   // Distinct excluded rows currently loaded (for the report warning list).
   // Keyed off the full `rows` so the warning reflects ALL exclusions, not
@@ -1186,7 +1194,9 @@ function ATSReport() {
     summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir,
     STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef,
     ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered,
-    statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, onToggleExcludeAll, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
+    // renderPanel's `sortedFiltered` prop (used only by export / reports / AI)
+    // is fed the LEAF set so it's collapse-independent; the grid uses pageRows.
+    statFiltered, sortedFiltered: sortedLeaves, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, onToggleExcludeAll, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct,
     handleFileUpload, refreshPOsFromWIP, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel,
     repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef,
     cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey,
