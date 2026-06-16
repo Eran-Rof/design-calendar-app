@@ -566,7 +566,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       partyName: vendors.find((v) => v.id === vendorId)?.name || "",
       moneyLabel: "Unit Cost $",
       fields,
-      lines: bodyRef.current?.getDocumentLines() || [],
+      data: bodyRef.current?.getDocumentData() || { styles: [], flats: [] },
       notes,
     });
   }
