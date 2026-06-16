@@ -113,7 +113,7 @@ export default async function handler(req, res) {
         .filter((v) => typeof v === "string");
       if (projectIds.length === 0) return { data: [] };
       return admin.from("costing_projects")
-        .select("id, project_name, customer:customers(id, code, billing_address)")
+        .select("id, project_name, customer:customers(id, code, customer_code, billing_address)")
         .in("id", projectIds);
     })(),
   ]);
@@ -141,10 +141,13 @@ export default async function handler(req, res) {
   }
 
   // Resolve Xoro-friendly customer names from ip_customer_master, keyed by
-  // customer_code = customers.code. Same source ATS uses
-  // (src/ats/exportSalesFetch.ts). 100% coverage of EXCEL:* codes today.
+  // ip_customer_master.customer_code = customers.customer_code (the Xoro ref,
+  // e.g. "EXCEL:ACCOUTURE"). NOTE since #1187: customers.code is the clean
+  // "CUST-NNNNN" form and the Xoro ref lives in customers.customer_code —
+  // joining on .code missed every row and the list fell back to showing the
+  // bare code (e.g. "CUST-00120") instead of the customer name.
   const custCodes = Array.from(new Set(
-    (projects || []).map((p) => p.customer?.code).filter((c) => typeof c === "string" && c.length > 0),
+    (projects || []).map((p) => p.customer?.customer_code).filter((c) => typeof c === "string" && c.length > 0),
   ));
   const friendlyByCode = new Map();
   if (custCodes.length > 0) {
@@ -170,7 +173,7 @@ export default async function handler(req, res) {
     const project = r.source_costing_project_id ? projectById.get(r.source_costing_project_id) : null;
     const customer = project?.customer || null;
     // Preference: ip_customer_master.name → billing_address.name → stripped code.
-    const friendly = customer?.code ? friendlyByCode.get(customer.code) : null;
+    const friendly = customer?.customer_code ? friendlyByCode.get(customer.customer_code) : null;
     const billingName = (customer && typeof customer.billing_address === "object" && customer.billing_address && typeof customer.billing_address.name === "string")
       ? customer.billing_address.name
       : null;

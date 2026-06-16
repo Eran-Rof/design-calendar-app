@@ -106,17 +106,19 @@ export default async function handler(req, res) {
     let project = null;
     if (rfq.source_costing_project_id) {
       const { data: pr } = await admin.from("costing_projects")
-        .select("id, project_name, customer:customers(id, code, billing_address)")
+        .select("id, project_name, customer:customers(id, code, customer_code, billing_address)")
         .eq("id", rfq.source_costing_project_id).maybeSingle();
       project = pr || null;
-      // Enrich the joined customer with ip_customer_master.name so the
-      // header strip can render the Xoro-friendly name ("Ross Procurement")
-      // instead of the raw "EXCEL:ROSSPROCUREMENT" code. Same source ATS uses.
-      if (project?.customer?.code) {
+      // Enrich the joined customer with ip_customer_master.name so the header
+      // strip renders the Xoro-friendly name ("Ross Procurement") instead of the
+      // bare code. Join on customers.customer_code (the Xoro ref) — since #1187
+      // customers.code is the clean "CUST-NNNNN" form, so joining on .code missed
+      // and the header showed "CUST-00120" instead of the name.
+      if (project?.customer?.customer_code) {
         try {
           const { data: ipcm } = await admin.from("ip_customer_master")
             .select("name")
-            .eq("customer_code", project.customer.code)
+            .eq("customer_code", project.customer.customer_code)
             .maybeSingle();
           if (ipcm?.name) project.customer.display_name = ipcm.name;
         } catch (e) {
