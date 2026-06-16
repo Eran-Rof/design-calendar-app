@@ -802,7 +802,7 @@ export default function CostingGrid() {
             // Narrow margin-derive column: stack the header on two lines
             // ("Sell Tgt" / "Frm Mrgn") so the column can stay slim.
             const headerContent = c.key === "_sell_from_margin"
-              ? (<><div>Sell Tgt</div><div>Frm Mrgn</div></>)
+              ? (<><div>Sell Tgt</div><div>Frm Mrgn %</div></>)
               : c.label;
             return (
               <div key={c.key} style={{
@@ -1040,22 +1040,26 @@ export default function CostingGrid() {
                   const hasMv = typeof mv === "number" && isFinite(mv);
                   return (
                     <div key={c.key} style={{ ...style, padding: 0 }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        key={`sfm_${line.id}_${hasMv ? mv.toFixed(2) : ""}`}
-                        defaultValue={hasMv ? fmtPct.format(mv) : ""}
-                        type="text"
-                        title={isDdp
-                          ? "Type a target margin % → sets Sell Tgt from Tgt DDP Cost. Editing Sell Tgt directly clears this."
-                          : "Type a target margin % → sets Sell Tgt from the cost basis (Landed). Editing Sell Tgt directly clears this."}
-                        placeholder="—"
-                        onBlur={(e) => onSellFromMarginEdit(line, e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                        style={{
-                          width: "100%", padding: "4px 6px", fontSize: 12, fontWeight: 600,
-                          textAlign: "right", background: "transparent",
-                          border: "1px solid transparent", color: "#93C5FD", outline: "none",
-                        }}
-                      />
+                      <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                        <input
+                          key={`sfm_${line.id}_${hasMv ? mv.toFixed(2) : ""}`}
+                          defaultValue={hasMv ? fmtPct.format(mv) : ""}
+                          type="text"
+                          inputMode="decimal"
+                          title={isDdp
+                            ? "Type a target margin % → sets Sell Tgt from Tgt DDP Cost. Editing Sell Tgt directly clears this."
+                            : "Type a target margin % → sets Sell Tgt from the cost basis (Landed). Editing Sell Tgt directly clears this."}
+                          placeholder="—"
+                          onBlur={(e) => onSellFromMarginEdit(line, e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          style={{
+                            flex: 1, minWidth: 0, padding: "4px 2px 4px 6px", fontSize: 12, fontWeight: 600,
+                            textAlign: "right", background: "transparent",
+                            border: "1px solid transparent", color: "#93C5FD", outline: "none",
+                          }}
+                        />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#93C5FD", paddingRight: 6, opacity: hasMv ? 1 : 0.45, pointerEvents: "none" }}>%</span>
+                      </div>
                     </div>
                   );
                 }
