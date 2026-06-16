@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -329,7 +330,7 @@ function FinancialAnalytics() {
     <>
       <Panel title="Early-payment ROI (YTD)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-          <Stat label="Discount captured" value={`$${Math.round(d.early_payment.ytd_discount_captured).toLocaleString()}`} tone="success" />
+          <Stat label="Discount captured" value={`$${fmtMoney(d.early_payment.ytd_discount_captured)}`} tone="success" />
           <Stat label="Annualized return" value={`${d.early_payment.ytd_avg_annualized_return_pct.toFixed(1)}%`} />
           <Stat label="Cost of capital" value={`${d.early_payment.cost_of_capital_pct.toFixed(1)}%`} tone="muted" />
           <Stat label="Net benefit" value={`${d.early_payment.net_benefit_vs_capital_pct > 0 ? "+" : ""}${d.early_payment.net_benefit_vs_capital_pct.toFixed(1)}%`} tone={d.early_payment.net_benefit_vs_capital_pct > 0 ? "success" : "danger"} />
@@ -354,8 +355,8 @@ function FinancialAnalytics() {
 
       <Panel title="SCF utilization (funded by month, 12mo)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
-          <Stat label="Total capacity" value={`$${Math.round(d.scf_utilization.current_total_capacity).toLocaleString()}`} />
-          <Stat label="Current utilization" value={`$${Math.round(d.scf_utilization.current_total_utilization).toLocaleString()}`} tone="success" />
+          <Stat label="Total capacity" value={`$${fmtMoney(d.scf_utilization.current_total_capacity)}`} />
+          <Stat label="Current utilization" value={`$${fmtMoney(d.scf_utilization.current_total_utilization)}`} tone="success" />
           <Stat label="% used" value={`${d.scf_utilization.utilization_pct.toFixed(0)}%`} tone={d.scf_utilization.utilization_pct > 80 ? "danger" : "success"} />
         </div>
         {d.scf_utilization.by_month.length > 0 && (

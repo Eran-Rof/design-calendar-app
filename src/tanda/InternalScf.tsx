@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -137,7 +138,7 @@ export default function InternalScf() {
                     <div style={{ width: `${Math.min(100, utilPct).toFixed(0)}%`, height: "100%", background: utilPct > 80 ? C.danger : utilPct > 50 ? C.warn : C.success }} />
                   </div>
                   <div style={{ fontSize: 11, color: C.textSub, marginTop: 3 }}>
-                    ${Math.round(p.current_utilization).toLocaleString()} / ${Math.round(p.max_facility_amount).toLocaleString()} ({utilPct.toFixed(0)}%)
+                    ${fmtMoney(p.current_utilization)} / ${fmtMoney(p.max_facility_amount)} ({utilPct.toFixed(0)}%)
                   </div>
                 </div>
               </div>
@@ -195,7 +196,7 @@ export default function InternalScf() {
                 <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || "—"} · due {r.invoice?.due_date || "—"}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
-              <div>${Number(r.requested_amount).toLocaleString()}</div>
+              <div>${fmtMoney(Number(r.requested_amount))}</div>
               <div style={{ color: C.textMuted }}>{r.fee_amount != null ? `$${Number(r.fee_amount).toFixed(2)}` : "—"}</div>
               <div>{r.net_disbursement != null ? `$${Number(r.net_disbursement).toLocaleString()}` : "—"}</div>
               <div><StatusChip status={r.status} /></div>

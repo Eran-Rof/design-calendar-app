@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtMoney } from "../utils";
+import { fmtMoney2 } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface CatalogItem {
@@ -111,7 +111,7 @@ export default function VendorCatalog() {
             <div style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: TH.textSub2 }}>{it.sku}</div>
             <div style={{ color: TH.text, fontWeight: 500 }}>{it.name}</div>
             <div style={{ color: TH.textSub2 }}>{it.category || "—"}</div>
-            <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.unit_price != null ? fmtMoney(it.unit_price) : "—"}</div>
+            <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.unit_price != null ? fmtMoney2(it.unit_price) : "—"}</div>
             <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.lead_time_days ?? "—"}</div>
             <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.min_order_quantity ?? "—"}</div>
             <div style={{ color: it.status === "active" ? "#276749" : TH.textMuted, fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>{it.status}</div>
