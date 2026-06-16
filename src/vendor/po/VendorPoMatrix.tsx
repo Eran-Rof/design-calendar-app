@@ -7,7 +7,7 @@
 // (e.g. PPK24) as its own size column.
 
 import { TH } from "../theme";
-import { fmtMoney } from "../utils";
+import { fmtMoney, fmtMoney2 } from "../utils";
 import { buildPoMatrix } from "../../shared/poMatrix";
 
 const AMBER = "#F59E0B"; // total-qty highlight, matches the Tanda matrix
@@ -70,8 +70,8 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
                     </td>
                   ))}
                   <td style={{ ...td, textAlign: "center", color: AMBER, fontWeight: 700, fontFamily: "monospace", ...dim }}>{rowTotal.toLocaleString()}</td>
-                  <td style={{ ...td, textAlign: "right", color: TH.textSub, fontFamily: "monospace", ...dim }}>{row.price ? fmtMoney(row.price) : "—"}</td>
-                  <td style={{ ...td, textAlign: "right", color: GREEN, fontWeight: 600, fontFamily: "monospace", ...dim }}>{rowCost ? fmtMoney(rowCost) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: TH.textSub, fontFamily: "monospace", ...dim }}>{row.price ? fmtMoney2(row.price) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: GREEN, fontWeight: 600, fontFamily: "monospace", ...dim }}>{rowCost ? fmtMoney2(rowCost) : "—"}</td>
                 </tr>
               );
             });

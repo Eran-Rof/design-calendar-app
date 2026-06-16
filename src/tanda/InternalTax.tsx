@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
@@ -114,8 +115,8 @@ export default function InternalTax() {
 
       {summary && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
-          <Stat label="Taxable amount" value={`$${Math.round(summary.total_taxable).toLocaleString()}`} />
-          <Stat label="Tax owed" value={`$${Math.round(summary.total_tax).toLocaleString()}`} color={C.warn} />
+          <Stat label="Taxable amount" value={`$${fmtMoney(summary.total_taxable)}`} />
+          <Stat label="Tax owed" value={`$${fmtMoney(summary.total_tax)}`} color={C.warn} />
           <Stat label="Jurisdictions" value={String(summary.by_jurisdiction.length)} color={C.primary} />
         </div>
       )}
@@ -161,7 +162,7 @@ export default function InternalTax() {
               <div style={{ color: C.textSub, textTransform: "uppercase", fontSize: 11 }}>{r.tax_type}</div>
               <div>{Number(r.rate_pct).toFixed(3)}%</div>
               <div style={{ color: C.textMuted, fontSize: 11, textTransform: "capitalize" }}>{r.applies_to}</div>
-              <div style={{ color: C.textMuted }}>{r.threshold_amount != null ? `$${Number(r.threshold_amount).toLocaleString()}` : "—"}</div>
+              <div style={{ color: C.textMuted }}>{r.threshold_amount != null ? `$${fmtMoney(r.threshold_amount)}` : "—"}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{r.effective_from}{r.effective_to ? ` → ${r.effective_to}` : ""}</div>
               <div style={{ color: C.textMuted, fontSize: 10 }}>{(r.vendor_type_exemptions || []).join(", ") || "—"}</div>
               <div>
@@ -208,7 +209,7 @@ export default function InternalTax() {
               <div style={{ fontWeight: 600 }}>{m.jurisdiction}</div>
               <div style={{ color: C.textSub, textTransform: "uppercase", fontSize: 11 }}>{m.tax_type}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{m.period_start} → {m.period_end}</div>
-              <div>${Math.round(Number(m.total_taxable_amount)).toLocaleString()}</div>
+              <div>${fmtMoney(Number(m.total_taxable_amount))}</div>
               <div style={{ color: C.warn }}>${Math.round(Number(m.total_tax_amount)).toLocaleString()}</div>
               <div>
                 <span style={{ fontSize: 10, color: "#fff", background: m.status === "paid" ? C.success : m.status === "filed" ? C.primary : C.textMuted, padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{m.status}</span>

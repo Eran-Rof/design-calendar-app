@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtMoney, todayLocalIso } from "../utils";
+import { fmtMoney, fmtMoney2, todayLocalIso } from "../utils";
 import { showConfirm } from "../ui/AppDialog";
 
 const PAYMENT_TERMS = [
@@ -212,11 +212,11 @@ export default function InvoiceSubmit() {
       }
       // Unit price vs packing list
       if (extracted?.unit_price != null && Math.abs(price - Number(extracted.unit_price)) > 0.009) {
-        warnings.push(`Unit price ${fmtMoney(price)} differs from packing list (${fmtMoney(Number(extracted.unit_price))}).`);
+        warnings.push(`Unit price ${fmtMoney2(price)} differs from packing list (${fmtMoney2(Number(extracted.unit_price))}).`);
       }
       // Unit price vs PO
       if (po?.unit_price != null && Math.abs(price - Number(po.unit_price)) > 0.009) {
-        warnings.push(`Unit price ${fmtMoney(price)} differs from PO (${fmtMoney(Number(po.unit_price))}).`);
+        warnings.push(`Unit price ${fmtMoney2(price)} differs from PO (${fmtMoney2(Number(po.unit_price))}).`);
       }
       return warnings;
     });
@@ -464,7 +464,7 @@ export default function InvoiceSubmit() {
                         <input value={l.description} onChange={(e) => updateLine(idx, { description: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px" }} />
                         <input type="number" step="any" value={l.qty} onChange={(e) => updateLine(idx, { qty: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
                         <input type="number" step="any" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, padding: "5px 8px", borderColor: warnings.length ? "#FCD34D" : TH.border }} />
-                        <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                        <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney2(lineTotal)}</div>
                       </div>
                       {l.include && warnings.length > 0 && (
                         <div style={{ padding: "4px 12px 8px 44px", fontSize: 11, color: "#FBBF24" }}>

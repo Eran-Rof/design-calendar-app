@@ -68,12 +68,26 @@ export function fmtDate(d?: string | null): string {
   return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
+// Whole-dollar money — kept for the vendor-portal TOTALS (grand totals + summary
+// stat cards), which the operator wants left at no decimals.
 export function fmtMoney(n?: number | null): string {
   if (n == null || Number.isNaN(n)) return "—";
   return n.toLocaleString(undefined, {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
+  });
+}
+
+// Two-decimal money — for line-level figures (unit price, line amounts,
+// subtotals) so per-line money shows cents. Totals stay on fmtMoney().
+export function fmtMoney2(n?: number | null): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  return n.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 

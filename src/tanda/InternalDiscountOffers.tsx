@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
@@ -139,7 +140,7 @@ export default function InternalDiscountOffers() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
           <Stat label="Offers made (YTD)" value={String(analytics.total_offers_made)} />
           <Stat label="Acceptance rate" value={`${analytics.acceptance_rate_pct.toFixed(0)}%`} color={C.primary} />
-          <Stat label="Discount captured" value={`$${Math.round(analytics.total_discount_captured).toLocaleString()}`} color={C.success} />
+          <Stat label="Discount captured" value={`$${fmtMoney(analytics.total_discount_captured)}`} color={C.success} />
           <Stat label="Annualized return" value={`${analytics.annualized_return_pct.toFixed(1)}%`} color={C.warn} />
         </div>
       )}

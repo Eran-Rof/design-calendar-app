@@ -2,7 +2,7 @@
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney, todayLocalIso, dateToLocalIso } from "../utils";
+import { fmtDate, fmtMoney, fmtMoney2, todayLocalIso, dateToLocalIso } from "../utils";
 import { PHASES, computeExpectedDate } from "../po/VendorPhasesView";
 
 interface Summary {
@@ -445,7 +445,7 @@ export default function VendorReports() {
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.acknowledged_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.fulfilled_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.required_by)}</div>
-              <div style={{ color: TH.textSub2 }}>{fmtMoney(r.total_amount)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtMoney2(r.total_amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize", whiteSpace: "nowrap" }}>{r.status.replace(/_/g, " ")}</span></div>
               <div style={{ color: pctColor, fontWeight: 600 }}>{pct != null ? `${pct}%` : "—"}</div>
               <div style={{ textAlign: "right", color: r.on_time === false ? TH.primary : r.on_time === true ? "#047857" : TH.textMuted }}>
@@ -504,7 +504,7 @@ export default function VendorReports() {
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.submitted_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.approved_at)}</div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(r.paid_at)}</div>
-              <div style={{ color: TH.textSub2 }}>{fmtMoney(r.amount)}</div>
+              <div style={{ color: TH.textSub2 }}>{fmtMoney2(r.amount)}</div>
               <div><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: c.bg, color: c.fg, fontWeight: 600, textTransform: "capitalize" }}>{r.status.replace("_", " ")}</span></div>
               <div style={{ textAlign: "right", fontWeight: 600 }}>
                 {r.days_to_payment != null ? (
