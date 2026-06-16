@@ -311,10 +311,16 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           )}
 
           <CheckRow
-            label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
+            label="Customer Facing (hide Avg Cost / Total Cost + T3/LY Mrgn % from the main sheet)"
             checked={customerFacing}
             onChange={setCustomerFacing}
           />
+          {customerFacing && slsPrcAtMrgn && !hideATSData && (
+            <div style={{ marginLeft: 26, marginTop: -4, marginBottom: 6, fontSize: 11, color: "#94A3B8", lineHeight: 1.4 }}>
+              Sls Prc, Mrgn % &amp; Total $ stay as <b>live formulas</b> (edit a price → margin recalcs). The unit cost is on a
+              separate <b>“{`Cost (delete before sending)`}”</b> tab — paste the report as values, then delete that tab before sending.
+            </div>
+          )}
 
           <CheckRow
             label="Hide zero columns (drop any data column whose body is empty / all zero)"
