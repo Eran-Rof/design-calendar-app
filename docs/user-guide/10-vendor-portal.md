@@ -136,6 +136,12 @@ After approval, the top navigation tabs are: **🔔 Notifications · Dashboard �
 
 > Only current POs appear (anything ordered before December 2025 is older history you don't need to act on).
 
+> Your PO list includes orders from **both** Ring of Fire's systems during the
+> transition: legacy synced POs and newer POs created in the current ERP (the
+> latter carry a small **TGR** tag next to the PO number). Going forward all POs
+> will come from the new system. Newer (TGR) POs open read-only for now —
+> acknowledgment, shipments and invoicing for them follow shortly.
+
 For each PO the list shows the PO number, issue date, required-by date (with a "(Nd)" countdown or "overdue" flag), amount, date received, quantity received vs. ordered, quantity and amount remaining, status, and your acknowledgment date.
 
 1. Click **Acknowledge** on a row to confirm you've received the PO. The button turns into a green check with the date.

@@ -41,6 +41,27 @@ type PORow = {
   buyer_name: string | null;
   date_expected_delivery: string | null;
   vendor_id: string | null;
+  /** "xoro" = tanda_pos (legacy sync); "tangerine" = purchase_orders (new ERP). */
+  source?: "xoro" | "tangerine";
+};
+
+// Tangerine-native PO (purchase_orders) — the new ERP's POs, unioned into the
+// portal alongside the Xoro tanda_pos rows.
+type TangerinePO = {
+  id: string;
+  po_number: string;
+  order_date: string | null;
+  expected_date: string | null;
+  status: string | null;
+  total_cents: number | null;
+  notes: string | null;
+  vendor_id: string | null;
+};
+type TangerineLine = {
+  purchase_order_id: string;
+  qty_ordered: number | null;
+  qty_received: number | null;
+  unit_cost_cents: number | null;
 };
 
 function poItems(p: POPayload | null | undefined): POItem[] {
@@ -117,10 +138,73 @@ export default function POList() {
           .eq("vendor_user_id", vuId);
         if (acksErr) throw acksErr;
 
+        const active = ((pos ?? []) as PORow[])
+          .filter((r) => !r.data?._archived)
+          .map((r) => ({ ...r, source: "xoro" as const }));
+
+        // Tangerine-native POs live in `purchase_orders` (the new ERP), NOT in
+        // tanda_pos (Xoro sync). Union them in so the vendor sees active POs from
+        // BOTH systems (in future only Tangerine will exist). Fail-safe: any error
+        // here leaves the Xoro list fully intact.
+        let tangerineRows: PORow[] = [];
+        try {
+          const { data: tpos } = await supabaseVendor
+            .from("purchase_orders")
+            .select("id, po_number, order_date, expected_date, status, total_cents, notes, vendor_id")
+            .eq("vendor_id", vendorId)
+            .in("status", ["issued", "in_transit", "received"])
+            .gte("order_date", MIN_PO_DATE)
+            .order("order_date", { ascending: false });
+          const tposList = (tpos ?? []) as TangerinePO[];
+          if (tposList.length > 0) {
+            const tIds = tposList.map((p) => p.id);
+            const { data: tlines } = await supabaseVendor
+              .from("purchase_order_lines")
+              .select("purchase_order_id, qty_ordered, qty_received, unit_cost_cents")
+              .in("purchase_order_id", tIds);
+            const linesByPo = new Map<string, TangerineLine[]>();
+            for (const l of (tlines ?? []) as TangerineLine[]) {
+              if (!linesByPo.has(l.purchase_order_id)) linesByPo.set(l.purchase_order_id, []);
+              linesByPo.get(l.purchase_order_id)!.push(l);
+            }
+            tangerineRows = tposList.map((p) => {
+              const lines = linesByPo.get(p.id) || [];
+              return {
+                id: p.id,
+                uuid_id: p.id,
+                po_number: p.po_number,
+                buyer_name: null,
+                date_expected_delivery: p.expected_date,
+                vendor_id: p.vendor_id,
+                source: "tangerine" as const,
+                data: {
+                  PoNumber: p.po_number,
+                  DateOrder: p.order_date ?? undefined,
+                  DateExpectedDelivery: p.expected_date ?? undefined,
+                  StatusName: p.status ?? undefined,
+                  TotalAmount: typeof p.total_cents === "number" ? p.total_cents / 100 : undefined,
+                  BuyerName: null,
+                  Items: lines.map((l) => ({
+                    QtyOrder: l.qty_ordered ?? 0,
+                    QtyReceived: l.qty_received ?? 0,
+                    UnitPrice: typeof l.unit_cost_cents === "number" ? l.unit_cost_cents / 100 : 0,
+                  })),
+                  _archived: false,
+                },
+              };
+            });
+          }
+        } catch (te) {
+          // Non-fatal — Tangerine POs are additive; the Xoro list still renders.
+          console.warn("[vendor/POList] purchase_orders fetch failed:", te);
+        }
+
+        const merged = [...active, ...tangerineRows].sort((a, b) =>
+          (b.data?.DateOrder || "").localeCompare(a.data?.DateOrder || ""));
+
         if (cancelled) return;
         setVendorUserId(vuId);
-        const active = ((pos ?? []) as PORow[]).filter((r) => !r.data?._archived);
-        setRows(active);
+        setRows(merged);
         setAckIds(new Set((acks ?? []).map((a: { po_number: string }) => a.po_number)));
         const ackMap = new Map<string, string>();
         for (const a of (acks ?? []) as { po_number: string; acknowledged_at: string | null }[]) {
@@ -129,7 +213,9 @@ export default function POList() {
         setAckAtByPo(ackMap);
 
         // Pull the most recent received_date per PO for the "Received" column.
-        const poIds = active.map((r) => r.uuid_id).filter(Boolean);
+        // (Tangerine PO ids simply won't match the tanda_pos-keyed receipt/invoice
+        // tables — they show no received/shipped info, which is correct for now.)
+        const poIds = merged.map((r) => r.uuid_id).filter(Boolean);
         if (poIds.length > 0) {
           const [{ data: receipts }, { data: invoices }] = await Promise.all([
             supabaseVendor.from("receipts").select("po_id, received_date").in("po_id", poIds),
@@ -270,7 +356,15 @@ export default function POList() {
               to={`/vendor/pos/${r.uuid_id}`}
               style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 260px 170px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 1554 }}
             >
-              <div style={{ fontWeight: 600, color: TH.primary }}>{r.po_number}</div>
+              <div style={{ fontWeight: 600, color: TH.primary, display: "flex", alignItems: "center", gap: 6 }}>
+                {r.po_number}
+                {r.source === "tangerine" && (
+                  <span
+                    title="Tangerine PO (new system)"
+                    style={{ fontSize: 9, fontWeight: 700, color: "#A7F3D0", background: "#064E3B", border: "1px solid #065F46", borderRadius: 4, padding: "1px 4px", textTransform: "uppercase", letterSpacing: ".04em", flexShrink: 0 }}
+                  >TGR</span>
+                )}
+              </div>
               <div style={{ color: TH.textSub2 }}>{fmtDate(p.DateOrder)}</div>
               <div style={{ color: TH.textSub2, display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
                 <span>{fmtDate(ddp)}</span>

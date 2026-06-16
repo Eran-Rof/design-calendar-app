@@ -125,8 +125,58 @@ export default function VendorPODetail() {
         if (shipRes.error) console.warn("[VendorPODetail] shipments load failed:", errMsg(shipRes.error));
         if (msgRes.error) console.warn("[VendorPODetail] messages load failed:", errMsg(msgRes.error));
 
-        setPO(poRes.data as PORow | null);
-        setLines((lineRes.data ?? []) as POLineItem[]);
+        let poData = poRes.data as PORow | null;
+        let lineData = (lineRes.data ?? []) as POLineItem[];
+
+        // Tangerine-native PO fallback: when the id isn't a tanda_pos (Xoro) row,
+        // try purchase_orders (the new ERP) — so a Tangerine PO opens read-only
+        // instead of "PO not found". Shipments / messages / ack / invoices stay
+        // empty for these (they're keyed to tanda_pos po_ids).
+        if (!poData) {
+          try {
+            const { data: tpo } = await supabaseVendor
+              .from("purchase_orders")
+              .select("id, po_number, order_date, expected_date, status, total_cents, notes, vendor_id")
+              .eq("id", id).eq("vendor_id", vendorId).maybeSingle();
+            if (tpo) {
+              const { data: tlines } = await supabaseVendor
+                .from("purchase_order_lines")
+                .select("id, line_number, description, qty_ordered, qty_received, unit_cost_cents, line_total_cents")
+                .eq("purchase_order_id", id).order("line_number");
+              poData = {
+                uuid_id: tpo.id as string,
+                po_number: tpo.po_number as string,
+                data: {
+                  TotalAmount: typeof tpo.total_cents === "number" ? tpo.total_cents / 100 : undefined,
+                  DateOrder: tpo.order_date ?? undefined,
+                  DateExpectedDelivery: tpo.expected_date ?? undefined,
+                  StatusName: tpo.status ?? undefined,
+                  BuyerName: null,
+                  Notes: tpo.notes ?? undefined,
+                  _source: "tangerine",
+                },
+                buyer_name: null,
+                date_expected_delivery: (tpo.expected_date as string | null) ?? null,
+                vendor_id: (tpo.vendor_id as string | null) ?? null,
+              };
+              lineData = ((tlines ?? []) as Array<Record<string, unknown>>).map((l) => ({
+                id: l.id as string,
+                line_index: (l.line_number as number) ?? 0,
+                item_number: null,
+                description: (l.description as string | null) ?? null,
+                qty_ordered: (l.qty_ordered as number | null) ?? null,
+                qty_received: (l.qty_received as number | null) ?? null,
+                unit_price: typeof l.unit_cost_cents === "number" ? (l.unit_cost_cents as number) / 100 : null,
+                line_total: typeof l.line_total_cents === "number" ? (l.line_total_cents as number) / 100 : null,
+              }));
+            }
+          } catch (te) {
+            console.warn("[VendorPODetail] purchase_orders fallback failed:", errMsg(te));
+          }
+        }
+
+        setPO(poData);
+        setLines(lineData);
         setShipments((shipRes.data ?? []) as ShipmentRow[]);
 
         // Acknowledge check keyed by po_number
