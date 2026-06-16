@@ -25,7 +25,7 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { confirmDialog } from "../shared/ui/warn";
-import type { OrderDocLine } from "./orderDocument";
+import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat } from "./orderDocument";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -53,9 +53,9 @@ export interface LineMatrixBodyHandle {
   /** Set the per-row unit (e.g. an awarded cost) for the given styles IN PLACE —
    *  does NOT touch quantities. Map key = style_code, value = unit string. */
   applyUnitByStyle: (byStyle: Record<string, string>) => void;
-  /** Current filled lines for a printable document view — read-only, NO SKU
-   *  resolution / side effects (unlike resolve()). Matrix cells + flat lines. */
-  getDocumentLines: () => OrderDocLine[];
+  /** Current filled lines for a printable document view, as a per-style color ×
+   *  size MATRIX — read-only, NO SKU resolution / side effects (unlike resolve()). */
+  getDocumentData: () => OrderDocData;
 }
 
 type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string> };
@@ -438,27 +438,39 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         return { ...s, unit };
       }));
     },
-    getDocumentLines(): OrderDocLine[] {
-      const out: OrderDocLine[] = [];
+    getDocumentData(): OrderDocData {
+      const styleGroups: OrderDocStyle[] = [];
       for (const s of sections) {
         const st = styles.find((x) => x.id === s.styleId);
         const code = s.payload?.style?.style_code || st?.style_code || "";
         const desc = st?.style_name || st?.description || null;
+        // Pivot filled cells into per-(color×inseam) rows with a qty per size.
+        const rowMap = new Map<string, OrderDocMatrixRow>();
+        const sizesSeen = new Set<string>();
         for (const [cell, n] of Object.entries(s.qty)) {
           if (!(n > 0)) continue;
           const [rowKey, size] = cell.split("__");
           const [color, inseam] = rowKey.split("|");
-          out.push({ style: code, description: desc, color: color || null, inseam: inseam || null, size: size || null, qty: n, unitDollars: Number((s.unit[rowKey] || "").replace(/,/g, "")) || 0 });
+          sizesSeen.add(size);
+          let row = rowMap.get(rowKey);
+          if (!row) { row = { color: color || null, inseam: inseam || null, unitDollars: Number((s.unit[rowKey] || "").replace(/,/g, "")) || 0, qtyBySize: {} }; rowMap.set(rowKey, row); }
+          row.qtyBySize[size] = (row.qtyBySize[size] || 0) + n;
         }
+        if (rowMap.size === 0) continue;
+        // Size columns in scale order (from the loaded payload), limited to sizes
+        // actually ordered; fall back to appearance order if no payload yet.
+        const sizes = s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen];
+        styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()] });
       }
+      const flats: OrderDocFlat[] = [];
       for (const l of flat) {
         const q = Number(l.qty_ordered) || 0;
         const totalStr = (l.line_total_dollars || "").replace(/,/g, "").trim();
         if (!(q > 0) && totalStr === "") continue;
         const unit = q > 0 ? Number((l.unit_price_dollars || "").replace(/,/g, "")) || 0 : (Number(totalStr) || 0);
-        out.push({ style: l.label || "(line)", description: l.description || null, color: null, inseam: null, size: null, qty: q > 0 ? q : 1, unitDollars: unit });
+        flats.push({ label: l.label || "(line)", description: l.description || null, qty: q > 0 ? q : 1, unitDollars: unit });
       }
-      return out;
+      return { styles: styleGroups, flats };
     },
   }), [sections, flat, styles]);
 

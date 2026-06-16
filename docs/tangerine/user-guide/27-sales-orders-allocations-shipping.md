@@ -115,7 +115,7 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 > **Unsaved-changes guard.** On a **new** order that already has data (customer, PO #, dates, or any matrix lines), clicking **Close** or clicking outside the modal first asks *"This sales order hasn't been saved. Close and discard your changes?"* — so an in-progress or AI-prefilled order isn't lost by an accidental click. (Saving normally closes without the prompt.)
 
-> **🖨 View (printable / downloadable).** Next to **Close** is a **🖨 View** button that opens the SO as a **branded document** in a new window — Ring of Fire logo, header fields (customer, PO #, dates, terms, channel…), the line items (style · color · inseam · size · qty · unit $ · total) and grand totals. The window's **Print / Save as PDF** button prints or downloads it. Works on a draft (number shows `(draft)`), reflecting whatever is currently entered.
+> **🖨 View (printable / downloadable).** Next to **Close** is a **🖨 View** button that opens the SO as a **branded document** in a new window — Ring of Fire logo, header fields (customer, PO #, dates, terms, channel…), then a **color × size matrix per style** (one block per style: color/inseam rows × size columns, with a per-row Qty, Unit $ and line total, plus a per-style totals row) and grand totals. The window's **Print / Save as PDF** button prints or downloads it. Works on a draft (number shows `(draft)`), reflecting whatever is currently entered.
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 

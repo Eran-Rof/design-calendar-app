@@ -781,7 +781,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       partyName: customers.find((c) => c.id === customerId)?.name || "",
       moneyLabel: "Unit $",
       fields,
-      lines: bodyRef.current?.getDocumentLines() || [],
+      data: bodyRef.current?.getDocumentData() || { styles: [], flats: [] },
       notes,
     });
   }
