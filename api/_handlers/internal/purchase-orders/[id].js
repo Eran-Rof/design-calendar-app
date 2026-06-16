@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { normalizeHeader } from "./index.js";
+import { notifyVendor } from "../../../_lib/phase-notifications.js";
 
 export const config = { maxDuration: 20 };
 
@@ -176,10 +177,13 @@ export default async function handler(req, res, params) {
       }
     }
 
-    // Replace lines if supplied (drafts only — issued POs are line-locked here).
+    // Replace lines if supplied. Drafts edit freely; an issued/in-transit/received
+    // PO is line-locked UNLESS this is an explicit revision (revise:true) — the
+    // operator's "✎ Edit" path, which also notifies the vendor below.
+    const isRevision = body.revise === true && po.status !== "cancelled";
     if (Array.isArray(body.lines)) {
-      if (po.status !== "draft" && !("status" in body)) {
-        return res.status(409).json({ error: "Lines can only be edited while the order is a draft." });
+      if (po.status !== "draft" && !("status" in body) && !isRevision) {
+        return res.status(409).json({ error: "Lines can only be edited on a draft, or via an explicit revision." });
       }
       const norm = [];
       let ln = 1;
@@ -235,7 +239,23 @@ export default async function handler(req, res, params) {
           .eq("purchase_order_id", id).in("status", ["open", "partial"]);
       }
     }
-    return res.status(200).json(data);
+
+    // Revision of a saved PO → notify the vendor's portal users (bell + email).
+    // Best-effort + no-op when the vendor has no portal users (notifyVendor → 0).
+    let vendor_notified = 0;
+    if (isRevision && po.status !== "draft") {
+      const origin = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : null);
+      try {
+        vendor_notified = await notifyVendor(admin, data.vendor_id, {
+          event_type: "po_revised",
+          title: `Purchase order ${data.po_number || ""} revised`.trim(),
+          body: "Ring of Fire revised this purchase order. Please review the updated quantities, pricing, or dates.",
+          link: data.po_number ? `/vendor/pos?q=${encodeURIComponent(data.po_number)}` : null,
+          metadata: { po_id: id, po_number: data.po_number || null },
+        }, { email: true, origin });
+      } catch { /* non-blocking */ }
+    }
+    return res.status(200).json({ ...data, vendor_notified });
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");
