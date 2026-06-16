@@ -28,7 +28,7 @@ import CostSuggestModal from "./CostSuggestModal";
 import SizeCurveModal from "./SizeCurveModal";
 import DateRangePresets from "../../tanda/components/DateRangePresets";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
-import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
+import { fetchStyleSeedSku, generateRfqs, searchStyles } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
 import { confirmDialog, notify } from "../../shared/ui/warn";
 import { marginTierColor } from "../../techpack/calc";
@@ -414,6 +414,7 @@ export default function CostingGrid() {
     closeContextMenu();
     const created = await duplicateLine(lineId);
     if (created) {
+      await reseedCopyFromStyle(created);
       setNotice("Row duplicated below — pick a vendor for the new line.", "info");
     }
   };
@@ -507,6 +508,19 @@ export default function CostingGrid() {
     await updateLineGuarded(line.id, patch);
   };
 
+  // After a Copy/Duplicate, re-derive the new line's OWN style data from the
+  // Style Master — fabric + avg cost via the same seed path as a fresh style
+  // pick, and the comp effect re-fetches its LY/T3 sales. So the copy carries
+  // its own data rather than inheriting whatever was edited on the source.
+  const reseedCopyFromStyle = async (line: CostingLine) => {
+    if (!line.style_code) return;
+    try {
+      const hits = await searchStyles(line.style_code, { limit: 50 });
+      const hit = hits.find((h) => h.style_code === line.style_code) || hits[0];
+      if (hit) await onStylePick(line, hit);
+    } catch { /* non-fatal — the copied values remain in place */ }
+  };
+
   const onDragStart = (id: string) => (e: React.DragEvent) => {
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
@@ -572,7 +586,10 @@ export default function CostingGrid() {
         <button
           onClick={async () => {
             const ids = Array.from(selectedRowIds);
-            for (const id of ids) await duplicateLine(id);
+            for (const id of ids) {
+              const c = await duplicateLine(id);
+              if (c) await reseedCopyFromStyle(c);
+            }
             setSelectedRowIds(new Set());
             setNotice(`${ids.length} row${ids.length === 1 ? "" : "s"} copied below — update vendor for each new line.`, "info");
           }}

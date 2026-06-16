@@ -22,11 +22,21 @@ are required — `+ Add row` is blocked with a list of what's missing until they
 Each row is a style line. Key columns:
 
 - **Style# / Description / Scale / Fabric / Fit / Color / Closures / Waist** — the spec.
+  Picking a style **prepopulates the Fabric** from the Style Master (you can still
+  change it or add another). The **Color** dropdown lists only the colors that
+  actually exist for that style — not every color in the system — and you can still
+  type a new one to add it.
 - **Qty** — target units.
 - **Vendor** — the intended vendor (used to group RFQs). Pick from the dropdown or add a new one.
 - **Avg Cost / PO History** — historical reference. PO History shows the per-unit cost
   from past POs; prepack (PPK) pack prices are **exploded to per-unit** so a pack POs
   don't inflate the figure. A "Pack" column shows the pack size used.
+
+> **Copy / Duplicate a row** (right-click → *Duplicate*, or select rows → *⎘ Copy*)
+> creates a fresh line that **re-derives its own data** — Avg Cost, LY/T3 sales,
+> Fabric and the style spec are pulled fresh from the Style Master rather than
+> carrying over edits from the source row. The vendor is cleared so you can award
+> a different one.
 
 ### Cost basis: FOB/Landed vs DDP
 
