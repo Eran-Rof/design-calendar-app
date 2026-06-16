@@ -199,9 +199,9 @@ Choosing **Export Excel…** opens an options panel. Tick what you want, then **
 
 - **Subtotals (per style)** — subtotal rows per style.
 - **Avg Cost** — adds Avg Cost and Total Cost columns.
-- **Sls Prc @ Margin** — adds the sale price implied by a margin % you enter (price = cost ÷ (1 − margin)).
+- **Sls Prc @ Margin** — adds three columns: the implied **Sls Prc** (price = cost ÷ (1 − margin), editable), a **Mrgn %**, and a **Total $** (Sls Prc × qty). **Mrgn % and Total $ are live Excel formulas** — change a sale price in the sheet and the margin % and total recalculate instantly. The unit cost the margin needs is parked on a separate **“Cost (delete before sending)”** worksheet that the formulas reference.
 - **Trailing 3 & SP LY sales** — adds quantity / sale price / margin for the last 3 months and the same period last year.
-- **Customer Facing** — strips every cost and margin column, so the workbook is safe to send to the customer.
+- **Customer Facing** — drops the cost-basis columns (Avg Cost, Total Cost, T3/LY Mrgn %) from the main sheet. You can now combine it with **Sls Prc @ Margin** to build an editable quote: adjust prices, watch margins update, then **paste the report sheet as Values** (so the numbers freeze) and **delete the “Cost (delete before sending)” tab** — leaving a clean, cost-free workbook to send.
 - **Hide zero columns** — drops any data column that's entirely empty.
 - **By Size Matrix** — adds the size breakdown worksheet (below).
 - **Hide ATS data** — drops the date/availability columns and keeps the identity + history blocks (useful for a pure sales-history pull). This mode lets you set a **custom date range** for the trailing/last-year windows.
