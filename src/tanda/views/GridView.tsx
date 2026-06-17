@@ -36,6 +36,7 @@ import {
   styleColorKey,
   itemSizeLabel,
   sizeSort,
+  buildSizeVocab,
 } from "./gridView/gridUtils";
 import { NotesModal } from "./gridView/NotesModal";
 
@@ -94,6 +95,20 @@ export function GridView({
       return next;
     });
   };
+
+  // Canonical size vocabulary from the live Tangerine size_scales — drives the
+  // style/color grouping so size detection follows the actual scales (incl.
+  // paren sizes like S(7-8) and month sizes), not a fixed list. Loads once;
+  // until it arrives the grouping uses the structural fallback in isSizeToken.
+  const [sizeVocab, setSizeVocab] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${SB_URL}/rest/v1/size_scales?select=sizes,inseams`, { headers: SB_HEADERS })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => { if (!cancelled && Array.isArray(rows)) setSizeVocab(buildSizeVocab(rows)); })
+      .catch(() => { /* fall back to structural detection */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // Hidden-section (phase) state. Mirrors hiddenCols but keyed by phase
   // name, so the planner can collapse whole milestone sections (Lab Dip,
@@ -1580,7 +1595,7 @@ export function GridView({
                     // Build style/color groups (strip trailing size from ItemNumber)
                     const groupMap = new Map<string, { key: string; desc: string; items: typeof allItems }>();
                     allItems.forEach((item, idx) => {
-                      const k = styleColorKey(item.ItemNumber || "", item.Description || "") || `item_${idx}`;
+                      const k = styleColorKey(item.ItemNumber || "", item.Description || "", sizeVocab) || `item_${idx}`;
                       if (!groupMap.has(k)) groupMap.set(k, { key: k, desc: item.Description || "", items: [] });
                       groupMap.get(k)!.items.push(item);
                     });
@@ -1588,7 +1603,7 @@ export function GridView({
 
                     // Collect all unique detected sizes (for matrix col headers)
                     const sizeSet = new Set<string>();
-                    allItems.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeSet.add(sz); });
+                    allItems.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || "", sizeVocab); if (sz) sizeSet.add(sz); });
                     const hasSizes   = sizeSet.size > 0;
                     const sortedSizes = [...sizeSet].sort(sizeSort);
 
@@ -1859,7 +1874,7 @@ export function GridView({
                                       const totalQty = group.items.reduce((s, it) => s + (it.QtyOrder ?? 0), 0);
                                       // Map size → item
                                       const sizeMap = new Map<string, typeof allItems[0]>();
-                                      group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeMap.set(sz, it); });
+                                      group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || "", sizeVocab); if (sz) sizeMap.set(sz, it); });
                                       // Delivery date
                                       const delivs = [...new Set(group.items.map(it => normDateISO(it.DateExpectedDelivery)).filter(Boolean))];
                                       const delivDisplay = delivs.length === 0 ? "—" : delivs.length === 1 ? fmtDate(delivs[0]) : "Mixed";
