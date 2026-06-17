@@ -12,6 +12,8 @@ import {
   styleColorKey,
   itemSizeLabel,
   sizeSort,
+  normSizeToken,
+  buildSizeVocab,
 } from "../gridUtils";
 
 describe("normDateISO", () => {
@@ -91,6 +93,12 @@ describe("isSizeToken", () => {
     expect(isSizeToken("YL")).toBe(true);   // youth
     expect(isSizeToken("10.5")).toBe(true); // half size
   });
+  it("matches Xoro month (MO) spelling and prepack tokens", () => {
+    expect(isSizeToken("12MO")).toBe(true);  // the reported "12M scale" form
+    expect(isSizeToken("18MO")).toBe(true);
+    expect(isSizeToken("PPK48")).toBe(true); // prepack
+    expect(isSizeToken("PPK24")).toBe(true);
+  });
   it("rejects non-size tokens", () => {
     expect(isSizeToken("RED")).toBe(false);
     expect(isSizeToken("ABC")).toBe(false);
@@ -140,6 +148,34 @@ describe("itemSizeLabel", () => {
     expect(itemSizeLabel("RYB-BLUE-FOO")).toBe("");
     expect(itemSizeLabel("STANDALONE")).toBe("");
     expect(itemSizeLabel("")).toBe("");
+  });
+});
+
+describe("normSizeToken", () => {
+  it("normalises month and alpha spellings to the scale form", () => {
+    expect(normSizeToken("12MO")).toBe("12M");   // Xoro spelling → scale spelling
+    expect(normSizeToken("18mo")).toBe("18M");
+    expect(normSizeToken("LRG")).toBe("L");
+    expect(normSizeToken("LARGE")).toBe("L");
+    expect(normSizeToken("XXL")).toBe("2XL");
+    expect(normSizeToken(" m ")).toBe("M");
+    expect(normSizeToken("32")).toBe("32");
+  });
+});
+
+describe("buildSizeVocab + scale-driven detection", () => {
+  const vocab = buildSizeVocab([
+    { sizes: ["XS(5-6)", "S(7-8)", "12M", "OS"], inseams: ["30", "32"] },
+    { sizes: ["WEIRDSCALE"], inseams: null },
+  ]);
+  it("treats any token in a Tangerine scale as a size", () => {
+    expect(isSizeToken("WEIRDSCALE", vocab)).toBe(true);       // only known via the scale
+    expect(isSizeToken("12MO", vocab)).toBe(true);             // 12MO → 12M ∈ vocab
+    expect(isSizeToken("WEIRDSCALE")).toBe(false);             // not without the vocab
+  });
+  it("a scale-only size is stripped from the group key", () => {
+    expect(styleColorKey("RYB0001-NAVY-WEIRDSCALE", "", vocab)).toBe("RYB0001-NAVY");
+    expect(styleColorKey("RYB0001-NAVY-WEIRDSCALE", "")).toBe("RYB0001-NAVY-WEIRDSCALE"); // unchanged w/o vocab
   });
 });
 
