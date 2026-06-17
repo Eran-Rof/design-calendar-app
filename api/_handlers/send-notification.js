@@ -291,7 +291,11 @@ function renderEmailHtml({ title, body, link }) {
   // inject arbitrary HTML/JS into the email body. Also reject anything
   // that doesn't look like an http(s) URL or absolute path so attackers
   // can't smuggle a `javascript:` URL through.
-  const safeLink = isSafeLink(link) ? link : null;
+  // Emails go to an external mail client, so a root-relative link (e.g.
+  // "/vendor/rfqs/123") would resolve against the mail provider's domain and do
+  // nothing — make it an absolute vendor-portal URL before rendering.
+  const abs = absolutizePortalLink(link);
+  const safeLink = isSafeLink(abs) ? abs : null;
   const linkBlock = safeLink
     ? `<p style="margin:16px 0;"><a href="${escapeHtml(safeLink)}" style="background:#C8210A;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block;">View details</a></p>`
     : "";
@@ -319,4 +323,14 @@ function isSafeLink(s) {
   // javascript:, data:, mailto:, etc. as well as anything that doesn't
   // look like a navigation target.
   return /^https?:\/\//i.test(s) || /^\/[^\/]/.test(s) || s === "/";
+}
+
+// Vendor-portal origin for ABSOLUTE links in emails. Override via env if the
+// portal domain changes; default matches the portal's prod host.
+const PORTAL_ORIGIN = (process.env.VENDOR_PORTAL_ORIGIN || "https://vendor.ringoffire.com").replace(/\/+$/, "");
+function absolutizePortalLink(link) {
+  if (!link || typeof link !== "string") return link;
+  if (/^https?:\/\//i.test(link)) return link;        // already absolute
+  if (link.startsWith("/")) return PORTAL_ORIGIN + link; // root-relative → absolute
+  return link;
 }
