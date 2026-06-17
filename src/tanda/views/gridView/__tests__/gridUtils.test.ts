@@ -75,11 +75,29 @@ describe("isSizeToken", () => {
     expect(isSizeToken("34L")).toBe(true);
     expect(isSizeToken("30R")).toBe(true);
   });
+  it("matches XXS, one-size and full-word alpha", () => {
+    expect(isSizeToken("XXS")).toBe(true);
+    expect(isSizeToken("OS")).toBe(true);
+    expect(isSizeToken("OSFA")).toBe(true);
+    expect(isSizeToken("ONE SIZE")).toBe(true); // spaces stripped
+    expect(isSizeToken("Medium")).toBe(true);
+  });
+  it("matches kids / plus / youth sizes", () => {
+    expect(isSizeToken("2T")).toBe(true);   // toddler
+    expect(isSizeToken("12M")).toBe(true);  // infant months
+    expect(isSizeToken("0-3M")).toBe(true); // month range
+    expect(isSizeToken("1X")).toBe(true);   // women's plus
+    expect(isSizeToken("3X")).toBe(true);
+    expect(isSizeToken("YL")).toBe(true);   // youth
+    expect(isSizeToken("10.5")).toBe(true); // half size
+  });
   it("rejects non-size tokens", () => {
     expect(isSizeToken("RED")).toBe(false);
     expect(isSizeToken("ABC")).toBe(false);
     expect(isSizeToken("")).toBe(false);
     expect(isSizeToken("1234")).toBe(false); // > 3 digits
+    expect(isSizeToken("NAVY")).toBe(false);
+    expect(isSizeToken("7X")).toBe(false);   // out of plus range
   });
 });
 
@@ -87,6 +105,9 @@ describe("styleColorKey", () => {
   it("strips trailing size token", () => {
     expect(styleColorKey("RYB059430-BLUE-32W", "")).toBe("RYB059430-BLUE");
     expect(styleColorKey("RYB059430-RED-XL", "")).toBe("RYB059430-RED");
+    expect(styleColorKey("RYB0412-NAVY-2T", "")).toBe("RYB0412-NAVY");   // toddler
+    expect(styleColorKey("RYB0412-BLACK-1X", "")).toBe("RYB0412-BLACK"); // plus
+    expect(styleColorKey("RYB0412-WHITE-OS", "")).toBe("RYB0412-WHITE"); // one-size
   });
   it("leaves item number alone if no trailing size", () => {
     expect(styleColorKey("RYB059430-BLUE-FOO", "")).toBe("RYB059430-BLUE-FOO");
