@@ -109,6 +109,14 @@ describe("styleColorKey", () => {
     expect(styleColorKey("RYB0412-BLACK-1X", "")).toBe("RYB0412-BLACK"); // plus
     expect(styleColorKey("RYB0412-WHITE-OS", "")).toBe("RYB0412-WHITE"); // one-size
   });
+  it("strips parenthesised sizes that embed a dash", () => {
+    // Real PO-WIP format: "S(7-8)" contains a dash, so a naive split shatters it.
+    // All sizes of a style+color must collapse to the SAME group.
+    expect(styleColorKey("100206796GK-Millie Wash-S(7-8)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100206796GK-Millie Wash-M(10-12)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100206796GK-Millie Wash-XL(18-20)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100221820BK-DRESS BLUES-L(14-16)", "")).toBe("100221820BK-DRESS BLUES");
+  });
   it("leaves item number alone if no trailing size", () => {
     expect(styleColorKey("RYB059430-BLUE-FOO", "")).toBe("RYB059430-BLUE-FOO");
     expect(styleColorKey("STANDALONE", "")).toBe("STANDALONE");
@@ -123,6 +131,10 @@ describe("itemSizeLabel", () => {
   it("extracts the trailing size token", () => {
     expect(itemSizeLabel("RYB-BLUE-32W")).toBe("32W");
     expect(itemSizeLabel("RYB-RED-XL")).toBe("XL");
+  });
+  it("extracts a parenthesised size whole (dash and all)", () => {
+    expect(itemSizeLabel("100206796GK-Millie Wash-S(7-8)")).toBe("S(7-8)");
+    expect(itemSizeLabel("100206796GK-Millie Wash-XL(18-20)")).toBe("XL(18-20)");
   });
   it("returns empty when no trailing size", () => {
     expect(itemSizeLabel("RYB-BLUE-FOO")).toBe("");
