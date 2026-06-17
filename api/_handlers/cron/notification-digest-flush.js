@@ -24,13 +24,25 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Make a root-relative notification link (e.g. "/vendor/rfqs/123") absolute so
+// the digest email's "View" link works in an external mail client (a relative
+// href resolves against the mail provider's domain and goes nowhere). Override
+// the origin via env if the portal domain changes.
+const PORTAL_ORIGIN = (process.env.VENDOR_PORTAL_ORIGIN || "https://vendor.ringoffire.com").replace(/\/+$/, "");
+function absolutizePortalLink(link) {
+  if (!link || typeof link !== "string") return link;
+  if (/^https?:\/\//i.test(link)) return link;
+  if (link.startsWith("/")) return PORTAL_ORIGIN + link;
+  return link;
+}
+
 function renderDigestHtml({ event_type, items }) {
   const rows = items.map((it) => `
     <tr>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;vertical-align:top">
         <div style="font-weight:600;color:#111827">${escapeHtml(it.title ?? "Notification")}</div>
         ${it.body ? `<div style="color:#374151;margin-top:4px">${escapeHtml(it.body)}</div>` : ""}
-        ${it.link ? `<div style="margin-top:6px"><a href="${escapeHtml(it.link)}" style="color:#3B82F6;text-decoration:none">View →</a></div>` : ""}
+        ${it.link ? `<div style="margin-top:6px"><a href="${escapeHtml(absolutizePortalLink(it.link))}" style="color:#3B82F6;text-decoration:none">View →</a></div>` : ""}
       </td>
     </tr>
   `).join("");
