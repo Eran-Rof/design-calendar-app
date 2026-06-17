@@ -39,11 +39,19 @@ export function buildColTpl(phaseCount: number, hiddenCols: Set<string>) {
 // ── Style/Color grouping helpers ─────────────────────────────────────────
 
 export function isSizeToken(s: string): boolean {
-  const t = s.trim().toLowerCase().replace(/\s+/g, "");
+  const t = s.trim().toUpperCase().replace(/\s+/g, "");
   if (!t) return false;
-  if (/^(xs|s|sm|sml|small|m|med|medium|l|lg|lrg|large|xl|xlg|xlarge|xxl|2xl|xxxl|3xl|4xl|5xl|6xl)$/.test(t)) return true;
-  if (/^\d{1,3}$/.test(t)) return true;   // numeric sizes (6, 8, 10, 32, 34 …)
-  if (/^\d{1,3}[wlr]$/i.test(t)) return true; // 32W, 34L …
+  // Alpha sizes incl. XXS, one-size synonyms, and full-word forms — matches the
+  // size vocabulary in api/_lib/sizeScaleMatch.js so grouping strips every real
+  // size (a missed size leaves the row grouped down to size instead of color).
+  if (/^(XXS|2XS|XS|XSM|XSML|XSMALL|S|SM|SML|SMALL|M|MED|MEDIUM|L|LG|LRG|LARGE|XL|XLG|XLRG|XLARGE|XXL|2XL|XXLARGE|2XLARGE|XXXL|3XL|XXXXL|4XL|5XL|6XL|OS|OSFA|ONESIZE)$/.test(t)) return true;
+  if (/^\d{1,3}(\.5)?$/.test(t)) return true;     // numeric sizes (6, 8, 32, 34, 10.5 …)
+  if (/^\d{1,3}[WLR]$/.test(t)) return true;      // waist/length suffixed: 32W, 34L, 30R
+  if (/^[1-6]X$/.test(t)) return true;            // women's plus: 1X–6X
+  if (/^\d{1,2}T$/.test(t)) return true;          // toddler: 2T–16T
+  if (/^\d{1,2}M$/.test(t)) return true;          // infant months: 3M, 12M, 24M
+  if (/^\d{1,2}-\d{1,2}M$/.test(t)) return true;  // infant month ranges: 0-3M, 6-12M
+  if (/^Y(XS|S|M|L|XL)$/.test(t)) return true;    // youth alpha: YS, YM, YL …
   return false;
 }
 
