@@ -55,21 +55,32 @@ export function isSizeToken(s: string): boolean {
   return false;
 }
 
-/** Returns the style+color portion of an item number (strips trailing size segment). */
+/** Returns the style+color portion of an item number (strips the size).
+ *  Handles two layouts:
+ *   1. Parenthesised sizes that contain a dash — "STYLE-COLOR-S(7-8)" — where a
+ *      naive "-" split would shatter the size into "S(7" + "8)". The size begins
+ *      at the first segment (after the style) that contains "(", so everything
+ *      before it is style+color. (Mirrors xoroSkuToExcel in ats/helpers.ts.)
+ *   2. A plain trailing size token — "STYLE-COLOR-32W" / "STYLE-COLOR-LRG". */
 export function styleColorKey(itemNumber: string, description: string): string {
   if (!itemNumber) return description || "";
   const parts = itemNumber.split("-");
-  if (parts.length > 1 && isSizeToken(parts[parts.length - 1])) {
-    return parts.slice(0, -1).join("-");
-  }
+  if (parts.length <= 1) return itemNumber;
+  const parenIdx = parts.slice(1).findIndex((p) => p.includes("("));
+  if (parenIdx !== -1) return parts.slice(0, parenIdx + 1).join("-"); // size starts at the "(" segment
+  if (isSizeToken(parts[parts.length - 1])) return parts.slice(0, -1).join("-");
   return itemNumber;
 }
 
-/** Returns the size label from an item number, or "" if none detected. */
+/** Returns the size label from an item number, or "" if none detected.
+ *  Paren-aware: "STYLE-COLOR-S(7-8)" → "S(7-8)" (the whole parenthesised size). */
 export function itemSizeLabel(itemNumber: string): string {
   if (!itemNumber) return "";
   const parts = itemNumber.split("-");
-  if (parts.length > 1 && isSizeToken(parts[parts.length - 1])) return parts[parts.length - 1].trim();
+  if (parts.length <= 1) return "";
+  const parenIdx = parts.slice(1).findIndex((p) => p.includes("("));
+  if (parenIdx !== -1) return parts.slice(parenIdx + 1).join("-").trim();
+  if (isSizeToken(parts[parts.length - 1])) return parts[parts.length - 1].trim();
   return "";
 }
 
