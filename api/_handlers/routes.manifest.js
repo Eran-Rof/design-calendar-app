@@ -55,6 +55,7 @@ export default [
   ["/api/vendor/discount-offers/:id/reject"                  , "./vendor/discount-offers/[id]/reject.js"],
   ["/api/internal/edi/tpl/:provider_id/inbound"              , "./internal/edi/tpl/[provider_id]/inbound.js"],
   ["/api/internal/edi/tpl/:provider_id/inventory-advice"     , "./internal/edi/tpl/[provider_id]/inventory-advice.js"],
+  ["/api/internal/edi/tpl/:provider_id/receipt-advice"       , "./internal/edi/tpl/[provider_id]/receipt-advice.js"],
   ["/api/internal/edi/:vendor_id/messages"                   , "./internal/edi/[vendor_id]/messages.js"],
   ["/api/internal/contracts/:id/versions"                    , "./internal/contracts/[id]/versions.js"],
   ["/api/internal/payments/:id/fx-detail"                    , "./internal/payments/[id]/fx-detail.js"],
