@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import DateRangePresets from "./components/DateRangePresets";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
 type Payout = {
@@ -195,6 +196,9 @@ export default function InternalCommissionPayouts() {
               </option>
             ))}
           </select>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <DateRangePresets variant="dropdown" from={paidFrom} to={paidTo} onChange={(f, t) => { setPaidFrom(f); setPaidTo(t); }} />
         </div>
         <div style={{ minWidth: 140 }}>
           <label style={labelStyle}>Paid from</label>
