@@ -606,6 +606,7 @@ import r_vendor_edi_status from "./vendor/edi/status.js";
 import r_vendor_entities from "./vendor/entities.js";
 import r_vendor_erp from "./vendor/erp.js";
 import r_vendor_esg_score_index from "./vendor/esg-score/index.js";
+import r_vendor_i18n_geo from "./vendor/i18n-geo.js";
 import r_vendor_invoices from "./vendor/invoices.js";
 import r_vendor_invoices_id from "./vendor/invoices/[id].js";
 import r_vendor_marketplace_inquiries_id_respond from "./vendor/marketplace/inquiries/[id]/respond.js";
@@ -645,6 +646,7 @@ import r_vendor_shipments_id from "./vendor/shipments/[id].js";
 import r_vendor_sustainability_id from "./vendor/sustainability/[id].js";
 import r_vendor_sustainability_index from "./vendor/sustainability/index.js";
 import r_vendor_tax_withholding from "./vendor/tax/withholding.js";
+import r_vendor_translate from "./vendor/translate.js";
 import r_vendor_virtual_cards_id_confirm_spent from "./vendor/virtual-cards/[id]/confirm-spent.js";
 import r_vendor_virtual_cards_id_reveal from "./vendor/virtual-cards/[id]/reveal.js";
 import r_vendor_virtual_cards_index from "./vendor/virtual-cards/index.js";
@@ -1298,6 +1300,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/esg-score", handler: r_vendor_esg_score_index },
   { pattern: "/api/vendor/scorecard", handler: r_vendor_scorecard },
   { pattern: "/api/vendor/shipments", handler: r_vendor_shipments },
+  { pattern: "/api/vendor/translate", handler: r_vendor_translate },
   { pattern: "/api/internal/brands", handler: r_internal_brands_index },
   { pattern: "/api/internal/colors", handler: r_internal_colors_index },
   { pattern: "/api/internal/search", handler: r_internal_search_index },
@@ -1306,6 +1309,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/api-keys", handler: r_vendor_api_keys_index },
   { pattern: "/api/vendor/disputes", handler: r_vendor_disputes_index },
   { pattern: "/api/vendor/entities", handler: r_vendor_entities },
+  { pattern: "/api/vendor/i18n-geo", handler: r_vendor_i18n_geo },
   { pattern: "/api/vendor/invoices", handler: r_vendor_invoices },
   { pattern: "/api/vendor/payments", handler: r_vendor_payments_index },
   { pattern: "/api/internal/cases", handler: r_internal_cases_index },

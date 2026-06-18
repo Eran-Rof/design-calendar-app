@@ -192,6 +192,8 @@ export default [
   ["/api/internal/preferred-vendors"                         , "./internal/preferred-vendors/index.js"],
   ["/api/vendor/payment-preferences"                         , "./vendor/payment-preferences/index.js"],
   ["/api/vendor/ai-extract-invoice"                          , "./vendor/ai-extract-invoice.js"],
+  ["/api/vendor/translate"                                   , "./vendor/translate.js"],
+  ["/api/vendor/i18n-geo"                                    , "./vendor/i18n-geo.js"],
   ["/api/vendor/payment-preference"                          , "./vendor/payment-preference/index.js"],
   ["/api/internal/discount-offers"                           , "./internal/discount-offers/index.js"],
   ["/api/vendor/diversity-profile"                           , "./vendor/diversity-profile/index.js"],
