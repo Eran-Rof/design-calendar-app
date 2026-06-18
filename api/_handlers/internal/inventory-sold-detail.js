@@ -55,9 +55,11 @@ export default async function handler(req, res) {
     if (itemIds.length === 0) return res.status(200).json({ color_totals: [], grand_total: 0, rows: [] });
 
     // Wholesale invoiced lines (the rows the popup lists).
+    // NB: ip_sales_history_wholesale has NO `store` column — selecting it 400s
+    // (PostgREST) and the drill returns 500. Wholesale rows show store = null.
     const whRows = await fetchChunked(itemIds, (ids) => {
       let q = admin.from("ip_sales_history_wholesale")
-        .select("sku_id, qty, unit_price, txn_date, invoice_number, customer_id, store")
+        .select("sku_id, qty, unit_price, txn_date, invoice_number, customer_id")
         .in("sku_id", ids);
       if (from) q = q.gte("txn_date", from);
       if (to) q = q.lte("txn_date", to);
