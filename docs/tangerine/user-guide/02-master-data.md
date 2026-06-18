@@ -120,6 +120,12 @@ Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). Th
 
 **Two-tone colourways.** Name a colour `A/B` — e.g. `Grey/Black` — and the swatch renders a **diagonal half-and-half split** (left half Grey, right half Black), each half resolved from its name. This works in the Color Master grid, the add/edit preview, and the Style Master colour chips. No special data entry — just the `/` in the name.
 
+**NRF color code (AI-matched).** Each colour also carries the **NRF code** — the National Retail Federation standard 3-digit colour-family code (e.g. `001` White, `110` Black, `220` Brown, `600` Blue, `700` Green, `900` Grey, `970` Multi) plus its standard family name. It shows in the **NRF** grid column and the xlsx export. You populate it three ways, all AI-assisted (Claude):
+
+- **Auto-match all existing** — the header **🎨 Auto-match NRF (AI)** button assigns an NRF code to *every* colour that doesn't have one yet, in the background (it batches and loops; a colour that already has a code is left alone). Run it once after import; re-run any time after adding colours.
+- **Per colour on add/edit** — the colour modal has an **NRF code** field (code + family name) with a **🤖 Suggest** button. Whenever you add a colour or change its name/swatch, click **🤖 Suggest** to have AI fill the matching NRF code from the name (and hex, if set). You can always type/override the code by hand.
+- **By hand** — both the code and family-name fields are free-text, so you can correct any AI match.
+
 ### What a color row is
 
 | Field | Meaning |
@@ -127,6 +133,8 @@ Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). Th
 | **Name** | The colour label that appears as a matrix row, e.g. `Black`, `Charcoal Hthr`. Required; unique per entity (case-insensitive). |
 | **Code** | An optional short colour code. |
 | **Hex** | An optional `#RRGGBB` swatch shown next to the colour chip. |
+| **NRF code** | The NRF standard 3-digit colour-family code (e.g. `110`), optional. AI-matched via 🎨 Auto-match / 🤖 Suggest, or hand-entered. |
+| **NRF name** | The NRF standard family name for that code (e.g. `Black`), optional. |
 
 ### How it relates to Style Master
 

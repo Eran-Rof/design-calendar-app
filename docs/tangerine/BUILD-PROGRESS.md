@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-18 (3PL EDI 944 receipt-advice → DRAFT goods receipt for operator confirm+post; user-guide ch28)
+**Last updated:** 2026-06-18 (Color Master NRF colour code — AI auto-match all + per-colour 🤖 Suggest; user-guide ch02)
 
 ## Summary
 
@@ -21,6 +21,7 @@
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
 > **Recent cross-cutting landings (2026-06-18)** — not tied to a single phase row:
+> - **Color Master NRF code (AI-matched)** — `color_master` gains `nrf_code` + `nrf_name` (NRF standard 3-digit colour-family code, mig `20260895000000`, applied prod). New `POST /api/internal/colors/nrf-suggest` (Claude Haiku): single mode `{name, hex?}` → suggested `{nrf_code, nrf_name, confidence}` (no write); bulk mode `{bulk:true}` matches+writes every colour missing a code in batches (UI loops to completion). Color Master gets an **NRF** grid column, a header **🎨 Auto-match NRF (AI)** bulk button, and a **🤖 Suggest** button on the add/edit modal's new NRF field (re-runnable whenever the name/swatch changes). User-guide ch02.
 > - **3PL EDI goods-receipt advice (X12 944)** — new `POST /api/internal/edi/tpl/:provider_id/receipt-advice` accepts an X12 944 (lenient `parse944`) or a structured `{po_number, lines:[{sku, qty_received}]}` / `csv`, resolves the native PO + maps each SKU to its line, logs the raw advice to `edi_messages`, and creates a **DRAFT** `tanda_po_receipts` (native path). It does NOT auto-post — the draft lands in **Receiving** for the operator to confirm + post (which books FIFO + GR/IR via the #1365 flow), so an EDI receipt keeps human confirmation. +parse944 unit tests. User-guide ch28.
 >
 > **Recent cross-cutting landings (2026-06-15)** — not tied to a single phase row:
