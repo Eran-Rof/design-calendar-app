@@ -572,6 +572,7 @@ import r_shopify_products from "./shopify/products.js";
 import r_shopify_returns from "./shopify/returns.js";
 import r_tanda_pos_sync from "./tanda-pos-sync.js";
 import r_tanda_sync_from_xoro from "./tanda/sync-from-xoro.js";
+import r_tanda_sync_sos_from_xoro from "./tanda/sync-sos-from-xoro.js";
 import r_vendor_invite from "./vendor-invite.js";
 import r_vendor_accept_invite from "./vendor/accept-invite.js";
 import r_vendor_ai_extract_invoice from "./vendor/ai-extract-invoice.js";
@@ -1240,6 +1241,7 @@ export const ROUTES = [
   { pattern: "/api/marketplace/listings", handler: r_marketplace_listings_index },
   { pattern: "/api/sales/backfill-grain", handler: r_sales_backfill_grain },
   { pattern: "/api/tanda/sync-from-xoro", handler: r_tanda_sync_from_xoro },
+  { pattern: "/api/tanda/sync-sos-from-xoro", handler: r_tanda_sync_sos_from_xoro },
   { pattern: "/api/vendor/accept-invite", handler: r_vendor_accept_invite },
   { pattern: "/api/vendor/virtual-cards", handler: r_vendor_virtual_cards_index },
   { pattern: "/api/cron/bank-feed-sync", handler: r_cron_bank_feed_sync },

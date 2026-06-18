@@ -217,6 +217,7 @@ export default [
   ["/api/internal/phase-notes"                               , "./internal/phase-notes/index.js"],
   ["/api/marketplace/listings"                               , "./marketplace/listings/index.js"],
   ["/api/tanda/sync-from-xoro"                               , "./tanda/sync-from-xoro.js"],
+  ["/api/tanda/sync-sos-from-xoro"                           , "./tanda/sync-sos-from-xoro.js"],
   ["/api/vendor/virtual-cards"                               , "./vendor/virtual-cards/index.js"],
   ["/api/internal/compliance"                                , "./internal/compliance/index.js"],
   ["/api/internal/esg-scores"                                , "./internal/esg-scores/index.js"],
