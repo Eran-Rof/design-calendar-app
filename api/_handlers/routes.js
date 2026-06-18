@@ -572,6 +572,7 @@ import r_shopify_products from "./shopify/products.js";
 import r_shopify_returns from "./shopify/returns.js";
 import r_tanda_pos_sync from "./tanda-pos-sync.js";
 import r_tanda_sync_from_xoro from "./tanda/sync-from-xoro.js";
+import r_tanda_sync_sos_from_xoro from "./tanda/sync-sos-from-xoro.js";
 import r_vendor_invite from "./vendor-invite.js";
 import r_vendor_accept_invite from "./vendor/accept-invite.js";
 import r_vendor_ai_extract_invoice from "./vendor/ai-extract-invoice.js";
@@ -1166,6 +1167,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employee-titles", handler: r_internal_employee_titles_index },
   { pattern: "/api/internal/journal-entries", handler: r_internal_journal_entries_index },
   { pattern: "/api/internal/purchase-orders", handler: r_internal_purchase_orders_index },
+  { pattern: "/api/tanda/sync-sos-from-xoro", handler: r_tanda_sync_sos_from_xoro },
   { pattern: "/api/vendor/diversity-profile", handler: r_vendor_diversity_profile_index },
   { pattern: "/api/cron/fba-orders-nightly", handler: r_cron_fba_orders_nightly },
   { pattern: "/api/cron/scorecards-monthly", handler: r_cron_scorecards_monthly },
