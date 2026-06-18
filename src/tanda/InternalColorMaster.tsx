@@ -27,6 +27,7 @@ const COLOR_COLUMNS: ColumnDef[] = [
   { key: "name",       label: "Name" },
   { key: "code",       label: "Code" },
   { key: "hex",        label: "Hex" },
+  { key: "nrf",        label: "NRF" },
   { key: "sort_order", label: "Sort" },
   { key: "is_active",  label: "Active" },
 ];
@@ -38,6 +39,8 @@ type Color = {
   hex: string | null;
   sort_order: number;
   is_active: boolean;
+  nrf_code: string | null;
+  nrf_name: string | null;
 };
 
 const C = {
@@ -78,6 +81,31 @@ export default function InternalColorMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Color | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [nrfBusy, setNrfBusy] = useState(false);
+  const [nrfMsg, setNrfMsg] = useState<string | null>(null);
+
+  // AI auto-match the NRF code for every color missing one. The server processes
+  // a capped slice per call + reports remaining; loop until done.
+  async function autoMatchNrf() {
+    if (nrfBusy) return;
+    if (!(await confirmDialog("Auto-match the NRF color code (AI) for every color that doesn't have one yet? This can take a minute."))) return;
+    setNrfBusy(true); setNrfMsg("Matching…");
+    try {
+      let total = 0;
+      for (let i = 0; i < 50; i++) {
+        const r = await fetch("/api/internal/colors/nrf-suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bulk: true }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        total += Number(j.updated || 0);
+        setNrfMsg(`Matched ${total}… (${j.remaining ?? 0} left)`);
+        if (j.done || Number(j.updated || 0) === 0) break; // done, or AI returned nothing for the rest
+      }
+      notify(`NRF auto-match complete — ${total} color${total === 1 ? "" : "s"} updated.`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`NRF auto-match failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally { setNrfBusy(false); setNrfMsg(null); }
+  }
 
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     COLORS_TABLE_KEY,
@@ -153,6 +181,9 @@ export default function InternalColorMaster() {
           Show inactive
         </label>
         <span style={{ fontSize: 12, color: C.textMuted }}>{rows.length} color{rows.length === 1 ? "" : "s"}</span>
+        <button onClick={() => void autoMatchNrf()} disabled={nrfBusy} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, opacity: nrfBusy ? 0.6 : 1 }} title="Use AI to assign the NRF standard color code to every color that doesn't have one">
+          {nrfBusy ? (nrfMsg || "Matching…") : "🎨 Auto-match NRF (AI)"}
+        </button>
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="colors"
@@ -161,6 +192,8 @@ export default function InternalColorMaster() {
             { key: "name",       header: "Name" },
             { key: "code",       header: "Code" },
             { key: "hex",        header: "Hex" },
+            { key: "nrf_code",   header: "NRF Code" },
+            { key: "nrf_name",   header: "NRF Name" },
             { key: "sort_order", header: "Sort", format: "number" },
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
@@ -196,6 +229,7 @@ export default function InternalColorMaster() {
                 <th style={th} hidden={!isVisible("name")}>Name</th>
                 <th style={th} hidden={!isVisible("code")}>Code</th>
                 <th style={th} hidden={!isVisible("hex")}>Hex</th>
+                <th style={th} hidden={!isVisible("nrf")}>NRF</th>
                 <th style={th} hidden={!isVisible("sort_order")}>Sort</th>
                 <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
@@ -214,6 +248,7 @@ export default function InternalColorMaster() {
                   <td style={td} hidden={!isVisible("name")}>{c.name}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("code")}>{c.code || "—"}</td>
                   <td style={{ ...td, color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("hex")}>{c.hex || "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("nrf")}>{c.nrf_code ? `${c.nrf_code}${c.nrf_name ? ` ${c.nrf_name}` : ""}` : "—"}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sort_order")}>{c.sort_order}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{c.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -253,9 +288,36 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
     hex:        color?.hex ?? "",
     sort_order: color?.sort_order != null ? String(color.sort_order) : "0",
     is_active:  color?.is_active ?? true,
+    nrf_code:   color?.nrf_code ?? "",
+    nrf_name:   color?.nrf_name ?? "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [nrfBusy, setNrfBusy] = useState(false);
+
+  // Ask AI for the NRF code from the current name (+ hex). Available whenever the
+  // operator changes the color name or swatch and wants the matching NRF code.
+  async function suggestNrf() {
+    const name = form.name.trim();
+    if (!name) { setErr("Enter a color name first."); return; }
+    setNrfBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/colors/nrf-suggest", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, hex: form.hex.trim() || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      if (j.nrf_code) {
+        setForm((f) => ({ ...f, nrf_code: String(j.nrf_code), nrf_name: j.nrf_name ? String(j.nrf_name) : f.nrf_name }));
+        notify(`NRF ${j.nrf_code}${j.nrf_name ? ` ${j.nrf_name}` : ""}${j.confidence ? ` (${j.confidence})` : ""}`, "success");
+      } else {
+        notify(j.note || "AI couldn't determine an NRF code.", "info");
+      }
+    } catch (e: unknown) {
+      setErr(`NRF suggest failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setNrfBusy(false); }
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -269,6 +331,8 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
         hex:        form.hex.trim() === "" ? null : form.hex.trim(),
         sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
         is_active:  form.is_active,
+        nrf_code:   form.nrf_code.trim() === "" ? null : form.nrf_code.trim(),
+        nrf_name:   form.nrf_name.trim() === "" ? null : form.nrf_name.trim(),
       };
       const r = await fetch(url, {
         method,
@@ -364,6 +428,32 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               />
               is_active
             </label>
+          </Field>
+          <Field label="NRF code">
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="text"
+                value={form.nrf_code}
+                onChange={(e) => setForm({ ...form, nrf_code: e.target.value })}
+                style={{ ...inputStyle, width: "6ch", textAlign: "center", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                placeholder="110"
+              />
+              <input
+                type="text"
+                value={form.nrf_name}
+                onChange={(e) => setForm({ ...form, nrf_name: e.target.value })}
+                style={inputStyle}
+                placeholder="NRF family (e.g. Black)"
+              />
+              <button type="button" onClick={() => void suggestNrf()} disabled={nrfBusy || !form.name.trim()}
+                style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, whiteSpace: "nowrap" }}
+                title="Use AI to pick the NRF standard color code from this name + swatch">
+                {nrfBusy ? "…" : "🤖 Suggest"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              Changed the name or swatch? Click <strong>🤖 Suggest</strong> for the matching NRF code.
+            </div>
           </Field>
         </div>
 

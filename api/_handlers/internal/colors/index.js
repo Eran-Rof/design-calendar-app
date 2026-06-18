@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("color_master")
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, sort_order, is_active, nrf_code, nrf_name")
       .eq("entity_id", entityId)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
     const { data, error } = await admin
       .from("color_master")
       .insert(row)
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, sort_order, is_active, nrf_code, nrf_name")
       .single();
 
     if (error) {
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
       if (error.code === "23505") {
         const { data: existing } = await admin
           .from("color_master")
-          .select("id, name, code, hex, sort_order, is_active")
+          .select("id, name, code, hex, sort_order, is_active, nrf_code, nrf_name")
           .eq("entity_id", entityId)
           .ilike("name", v.data.name)
           .maybeSingle();
@@ -140,6 +140,8 @@ export function validateInsert(body) {
       hex,
       sort_order: sortOrder,
       is_active:  true,
+      nrf_code:   body.nrf_code != null && String(body.nrf_code).trim() !== "" ? String(body.nrf_code).trim() : null,
+      nrf_name:   body.nrf_name != null && String(body.nrf_name).trim() !== "" ? String(body.nrf_name).trim() : null,
     },
   };
 }

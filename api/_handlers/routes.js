@@ -160,6 +160,7 @@ import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
 import r_internal_colors_id from "./internal/colors/[id].js";
 import r_internal_colors_index from "./internal/colors/index.js";
+import r_internal_colors_nrf_suggest from "./internal/colors/nrf-suggest.js";
 import r_internal_commissions_accruals from "./internal/commissions/accruals.js";
 import r_internal_commissions_accrue from "./internal/commissions/accrue.js";
 import r_internal_commissions_payouts from "./internal/commissions/payouts.js";
@@ -928,6 +929,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ai/mention-suggest", handler: r_internal_ai_mention_suggest },
   { pattern: "/api/internal/analytics/forecast", handler: r_internal_analytics_forecast },
   { pattern: "/api/internal/ar-backfill/status", handler: r_internal_ar_backfill_status },
+  { pattern: "/api/internal/colors/nrf-suggest", handler: r_internal_colors_nrf_suggest },
   { pattern: "/api/internal/commissions/accrue", handler: r_internal_commissions_accrue },
   { pattern: "/api/internal/commissions/settle", handler: r_internal_commissions_settle },
   { pattern: "/api/internal/costing/add-vendor", handler: r_internal_costing_add_vendor },
