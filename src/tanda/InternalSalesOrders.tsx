@@ -16,8 +16,9 @@ import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import {
-  resolveLine, buildSeedFromResolved, matchCustomer, matchPaymentTerms, isoDate,
-  type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning,
+  resolveLine, buildSeedFromResolved, matchCustomer, matchCustomerExact, matchPaymentTerms, isoDate,
+  computeColorQuestions, customerCandidates, colorPickKey,
+  type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning, type ColorQuestion,
 } from "./lib/customerPoPrefill";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import DateRangePresets from "./components/DateRangePresets";
@@ -387,6 +388,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [poParsed, setPoParsed] = useState<ParsedPo | null>(null);
   const [poAmbig, setPoAmbig] = useState<{ res: LineResolution; pick: "base" | "ppk" }[]>([]);
   const [poReview, setPoReview] = useState<{ warnings: PrefillWarning[]; summary: string[]; unmatched: string[] } | null>(null);
+  // Which step of the upload dialog is showing: file/text → base/PPK pick →
+  // confirm fuzzy choices (customer + colour rows) → or a duplicate-PO block.
+  const [poStep, setPoStep] = useState<"upload" | "ambig" | "confirm" | "dup">("upload");
+  // "Confirm choices" step state — a customer pick (when the parsed name didn't
+  // match exactly) and a colour-row pick per fuzzy-mapped line.
+  const [poCustQ, setPoCustQ] = useState<{ parsedName: string; pick: string } | null>(null);
+  const [poColorQs, setPoColorQs] = useState<(ColorQuestion & { pick: string })[]>([]);
+  // Duplicate-PO guard: a non-cancelled SO already carries this customer PO #.
+  const [poDup, setPoDup] = useState<{ po: string; existing: { id: string; so_number: string | null; status: string; customer_id: string }[] } | null>(null);
   const [allStyles, setAllStyles] = useState<StyleLite[]>([]);
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
   // True when an uploaded customer PO auto-chose ATS and the operator hasn't yet
@@ -549,6 +559,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   }
   // Style → matrix size columns (cached per style id within this parse).
   const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[] }>>(new Map());
+  // The operator's confirmed colour-row picks from the last apply, so post-prefill
+  // actions (carton rounding) keep them and don't re-raise resolved warnings.
+  const poColorPicksRef = useRef<Record<string, string>>({});
   async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
@@ -572,8 +585,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     };
     reader.readAsDataURL(file);
   }
+  // Look up any non-cancelled SO that already carries this exact customer PO #.
+  async function findDuplicateSo(po: string): Promise<{ id: string; so_number: string | null; status: string; customer_id: string }[]> {
+    try {
+      const r = await fetch(`/api/internal/sales-orders?customer_po=${encodeURIComponent(po)}`);
+      if (!r.ok) return [];
+      const a = await r.json();
+      return (Array.isArray(a) ? a : []).map((s: { id: string; so_number: string | null; status: string; customer_id: string }) =>
+        ({ id: s.id, so_number: s.so_number, status: s.status, customer_id: s.customer_id }));
+    } catch { return []; }
+  }
   async function parsePO() {
-    setPoErr(null); setPoParsing(true); setPoReview(null);
+    setPoErr(null); setPoParsing(true); setPoReview(null); setPoDup(null);
     try {
       const payload = poB64 ? { filename: poFileName, base64: poB64 } : { text: poText };
       const r = await fetch("/api/internal/sales-orders/parse-customer-po", {
@@ -584,29 +607,70 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       const parsed = j.parsed as ParsedPo;
       setPoParsed(parsed);
       const styles = await ensureStyles();
+      // Duplicate guard — same customer PO # already on a (non-cancelled) SO.
+      // Block the prefill and let the operator cancel rather than create a dup.
+      if (parsed.customer_po_number) {
+        const existing = await findDuplicateSo(parsed.customer_po_number);
+        if (existing.length) { setPoDup({ po: parsed.customer_po_number, existing }); setPoStep("dup"); return; }
+      }
       // Detect base/PPK ambiguity; if any, ask before building the seed.
       const ambig = parsed.lines
         .map((l) => resolveLine(l, styles))
         .filter((res) => res.ambiguous)
         .map((res) => ({ res, pick: "base" as "base" | "ppk" }));
-      if (ambig.length) { setPoAmbig(ambig); }
-      else { await applyParsed(parsed, styles, {}); }
+      if (ambig.length) { setPoAmbig(ambig); setPoStep("ambig"); }
+      else { await prepareConfirm(parsed, styles, {}); }
     } catch (e) {
       setPoErr(e instanceof Error ? e.message : String(e));
     } finally {
       setPoParsing(false);
     }
   }
+  // After base/PPK is resolved, gather the remaining fuzzy choices (customer +
+  // colour rows). If any need confirming, show the "confirm choices" step;
+  // otherwise build the prefill straight away.
+  async function prepareConfirm(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
+    // Resolve each line to its chosen style (apply the base/PPK picks).
+    const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
+    for (const line of parsed.lines) {
+      const res = resolveLine(line, styles);
+      let chosen = res.chosen;
+      if (res.ambiguous) {
+        const pick = picks[(line.style_code || "").toLowerCase()] || "base";
+        chosen = pick === "ppk" ? res.ppk : res.base;
+      }
+      if (chosen) resolved.push({ line: res.line, chosen });
+    }
+    sizeCache.current.clear();
+    // Colour rows that didn't map cleanly → ask the operator to confirm.
+    const colorQs = (await computeColorQuestions(resolved, fetchMatrix)).map((q) => ({ ...q, pick: q.suggested }));
+    // Customer that didn't match exactly → ask (default to the best candidate).
+    const exactCust = matchCustomerExact(parsed.customer_name, customers);
+    const custQ = (!exactCust && parsed.customer_name)
+      ? { parsedName: parsed.customer_name, pick: customerCandidates(parsed.customer_name, customers)[0]?.id || "" }
+      : null;
+    if (colorQs.length || custQ) {
+      setPoColorQs(colorQs); setPoCustQ(custQ); setPoStep("confirm");
+      return;
+    }
+    await applyParsed(parsed, styles, picks, {}, undefined);
+  }
   // Build the prefill + header from a parsed PO. `picks` maps an ambiguous line's
-  // style_code (lower) → the chosen variant.
-  async function applyParsed(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
+  // style_code (lower) → the chosen variant. `colorPicks` carries operator-
+  // confirmed colour rows (colorPickKey → colour). `customerPick` is the
+  // confirmed customer id from the choices step ("" = leave to pick manually);
+  // `undefined` means no question was asked → fall back to the fuzzy match.
+  async function applyParsed(
+    parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">,
+    colorPicks: Record<string, string> = {}, customerPick?: string,
+  ) {
     const summary: string[] = [];
     const unmatched: string[] = [];
 
     // Header
     if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); summary.push(`PO # ${parsed.customer_po_number}`); }
-    const custId = matchCustomer(parsed.customer_name, customers);
-    if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
+    const custId = customerPick !== undefined ? (customerPick || null) : matchCustomer(parsed.customer_name, customers);
+    if (custId) { pickCustomer(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
     const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
     if (ptId) { setPaymentTermsId(ptId); summary.push(`Terms: ${paymentTerms.find((t) => t.id === ptId)?.name}`); }
@@ -632,7 +696,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     }
 
     sizeCache.current.clear();
-    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
+    poColorPicksRef.current = colorPicks;
+    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix, colorPicks);
     if (sections.length) {
       // Reset the seed so the body re-seeds with the prefilled grids.
       setSeedKey((k) => k + 1);
@@ -648,6 +713,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     }
     setPoReview({ warnings, summary, unmatched });
     setPoAmbig([]);
+    setPoColorQs([]);
+    setPoCustQ(null);
+    setPoStep("upload");
     setPoUploadOpen(false);
   }
   // Round every partial-carton (×24) prefilled size UP to a full carton, per the
@@ -671,7 +739,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         resolved.push({ line: roundedLine, chosen });
       }
       sizeCache.current.clear();
-      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
+      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix, poColorPicksRef.current);
       setSeedKey((k) => k + 1);
       setSeed({ sections, flat: [] });
       setPoReview((prev) => prev ? { ...prev, warnings, summary: [...prev.summary, "Rounded sizes up to full cartons"] } : prev);
@@ -1030,7 +1098,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
           {isNew && editable && (
             <Field label="Or auto-fill from the customer's PO">
-              <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoUploadOpen(true); }}
+              <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoColorQs([]); setPoCustQ(null); setPoDup(null); setPoStep("upload"); setPoUploadOpen(true); }}
                 style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, width: "100%" }}>
                 🤖 Upload customer PO
               </button>
@@ -1264,7 +1332,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               Upload the customer's PO (PDF, Excel/CSV) or paste the email below. AI reads it and prefills the customer, terms, dates, PO #, and the size matrix — then you double-check before saving.
             </div>
 
-            {poAmbig.length === 0 ? (
+            {poStep === "upload" && (
               <>
                 <Field label="PO document">
                   <input type="file" accept=".pdf,.xlsx,.xls,.csv,.txt,.eml" disabled={poParsing}
@@ -1286,7 +1354,34 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   </button>
                 </div>
               </>
-            ) : (
+            )}
+
+            {poStep === "dup" && poDup && (
+              // Duplicate guard — a non-cancelled SO already carries this PO #.
+              <>
+                <div style={{ background: "#7f1d1d", color: "white", padding: "12px 14px", borderRadius: 8, fontSize: 13 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ This customer PO already exists</div>
+                  <div style={{ fontSize: 12 }}>PO <strong>{poDup.po}</strong> is already on {poDup.existing.length === 1 ? "an existing sales order" : `${poDup.existing.length} existing sales orders`}:</div>
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                    {poDup.existing.map((e) => (
+                      <li key={e.id}>{e.so_number || "(draft, no SO #)"} — {e.status}{customers.find((c) => c.id === e.customer_id) ? ` · ${customers.find((c) => c.id === e.customer_id)!.name}` : ""}</li>
+                    ))}
+                  </ul>
+                  <div style={{ fontSize: 12, marginTop: 8 }}>Creating another would duplicate it. Cancel, or open the existing order instead.</div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                  {poDup.existing[0] && (
+                    <button type="button" style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}
+                      onClick={() => window.open(`?m=sales_orders&q=${encodeURIComponent(poDup.existing[0].so_number || poDup.po)}`, "_blank")}>
+                      Open existing SO ↗
+                    </button>
+                  )}
+                  <button type="button" style={btnPrimary} onClick={() => { setPoUploadOpen(false); setPoDup(null); setPoStep("upload"); }}>Cancel — don't create a duplicate</button>
+                </div>
+              </>
+            )}
+
+            {poStep === "ambig" && (
               // Base vs PPK disambiguation — one or more styles exist in both forms.
               <>
                 <div style={{ fontSize: 13, color: C.textSub, marginBottom: 10 }}>These styles exist in both a <strong>base</strong> and a <strong>prepack (PPK)</strong> form. Pick which to order:</div>
@@ -1309,11 +1404,53 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 ))}
                 {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-                  <button onClick={() => setPoAmbig([])} style={btnSecondary} disabled={poParsing}>Back</button>
+                  <button onClick={() => { setPoAmbig([]); setPoStep("upload"); }} style={btnSecondary} disabled={poParsing}>Back</button>
                   <button disabled={poParsing} style={btnPrimary} onClick={() => {
                     if (!poParsed) return;
                     const picks = Object.fromEntries(poAmbig.map((a) => [(a.res.line.style_code || "").toLowerCase(), a.pick]));
-                    void applyParsed(poParsed, allStyles, picks);
+                    void prepareConfirm(poParsed, allStyles, picks);
+                  }}>Continue</button>
+                </div>
+              </>
+            )}
+
+            {poStep === "confirm" && (
+              // Confirm the fuzzy choices — customer (no exact match) + colour rows
+              // that didn't map cleanly. Operator picks; then we build the prefill.
+              <>
+                <div style={{ fontSize: 13, color: C.textSub, marginBottom: 10 }}>A couple of things need confirming before we fill the order:</div>
+                {poCustQ && (
+                  <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}>The PO names customer <strong style={{ color: C.text }}>"{poCustQ.parsedName}"</strong> — pick the matching customer:</div>
+                    <SearchableSelect value={poCustQ.pick || null} onChange={(v) => setPoCustQ((q) => q ? { ...q, pick: v || "" } : q)}
+                      options={[{ value: "", label: "— pick manually later —" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
+                      placeholder="Search customer…" inputStyle={inputStyle} />
+                  </div>
+                )}
+                {poColorQs.map((q, i) => (
+                  <div key={i} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}><strong style={{ color: C.text }}>{q.styleCode}</strong> — PO colour <strong style={{ color: C.text }}>"{q.lineColor}"</strong>. Which colour row?</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {q.options.map((opt) => {
+                        const active = q.pick === opt;
+                        return (
+                          <button key={opt} type="button" onClick={() => setPoColorQs((p) => p.map((x, j) => j === i ? { ...x, pick: opt } : x))}
+                            style={{ ...btnSecondary, color: active ? C.primary : C.textSub, borderColor: active ? C.primary : C.cardBdr, fontWeight: active ? 700 : 400, fontSize: 12, padding: "4px 10px" }}>
+                            {opt}{opt === q.suggested ? " ★" : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                  <button onClick={() => { setPoStep(poAmbig.length ? "ambig" : "upload"); }} style={btnSecondary} disabled={poParsing}>Back</button>
+                  <button disabled={poParsing} style={btnPrimary} onClick={() => {
+                    if (!poParsed) return;
+                    const picks = Object.fromEntries(poAmbig.map((a) => [(a.res.line.style_code || "").toLowerCase(), a.pick]));
+                    const colorPicks = Object.fromEntries(poColorQs.map((q) => [colorPickKey(q.styleCode, q.lineColor), q.pick]));
+                    void applyParsed(poParsed, allStyles, picks, colorPicks, poCustQ ? poCustQ.pick : undefined);
                   }}>Continue</button>
                 </div>
               </>

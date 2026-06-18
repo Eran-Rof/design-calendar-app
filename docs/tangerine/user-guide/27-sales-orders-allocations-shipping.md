@@ -84,13 +84,18 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 On a **new** sales order, next to the Customer PO # field is a **🤖 Upload customer PO** button. It reads the customer's purchase order and prefills the whole order so you only have to review it.
 
 1. Click **🤖 Upload customer PO**. Either **choose a file** (PDF, Excel `.xlsx`/`.xls`, or `.csv`/`.txt`) **or paste the order email** into the text box, then **Read & prefill**. The document is sent to `POST /api/internal/sales-orders/parse-customer-po`, which uses Claude (Sonnet) to extract a structured PO. **A chosen file is also auto-attached to the order's Supporting Documents** (staged, uploaded when you save) so the original PO is filed with the SO.
-2. **Header prefill** — the AI's customer name, payment terms, start-ship / cancel dates, and PO number are matched to your masters and filled in (an unmatched customer or term is listed in the review banner for you to pick by hand). The matched customer also auto-sets **Channel**, and **Fulfillment source is auto-set to ATS** and **highlighted** for you to confirm.
-3. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
+2. **Duplicate guard** — before anything is filled, the PO number is checked against existing sales orders. If a **non-cancelled SO already carries that exact customer PO #**, the dialog stops and shows a **⚠️ This customer PO already exists** warning listing the existing order(s); your only choices are **Open existing SO ↗** (opens it in a new tab) or **Cancel — don't create a duplicate**. No duplicate SO is created.
+3. **Confirm choices** — when something the AI matched is uncertain, the dialog **asks you to choose before filling** (instead of silently guessing and asking you to spot it afterward):
+   - **Base vs PPK** — if a style exists in **both** a base and a prepack (PPK) form, you pick which to order.
+   - **Customer** — if the PO's customer name didn't match exactly, you pick the right customer from a searchable list (best candidates surfaced first).
+   - **Colour row** — if a PO colour didn't map cleanly onto one of the style's actual colours (e.g. PO `"Media Park"` → `"Media Park- Dark Wash"`), you pick the correct colour row (the suggested one is marked ★).
+   These steps only appear when needed; with nothing ambiguous, the order fills straight away.
+4. **Header prefill** — the AI's customer (your confirmed pick, or an exact match), payment terms, start-ship / cancel dates, and PO number are filled in. The customer also auto-sets **Channel**, and **Fulfillment source is auto-set to ATS** and **highlighted** for you to confirm. Anything still unmatched (e.g. a term, or a customer you left to pick manually) is listed in the review banner.
+5. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
    - **Exact sizes** when the PO lists a size run (S 12 · M 24 · …) go straight into the cells. Any size that isn't a full **carton of 24** is flagged; a **Round those sizes up to full cartons** button rounds each up.
    - **Total only** (no size split) is distributed across sizes via the style's **Style Master size scale** (📐 Scale), rounding each size up to a full carton.
    - **PPK (prepack) styles** — the PO's total units ÷ the pack's units-per-carton, **rounded up** to whole cartons, prefilled into the PPK column. The rounding is noted in the review banner.
-   - If a style exists in **both** a base and a PPK form, a short prompt asks which to order before prefilling.
-4. **Double-check** — a green review banner summarizes what was filled, lists anything unmatched, and flags carton / PPK-rounding mismatches. **Always review every prefilled value before saving** — the AI is advisory.
+6. **Double-check** — a green review banner summarizes what was filled, lists anything unmatched, and flags carton / PPK-rounding mismatches. **Always review every prefilled value before saving** — the AI is advisory.
 
 The button is **new-SO only**. You can still type everything by hand; the upload is a shortcut, not a requirement.
 
