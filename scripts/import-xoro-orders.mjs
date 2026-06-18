@@ -99,16 +99,34 @@ const REST = `${SB_URL}/rest/v1`;
 const HDR = { apikey: API_KEY, Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" };
 const enc = encodeURIComponent;
 
+// fetch with retry on transient network errors (UND_ERR_SOCKET "other side
+// closed", ECONNRESET, etc.) + 5xx. A bare fetch throw used to crash the whole
+// 12k-row run mid-import; this keeps long --apply runs resilient. 4 attempts,
+// expo backoff.
+async function rfetch(url, opts = {}) {
+  const delays = [0, 500, 1500, 4000];
+  let lastErr;
+  for (const d of delays) {
+    if (d) await new Promise((r) => setTimeout(r, d));
+    try {
+      const r = await fetch(url, opts);
+      if (r.status >= 500 && r.status < 600) { lastErr = new Error(`HTTP ${r.status}`); continue; }
+      return r;
+    } catch (e) { lastErr = e; /* network blip — retry */ }
+  }
+  throw lastErr;
+}
+
 // Minimal PostgREST client (dependency-free).
 async function pgGet(table, query = "") {
-  const r = await fetch(`${REST}/${table}?${query}`, { headers: HDR });
+  const r = await rfetch(`${REST}/${table}?${query}`, { headers: HDR });
   if (!r.ok) throw new Error(`GET ${table}: ${r.status} ${await r.text()}`);
   return r.json();
 }
 async function pgGetPaged(table, selectQuery, page = 1000) {
   const out = []; let from = 0;
   for (;;) {
-    const r = await fetch(`${REST}/${table}?${selectQuery}`, { headers: { ...HDR, Range: `${from}-${from + page - 1}` } });
+    const r = await rfetch(`${REST}/${table}?${selectQuery}`, { headers: { ...HDR, Range: `${from}-${from + page - 1}` } });
     if (!r.ok) throw new Error(`GET ${table}: ${r.status} ${await r.text()}`);
     const data = await r.json();
     if (!data || !data.length) break;
@@ -117,17 +135,17 @@ async function pgGetPaged(table, selectQuery, page = 1000) {
   return out;
 }
 async function pgInsert(table, rows, returning = "minimal") {
-  const r = await fetch(`${REST}/${table}`, { method: "POST", headers: { ...HDR, Prefer: `return=${returning}` }, body: JSON.stringify(rows) });
+  const r = await rfetch(`${REST}/${table}`, { method: "POST", headers: { ...HDR, Prefer: `return=${returning}` }, body: JSON.stringify(rows) });
   if (!r.ok) { const t = await r.text(); return { error: { message: `${r.status} ${t}`, code: /23505/.test(t) ? "23505" : String(r.status) } }; }
   return { data: returning === "minimal" ? null : await r.json() };
 }
 async function pgPatch(table, query, patch) {
-  const r = await fetch(`${REST}/${table}?${query}`, { method: "PATCH", headers: { ...HDR, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
+  const r = await rfetch(`${REST}/${table}?${query}`, { method: "PATCH", headers: { ...HDR, Prefer: "return=minimal" }, body: JSON.stringify(patch) });
   if (!r.ok) return { error: { message: `${r.status} ${await r.text()}` } };
   return {};
 }
 async function pgDelete(table, query) {
-  const r = await fetch(`${REST}/${table}?${query}`, { method: "DELETE", headers: { ...HDR, Prefer: "return=minimal" } });
+  const r = await rfetch(`${REST}/${table}?${query}`, { method: "DELETE", headers: { ...HDR, Prefer: "return=minimal" } });
   if (!r.ok) return { error: { message: `${r.status} ${await r.text()}` } };
   return {};
 }
