@@ -193,7 +193,16 @@ export default async function handler(req, res) {
     }).select(SELECT_COLS).single();
     if (hErr) return res.status(500).json({ error: hErr.message });
 
-    const lineRows = v.data.lines.map((l) => ({ ...l, purchase_order_id: header.id }));
+    // Scenario 3 — a PO created from an SO inherits the SO's customer PO as the
+    // lot on every line the caller didn't already lot. The UI pre-fills this, but
+    // doing it server-side guarantees it for any programmatic PO-from-SO path and
+    // means the at-issue PO#-stamp won't later fill these (they're no longer null).
+    let soLot = null;
+    if (v.data.sales_order_id) {
+      const { data: so } = await admin.from("sales_orders").select("customer_po").eq("id", v.data.sales_order_id).maybeSingle();
+      soLot = (so?.customer_po && String(so.customer_po).trim()) || null;
+    }
+    const lineRows = v.data.lines.map((l) => ({ ...l, lot_number: l.lot_number || soLot, purchase_order_id: header.id }));
     const { error: lErr } = await admin.from("purchase_order_lines").insert(lineRows);
     if (lErr) return res.status(500).json({ error: `Header saved (${header.id}) but lines failed: ${lErr.message}` });
 
