@@ -1395,7 +1395,7 @@ _(no columns parsed)_
 - `qty_consumed` numeric(18,4) NOT NULL
 - `cogs_cents` bigint NOT NULL
 - `consumer_kind` text NOT NULL
-- `consumer_invoice_id` uuid → `invoices`
+- `consumer_invoice_id` uuid — FK-less polymorphic per-line consumer ref for `consumer_kind='ar_invoice'`: `ar_invoice_lines.id` (AR posting) or `shopify_order_lines.id` (Shopify COGS). FK to legacy `invoices(id)` dropped (mig 20260898000000).
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
@@ -1442,6 +1442,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 - `location_id` uuid → `inventory_locations`
+- `lot_number` text — lot the stock belongs to (from the originating PO line at receipt); enables lot-aware allocation _(lot numbers Phase 1, mig 20260899000000)_
 
 ## `inventory_locations`  _(P12-0)_
 

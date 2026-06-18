@@ -100,6 +100,9 @@ export function validateInsert(body) {
       line_total_cents: Math.round(qty * unit),
       requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
       vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
+      // Lot (Scenario 1): operator may set it now; otherwise auto-stamped to the
+      // PO number at issue (drafts have no PO number yet). Grain = style+color.
+      lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
     });
   }
   if (normLines.length === 0) return { error: "at least one line with qty_ordered > 0 is required" };

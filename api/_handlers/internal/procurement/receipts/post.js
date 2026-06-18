@@ -149,8 +149,11 @@ export default async function handler(req, res) {
 
   // PO line item ids (the SKU each receipt line stocks).
   const polIds = [...new Set(lines.map((l) => l.purchase_order_line_id).filter(Boolean))];
-  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id").in("id", polIds);
+  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id, lot_number").in("id", polIds);
   const itemByPol = new Map((polRows || []).map((p) => [p.id, p.inventory_item_id]));
+  // Carry the PO line's lot onto the receipt's inventory layer so on-hand stock
+  // is lot-identified for lot-aware allocation (Scenario 5).
+  const lotByPol = new Map((polRows || []).map((p) => [p.id, p.lot_number || null]));
 
   const { data: po } = await admin.from("purchase_orders").select("id, vendor_id").eq("id", rcpt.purchase_order_id).maybeSingle();
   const vendorId = po?.vendor_id || null;
@@ -211,6 +214,7 @@ export default async function handler(req, res) {
         entity_id: rcpt.entity_id, item_id: itemId, qty,
         unit_cost_cents: landedUnit, source_kind: "po_receipt", location_id: locationId,
         received_at: rcpt.receipt_date ? `${rcpt.receipt_date}T00:00:00Z` : undefined,
+        lot_number: lotByPol.get(l.purchase_order_line_id) || null,
         notes: `PO receipt ${id}`,
       });
       await admin.from("tanda_po_receipt_lines")

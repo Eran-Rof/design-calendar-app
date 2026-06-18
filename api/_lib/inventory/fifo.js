@@ -101,6 +101,7 @@ function assertNonNegativeInt(name, val) {
  * @param {string} [args.source_invoice_id]  FK invoices when source_kind=ap_invoice
  * @param {string} [args.source_adjustment_id] FK inventory_adjustments (post-P3-5)
  * @param {string} [args.received_at]        ISO timestamp; defaults to now()
+ * @param {string} [args.lot_number]         lot the stock belongs to (free text)
  * @param {string} [args.notes]
  * @param {string} [args.created_by_user_id]
  * @returns {Promise<{layer: Object}>}
@@ -140,6 +141,12 @@ export async function createLayer(supabase, args) {
     source_invoice_id: args.source_invoice_id || null,
     source_adjustment_id: args.source_adjustment_id || null,
     partition_id: args.partition_id || null,
+    // Lot the stock belongs to (from the originating PO line at receipt). Enables
+    // lot-aware available-to-sell allocation. Optional, free text.
+    lot_number:
+      args.lot_number != null && String(args.lot_number).trim() !== ""
+        ? String(args.lot_number).trim()
+        : null,
     notes: args.notes || null,
     created_by_user_id: args.created_by_user_id || null,
   };

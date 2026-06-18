@@ -216,6 +216,7 @@ export default async function handler(req, res, params) {
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_price_cents: unit, line_total_cents: Math.round(qty * unit),
           revenue_account_id: lineRevenueAccountId,
+          lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
       await admin.from("sales_order_lines").delete().eq("sales_order_id", id);
