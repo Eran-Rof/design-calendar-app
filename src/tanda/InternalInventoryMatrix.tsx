@@ -461,6 +461,9 @@ function SnapshotView({
   // Double the row spacing and bump the font to 125% (operator request).
   const tdNum: React.CSSProperties = { padding: "16px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
   const tdTxt: React.CSSProperties = { padding: "16px 14px", textAlign: "left", color: C.text };
+  // Frozen header cell: thBase + sticky to the scroll container's top. Opaque
+  // card background so scrolling rows don't show through the header.
+  const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 2, background: C.card };
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
   if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
@@ -483,14 +486,16 @@ function SnapshotView({
         )}
       </div>
 
-      <div style={{ overflowX: "auto", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
             <tr>
-              {show("image") && <th style={{ ...thBase, textAlign: "center" }}>Image</th>}
+              {/* Frozen header — sticks to the top while the body scrolls. Opaque
+                  background so rows don't bleed through. */}
+              {show("image") && <th style={{ ...thStick, textAlign: "center" }}>Image</th>}
               {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => (
                 <th key={col.key as string} onClick={() => onSort(col.key)}
-                    style={{ ...thBase, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
+                    style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
                   {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               ))}
@@ -634,11 +639,14 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
   const [data, setData] = useState<PurchasedDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Click a colour row to filter the receipts/bills list to just that colour.
+  // null = show all. Stored as the colour string ("" for the null-colour row).
+  const [pickedColor, setPickedColor] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
     fetch(`/api/internal/inventory-purchased-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .then((j) => { if (!cancelled) { setData(j); setPickedColor(null); } }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [row.style_id, from, to]);
@@ -646,6 +654,9 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  // Zebra/fade: alternate row tint so long colour lists stay readable on scroll.
+  const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
+  const billRows = (data?.rows ?? []).filter((r) => pickedColor == null || (r.color ?? "") === pickedColor);
   return (
     <div style={modalBackdrop} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -656,22 +667,40 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
         <div style={{ marginBottom: 12 }}><DateRange from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} /></div>
         {loading ? <div style={{ color: C.textMuted, padding: 16 }}>Loading…</div> : err ? <div style={{ background: "#7f1d1d", color: "#fff", padding: 10, borderRadius: 6 }}>{err}</div> : data && (
           <>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals</div>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals <span style={{ textTransform: "none", letterSpacing: 0, fontStyle: "italic" }}>— click a colour to filter the bills below</span></div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
               <thead><tr><th style={th}>Color</th><th style={thR}>Purchased</th></tr></thead>
               <tbody>
-                {data.color_totals.map((c) => (
-                  <tr key={c.color ?? ""}><td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}</span></td><td style={tdR}>{fmtQty(c.qty)}</td></tr>
-                ))}
+                {data.color_totals.map((c, i) => {
+                  const key = c.color ?? "";
+                  const selected = pickedColor === key;
+                  return (
+                    <tr key={key}
+                        onClick={() => setPickedColor((prev) => prev === key ? null : key)}
+                        title={selected ? "Click to clear filter" : `Show only ${c.color || "—"} bills`}
+                        style={{ cursor: "pointer", ...zebra(i), ...(selected ? { background: "rgba(59,130,246,0.22)", boxShadow: `inset 3px 0 0 ${C.primary}` } : null) }}>
+                      <td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}{selected ? " ✓" : ""}</span></td>
+                      <td style={tdR}>{fmtQty(c.qty)}</td>
+                    </tr>
+                  );
+                })}
                 <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td></tr>
               </tbody>
             </table>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Receipts &amp; bills</div>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Receipts &amp; bills</span>
+              {pickedColor != null && (
+                <span style={{ textTransform: "none", letterSpacing: 0, color: C.textSub, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  · filtered to <strong style={{ color: C.text }}>{pickedColor || "—"}</strong>
+                  <button onClick={() => setPickedColor(null)} style={{ background: "transparent", color: C.base, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "1px 8px", fontSize: 11, cursor: "pointer" }}>Clear ✕</button>
+                </span>
+              )}
+            </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr><th style={th}>Color</th><th style={th}>Vendor</th><th style={thR}>Purchased</th><th style={thR}>Unit Price</th><th style={th}>Ref #</th><th style={th}>Type</th><th style={th}>Receipt Date</th><th style={th}>Bill Date</th></tr></thead>
               <tbody>
-                {data.rows.map((r, i) => (
-                  <tr key={i}>
+                {billRows.map((r, i) => (
+                  <tr key={i} style={zebra(i)}>
                     <td style={td}>{r.color || "—"}</td>
                     <td style={td}>{r.vendor || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
@@ -682,7 +711,7 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
                     <td style={td}>{r.bill_date ? fmtDate(String(r.bill_date).slice(0, 10)) : "—"}</td>
                   </tr>
                 ))}
-                {data.rows.length === 0 && <tr><td style={td} colSpan={8}>No purchases in this range.</td></tr>}
+                {billRows.length === 0 && <tr><td style={td} colSpan={8}>{pickedColor != null ? "No bills for the selected colour in this range." : "No purchases in this range."}</td></tr>}
               </tbody>
             </table>
           </>
