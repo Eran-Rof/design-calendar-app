@@ -227,6 +227,46 @@ export function parse846(segments) {
   return out;
 }
 
+// 944 Stock Transfer Receipt Advice — INBOUND from the 3PL confirming what it
+// actually RECEIVED into the warehouse against a PO. Returns
+// { po_number, receipt_date, lines: [{ sku, qty_received }] }. Layouts vary a
+// lot between 3PLs, so this is deliberately lenient (mirrors parse846); the
+// handler also accepts a structured JSON/CSV payload, which is the reliable path.
+//   • PO number: REF*PO*<po> / N9*PO*<po> / a W17 depositor-order element.
+//   • receipt date: W17 date element (CCYYMMDD) or G62*<qual>*<date>.
+//   • lines: W07*<qty received>*<unit>*<UPC>*<qual>*<id>… (sku = a SKU/UPC-type
+//     product id, else the UPC, else the first id).
+export function parse944(segments) {
+  const out = { po_number: null, receipt_date: null, lines: [] };
+  const SKU_QUALS = new Set(["SK", "UP", "UK", "EN", "VN", "IN", "BP", "UA"]);
+  const isDate8 = (v) => /^\d{8}$/.test(String(v || ""));
+  const toIso = (v) => `${String(v).slice(0, 4)}-${String(v).slice(4, 6)}-${String(v).slice(6, 8)}`;
+  for (const s of segments || []) {
+    const tag = (s[0] || "").toUpperCase();
+    if ((tag === "REF" || tag === "N9") && (s[1] || "").toUpperCase() === "PO") {
+      out.po_number = out.po_number || s[2] || null;
+    } else if (tag === "W17") {
+      // Date only — the PO number is taken from REF*PO / N9*PO (a W17 element is
+      // ambiguous: the receipt number also lives here).
+      for (let i = 1; i < s.length; i++) if (!out.receipt_date && isDate8(s[i])) { out.receipt_date = toIso(s[i]); break; }
+    } else if (tag === "G62" && !out.receipt_date && isDate8(s[2])) {
+      out.receipt_date = toIso(s[2]);
+    } else if (tag === "W07") {
+      const qty = Number(s[1] ?? 0) || 0;
+      let sku = null, firstId = null;
+      const upc = s[3] || null;
+      for (let i = 4; i + 1 < s.length; i += 2) {
+        const qual = (s[i] || "").toUpperCase();
+        const id = s[i + 1] || null;
+        if (id && firstId == null) firstId = id;
+        if (id && SKU_QUALS.has(qual)) { sku = id; break; }
+      }
+      out.lines.push({ sku: sku || firstId || upc || null, qty_received: qty });
+    }
+  }
+  return out;
+}
+
 // 820 Payment Order/Remittance — single-invoice payment envelope.
 // payment: { amount, currency, effective_date, vendor_id, invoices: [{invoice_number, amount}] }
 export function build820({ sender, receiver, controlNumber, payment }) {
