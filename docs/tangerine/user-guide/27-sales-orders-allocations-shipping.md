@@ -135,6 +135,26 @@ The alert fires once per SO (deduped on the SO id), through the same `resolveInt
 
 The **Search SO #, customer, style…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring). So you can pull up an order by who it's for or by a style on it, not just its number. It works alongside the **Customer** and **Status** filters (all are ANDed) and updates as you type (200 ms debounce). The whole search — including the line-level style/SKU match — runs in the `search_sales_orders` SQL function, so it spans the entire order book (not just the loaded rows) without shipping a giant id list over HTTP.
 
+### Date-range filter
+
+Next to the search box the toolbar has a **date-range filter**: a **field picker** (`Order date` or `Start ship date`) followed by **From** / **To** date inputs and a **Presets…** dropdown (MTD, YTD, This Year, Last Year, Last month, Last 30d / 60d / 90d, Last Quarter, etc. — the shared `DateRangePresets`). The field picker chooses **which** date the window applies to: the order date (`order_date`) or the start ship / requested-ship date (`requested_ship_date`). Filtering is **client-side** over the loaded rows — orders whose chosen date falls within `[From, To]` (inclusive) are kept; an order with no value for the selected field is hidden whenever a bound is set. A **Clear dates** button appears once a range is active. The filter also narrows the **Export** download (it mirrors exactly what the grid shows).
+
+### List columns — Cancel date + cost/margin metrics
+
+Beyond the original SO #, Customer, Order date, Start Ship, Status, Factor and Total columns, the grid carries (all toggleable via **⚙ Columns**, and all included in **Export**):
+
+- **Cancel date** — the order's `cancel_date`.
+- **Avg cost** — the qty-weighted average unit **cost** across the SO's lines. Cost is sourced per SKU from **`ip_item_avg_cost`** (the same Xoro/Excel average-cost source the Inventory Snapshot uses), matched by `sku_code` (exact, then a loose alphanumeric match). Lines whose SKU has no cost history are excluded from the cost average.
+- **Avg sell** — the qty-weighted average unit **selling price** across the SO's lines (from `sales_order_lines.unit_price_cents`).
+- **Margin $** — Avg sell − Avg cost (per unit). Coloured green when ≥ 0, red when negative.
+- **Margin %** — Margin $ ÷ Avg sell × 100 (one decimal).
+
+All money is shown to **two decimals**; a metric reads **—** when it can't be computed (e.g. no priced lines, or no cost history on any line).
+
+> **Style-aware metrics.** Normally the four metric columns reflect the **whole SO**. But when you type a **style** into the search box (or arrive via a `?style_id=` drill), the metrics recompute to reflect **only that style's lines** on each order — so you can read the cost/sell/margin of one style across the orders that carry it. The aggregation runs **server-side** in `GET /api/internal/sales-orders` (per-SO `avg_cost_cents` / `avg_sell_cents` / `margin_cents` / `margin_pct`), accepting an optional `style` / `style_id` scope; it only narrows when a line actually matches the style, so a non-style search (e.g. a customer name) safely falls back to the whole-SO figures.
+
+The grid **header is frozen** — it stays pinned to the top while the rows scroll (the table sits in a scrolling container capped at the viewport height).
+
 ---
 
 ## 27.2 Confirm → draft AR invoice (M10-C)
