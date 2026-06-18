@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -550,6 +551,7 @@ const money = (n: number | null | undefined) => n == null ? "—" : Number(n).to
 function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <DateRangePresets variant="dropdown" from={from} to={to} onChange={(f, t) => onChange(f, t)} />
       <label style={dl}>From <input type="date" value={from} onChange={(e) => onChange(e.target.value, to)} style={{ ...dateInput, marginLeft: 4 }} /></label>
       <label style={dl}>To <input type="date" value={to} onChange={(e) => onChange(from, e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
       {(from || to) && <button onClick={() => onChange("", "")} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>Clear</button>}
