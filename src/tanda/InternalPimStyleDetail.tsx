@@ -127,6 +127,7 @@ const btnSuccess: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const textareaStyle: React.CSSProperties = {
   ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical",

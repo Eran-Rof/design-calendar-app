@@ -107,8 +107,8 @@ export default function InternalBenchmark() {
           No benchmark data yet for {METRIC_LABEL[metric]}. The monthly compute job populates this — run <code style={{ background: C.bg, padding: "2px 4px", borderRadius: 3 }}>/api/cron/benchmark-compute</code> to backfill.
         </div>
       ) : (
-        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", position: "sticky", top: 0, zIndex: 2 }}>
             <div>Category</div><div>P25</div><div>P50</div><div>P75</div><div>P90</div><div>n</div><div>Period</div>
           </div>
           {rows.map((r) => (
@@ -133,4 +133,4 @@ function fmt(v: number | null) {
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;

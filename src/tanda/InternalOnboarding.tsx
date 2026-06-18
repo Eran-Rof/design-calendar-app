@@ -79,7 +79,7 @@ export default function InternalOnboarding() {
             ] as ExportColumn<Record<string, unknown>>[]}
           />
           <button onClick={() => setShowInvite(true)} style={btnPrimary}>+ Invite vendor to portal</button>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, colorScheme: "dark" }}>
             <option value="pending_review">Pending review</option>
             <option value="in_progress">In progress</option>
             <option value="approved">Approved</option>
