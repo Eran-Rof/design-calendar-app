@@ -18,7 +18,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444", violet: "#8B5CF6",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 const btnP: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -111,6 +111,7 @@ export default function InternalEDI() {
               <span style={{ color: C.textMuted, fontSize: 12 }}>The engine resolves inbound X12 by matching GS02 to this partner ID.</span>
             </div>
           )}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={th}>Vendor</th><th style={th}>Partner ID</th><th style={th}>Transport</th><th style={th}>Status</th><th style={th}>Last sync</th></tr></thead>
             <tbody>
@@ -126,6 +127,7 @@ export default function InternalEDI() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div>
@@ -134,6 +136,7 @@ export default function InternalEDI() {
             <select style={input} value={txn} onChange={(e) => setTxn(e.target.value)}><option value="">All documents</option>{Object.entries(TXN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
             <span style={{ color: C.textMuted, fontSize: 12, marginLeft: "auto" }}>{messages.length} message{messages.length === 1 ? "" : "s"}</span>
           </div>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr><th style={th}>When</th><th style={th}>Vendor</th><th style={th}>Dir</th><th style={th}>Document</th><th style={th}>Interchange</th><th style={th}>Status</th></tr></thead>
             <tbody>
@@ -150,6 +153,7 @@ export default function InternalEDI() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
