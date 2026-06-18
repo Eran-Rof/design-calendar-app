@@ -20,6 +20,7 @@ import {
   type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning,
 } from "./lib/customerPoPrefill";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import DateRangePresets from "./components/DateRangePresets";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -30,8 +31,13 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "customer",    label: "Customer" },
   { key: "order_date",  label: "Order date" },
   { key: "start_ship",  label: "Start Ship" },
+  { key: "cancel_date", label: "Cancel date" },
   { key: "status",      label: "Status" },
   { key: "factor",      label: "Factor" },
+  { key: "avg_cost",    label: "Avg cost" },
+  { key: "avg_sell",    label: "Avg sell" },
+  { key: "margin_pct",  label: "Margin %" },
+  { key: "margin_amt",  label: "Margin $" },
   { key: "total",       label: "Total" },
 ];
 
@@ -41,6 +47,9 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+// Frozen header cell: th + sticky to the scroll container's top. Opaque
+// background (#0b1220 matches `th`) so scrolling rows don't bleed through.
+const thStick: React.CSSProperties = { ...th, position: "sticky", top: 0, zIndex: 2, background: "#0b1220" };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 // colorScheme:"dark" makes native controls (esp. <input type=date> text + the
 // calendar/picker icon) render light-on-dark instead of the near-invisible
@@ -73,6 +82,9 @@ type SO = {
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
+  // Per-SO cost/margin aggregates (server-computed; style-scoped when filtered).
+  avg_cost_cents?: number | null; avg_sell_cents?: number | null;
+  margin_cents?: number | null; margin_pct?: number | null;
 };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
@@ -91,6 +103,17 @@ function formatShipAddress(a: Record<string, unknown> | null | undefined): strin
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
   return `${neg ? "-" : ""}$${Math.trunc(abs / 100).toLocaleString()}.${String(Math.round(abs % 100)).padStart(2, "0")}`;
+}
+// 2-decimal money from cents, with a — placeholder for null (used by the
+// Avg cost / Avg sell / Margin $ metric columns).
+function fmtCents2(c: number | null | undefined): string {
+  if (c == null) return "—";
+  return `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+// Margin % to one decimal, with a — placeholder for null.
+function fmtPct(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return `${p.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, confirmed: C.primary, allocated: "#8B5CF6", fulfilling: C.warn,
@@ -123,6 +146,12 @@ export default function InternalSalesOrders() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
 
+  // Date-range filter (client-side). `dateField` chooses WHICH date the [from,to]
+  // window applies to: the order date or the start (requested) ship date.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("order_date");
+
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
@@ -133,28 +162,52 @@ export default function InternalSalesOrders() {
     return m;
   }, [customers]);
 
+  // Client-side date-range filter on the chosen date field. A row with a null
+  // value for the selected field is dropped only when a bound is set.
+  const filteredRows = useMemo(() => {
+    if (!dateFrom && !dateTo) return rows;
+    return rows.filter((so) => {
+      const raw = dateField === "order_date" ? so.order_date : so.requested_ship_date;
+      const d = (raw || "").slice(0, 10);
+      if (!d) return false;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [rows, dateFrom, dateTo, dateField]);
+
   // Export rows mirror the displayed list (same filter/search), with ids
   // resolved to human labels and cents kept in cents for currency formatting.
   const exportRows = useMemo(
     () =>
-      rows.map((so) => ({
+      filteredRows.map((so) => ({
         so_number: so.so_number || "(draft)",
         customer: customerName[so.customer_id] || "—",
         order_date: so.order_date,
         start_ship: so.requested_ship_date || "",
+        cancel_date: so.cancel_date || "",
         status: so.status,
         factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
+        avg_cost_cents: so.avg_cost_cents ?? null,
+        avg_sell_cents: so.avg_sell_cents ?? null,
+        margin_pct: so.margin_pct ?? null,
+        margin_cents: so.margin_cents ?? null,
         total_cents: Number(so.total_cents ?? 0),
       })),
-    [rows, customerName],
+    [filteredRows, customerName],
   );
   const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
     { key: "order_date", header: "Order date", format: "date" },
     { key: "start_ship", header: "Start Ship", format: "date" },
+    { key: "cancel_date", header: "Cancel date", format: "date" },
     { key: "status",     header: "Status" },
     { key: "factor",     header: "Factor" },
+    { key: "avg_cost_cents", header: "Avg cost", format: "currency_cents" },
+    { key: "avg_sell_cents", header: "Avg sell", format: "currency_cents" },
+    { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
+    { key: "margin_cents", header: "Margin $", format: "currency_cents" },
     { key: "total_cents", header: "Total", format: "currency_cents" },
   ];
 
@@ -164,7 +217,16 @@ export default function InternalSalesOrders() {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
       if (customerFilter) params.set("customer_id", customerFilter);
-      if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
+      if (searchDebounced.trim()) {
+        params.set("q", searchDebounced.trim());
+        // Style-aware metrics: when the user is searching, scope the per-SO
+        // cost/sell/margin aggregates to the matching style's lines. The server
+        // only narrows when a line actually matches, so a non-style search (e.g.
+        // a customer name) safely falls back to the whole-SO aggregate.
+        params.set("style", searchDebounced.trim());
+      }
+      const styleDrill = readDrillParam("style_id");
+      if (styleDrill) params.set("style_id", styleDrill);
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as SO[]);
@@ -195,6 +257,20 @@ export default function InternalSalesOrders() {
             placeholder="All customers" inputStyle={inputStyle} />
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #, customer, style…" style={{ ...inputStyle, width: 240 }} />
+        {/* Date-range filter (client-side). Field picker + From/To + presets. */}
+        <select value={dateField} onChange={(e) => setDateField(e.target.value as "order_date" | "requested_ship_date")} style={{ ...inputStyle, width: 160 }} title="Which date the range filters on">
+          <option value="order_date">Order date</option>
+          <option value="requested_ship_date">Start ship date</option>
+        </select>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="From date" title="From" />
+        <span style={{ color: C.textMuted, fontSize: 13 }}>→</span>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="To date" title="To" />
+        <DateRangePresets variant="dropdown" from={dateFrom} to={dateTo}
+          onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+          buttonStyle={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "6px 10px", fontSize: 13 }} />
+        {(dateFrom || dateTo) && (
+          <button style={btnSecondary} onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear date range">Clear dates</button>
+        )}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}
@@ -208,28 +284,41 @@ export default function InternalSalesOrders() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          {/* Frozen header — sticks to the scroll container's top while rows
+              scroll. Opaque background so rows don't show through (mirrors the
+              Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
-            <th style={th} hidden={!isVisible("so_number")}>SO #</th><th style={th} hidden={!isVisible("customer")}>Customer</th><th style={th} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={th} hidden={!isVisible("start_ship")}>Start Ship</th><th style={th} hidden={!isVisible("status")}>Status</th><th style={th} hidden={!isVisible("factor")}>Factor</th><th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
+            <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>No sales orders.</td></tr>}
-            {rows.map((so) => (
+            {loading && <tr><td style={td} colSpan={12}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={12}>No sales orders.</td></tr>}
+            {filteredRows.map((so) => {
+              const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
+              return (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(so.order_date)}</td>
                 <td style={td} hidden={!isVisible("start_ship")}>{so.requested_ship_date ? fmtDateDisplay(so.requested_ship_date) : "—"}</td>
+                <td style={td} hidden={!isVisible("cancel_date")}>{so.cancel_date ? fmtDateDisplay(so.cancel_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
                 <td style={td} hidden={!isVisible("factor")}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
                   ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{fmtCents2(so.avg_cost_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -34,6 +34,110 @@ async function resolveDefaultEntity(admin) {
   return data || null;
 }
 
+// chunk a list into pages (Supabase .in() URL-length guard).
+function chunks(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+// loose SKU key — strip non-alphanumerics + uppercase, for fuzzy avg-cost match.
+function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+
+// Per-SO cost / sell / margin aggregates (operator ask: Avg cost, Avg sell,
+// Margin %, Margin $ columns). Cost source = ip_item_avg_cost (same source the
+// Inventory Snapshot uses), keyed by sku_code (exact, then loose). All values
+// qty-weighted across the SO's lines. When `styleFilter` is set, the aggregates
+// are scoped to ONLY the lines whose style_code / sku_code matches it (so the
+// grid metrics reflect the searched style, not the whole order) — but only when
+// at least one line matches; otherwise the whole-SO aggregate is returned.
+async function computeSoMetrics(admin, soIds, styleFilter) {
+  const out = new Map(); // so_id -> { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct }
+  if (!soIds.length) return out;
+
+  // 1. Lines for these SOs.
+  const lines = [];
+  for (const slice of chunks(soIds, 100)) {
+    const { data } = await admin.from("sales_order_lines")
+      .select("sales_order_id, inventory_item_id, qty_ordered, unit_price_cents")
+      .in("sales_order_id", slice);
+    for (const l of data || []) lines.push(l);
+  }
+  if (!lines.length) return out;
+
+  // 2. Resolve inventory_item_id -> { sku_code, style_code }.
+  const itemIds = [...new Set(lines.map((l) => l.inventory_item_id).filter(Boolean))];
+  const itemById = new Map();
+  for (const slice of chunks(itemIds, 200)) {
+    if (!slice.length) continue;
+    const { data } = await admin.from("ip_item_master")
+      .select("id, sku_code, style_code").in("id", slice);
+    for (const it of data || []) itemById.set(it.id, it);
+  }
+
+  // 3. Avg cost per sku_code (exact + loose), from ip_item_avg_cost.
+  const skus = [...new Set([...itemById.values()].map((it) => it.sku_code).filter(Boolean))];
+  const costBySku = new Map(), costByLoose = new Map();
+  for (const slice of chunks(skus, 100)) {
+    if (!slice.length) continue;
+    const { data } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", slice);
+    for (const r of data || []) {
+      if (r.avg_cost == null) continue;
+      const cents = Math.round(Number(r.avg_cost) * 100);
+      costBySku.set(r.sku_code, cents);
+      const lk = looseKey(r.sku_code); if (!costByLoose.has(lk)) costByLoose.set(lk, cents);
+    }
+  }
+  const costForSku = (sku) => {
+    if (!sku) return null;
+    if (costBySku.has(sku)) return costBySku.get(sku);
+    const lk = looseKey(sku); return costByLoose.has(lk) ? costByLoose.get(lk) : null;
+  };
+
+  // 4. Qty-weighted aggregation per SO. styleFilter = case-insensitive substring
+  // on style_code or sku_code; only narrows when it actually matches a line.
+  const sf = (styleFilter || "").trim().toLowerCase();
+  const matchesStyle = (it) => {
+    if (!sf) return true;
+    const sc = String(it?.style_code ?? "").toLowerCase();
+    const sk = String(it?.sku_code ?? "").toLowerCase();
+    return sc.includes(sf) || sk.includes(sf);
+  };
+  // Per-SO bucket: full + style-scoped accumulators.
+  const buckets = new Map(); // so_id -> { qFull,sellFull,costFull,costQFull, qScoped,sellScoped,costScoped,costQScoped, anyScoped }
+  const bucketFor = (id) => {
+    let b = buckets.get(id);
+    if (!b) { b = { qFull: 0, sellFull: 0, costFull: 0, costQFull: 0, qScoped: 0, sellScoped: 0, costScoped: 0, costQScoped: 0, anyScoped: false }; buckets.set(id, b); }
+    return b;
+  };
+  for (const l of lines) {
+    const qty = Number(l.qty_ordered) || 0;
+    if (qty <= 0) continue;
+    const unit = Number(l.unit_price_cents) || 0;
+    const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
+    const cost = costForSku(it?.sku_code);
+    const b = bucketFor(l.sales_order_id);
+    b.qFull += qty; b.sellFull += unit * qty;
+    if (cost != null) { b.costFull += cost * qty; b.costQFull += qty; }
+    if (sf && matchesStyle(it)) {
+      b.anyScoped = true;
+      b.qScoped += qty; b.sellScoped += unit * qty;
+      if (cost != null) { b.costScoped += cost * qty; b.costQScoped += qty; }
+    }
+  }
+  for (const [id, b] of buckets) {
+    const useScoped = sf && b.anyScoped;
+    const q = useScoped ? b.qScoped : b.qFull;
+    const sellSum = useScoped ? b.sellScoped : b.sellFull;
+    const costSum = useScoped ? b.costScoped : b.costFull;
+    const costQ = useScoped ? b.costQScoped : b.costQFull;
+    const avg_sell_cents = q > 0 ? Math.round(sellSum / q) : null;
+    const avg_cost_cents = costQ > 0 ? Math.round(costSum / costQ) : null;
+    let margin_cents = null, margin_pct = null;
+    if (avg_sell_cents != null && avg_cost_cents != null) {
+      margin_cents = avg_sell_cents - avg_cost_cents;
+      margin_pct = avg_sell_cents !== 0 ? Math.round((margin_cents / avg_sell_cents) * 1000) / 10 : null;
+    }
+    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct });
+  }
+  return out;
+}
+
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
@@ -132,6 +236,10 @@ export default async function handler(req, res) {
     const status = (url.searchParams.get("status") || "").trim();
     const customerId = (url.searchParams.get("customer_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
+    // Optional style scope for the per-SO cost/sell/margin aggregates. Accepts
+    // either an explicit `style` param or `style_id` (resolved to a style_code);
+    // when absent, the aggregates cover the whole SO.
+    let styleFilter = (url.searchParams.get("style") || "").trim();
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
@@ -166,7 +274,30 @@ export default async function handler(req, res) {
       ({ data, error } = await query);
     }
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+
+    const headers = data || [];
+    // Resolve a style_id → style_code so the style scope works from a drill too.
+    if (!styleFilter) {
+      const styleIdParam = (url.searchParams.get("style_id") || "").trim();
+      if (styleIdParam && UUID_RE.test(styleIdParam)) {
+        const { data: st } = await admin.from("style_master").select("style_code").eq("id", styleIdParam).maybeSingle();
+        if (st?.style_code) styleFilter = st.style_code;
+      }
+    }
+    // Attach per-SO Avg cost / Avg sell / Margin aggregates (style-scoped when a
+    // style filter is active). Best-effort: never fail the list on metric errors.
+    try {
+      const metrics = await computeSoMetrics(admin, headers.map((h) => h.id), styleFilter);
+      for (const h of headers) {
+        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null };
+        h.avg_cost_cents = m.avg_cost_cents;
+        h.avg_sell_cents = m.avg_sell_cents;
+        h.margin_cents = m.margin_cents;
+        h.margin_pct = m.margin_pct;
+      }
+    } catch { /* leave metrics absent on failure */ }
+
+    return res.status(200).json(headers);
   }
 
   if (req.method === "POST") {
