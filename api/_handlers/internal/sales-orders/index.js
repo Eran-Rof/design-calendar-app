@@ -143,6 +143,7 @@ const SELECT_COLS =
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
   "ar_account_id, revenue_account_id, notes, customer_po, subtotal_cents, total_cents, fulfillment_source, " +
   "factor_approval_status, factor_reference, factor_approved_cents, buyer_id, " +
+  "credit_approval_status, credit_hold_reason, amount_paid_cents, paid_in_full_at, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
 
 export function validateInsert(body) {

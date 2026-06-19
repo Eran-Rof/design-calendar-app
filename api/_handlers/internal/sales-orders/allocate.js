@@ -8,6 +8,7 @@
 // including any shortfalls.
 
 import { createClient } from "@supabase/supabase-js";
+import { evaluateSoCreditGate } from "../../../_lib/customers/soShipGate.js";
 
 export const config = { maxDuration: 20 };
 
@@ -44,6 +45,41 @@ export default async function handler(req, res) {
 
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
+
+  // Non-factor credit ship-gate: a house-account customer with overdue AR (or an
+  // unpaid credit-card order) is held — it cannot allocate stock until the hold
+  // is cleared or an operator overrides (credit_approval_status='approved').
+  // Factored customers are gated inside the allocate_sales_order RPC (factor
+  // approval) and are skipped here. Best-effort: a failed lookup blocks (the
+  // hold is the safe default for an explicit gate) but surfaces the cause.
+  {
+    const { data: so } = await admin
+      .from("sales_orders")
+      .select("id, customer_id, entity_id, payment_terms_id, total_cents, amount_paid_cents, credit_approval_status")
+      .eq("id", id).maybeSingle();
+    if (so && so.customer_id && so.credit_approval_status !== "approved") {
+      const { data: cust } = await admin.from("customers").select("is_factored").eq("id", so.customer_id).maybeSingle();
+      if (cust?.is_factored !== true) {
+        try {
+          const decision = await evaluateSoCreditGate(admin, {
+            customer_id: so.customer_id, entity_id: so.entity_id,
+            payment_terms_id: so.payment_terms_id, total_cents: so.total_cents,
+            amount_paid_cents: so.amount_paid_cents,
+          });
+          if (decision.blocked) {
+            await admin.from("sales_orders").update({
+              credit_approval_status: decision.target_status,
+              credit_hold_reason: decision.reason,
+              credit_checked_at: new Date().toISOString(),
+            }).eq("id", so.id);
+            return res.status(409).json({ error: decision.reason, credit_gate: decision.gate });
+          }
+        } catch (e) {
+          return res.status(500).json({ error: `Credit gate check failed: ${e instanceof Error ? e.message : String(e)}` });
+        }
+      }
+    }
+  }
 
   const { data, error } = await admin.rpc("allocate_sales_order", { p_so_id: id, p_user_id: actor });
   if (error) {

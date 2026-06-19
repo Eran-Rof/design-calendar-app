@@ -34,6 +34,7 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "cancel_date", label: "Cancel date" },
   { key: "status",      label: "Status" },
   { key: "factor",      label: "Factor" },
+  { key: "credit",      label: "Credit" },
   { key: "avg_cost",    label: "Avg cost" },
   { key: "avg_sell",    label: "Avg sell" },
   { key: "margin_pct",  label: "Margin %" },
@@ -81,6 +82,9 @@ type SO = {
   customer_po?: string | null;
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
+  // Non-factor credit ship-gate (house-account overdue AR / credit-card paid-in-full).
+  credit_approval_status?: string | null; credit_hold_reason?: string | null;
+  amount_paid_cents?: number | string | null; paid_in_full_at?: string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
   // Per-SO cost/margin aggregates (server-computed; style-scoped when filtered).
   avg_cost_cents?: number | null; avg_sell_cents?: number | null;
@@ -125,6 +129,16 @@ const FACTOR_COLORS: Record<string, string> = {
   not_submitted: C.textMuted, pending: C.warn, approved: C.success, partial: "#8B5CF6",
   declined: C.danger, not_required: C.textSub,
 };
+// Non-factor credit ship-gate states (operator ask): on_hold=amber, pending=blue,
+// approved=green, declined=red. not_required = no gate (shown as a dash).
+const CREDIT_COLORS: Record<string, string> = {
+  not_required: C.textMuted, pending: C.primary, on_hold: C.warn, approved: C.success, declined: C.danger,
+};
+const CREDIT_LABELS: Record<string, string> = {
+  pending: "card unpaid", on_hold: "on hold", approved: "approved", declined: "declined",
+};
+// True for a credit status worth surfacing in the grid/badge (not the neutral default).
+const showCredit = (s?: string | null): boolean => !!s && s !== "not_required";
 
 export default function InternalSalesOrders() {
   const [rows, setRows] = useState<SO[]>([]);
@@ -188,6 +202,7 @@ export default function InternalSalesOrders() {
         cancel_date: so.cancel_date || "",
         status: so.status,
         factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
+        credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
         avg_cost_cents: so.avg_cost_cents ?? null,
         avg_sell_cents: so.avg_sell_cents ?? null,
         margin_pct: so.margin_pct ?? null,
@@ -204,6 +219,7 @@ export default function InternalSalesOrders() {
     { key: "cancel_date", header: "Cancel date", format: "date" },
     { key: "status",     header: "Status" },
     { key: "factor",     header: "Factor" },
+    { key: "credit",     header: "Credit" },
     { key: "avg_cost_cents", header: "Avg cost", format: "currency_cents" },
     { key: "avg_sell_cents", header: "Avg sell", format: "currency_cents" },
     { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
@@ -291,13 +307,13 @@ export default function InternalSalesOrders() {
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
             <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th>
+            <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={12}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={12}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={13}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={13}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
               return (
@@ -310,6 +326,9 @@ export default function InternalSalesOrders() {
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
                 <td style={td} hidden={!isVisible("factor")}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
                   ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>
+                  : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={td} hidden={!isVisible("credit")}>{showCredit(so.credit_approval_status)
+                  ? <span title={so.credit_hold_reason || undefined} style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: CREDIT_COLORS[so.credit_approval_status!] || C.text, border: `1px solid ${CREDIT_COLORS[so.credit_approval_status!] || C.cardBdr}` }}>{CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{fmtCents2(so.avg_cost_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
@@ -808,6 +827,71 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // Non-factor credit ship-gate — operator actions. The gate is server-owned
+  // (409 on allocate/ship); these are the operator release/record paths.
+  // "Override → Approve" sets credit_approval_status='approved' (source manual);
+  // "Record payment" posts a manual payment that, on a paid-in-full CREDIT_CARD
+  // order, auto-approves the gate. Both visible on a non-draft SO that carries a
+  // surfaced credit status (on_hold / pending).
+  const creditStatus = so?.credit_approval_status || "not_required";
+  const creditOnHold = !isNew && (creditStatus === "on_hold" || creditStatus === "pending");
+  async function overrideApproveCredit() {
+    if (!so) return;
+    const ok = await confirmDialog(
+      `Override the credit hold on this order and mark it APPROVED to ship?\n\n${so.credit_hold_reason || "This releases the non-factor credit ship-gate."}`,
+      "Approve credit override",
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credit_approval_status: "approved", credit_approval_source: "manual" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Credit hold overridden — order approved to ship.", "success");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  // Record-payment dialog (credit-card orders). Manual record path; a future
+  // hosted-payment/webhook flow can drive the same server endpoint.
+  const [payOpen, setPayOpen] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("credit_card");
+  const [payReference, setPayReference] = useState("");
+  const isCardOrder = useMemo(() => {
+    const t = paymentTerms.find((pt) => pt.id === (so?.payment_terms_id || paymentTermsId));
+    return t?.code === "CREDIT_CARD";
+  }, [paymentTerms, so, paymentTermsId]);
+  function openPayModal() {
+    // Default the amount to the outstanding balance (total − already paid).
+    const total = Number(so?.total_cents ?? 0);
+    const paid = Number(so?.amount_paid_cents ?? 0);
+    const due = Math.max(total - paid, 0);
+    setPayAmount(due > 0 ? (due / 100).toFixed(2) : "");
+    setPayReference(""); setPayMethod("credit_card"); setPayOpen(true);
+  }
+  async function recordPayment() {
+    if (!so) return;
+    const dollars = moneyToNumber(payAmount);
+    if (dollars == null || dollars <= 0) { setErr("Enter a payment amount greater than 0."); return; }
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}/record-payment`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount_cents: Math.round(dollars * 100), method: payMethod, reference: payReference.trim() || null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Payment recorded.", j.paid_in_full ? "success" : "info");
+      setPayOpen(false);
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
   // Item 15 — split a draft SO across multiple of the customer's stores/DCs.
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitLocs, setSplitLocs] = useState<string[]>([]);
@@ -1023,6 +1107,28 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           )}
         </div>
 
+        {/* Non-factor credit ship-gate state — surfaced when the SO is on_hold
+            (house-account overdue AR) or pending (credit-card not paid in full).
+            Server is the source of truth (409 on allocate/ship). The release
+            actions (Record payment / Override → Approve) live in the footer. */}
+        {!isNew && showCredit(creditStatus) && (
+          <div style={{
+            border: `1px solid ${CREDIT_COLORS[creditStatus] || C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12,
+            background: creditStatus === "approved" ? "#06281f" : creditStatus === "on_hold" ? "#3b2f0b" : "#0b1c3b",
+          }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Credit status</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: CREDIT_COLORS[creditStatus] || C.text }}>
+                {creditStatus === "approved" ? "✅" : creditStatus === "declined" ? "⛔" : "⚠"} {CREDIT_LABELS[creditStatus] || creditStatus}
+              </span>
+              {Number(so?.amount_paid_cents ?? 0) > 0 && (
+                <span style={{ fontSize: 11, color: C.textSub }}>paid {fmtCents(so?.amount_paid_cents)} of {fmtCents(so?.total_cents)}</span>
+              )}
+            </div>
+            {so?.credit_hold_reason && <div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>{so.credit_hold_reason}</div>}
+          </div>
+        )}
+
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
 
         {/* Item 15 — ship to multiple stores: split this draft into per-store child SOs. */}
@@ -1133,6 +1239,14 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
             {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
             {canShip && <button onClick={() => void openShipModal()} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
+            {/* Non-factor credit ship-gate operator actions. Record-payment for
+                CREDIT_CARD orders; Override→Approve releases any credit hold. */}
+            {!isNew && so != null && isCardOrder && creditStatus !== "approved" && (
+              <button onClick={openPayModal} style={{ ...btnSecondary, color: C.primary, borderColor: "#1d4ed8" }} disabled={submitting} title="Record a payment against this credit-card order (paid in full releases the ship-gate)">💳 Record payment</button>
+            )}
+            {creditOnHold && (
+              <button onClick={() => void overrideApproveCredit()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title={so?.credit_hold_reason || "Override the credit hold and approve this order to ship"}>✅ Override → Approve</button>
+            )}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1230,6 +1344,34 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button onClick={() => setShipOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
               <button onClick={() => void shipOrder()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Confirm shipment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Record-payment modal — manual payment record for the credit-card gate.
+          Processor (Stripe/hosted checkout) is deferred; this posts to the
+          record-payment endpoint which increments amount_paid_cents and, on a
+          paid-in-full CREDIT_CARD order, auto-approves the credit ship-gate. */}
+      {payOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!submitting) setPayOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💳 Record payment</h3>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+              Order total {fmtCents(so?.total_cents)} · already paid {fmtCents(so?.amount_paid_cents)}. Paying in full releases the credit-card ship-gate.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <Field label="Amount $"><input type="text" inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} onBlur={() => setPayAmount((v) => fmtMoneyComma(v))} style={inputStyle} placeholder="0.00" /></Field>
+              <Field label="Method">
+                <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} style={inputStyle}>
+                  {["credit_card", "ach", "wire", "check", "cash", "paypal", "stripe", "other"].map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Reference #"><input type="text" value={payReference} onChange={(e) => setPayReference(e.target.value)} style={inputStyle} placeholder="auth code / txn id (optional)" /></Field>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setPayOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
+              <button onClick={() => void recordPayment()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Record payment"}</button>
             </div>
           </div>
         </div>

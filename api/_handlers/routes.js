@@ -423,6 +423,7 @@ import r_internal_rma_reasons_index from "./internal/rma-reasons/index.js";
 import r_internal_sales_by_customer_index from "./internal/sales-by-customer/index.js";
 import r_internal_sales_by_rep_index from "./internal/sales-by-rep/index.js";
 import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
+import r_internal_sales_orders_id_record_payment from "./internal/sales-orders/[id]/record-payment.js";
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
@@ -765,6 +766,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/broker-invoices/:id", handler: r_internal_procurement_broker_invoices_id },
   { pattern: "/api/internal/procurement/customs-entries/:id", handler: r_internal_procurement_customs_entries_id },
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: r_internal_sales_orders_create_invoice },
+  { pattern: "/api/internal/sales-orders/:id/record-payment", handler: r_internal_sales_orders_id_record_payment },
   { pattern: "/api/internal/workflow-executions/:id/approve", handler: r_internal_workflow_executions_id_approve },
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof", handler: r_internal_entities_id_coa_copy },
   { pattern: "/api/internal/inventory-adjustments/:id/post", handler: r_internal_inventory_adjustments_post },
