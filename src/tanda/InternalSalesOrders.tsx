@@ -74,6 +74,10 @@ type SO = {
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
+// Scenario 5 — lot-aware allocation shapes (mirror /sales-orders/allocate-by-lot).
+type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null };
+type LotPick = { lot_number: string | null; qty: number };
+type PlanLine = { item_id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null; qty_ordered: number; picks: LotPick[]; filled: number; shortfall: number };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
@@ -284,6 +288,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // True when an uploaded customer PO auto-chose ATS and the operator hasn't yet
   // confirmed/changed it — highlights the Fulfillment source for a double-check.
   const [fulfillmentReview, setFulfillmentReview] = useState(false);
+  // Scenario 5 — pending lot-allocation plan when an ATS order can't be fully
+  // filled from stock; the operator accepts (backorder the rest) or cancels.
+  const [lotPlan, setLotPlan] = useState<{ expanded: SaveLine[]; shortfalls: PlanLine[]; confirm: boolean } | null>(null);
   // MX-SO — the line body IS the size matrix (per-style color×size grids) + a
   // few non-matrix flat lines. The body owns its state; we read it at save via
   // the imperative resolve() handle. `seed` rebuilds the grids when editing.
@@ -578,21 +585,69 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
     // SKUs). Done before the header build so a resolve error surfaces cleanly.
-    let resolvedLines: { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number }[] = [];
+    let resolvedLines: SaveLine[] = [];
     try {
-      resolvedLines = (await bodyRef.current?.resolve()) || [];
+      resolvedLines = ((await bodyRef.current?.resolve()) || []) as SaveLine[];
     } catch (e) {
       setErr(`Could not resolve order lines: ${e instanceof Error ? e.message : String(e)}`);
       setSubmitting(false);
       return;
     }
     if (resolvedLines.length === 0) { setErr("Add at least one line with a quantity."); setSubmitting(false); return; }
+
+    // Scenario 5 — ATS (ship from available stock): allocate each line across
+    // lots (fill from as few lots as possible) and split into per-lot lines. If
+    // any line can't be fully filled, show the plan + shortfall for the operator
+    // to accept (backorder the rest) or cancel. Production orders skip this.
+    if (fulfillmentSource === "ats") {
+      try {
+        const need = resolvedLines
+          .filter((l) => l.inventory_item_id && l.qty_ordered > 0)
+          .map((l) => ({ item_id: l.inventory_item_id as string, qty: l.qty_ordered }));
+        if (need.length > 0) {
+          const r = await fetch("/api/internal/sales-orders/allocate-by-lot", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: need }),
+          });
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+          const plan = await r.json() as { lines: PlanLine[] };
+          const expanded = expandByPlan(resolvedLines, plan.lines || []);
+          const shortfalls = (plan.lines || []).filter((l) => l.shortfall > 0);
+          if (shortfalls.length > 0) { setLotPlan({ expanded, shortfalls, confirm }); setSubmitting(false); return; }
+          await commitSave(expanded, confirm);
+          return;
+        }
+      } catch (e) {
+        setErr(`Lot allocation failed: ${e instanceof Error ? e.message : String(e)}`);
+        setSubmitting(false);
+        return;
+      }
+    }
+    await commitSave(resolvedLines, confirm);
+  }
+
+  // Scenario 5 — turn an allocation plan into per-lot SO lines. Each lot pick
+  // becomes its own line (carrying lot_number); any shortfall stays one unlotted
+  // line so the customer's full ordered quantity is preserved (backorder).
+  function expandByPlan(resolved: SaveLine[], planLines: PlanLine[]): SaveLine[] {
+    const byItem = new Map(planLines.map((l) => [l.item_id, l]));
+    const out: SaveLine[] = [];
+    for (const rl of resolved) {
+      const plan = rl.inventory_item_id ? byItem.get(rl.inventory_item_id) : null;
+      if (!plan || plan.picks.length === 0) { out.push(rl); continue; } // no lotted stock → leave as-is
+      for (const p of plan.picks) out.push({ ...rl, qty_ordered: p.qty, lot_number: p.lot_number });
+      if (plan.shortfall > 0) out.push({ ...rl, qty_ordered: plan.shortfall, lot_number: null });
+    }
+    return out;
+  }
+
+  // POST/PATCH the SO with a final line set (per-lot-expanded for ATS, or raw).
+  async function commitSave(lines: SaveLine[], confirm: boolean) {
     try {
       const body: Record<string, unknown> = {
         customer_id: customerId, ship_to_location_id: shipToLocationId || null,
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
-        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
+        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines,
         customer_po: customerPo.trim() || null,
         fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
@@ -1141,6 +1196,48 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button onClick={() => setShipOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
               <button onClick={() => void shipOrder()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Confirm shipment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scenario 5 — ATS lot allocation can't fully fill the order. Show what
+          can be filled (per lot) and let the operator accept (backorder the
+          rest) or cancel. */}
+      {lotPlan && (
+        <div onClick={() => { setLotPlan(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: "1px solid #F59E0B", borderRadius: 10, padding: 22, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 8 }}>⚠️ Order can't be fully filled from stock</div>
+            <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5, marginBottom: 14 }}>
+              {lotPlan.shortfalls.length} line{lotPlan.shortfalls.length === 1 ? "" : "s"} can't be fully shipped from available lots. Accepting saves the order, allocates what's available by lot, and leaves the rest as a backorder (no lot).
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 16 }}>
+              <thead>
+                <tr style={{ color: C.textMuted, textAlign: "left" }}>
+                  <th style={{ padding: "4px 6px" }}>Item</th>
+                  <th style={{ padding: "4px 6px", textAlign: "right" }}>Ordered</th>
+                  <th style={{ padding: "4px 6px", textAlign: "right" }}>Can fill</th>
+                  <th style={{ padding: "4px 6px", textAlign: "right" }}>Short</th>
+                  <th style={{ padding: "4px 6px" }}>From lots</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lotPlan.shortfalls.map((l) => (
+                  <tr key={l.item_id} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                    <td style={{ padding: "4px 6px" }}>{l.sku_code || `${l.style_code || ""} ${l.color || ""} ${l.size || ""}`.trim() || l.item_id.slice(0, 8)}</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: "monospace" }}>{l.qty_ordered}</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: "monospace", color: "#10B981" }}>{l.filled}</td>
+                    <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: "monospace", color: "#F59E0B" }}>{l.shortfall}</td>
+                    <td style={{ padding: "4px 6px", color: C.textMuted }}>{l.picks.length ? l.picks.map((p) => `${p.lot_number || "(unlotted)"}: ${p.qty}`).join(", ") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setLotPlan(null)} style={btnSecondary} disabled={submitting}>Cancel</button>
+              <button onClick={() => { const p = lotPlan; setLotPlan(null); setSubmitting(true); void commitSave(p.expanded, p.confirm); }} style={btnPrimary} disabled={submitting}>
+                {submitting ? "Saving…" : "Accept & save (backorder the rest)"}
+              </button>
             </div>
           </div>
         </div>
