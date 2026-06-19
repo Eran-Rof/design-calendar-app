@@ -37,7 +37,7 @@ async function resolveDefaultEntity(admin) {
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
-  "ar_account_id, revenue_account_id, notes, customer_po, subtotal_cents, total_cents, fulfillment_source, " +
+  "ar_account_id, revenue_account_id, notes, customer_po, customer_po_is_placeholder, subtotal_cents, total_cents, fulfillment_source, " +
   "factor_approval_status, factor_reference, factor_approved_cents, buyer_id, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
 
@@ -101,6 +101,7 @@ export function validateInsert(body) {
       revenue_account_id: nz("revenue_account_id"),
       notes: body.notes ? String(body.notes).trim() : null,
       customer_po: body.customer_po ? String(body.customer_po).trim() : null,
+      customer_po_is_placeholder: body.customer_po_is_placeholder === true,
       fulfillment_source: ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null,
       factor_approval_status: factorStatus,
       factor_reference: body.factor_reference ? String(body.factor_reference).trim() : null,
@@ -202,6 +203,7 @@ export default async function handler(req, res) {
       revenue_account_id: v.data.revenue_account_id,
       notes: v.data.notes,
       customer_po: v.data.customer_po,
+      customer_po_is_placeholder: v.data.customer_po_is_placeholder,
       fulfillment_source: v.data.fulfillment_source,
       factor_approval_status: v.data.factor_approval_status,
       factor_reference: v.data.factor_reference,

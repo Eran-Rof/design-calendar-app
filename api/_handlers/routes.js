@@ -427,6 +427,7 @@ import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.j
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
 import r_internal_sales_orders_parse_customer_po from "./internal/sales-orders/parse-customer-po.js";
+import r_internal_sales_orders_placeholder_po from "./internal/sales-orders/placeholder-po.js";
 import r_internal_sales_orders_ship from "./internal/sales-orders/ship.js";
 import r_internal_sales_orders_split from "./internal/sales-orders/split.js";
 import r_internal_sales_orders_wave from "./internal/sales-orders/wave.js";
@@ -870,6 +871,7 @@ export const ROUTES = [
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },
   { pattern: "/api/internal/procurement/customs-entries", handler: r_internal_procurement_customs_entries_index },
+  { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },

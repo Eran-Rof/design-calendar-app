@@ -70,6 +70,7 @@ type SO = {
   buyer_id?: string | null; buyer_name?: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
   customer_po?: string | null;
+  customer_po_is_placeholder?: boolean | null;
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
@@ -268,6 +269,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [notes, setNotes] = useState(so?.notes || "");
   // Customer's PO number (their reference). Required before styles can be added.
   const [customerPo, setCustomerPo] = useState(so?.customer_po || "");
+  // Scenario 2 — true while customer_po holds a system-generated placeholder
+  // (not the real buyer PO). Set by "Generate placeholder"; cleared the moment
+  // the operator types a real PO or uploads one.
+  const [customerPoIsPlaceholder, setCustomerPoIsPlaceholder] = useState(so?.customer_po_is_placeholder ?? false);
+  const [genningPlaceholder, setGenningPlaceholder] = useState(false);
   // 🤖 AI customer-PO upload (new SO only). Dialog + parse + base/PPK disambig
   // + the post-prefill "double-check" review.
   const [poUploadOpen, setPoUploadOpen] = useState(false);
@@ -496,7 +502,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     const unmatched: string[] = [];
 
     // Header
-    if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); summary.push(`PO # ${parsed.customer_po_number}`); }
+    if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); setCustomerPoIsPlaceholder(false); summary.push(`PO # ${parsed.customer_po_number}`); }
     const custId = matchCustomer(parsed.customer_name, customers);
     if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
@@ -594,6 +600,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
         customer_po: customerPo.trim() || null,
+        customer_po_is_placeholder: customerPoIsPlaceholder,
         fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
@@ -614,6 +621,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       } else {
         const r = await fetch(`/api/internal/sales-orders/${so!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        // Scenario 2 — surface lot propagation when a placeholder PO was replaced.
+        const pj = await r.json().catch(() => ({}));
+        if (pj?.relotted?.lines > 0) notify(`Customer PO updated — re-lotted ${pj.relotted.lines} line(s) across ${pj.relotted.pos} not-yet-received PO(s) from ${pj.relotted.from} → ${pj.relotted.to}.`, "success");
       }
 
       if (confirm && soId) {
@@ -848,11 +858,31 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             AI "Upload customer PO" flow fills in. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "start" }}>
           <Field label="Customer PO # *">
-            <input type="text" value={customerPo} onChange={(e) => setCustomerPo(e.target.value)} disabled={!editable}
-              style={{ ...inputStyle, borderColor: editable && !customerPo.trim() ? C.warn : C.cardBdr }}
+            <input type="text" value={customerPo} onChange={(e) => { setCustomerPo(e.target.value); setCustomerPoIsPlaceholder(false); }} disabled={!editable}
+              style={{ ...inputStyle, borderColor: customerPoIsPlaceholder ? "#F59E0B" : (editable && !customerPo.trim() ? C.warn : C.cardBdr) }}
               placeholder="the customer's PO number" />
             {editable && !customerPo.trim() && (
-              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — enter the customer PO before adding styles.</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: C.warn }}>Required — enter the customer PO before adding styles.</span>
+                <button type="button" disabled={genningPlaceholder} onClick={async () => {
+                  setGenningPlaceholder(true);
+                  try {
+                    const r = await fetch("/api/internal/sales-orders/placeholder-po", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+                    const j = await r.json().catch(() => ({}));
+                    if (!r.ok || !j.customer_po) throw new Error(j.error || `HTTP ${r.status}`);
+                    setCustomerPo(j.customer_po); setCustomerPoIsPlaceholder(true);
+                    notify(`Placeholder PO ${j.customer_po} assigned — replace it when the real customer PO arrives.`, "info");
+                  } catch (e) { notify(`Could not generate a placeholder PO: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+                  finally { setGenningPlaceholder(false); }
+                }} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }} title="Open the order now with a placeholder PO; replace it when the buyer's real PO comes in (Scenario 2).">
+                  {genningPlaceholder ? "…" : "🅿 Generate placeholder"}
+                </button>
+              </div>
+            )}
+            {customerPoIsPlaceholder && customerPo.trim() && (
+              <div style={{ fontSize: 11, color: "#F59E0B", marginTop: 4 }}>
+                🅿 Placeholder PO. When the real customer PO arrives, replace it here (or upload it) — every not-yet-received PO on this order is re-lotted to the new number.
+              </div>
             )}
           </Field>
           {isNew && editable && (
