@@ -1693,6 +1693,33 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               )}
             </div>
           )}
+
+          {/* GS1 → EDI reference. The barcodes minted for this style are what every
+              downstream EDI document references; this collapsible note explains the
+              standard supplier ⇄ retailer flow so the codes stay consistent. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <details style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px" }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.textSub, listStyle: "revert" }}>
+                📦 GS1 → EDI: the standard workflow
+              </summary>
+              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.55, marginTop: 8 }}>
+                The UPC / GTIN barcodes for this style flow through the retail integration
+                in this order. Keep the codes consistent end to end — the retailer can only
+                order what was published in the catalog.
+                <ol style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                  <li><strong style={{ color: C.textSub }}>Catalog</strong> — supplier publishes the style catalog via GDSN or a retail portal.</li>
+                  <li><strong style={{ color: C.textSub }}>Download</strong> — retailer imports the catalog to update their system with the correct barcodes (UPC / EAN / GTIN).</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 850</strong> — retailer sends a Purchase Order using the exact downloaded barcodes.</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 856</strong> — supplier ships and sends an Advance Shipping Notice (ASN) matching those codes.</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 810</strong> — supplier sends the Invoice for final payment.</li>
+                </ol>
+                <div style={{ marginTop: 8 }}>
+                  Generate and manage these codes in the <strong style={{ color: C.textSub }}>GS1 app</strong> →
+                  UPC Master, Pack GTINs, and the Workflow Guide.
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
 
         {mode === "edit" && style && (

@@ -134,6 +134,7 @@ const GS1_MENU: MenuKey[] = [
   { key: "gs1/upc",           label: "UPC Master",        app: "gs1", route: "/gs1?tab=upc",           group: "Masters" },
   { key: "gs1/scale",         label: "Scale Master",      app: "gs1", route: "/gs1?tab=scale",         group: "Masters" },
   { key: "gs1/gtins",         label: "Pack GTINs",        app: "gs1", route: "/gs1?tab=gtins",         group: "Masters" },
+  { key: "gs1/catalog",       label: "Styles Catalog",    app: "gs1", route: "/gs1?tab=catalog",       group: "Catalog" },
   { key: "gs1/upload",        label: "Packing List",      app: "gs1", route: "/gs1?tab=upload",        group: "Workflow" },
   { key: "gs1/pa-unpacker",   label: "PA Unpacker",       app: "gs1", route: "/gs1?tab=pa_unpacker",   group: "Workflow" },
   { key: "gs1/labels",        label: "Label Batches",     app: "gs1", route: "/gs1?tab=labels",        group: "Labels" },
@@ -141,6 +142,7 @@ const GS1_MENU: MenuKey[] = [
   { key: "gs1/cartons",       label: "Carton Labels",     app: "gs1", route: "/gs1?tab=cartons",       group: "Labels" },
   { key: "gs1/receiving",     label: "Receiving",         app: "gs1", route: "/gs1?tab=receiving",     group: "Workflow" },
   { key: "gs1/exceptions",    label: "Exceptions",        app: "gs1", route: "/gs1?tab=exceptions",    group: "Workflow" },
+  { key: "gs1/edi-workflow",  label: "Workflow Guide",    app: "gs1", route: "/gs1?tab=edi_workflow",  group: "Help" },
   { key: "gs1/notifications", label: "Notifications",     app: "gs1", route: "/gs1?tab=notifications", group: "Communication", icon: "🔔" },
 ];
 
