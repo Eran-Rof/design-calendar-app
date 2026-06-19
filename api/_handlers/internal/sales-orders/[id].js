@@ -9,12 +9,15 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveInternalRecipients } from "../../../_lib/internal-recipients.js";
+import { evaluateSoCreditGate } from "../../../_lib/customers/soShipGate.js";
 
 export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"];
 const FACTOR_STATUSES = ["not_submitted", "pending", "approved", "partial", "declined", "not_required"];
+// Non-factor credit gate (house-account overdue-AR + credit-card paid-in-full).
+const CREDIT_STATUSES = ["not_required", "pending", "on_hold", "approved", "declined"];
 
 // Item 9 — resolve the revenue account to stamp on each SO line: the customer's
 // default_revenue_account_id, else the entity default. Returns a uuid or null.
@@ -152,6 +155,33 @@ export default async function handler(req, res, params) {
       }
     }
 
+    // Non-factor credit gate — manual operator override/release. Accepting
+    // credit_approval_status on PATCH lets an operator approve (release a hold),
+    // decline, or reset the gate. When approving, we stamp the source as
+    // 'manual' and record who did it; an explicit credit_approval_source in the
+    // body wins (e.g. the record-payment endpoint sets 'payment'). This is the
+    // sole UI-writable path for the gate — the confirm/ship logic below sets it
+    // automatically otherwise.
+    if ("credit_approval_status" in body) {
+      const cs = body.credit_approval_status;
+      if (cs == null || cs === "") {
+        patch.credit_approval_status = "not_required";
+      } else if (!CREDIT_STATUSES.includes(cs)) {
+        return res.status(400).json({ error: `credit_approval_status must be one of ${CREDIT_STATUSES.join(", ")}` });
+      } else {
+        patch.credit_approval_status = cs;
+        if (cs === "approved") {
+          patch.credit_approval_source = body.credit_approval_source && ["manual", "auto", "payment"].includes(body.credit_approval_source)
+            ? body.credit_approval_source : "manual";
+          patch.credit_approved_by_user_id =
+            (body.credit_approved_by_user_id && UUID_RE.test(String(body.credit_approved_by_user_id)))
+              ? body.credit_approved_by_user_id : null;
+          patch.credit_hold_reason = null; // releasing the hold clears the reason
+        }
+      }
+      patch.credit_checked_at = new Date().toISOString();
+    }
+
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
 
@@ -178,6 +208,33 @@ export default async function handler(req, res, params) {
                 error: "Factored customer — factor approval required before shipping. Set Factor/Ins Approval = approved on the sales order first.",
               });
             }
+          } else {
+            // NON-factored: enforce the credit ship-gate (house-account overdue
+            // AR / credit-card paid-in-full). An operator override sets
+            // credit_approval_status='approved' which always releases the gate.
+            // The effective status is the PATCH value when supplied, else the
+            // current row value.
+            const effCredit = ("credit_approval_status" in patch)
+              ? patch.credit_approval_status
+              : so.credit_approval_status;
+            if (effCredit !== "approved") {
+              try {
+                const decision = await evaluateSoCreditGate(admin, {
+                  customer_id: custId,
+                  entity_id: so.entity_id,
+                  payment_terms_id: ("payment_terms_id" in patch ? patch.payment_terms_id : so.payment_terms_id),
+                  total_cents: so.total_cents,
+                  amount_paid_cents: so.amount_paid_cents,
+                });
+                if (decision.blocked) {
+                  return res.status(409).json({ error: decision.reason, credit_gate: decision.gate });
+                }
+              } catch (e) {
+                // High-stakes: if the overdue-AR lookup fails we DO NOT silently
+                // allow the ship — surface the error so the operator/ops notices.
+                return res.status(500).json({ error: `Credit gate check failed: ${e instanceof Error ? e.message : String(e)}` });
+              }
+            }
           }
         }
       }
@@ -187,6 +244,34 @@ export default async function handler(req, res, params) {
       if (body.status === "confirmed" && !so.so_number) {
         const year = (so.order_date || new Date().toISOString().slice(0, 10)).slice(0, 4);
         patch.so_number = await nextSoNumber(admin, so.entity_id, year);
+      }
+
+      // On confirm — capture-but-hold: evaluate the non-factor credit gate and
+      // stamp credit_approval_status (on_hold for house-account overdue AR,
+      // pending for an unpaid credit-card order). The SO still saves either way.
+      // An operator override already in this PATCH ('approved'/'declined') is
+      // respected — we never downgrade an explicit operator decision. Factored
+      // customers are skipped (the factor gate owns them).
+      if (body.status === "confirmed" && !("credit_approval_status" in patch)) {
+        const effCredit = so.credit_approval_status;
+        if (effCredit !== "approved" && effCredit !== "declined") {
+          try {
+            const decision = await evaluateSoCreditGate(admin, {
+              customer_id: ("customer_id" in patch ? patch.customer_id : so.customer_id),
+              entity_id: so.entity_id,
+              payment_terms_id: ("payment_terms_id" in patch ? patch.payment_terms_id : so.payment_terms_id),
+              // Use the post-line-replace total when this PATCH also rewrites lines.
+              total_cents: ("total_cents" in patch ? patch.total_cents : so.total_cents),
+              amount_paid_cents: so.amount_paid_cents,
+            });
+            patch.credit_approval_status = decision.target_status;
+            patch.credit_hold_reason = decision.reason;
+            patch.credit_checked_at = new Date().toISOString();
+          } catch {
+            // Non-blocking at confirm — the hard block lives at the ship/
+            // fulfilling transition (which re-evaluates and surfaces errors).
+          }
+        }
       }
     }
 

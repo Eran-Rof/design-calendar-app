@@ -257,6 +257,7 @@ export default [
   ["/api/internal/sales-orders/:id/allocate"                 , "./internal/sales-orders/allocate.js"],
   ["/api/internal/sales-orders/:id/ship"                     , "./internal/sales-orders/ship.js"],
   ["/api/internal/sales-orders/:id/wave"                     , "./internal/sales-orders/wave.js"],
+  ["/api/internal/sales-orders/:id/record-payment"           , "./internal/sales-orders/[id]/record-payment.js"],
   ["/api/internal/sales-orders/parse-customer-po"            , "./internal/sales-orders/parse-customer-po.js"],
   ["/api/internal/sales-orders/:id"                          , "./internal/sales-orders/[id].js"],
   ["/api/internal/sales-orders"                              , "./internal/sales-orders/index.js"],
