@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-18 (SO customer-PO upload — interactive confirm-choices step + duplicate-PO guard; user-guide ch27)
+**Last updated:** 2026-06-22 (SO customer-PO upload — AI semantic customer matching + deterministic confirm→apply; user-guide ch27)
 
 ## Summary
 
@@ -20,6 +20,9 @@
 
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
+> **Recent cross-cutting landings (2026-06-22)** — not tied to a single phase row:
+> - **SO customer-PO upload — AI customer matching + deterministic apply** — the confirm-choices customer pick now defaults to an **AI semantic match** (`POST /api/internal/sales-orders/match-customer`, Claude Haiku): given the parsed PO customer name it picks the best account in the master by meaning (e.g. "Ross Stores, Inc." → "Ross Procurement"), not by incidental word overlap, with a one-line reason; the operator still confirms/overrides. Also hardened the confirm→apply path: the resolved style list + fetched matrices computed for the questions are reused verbatim by `applyParsed` (no re-resolve against state, no cache clear, `setCustomerId` not `pickCustomer`), fixing a case where the prefilled qtys/price could come back empty after confirming. User-guide ch27.
+>
 > **Recent cross-cutting landings (2026-06-18)** — not tied to a single phase row:
 > - **SO customer-PO upload — confirm-choices + duplicate guard** — the 🤖 Upload customer PO flow now (1) **asks instead of guessing**: when the parsed customer didn't match exactly, or a PO colour didn't map cleanly onto a style's actual colour row, a **Confirm choices** step lets the operator pick (alongside the existing base/PPK pick) *before* the order is filled — resolved picks no longer show up as "verify"/"pick manually" lines in the after-the-fact banner. (2) **Duplicate guard**: before prefilling, the PO # is checked against existing non-cancelled SOs (`GET /api/internal/sales-orders?customer_po=` exact, case-insensitive); a hit blocks the prefill with an "already exists" warning + **Open existing SO** / **Cancel** — no duplicate SO is created. Helper gains `customerCandidates` / `matchCustomerExact` / `computeColorQuestions` / `colorPickKey` + a `colorPicks` override on `buildSeedFromResolved` (+unit tests). User-guide ch27.
 > - **Color Master NRF code (AI-matched)** — `color_master` gains `nrf_code` + `nrf_name` (NRF standard 3-digit colour-family code, mig `20260895000000`, applied prod). New `POST /api/internal/colors/nrf-suggest` (Claude Haiku): single mode `{name, hex?}` → suggested `{nrf_code, nrf_name, confidence}` (no write); bulk mode `{bulk:true}` matches+writes every colour missing a code in batches (UI loops to completion). Color Master gets an **NRF** grid column, a header **🎨 Auto-match NRF (AI)** bulk button, and a **🤖 Suggest** button on the add/edit modal's new NRF field (re-runnable whenever the name/swatch changes). User-guide ch02.
