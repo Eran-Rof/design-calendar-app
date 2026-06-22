@@ -393,7 +393,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [poStep, setPoStep] = useState<"upload" | "ambig" | "confirm" | "dup">("upload");
   // "Confirm choices" step state — a customer pick (when the parsed name didn't
   // match exactly) and a colour-row pick per fuzzy-mapped line.
-  const [poCustQ, setPoCustQ] = useState<{ parsedName: string; pick: string } | null>(null);
+  const [poCustQ, setPoCustQ] = useState<{ parsedName: string; pick: string; reasoning?: string | null } | null>(null);
   const [poColorQs, setPoColorQs] = useState<(ColorQuestion & { pick: string })[]>([]);
   // Duplicate-PO guard: a non-cancelled SO already carries this customer PO #.
   const [poDup, setPoDup] = useState<{ po: string; existing: { id: string; so_number: string | null; status: string; customer_id: string }[] } | null>(null);
@@ -562,6 +562,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // The operator's confirmed colour-row picks from the last apply, so post-prefill
   // actions (carton rounding) keep them and don't re-raise resolved warnings.
   const poColorPicksRef = useRef<Record<string, string>>({});
+  // The resolved {line, chosen-style} list + unmatched-style notes computed in
+  // prepareConfirm, handed verbatim to applyParsed when the operator clicks
+  // Continue — so the apply never re-resolves against (possibly stale) state and
+  // reuses the matrices already fetched for the colour questions.
+  const poResolvedRef = useRef<{ line: ParsedPoLine; chosen: StyleLite }[]>([]);
+  const poUnmatchedRef = useRef<string[]>([]);
   async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
@@ -630,8 +636,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // colour rows). If any need confirming, show the "confirm choices" step;
   // otherwise build the prefill straight away.
   async function prepareConfirm(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
-    // Resolve each line to its chosen style (apply the base/PPK picks).
+    // Resolve each line to its chosen style (apply the base/PPK picks). Done ONCE
+    // here; the resolved list (and the matrices fetched below) are reused by
+    // applyParsed so the apply never re-resolves against possibly-stale state.
     const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
+    const unmatchedStyles: string[] = [];
     for (const line of parsed.lines) {
       const res = resolveLine(line, styles);
       let chosen = res.chosen;
@@ -640,37 +649,59 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         chosen = pick === "ppk" ? res.ppk : res.base;
       }
       if (chosen) resolved.push({ line: res.line, chosen });
+      else unmatchedStyles.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
     }
     sizeCache.current.clear();
-    // Colour rows that didn't map cleanly → ask the operator to confirm.
+    poResolvedRef.current = resolved;
+    poUnmatchedRef.current = unmatchedStyles;
+    // Colour rows that didn't map cleanly → ask the operator to confirm. This
+    // also populates sizeCache with each style's matrix (reused by applyParsed).
     const colorQs = (await computeColorQuestions(resolved, fetchMatrix)).map((q) => ({ ...q, pick: q.suggested }));
-    // Customer that didn't match exactly → ask (default to the best candidate).
+    // Customer that didn't match exactly → ask. Default to the AI's pick (broad,
+    // semantic) when available, else the best string candidate.
     const exactCust = matchCustomerExact(parsed.customer_name, customers);
-    const custQ = (!exactCust && parsed.customer_name)
-      ? { parsedName: parsed.customer_name, pick: customerCandidates(parsed.customer_name, customers)[0]?.id || "" }
-      : null;
+    let custQ: { parsedName: string; pick: string; reasoning?: string | null } | null = null;
+    if (!exactCust && parsed.customer_name) {
+      const ai = await aiMatchCustomer(parsed.customer_name);
+      const fallback = customerCandidates(parsed.customer_name, customers)[0]?.id || "";
+      custQ = { parsedName: parsed.customer_name, pick: ai.customer_id || fallback, reasoning: ai.reasoning };
+    }
     if (colorQs.length || custQ) {
       setPoColorQs(colorQs); setPoCustQ(custQ); setPoStep("confirm");
       return;
     }
-    await applyParsed(parsed, styles, picks, {}, undefined);
+    await applyParsed(parsed, resolved, unmatchedStyles, {}, undefined);
   }
-  // Build the prefill + header from a parsed PO. `picks` maps an ambiguous line's
-  // style_code (lower) → the chosen variant. `colorPicks` carries operator-
-  // confirmed colour rows (colorPickKey → colour). `customerPick` is the
-  // confirmed customer id from the choices step ("" = leave to pick manually);
-  // `undefined` means no question was asked → fall back to the fuzzy match.
+  // Ask the server's AI matcher to map a parsed customer name onto a customer in
+  // the master (semantic — e.g. "Ross Stores, Inc." → "Ross Procurement"). Falls
+  // back to {customer_id:null} when the AI is unavailable.
+  async function aiMatchCustomer(name: string): Promise<{ customer_id: string | null; reasoning: string | null }> {
+    try {
+      const r = await fetch("/api/internal/sales-orders/match-customer", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) return { customer_id: null, reasoning: null };
+      const j = await r.json();
+      const id = j.customer_id && customers.some((c) => c.id === j.customer_id) ? j.customer_id : null;
+      return { customer_id: id, reasoning: j.reasoning ?? null };
+    } catch { return { customer_id: null, reasoning: null }; }
+  }
+  // Build the prefill + header from a parsed PO using the resolved list computed
+  // in prepareConfirm. `colorPicks` carries operator-confirmed colour rows
+  // (colorPickKey → colour). `customerPick` is the confirmed customer id from the
+  // choices step ("" = leave to pick manually); `undefined` means no customer
+  // question was asked → fall back to the exact/fuzzy match.
   async function applyParsed(
-    parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">,
+    parsed: ParsedPo, resolved: { line: ParsedPoLine; chosen: StyleLite }[], unmatchedStyles: string[],
     colorPicks: Record<string, string> = {}, customerPick?: string,
   ) {
     const summary: string[] = [];
-    const unmatched: string[] = [];
+    const unmatched: string[] = [...unmatchedStyles];
 
     // Header
     if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); summary.push(`PO # ${parsed.customer_po_number}`); }
     const custId = customerPick !== undefined ? (customerPick || null) : matchCustomer(parsed.customer_name, customers);
-    if (custId) { pickCustomer(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
+    if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
     const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
     if (ptId) { setPaymentTermsId(ptId); summary.push(`Terms: ${paymentTerms.find((t) => t.id === ptId)?.name}`); }
@@ -681,21 +712,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     // and flag the field so the operator confirms (or switches to Production).
     setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
 
-    // Resolve each line to a chosen style (apply disambiguation picks).
-    const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
-    for (const line of parsed.lines) {
-      const res = resolveLine(line, styles);
-      let chosen = res.chosen;
-      if (res.ambiguous) {
-        const pick = picks[(line.style_code || "").toLowerCase()] || "base";
-        chosen = pick === "ppk" ? res.ppk : res.base;
-      }
-      // res.line carries any style/color split out of a combined "STYLE-COLOR" code.
-      if (chosen) resolved.push({ line: res.line, chosen });
-      else unmatched.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
-    }
-
-    sizeCache.current.clear();
+    // Reuse the matrices fetched in prepareConfirm (sizeCache is NOT cleared here)
+    // so the seed builds from the exact data the colour questions were based on.
     poColorPicksRef.current = colorPicks;
     const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix, colorPicks);
     if (sections.length) {
@@ -1425,6 +1443,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                     <SearchableSelect value={poCustQ.pick || null} onChange={(v) => setPoCustQ((q) => q ? { ...q, pick: v || "" } : q)}
                       options={[{ value: "", label: "— pick manually later —" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
                       placeholder="Search customer…" inputStyle={inputStyle} />
+                    {poCustQ.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>🤖 {poCustQ.reasoning}</div>}
                   </div>
                 )}
                 {poColorQs.map((q, i) => (
@@ -1448,9 +1467,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   <button onClick={() => { setPoStep(poAmbig.length ? "ambig" : "upload"); }} style={btnSecondary} disabled={poParsing}>Back</button>
                   <button disabled={poParsing} style={btnPrimary} onClick={() => {
                     if (!poParsed) return;
-                    const picks = Object.fromEntries(poAmbig.map((a) => [(a.res.line.style_code || "").toLowerCase(), a.pick]));
                     const colorPicks = Object.fromEntries(poColorQs.map((q) => [colorPickKey(q.styleCode, q.lineColor), q.pick]));
-                    void applyParsed(poParsed, allStyles, picks, colorPicks, poCustQ ? poCustQ.pick : undefined);
+                    void applyParsed(poParsed, poResolvedRef.current, poUnmatchedRef.current, colorPicks, poCustQ ? poCustQ.pick : undefined);
                   }}>Continue</button>
                 </div>
               </>
