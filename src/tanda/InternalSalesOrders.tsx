@@ -70,10 +70,14 @@ type SO = {
   buyer_id?: string | null; buyer_name?: string | null;
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
   customer_po?: string | null;
+  is_bulk_order?: boolean | null;
   fulfillment_source?: string | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
 };
+// Scenario 4.2 — bulk↔distro match shapes (mirror /sales-orders/bulk-match).
+type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
+type BulkMatchRow = { id: string; so_number: string | null; customer_po: string | null; status: string; matched_units: number; bulk_units: number; distro_units: number; match_pct: number; bulk_coverage_pct: number; breakdown: BulkBreakdownRow[] };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
@@ -268,6 +272,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [notes, setNotes] = useState(so?.notes || "");
   // Customer's PO number (their reference). Required before styles can be added.
   const [customerPo, setCustomerPo] = useState(so?.customer_po || "");
+  // Scenario 4.2 — mark this SO as a bulk order; and the bulk-match result shown
+  // after a distro is saved (matches an open bulk → offer to cancel the bulk).
+  const [isBulkOrder, setIsBulkOrder] = useState(so?.is_bulk_order ?? false);
+  const [bulkMatches, setBulkMatches] = useState<BulkMatchRow[] | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDetail, setBulkDetail] = useState<BulkMatchRow | null>(null);
   // 🤖 AI customer-PO upload (new SO only). Dialog + parse + base/PPK disambig
   // + the post-prefill "double-check" review.
   const [poUploadOpen, setPoUploadOpen] = useState(false);
@@ -594,6 +604,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
         payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
         customer_po: customerPo.trim() || null,
+        is_bulk_order: isBulkOrder,
         fulfillment_source: fulfillmentSource || null,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
@@ -624,9 +635,59 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         if (cj?.production_notice?.skipped) notify(cj.production_notice.reason || "Production order: no Production recipient configured.", "info");
         else if (cj?.production_notice?.sent) notify(`Production Manager notified (${cj.production_notice.sent} recipient${cj.production_notice.sent === 1 ? "" : "s"}).`, "success");
       }
+      // Scenario 4.2 — a saved distro (non-bulk SO with a customer PO) is matched
+      // against open bulk orders for the same customer. If any overlap, show the
+      // match modal (which calls onSaved on close) instead of closing now.
+      if (soId && !isBulkOrder && customerPo.trim()) {
+        try {
+          const mr = await fetch("/api/internal/sales-orders/bulk-match", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sales_order_id: soId }) });
+          const mj = await mr.json().catch(() => ({}));
+          if (mr.ok && Array.isArray(mj.matches) && mj.matches.length > 0) {
+            setBulkMatches(mj.matches);
+            setSubmitting(false);
+            return; // keep the modal open; bulk modal handles the refresh on close
+          }
+        } catch { /* non-blocking */ }
+      }
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setSubmitting(false); }
+  }
+
+  // Scenario 4.2 — cancel a bulk order superseded by distros (normal status PATCH).
+  async function cancelBulk(bulkId: string) {
+    setBulkBusy(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${bulkId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setBulkMatches((p) => (p || []).filter((m) => m.id !== bulkId));
+      notify("Bulk order cancelled.", "success");
+    } catch (e) { notify(`Could not cancel the bulk order: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setBulkBusy(false); }
+  }
+  // Close the bulk-match modal and refresh the list (the distro was already saved).
+  function closeBulkMatch() { setBulkMatches(null); setBulkDetail(null); onSaved(); }
+  // Scenario 4.2 — view details: download the bulk↔distro breakdown as CSV
+  // (opens in Excel) or print it.
+  function bulkRows(m: BulkMatchRow) {
+    return [["Style", "Color", "Bulk qty", "Distro qty", "Matched"],
+      ...m.breakdown.map((r) => [r.style_code, r.color ?? "", String(r.bulk_qty), String(r.distro_qty), String(r.matched)])];
+  }
+  function downloadBulkCsv(m: BulkMatchRow) {
+    const csv = bulkRows(m).map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `bulk-match-${m.so_number || m.customer_po || m.id.slice(0, 8)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
+  function printBulkDetail(m: BulkMatchRow) {
+    const w = window.open("", "_blank", "width=800,height=600");
+    if (!w) return;
+    const rows = bulkRows(m);
+    const head = rows[0].map((h) => `<th style="text-align:left;border-bottom:2px solid #333;padding:6px 10px">${h}</th>`).join("");
+    const body = rows.slice(1).map((r) => `<tr>${r.map((c) => `<td style="border-bottom:1px solid #ccc;padding:6px 10px">${c}</td>`).join("")}</tr>`).join("");
+    w.document.write(`<html><head><title>Bulk match ${m.so_number || m.customer_po || ""}</title></head><body style="font-family:system-ui,Arial,sans-serif"><h3>Bulk ${m.so_number || ""} ${m.customer_po ? `(PO ${m.customer_po})` : ""} — ${m.match_pct}% of distro / ${m.bulk_coverage_pct}% of bulk</h3><table style="border-collapse:collapse;font-size:13px">${head}${body}</table></body></html>`);
+    w.document.close(); w.focus(); w.print();
   }
 
   // M10-C — generate a draft AR invoice from this SO's open lines.
@@ -854,6 +915,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             {editable && !customerPo.trim() && (
               <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required — enter the customer PO before adding styles.</div>
             )}
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: C.textSub, cursor: editable ? "pointer" : "default" }} title="A bulk order is split later into multiple distro customer POs. Incoming distros are matched against it (Scenario 4.2).">
+              <input type="checkbox" checked={isBulkOrder} disabled={!editable} onChange={(e) => setIsBulkOrder(e.target.checked)} />
+              📦 Bulk order (split later across distro customer POs)
+            </label>
           </Field>
           {isNew && editable && (
             <Field label="Or auto-fill from the customer's PO">
@@ -1141,6 +1206,75 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button onClick={() => setShipOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
               <button onClick={() => void shipOrder()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Confirm shipment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scenario 4.2 — this distro matches one or more open bulk orders. */}
+      {bulkMatches && bulkMatches.length > 0 && !bulkDetail && (
+        <div onClick={() => closeBulkMatch()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 140 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: "1px solid #3B82F6", borderRadius: 10, padding: 22, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>📦 Distro matches a bulk order</div>
+            <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5, marginBottom: 14 }}>
+              This customer PO overlaps {bulkMatches.length} open bulk order{bulkMatches.length === 1 ? "" : "s"} for the same customer (by style/color). Cancel a bulk PO once its distros cover it.
+            </div>
+            {bulkMatches.map((m) => (
+              <div key={m.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 13 }}>
+                    <b>{m.so_number || "(draft)"}</b>{m.customer_po ? <span style={{ color: C.textMuted }}> · PO {m.customer_po}</span> : null}
+                    <span style={{ color: C.textMuted }}> · {m.status}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3B82F6" }}>{m.match_pct}% match</div>
+                </div>
+                <div style={{ fontSize: 11, color: C.textMuted, margin: "4px 0 8px" }}>
+                  {m.matched_units.toLocaleString()} units matched · {m.bulk_coverage_pct}% of the bulk covered by this distro
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button onClick={() => setBulkDetail(m)} style={{ ...btnSecondary, fontSize: 12, padding: "4px 10px" }}>View details</button>
+                  <button onClick={() => void cancelBulk(m.id)} disabled={bulkBusy} style={{ ...btnSecondary, fontSize: 12, padding: "4px 10px", color: C.danger, borderColor: "#7f1d1d" }}>{bulkBusy ? "…" : "Cancel bulk PO"}</button>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <button onClick={() => closeBulkMatch()} style={btnSecondary} disabled={bulkBusy}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scenario 4.2 — bulk↔distro breakdown (view / download / print). */}
+      {bulkDetail && (
+        <div onClick={() => setBulkDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 141 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 16 }}>Bulk {bulkDetail.so_number || ""} {bulkDetail.customer_po ? `· PO ${bulkDetail.customer_po}` : ""}</h3>
+              <span style={{ fontSize: 12, color: C.textMuted }}>{bulkDetail.match_pct}% of distro · {bulkDetail.bulk_coverage_pct}% of bulk</span>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 14 }}>
+              <thead><tr style={{ color: C.textMuted, textAlign: "left" }}>
+                <th style={{ padding: "4px 8px" }}>Style</th><th style={{ padding: "4px 8px" }}>Color</th>
+                <th style={{ padding: "4px 8px", textAlign: "right" }}>Bulk</th><th style={{ padding: "4px 8px", textAlign: "right" }}>Distro</th><th style={{ padding: "4px 8px", textAlign: "right" }}>Matched</th>
+              </tr></thead>
+              <tbody>
+                {bulkDetail.breakdown.map((r, i) => (
+                  <tr key={`${r.style_code}-${r.color}-${i}`} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                    <td style={{ padding: "4px 8px" }}>{r.style_code}</td>
+                    <td style={{ padding: "4px 8px" }}>{r.color || "—"}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{r.bulk_qty}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace" }}>{r.distro_qty}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: r.matched > 0 ? "#10B981" : C.textMuted }}>{r.matched}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => setBulkDetail(null)} style={btnSecondary}>← Back</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => downloadBulkCsv(bulkDetail)} style={btnSecondary}>⬇ Excel (CSV)</button>
+                <button onClick={() => printBulkDetail(bulkDetail)} style={btnSecondary}>🖨 Print</button>
+              </div>
             </div>
           </div>
         </div>

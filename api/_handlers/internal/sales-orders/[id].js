@@ -128,6 +128,7 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
     if ("customer_po" in body) patch.customer_po = body.customer_po ? String(body.customer_po).trim() : null;
+    if ("is_bulk_order" in body) patch.is_bulk_order = body.is_bulk_order === true;
     if ("fulfillment_source" in body) patch.fulfillment_source = ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null;
 
     // Item 3 — factor / credit-insurance approval (manual).

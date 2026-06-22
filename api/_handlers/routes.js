@@ -424,6 +424,7 @@ import r_internal_sales_by_customer_index from "./internal/sales-by-customer/ind
 import r_internal_sales_by_rep_index from "./internal/sales-by-rep/index.js";
 import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
+import r_internal_sales_orders_bulk_match from "./internal/sales-orders/bulk-match.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
 import r_internal_sales_orders_parse_customer_po from "./internal/sales-orders/parse-customer-po.js";
@@ -884,6 +885,7 @@ export const ROUTES = [
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: r_internal_planning_buy_plan_to_po },
   { pattern: "/api/internal/prepack-matrices/needed", handler: r_internal_prepack_matrices_needed },
   { pattern: "/api/internal/procurement/recon-inbox", handler: r_internal_procurement_recon_inbox_index },
+  { pattern: "/api/internal/sales-orders/bulk-match", handler: r_internal_sales_orders_bulk_match },
   { pattern: "/api/internal/style-master/dim-values", handler: r_internal_style_master_dim_values },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
   { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
