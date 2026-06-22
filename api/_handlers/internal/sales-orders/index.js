@@ -237,10 +237,35 @@ export default async function handler(req, res) {
     const status = (url.searchParams.get("status") || "").trim();
     const customerId = (url.searchParams.get("customer_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
+    const customerPo = (url.searchParams.get("customer_po") || "").trim();
     // Optional style scope for the per-SO cost/sell/margin aggregates. Accepts
     // either an explicit `style` param or `style_id` (resolved to a style_code);
     // when absent, the aggregates cover the whole SO.
     let styleFilter = (url.searchParams.get("style") || "").trim();
+
+    // Duplicate-PO guard for the AI upload flow: return any non-cancelled SO that
+    // already carries this exact customer PO # (case-insensitive), so the SO modal
+    // can warn before creating a duplicate. Entity-scoped (a duplicate PO is a
+    // duplicate regardless of the active brand/channel). Takes precedence over the
+    // generic q/list path.
+    if (customerPo) {
+      // ilike for a loose, index-friendly fetch (and so case/whitespace differ),
+      // then filter to an EXACT case-insensitive match in JS — ilike treats _ and
+      // % as wildcards, so a PO like "PO_123" must not match "POX123".
+      const esc = customerPo.replace(/[%_,()]/g, " ");
+      const { data: dups, error: dupErr } = await admin
+        .from("sales_orders")
+        .select(SELECT_COLS)
+        .eq("entity_id", entity.id)
+        .neq("status", "cancelled")
+        .ilike("customer_po", `%${esc}%`)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (dupErr) return res.status(500).json({ error: dupErr.message });
+      const want = customerPo.toLowerCase().trim();
+      const exact = (dups || []).filter((s) => String(s.customer_po || "").toLowerCase().trim() === want);
+      return res.status(200).json(exact);
+    }
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
