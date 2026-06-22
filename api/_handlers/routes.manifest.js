@@ -257,6 +257,7 @@ export default [
   ["/api/internal/sales-orders/parse-customer-po"            , "./internal/sales-orders/parse-customer-po.js"],
   ["/api/internal/sales-orders/:id"                          , "./internal/sales-orders/[id].js"],
   ["/api/internal/sales-orders"                              , "./internal/sales-orders/index.js"],
+  ["/api/internal/purchase-orders/:id/split-by-lot"          , "./internal/purchase-orders/split-by-lot.js"],
   ["/api/internal/purchase-orders/:id"                       , "./internal/purchase-orders/[id].js"],
   ["/api/internal/purchase-orders"                           , "./internal/purchase-orders/index.js"],
   ["/api/internal/allocations/rules"                         , "./internal/allocations/rules.js"],

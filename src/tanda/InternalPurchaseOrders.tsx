@@ -228,6 +228,12 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
   const [seedKey, setSeedKey] = useState(0); // bump to remount + re-seed the matrix body
   const [salesOrderId, setSalesOrderId] = useState(""); // originating SO (Create from SO)
+  // Scenario 4 — split this PO's lines across multiple customer POs (lots),
+  // evenly on a full-carton basis. Each entered customer PO becomes a lot.
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitLots, setSplitLots] = useState<string[]>([]);
+  const [splitInput, setSplitInput] = useState("");
+  const [splitBusy, setSplitBusy] = useState(false);
   // Create-from-SO dialog.
   const [soPickOpen, setSoPickOpen] = useState(false);
   const [soQuery, setSoQuery] = useState("");
@@ -293,6 +299,26 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     fetch("/api/internal/countries").then((r) => r.ok ? r.json() : []).then((a) => setCountries(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
 
+  // Build the matrix seed (per-style sections + flat lines) from decorated PO
+  // lines. Shared by the initial load and the post-split reload.
+  function poSeedFromLines(lines: unknown[]): { sections: SeedSection[]; flat: FlatLine[] } {
+    type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
+    const byStyle = new Map<string, SeedSection>();
+    const flat: FlatLine[] = [];
+    let fk = 1;
+    for (const l of (lines as DLine[])) {
+      const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
+      if (l.style_code && l.size) {
+        let sec = byStyle.get(l.style_code);
+        if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
+        sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, unit: dollars, lot: l.lot_number ?? null });
+      } else {
+        flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
+      }
+    }
+    return { sections: [...byStyle.values()], flat };
+  }
+
   // Load existing PO lines when editing → seed the matrix body. If the detail
   // endpoint decorates lines with style_code/color/size they regroup into
   // per-style matrices; otherwise they seed as flat lines (still editable).
@@ -311,22 +337,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
       setSalesOrderId(full.sales_order_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
-      if (!full?.lines) return;
-      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
-      const byStyle = new Map<string, SeedSection>();
-      const flat: FlatLine[] = [];
-      let fk = 1;
-      for (const l of (full.lines as DLine[])) {
-        const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
-        if (l.style_code && l.size) {
-          let sec = byStyle.get(l.style_code);
-          if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, unit: dollars, lot: l.lot_number ?? null });
-        } else {
-          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
-        }
-      }
-      setSeed({ sections: [...byStyle.values()], flat });
+      if (full?.lines) setSeed(poSeedFromLines(full.lines));
     }).catch(() => {});
   }, [isNew, po]);
 
@@ -399,6 +410,29 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     } finally {
       setSoBusy(false);
     }
+  }
+
+  // ── Split this PO across customer POs (lots) — Scenario 4 ───────────────────
+  // Each line is divided evenly across the entered customer POs on a full-carton
+  // basis; every split carries its customer PO as the lot. Persisted server-side,
+  // then the matrix is reloaded to show the per-lot lines.
+  async function applySplitByLot() {
+    if (!po) return;
+    const lots = [...new Set(splitLots.map((s) => s.trim()).filter(Boolean))];
+    if (lots.length < 2) { notify("Add at least two customer PO numbers to split across.", "error"); return; }
+    setSplitBusy(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}/split-by-lot`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lots }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const full = await fetch(`/api/internal/purchase-orders/${po.id}`).then((rr) => rr.ok ? rr.json() : null).catch(() => null);
+      if (full?.lines) { setSeed(poSeedFromLines(full.lines)); setSeedKey((k) => k + 1); }
+      setSplitOpen(false); setSplitLots([]); setSplitInput("");
+      notify(j.message || "PO lines split by customer PO.", "success");
+    } catch (e) { notify(`Split failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSplitBusy(false); }
   }
 
   // ── Get PO price (awarded RFQ) ──────────────────────────────────────────────
@@ -743,6 +777,14 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           </div>
         )}
 
+        {/* Scenario 4 — split an existing (pre-receiving) PO across customer POs. */}
+        {!isNew && po && !["received", "cancelled"].includes(po.status) && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <button type="button" onClick={() => { setSplitLots([]); setSplitInput(""); setSplitOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>🪓 Split by customer PO</button>
+            <span style={{ fontSize: 11, color: C.textMuted }}>Divide each line evenly (full cartons) across multiple customer POs — each becomes its own lot.</span>
+          </div>
+        )}
+
         {/* Line body — the shared size matrix, exactly like the Sales Order modal
             (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
         <div style={{ marginTop: 12, marginBottom: 12 }}>
@@ -817,6 +859,37 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
               <button onClick={() => setSoPickOpen(false)} style={btnSecondary} disabled={soBusy}>{soBusy ? "Loading…" : "Cancel"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scenario 4 — split this PO across customer POs (lots). */}
+      {splitOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!splitBusy) setSplitOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>🪓 Split by customer PO</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+              Enter the customer PO numbers this PO covers. Each line is divided evenly across them on a full-carton basis, and every split carries its customer PO as the lot. Replaces the PO's current lines.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <input type="text" value={splitInput} onChange={(e) => setSplitInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = splitInput.trim(); if (v && !splitLots.includes(v)) setSplitLots((p) => [...p, v]); setSplitInput(""); } }}
+                placeholder="customer PO number — Enter to add" style={{ ...inputStyle, flex: 1 }} />
+              <button type="button" onClick={() => { const v = splitInput.trim(); if (v && !splitLots.includes(v)) setSplitLots((p) => [...p, v]); setSplitInput(""); }} style={btnSecondary}>Add</button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, minHeight: 28 }}>
+              {splitLots.length === 0 && <span style={{ fontSize: 12, color: C.textMuted }}>No customer POs added yet (need at least two).</span>}
+              {splitLots.map((lot) => (
+                <span key={lot} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 10px", fontSize: 12 }}>
+                  🏷 {lot}
+                  <button type="button" onClick={() => setSplitLots((p) => p.filter((x) => x !== lot))} style={{ background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 13, lineHeight: 1 }} title="Remove">✕</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setSplitOpen(false)} style={btnSecondary} disabled={splitBusy}>Cancel</button>
+              <button onClick={() => void applySplitByLot()} style={btnPrimary} disabled={splitBusy || splitLots.length < 2}>{splitBusy ? "Splitting…" : `Split across ${splitLots.length || 0} lot(s)`}</button>
             </div>
           </div>
         </div>
