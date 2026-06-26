@@ -161,6 +161,17 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 
 **Finding a PO (list search).** The **Search PO #, vendor, style…** box is **all-field**: the server matches the typed text against the **PO number**, the **vendor name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring), alongside the **Vendor** and **Status** filters (all ANDed), updating as you type (200 ms debounce). The whole search runs in the `search_purchase_orders` SQL function, so it spans the entire book — not just the loaded rows — including the line-level style/SKU match.
 
+**Date-range filter (list).** Next to the search box is a **date field selector** — **PO date** (order date) or **Expected date** — followed by a **Presets…** dropdown (This month, Last month, This quarter, YTD, etc.), and **From / To** date pickers. Rows are filtered **client-side** so the row whose chosen date falls inside `[from, to]` stays; a row with no value on the selected field is hidden while a bound is set. A **Clear dates** button removes the window. The filter applies to the visible grid and the **Export** (the export reflects exactly what's shown).
+
+**List columns.** The grid carries the universal **⚙ column show/hide** control. Beyond PO #, Vendor, Order date, Expected and Status, it has three money columns (all 2-decimal, right-aligned):
+- **Total** — the PO subtotal/total.
+- **Avg cost** — the **qty-weighted average unit cost** across the PO's lines (`Σ unit_cost × qty ÷ Σ qty`). Computed by the list endpoint.
+- **Sell price** — the **qty-weighted average selling price** across the PO's lines. Sell is resolved per style by the **M43 pricing engine**: when the PO is tied to a customer (its `sales_order_id` → `sales_orders.customer_id`) the **customer's price** is used (own → assigned → tier → default list); any style the customer path doesn't price — and **every** line when the PO has no customer — falls back to that style's **brand DEFAULT price list** (`price_lists.brand_id` = the style's brand). A `—` means no price could be resolved for that PO's styles.
+
+**Style-scoped Avg cost / Sell price.** A deep-link of `?style=<style_code>` (e.g. from a style/inventory drill) **scopes both money columns to just that style's lines** across every listed PO, instead of the whole-PO average; a small note above the grid shows the active style. Without it, the columns are the whole-PO averages.
+
+**Frozen header.** The grid's header row is **pinned** (sticky) — it stays visible while the rows scroll inside the table's own scroll area.
+
 ### Receiving → GL → AP 3-way match (P13)
 
 Receiving a native PO posts real accounting through the **Receiving** panel (`m=receiving`, `src/tanda/InternalReceiving.tsx`) and the procurement posting service — **not** a status flip:
@@ -181,7 +192,7 @@ The `GR/IR Clearing (2050)` account already exists (migration `20260717120000`);
 
 | Method | Path | Behavior |
 |---|---|---|
-| `GET` | `/api/internal/purchase-orders` | List headers. Filters `status`, `vendor_id`, `q` (po_number ilike), `limit` (≤500, default 200). Brand-scoped. |
+| `GET` | `/api/internal/purchase-orders` | List headers, each enriched with **`avg_cost_cents`** (qty-weighted avg unit cost) + **`sell_cents`** (qty-weighted resolved sell — customer price list when tied to a customer, else the style's brand-default list). Filters `status`, `vendor_id`, `q` (all-field RPC), optional **`style`** (scopes the two money aggregates to that `style_code`), `limit` (≤500, default 200). Brand-scoped. |
 | `POST` | `/api/internal/purchase-orders` | Create a **draft** (lines with `qty_ordered > 0`; zero/empty lines skipped). |
 | `GET` | `/api/internal/purchase-orders/:id` | Header + lines. |
 | `PATCH` | `/api/internal/purchase-orders/:id` | Update mutable header fields, replace lines (**drafts**, or any status with **`revise:true`**), and/or change `status`. Issuing assigns `po_number`. A `revise:true` save on a non-draft notifies the vendor's portal users (`notifyVendor`, bell + email) and returns `vendor_notified` (count). |

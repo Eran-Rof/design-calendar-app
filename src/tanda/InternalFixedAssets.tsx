@@ -10,7 +10,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 
 const C = { bg: "#0F172A", card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1", primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444", violet: "#8B5CF6" };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 const btnP: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -73,6 +73,7 @@ export default function InternalFixedAssets() {
         </div>
       )}
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Code</th><th style={th}>Name</th><th style={th}>Acquired</th><th style={{ ...th, textAlign: "right" }}>Cost</th><th style={{ ...th, textAlign: "right" }}>Monthly</th><th style={{ ...th, textAlign: "right" }}>Accum</th><th style={{ ...th, textAlign: "right" }}>NBV</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
           <tbody>
@@ -97,6 +98,7 @@ export default function InternalFixedAssets() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 8 }}>“Depreciate→today” records the straight-line schedule through the current month. GL posting (DR Depreciation Expense / CR Accumulated Depreciation) is deferred.</div>
     </div>

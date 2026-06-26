@@ -80,6 +80,7 @@ const KEYS = [
   "gs1/upc",
   "gs1/scale",
   "gs1/gtins",
+  "gs1/catalog",
   "gs1/upload",
   "gs1/pa-unpacker",
   "gs1/labels",
@@ -87,6 +88,7 @@ const KEYS = [
   "gs1/cartons",
   "gs1/receiving",
   "gs1/exceptions",
+  "gs1/edi-workflow",
   "gs1/notifications",
   // Tanda / Tangerine ERP
   "tanda/master/style",

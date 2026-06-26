@@ -59,13 +59,12 @@ type Customer = {
   country: string | null;
   channel_id: string | null;
   customer_type: string;
-  default_gl_ar_account_id: string | null;
-  default_gl_revenue_account_id: string | null;
   // P4-family sales-rep / default / GL-routing columns.
   sales_rep_1_id: string | null;
   sales_rep_1_commission_pct: number | string | null;
   sales_rep_2_id: string | null;
   sales_rep_2_commission_pct: number | string | null;
+  closeout_commission_pct: number | string | null;
   default_brand_id: string | null;
   default_channel_id: string | null;
   price_list_id: string | null;
@@ -168,6 +167,7 @@ const btnDanger: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
@@ -181,6 +181,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -361,7 +362,7 @@ export default function InternalCustomerMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -410,20 +411,27 @@ export default function InternalCustomerMaster() {
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
-                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
-                      title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
-                      aria-label={`Open scorecard for ${r.name}`}
-                    >
-                      📊 Scorecard
-                    </button>
-                    {!r.deleted_at && (
-                      <>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
-                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
-                      </>
-                    )}
+                    {/* Row actions as one segmented bar — buttons joined edge-to-edge,
+                        rounded only on the outer corners (overlap borders by 1px). */}
+                    <div style={{ display: "inline-flex", verticalAlign: "middle" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                        style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600,
+                          ...(r.deleted_at ? {} : { borderTopRightRadius: 0, borderBottomRightRadius: 0 }) }}
+                        title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
+                        aria-label={`Open scorecard for ${r.name}`}
+                      >
+                        📊 Scorecard
+                      </button>
+                      {!r.deleted_at && (
+                        <>
+                          <button onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                            style={{ ...btnSecondary, borderRadius: 0, marginLeft: -1 }}>Edit</button>
+                          <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }}
+                            style={{ ...btnDanger, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, marginLeft: -1 }}>Delete</button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </ScrollHighlightRow>
               ))}
@@ -468,11 +476,13 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   // Initial credit_limit display value (in dollars). Prefer the canonical
   // credit_limit_cents (P4-7) and fall back to the legacy numeric credit_limit
   // column for rows that haven't been re-saved since P4-7.
+  // Whole-dollar integer string (no decimals) — the field shows comma-formatted
+  // whole dollars per operator request; cents precision isn't used for limits.
   const initCreditLimitDollars =
     customer?.credit_limit_cents != null && customer.credit_limit_cents !== ""
-      ? String(Number(customer.credit_limit_cents) / 100)
+      ? String(Math.round(Number(customer.credit_limit_cents) / 100))
       : customer?.credit_limit != null
-        ? String(customer.credit_limit)
+        ? String(Math.round(Number(customer.credit_limit)))
         : "";
   const [form, setForm] = useState({
     name:                         customer?.name                         ?? "",
@@ -494,13 +504,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                                     ? customer.billing_address : {}) as Address,
     shipping_address:             (customer?.shipping_address && typeof customer.shipping_address === "object"
                                     ? customer.shipping_address : {}) as Address,
-    default_gl_ar_account_id:     customer?.default_gl_ar_account_id     ?? "",
-    default_gl_revenue_account_id: customer?.default_gl_revenue_account_id ?? "",
     // P4-family sales-rep / default / GL-routing fields.
     sales_rep_1_id:               customer?.sales_rep_1_id               ?? "",
     sales_rep_1_commission_pct:   customer?.sales_rep_1_commission_pct != null ? String(customer.sales_rep_1_commission_pct) : "",
     sales_rep_2_id:               customer?.sales_rep_2_id               ?? "",
     sales_rep_2_commission_pct:   customer?.sales_rep_2_commission_pct != null ? String(customer.sales_rep_2_commission_pct) : "",
+    closeout_commission_pct:      customer?.closeout_commission_pct != null ? String(customer.closeout_commission_pct) : "",
     default_brand_id:             customer?.default_brand_id             ?? "",
     default_channel_id:           customer?.default_channel_id           ?? "",
     price_list_id:                customer?.price_list_id                ?? "",
@@ -560,21 +569,14 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       .catch(() => {});
   }, []);
 
-  // GL account picker options — postable accounts only, with "(select)" entry.
-  const glAccountOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(select)" },
-    ...glAccounts.filter((a) => a.is_postable).map((a) => ({
-      value: a.id,
-      label: `${a.code} — ${a.name}`,
-    })),
-  ], [glAccounts]);
-
-  // GL routing pickers (Tab 3) — postable AND active accounts only.
+  // GL routing pickers (Tab 3) — postable AND active accounts only. Label shows
+  // the account NAME only (code searchable) per operator "name not code" ask.
   const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
     ...glAccounts.filter((a) => a.is_postable && a.status === "active").map((a) => ({
       value: a.id,
-      label: `${a.code} — ${a.name}`,
+      label: a.name,
+      searchHaystack: `${a.code} ${a.name}`,
     })),
   ], [glAccounts]);
 
@@ -593,12 +595,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
 
   const brandOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
-    ...brands.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}`, searchHaystack: `${b.code} ${b.name}` })),
+    ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code} ${b.name}` })),
   ], [brands]);
 
   const channelOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
-    ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
+    ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code} ${c.name}` })),
   ], [channels]);
 
   // Chunk K — factor picker (operator item 17). Label = factor name (with
@@ -613,7 +615,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   // free-text value not in the master is injected as a one-off option so it
   // still shows and isn't dropped on save.
   const countryOptions: SearchableSelectOption[] = useMemo(() => {
-    const opts = countries.map((c) => ({ value: c.iso2, label: `${c.name} (${c.iso2})`, searchHaystack: `${c.name} ${c.iso2}` }));
+    const opts = countries.map((c) => ({ value: c.iso2, label: c.name, searchHaystack: `${c.name} ${c.iso2}` }));
     const cur = form.country;
     if (cur && !opts.some((o) => o.value === cur)) opts.unshift({ value: cur, label: cur, searchHaystack: cur });
     return opts;
@@ -630,7 +632,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       { value: "", label: "(select)" },
       ...active.map((t) => ({
         value: t.id,
-        label: `${t.code} — ${t.name} (${t.due_days}d)`,
+        label: `${t.name} (${t.due_days}d)`,
         // Make the search match on the code, name, and the formatted due-days
         // chunk so an operator typing "n30" / "net 30" / "30d" all land.
         searchHaystack: `${t.code} ${t.name} ${t.due_days}d net${t.due_days}`,
@@ -670,13 +672,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         status:                       form.status,
         billing_address:              form.billing_address,
         shipping_address:             form.shipping_address,
-        default_gl_ar_account_id:     form.default_gl_ar_account_id || null,
-        default_gl_revenue_account_id: form.default_gl_revenue_account_id || null,
         // P4-family sales-rep / default / GL-routing fields.
         sales_rep_1_id:               form.sales_rep_1_id || null,
         sales_rep_1_commission_pct:   form.sales_rep_1_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_1_commission_pct),
         sales_rep_2_id:               form.sales_rep_2_id || null,
         sales_rep_2_commission_pct:   form.sales_rep_2_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_2_commission_pct),
+        closeout_commission_pct:      form.closeout_commission_pct.trim() === "" ? null : parseFloat(form.closeout_commission_pct),
         default_brand_id:             form.default_brand_id || null,
         default_channel_id:           form.default_channel_id || null,
         price_list_id:                form.price_list_id || null,
@@ -811,12 +812,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               <span style={{ color: C.textMuted, fontSize: 13 }}>$</span>
               <input
                 type="text"
-                inputMode="decimal"
-                value={form.credit_limit}
-                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9.]/g, "") })}
-                style={{ ...inputStyle, width: "8ch", flex: "0 0 auto" }}
-                placeholder="0.00"
-                title="0 or blank = no credit limit (no gate)"
+                inputMode="numeric"
+                value={form.credit_limit ? Number(form.credit_limit).toLocaleString("en-US") : ""}
+                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9]/g, "").slice(0, 12) })}
+                style={{ ...inputStyle, width: "16ch", flex: "0 0 auto" }}
+                placeholder="0"
+                title="Whole dollars, up to 12 digits. 0 or blank = no credit limit (no gate)"
               />
               <input
                 type="text"
@@ -864,22 +865,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               <input type="checkbox" checked={form.tax_exempt} onChange={(e) => setForm({ ...form, tax_exempt: e.target.checked })} />
               Yes (skip AR tax calc)
             </label>
-          </Field>
-          <Field label="Default AR account">
-            <SearchableSelect
-              value={form.default_gl_ar_account_id || null}
-              onChange={(v) => setForm({ ...form, default_gl_ar_account_id: v })}
-              options={glAccountOptions}
-              placeholder="(select)"
-            />
-          </Field>
-          <Field label="Default revenue account">
-            <SearchableSelect
-              value={form.default_gl_revenue_account_id || null}
-              onChange={(v) => setForm({ ...form, default_gl_revenue_account_id: v })}
-              options={glAccountOptions}
-              placeholder="(select)"
-            />
           </Field>
           <Field label="Contact name">
             <input
@@ -982,6 +967,19 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               placeholder="0.00"
             />
           </Field>
+          <Field label="Closeout commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.closeout_commission_pct}
+              onChange={(e) => setForm({ ...form, closeout_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+              title="Commission % used for this customer's CLOSEOUT orders (when the SO is flagged closeout), in place of the normal rep rate."
+            />
+          </Field>
           <Field label="Default brand">
             <SearchableSelect
               value={form.default_brand_id || null}
@@ -1002,7 +1000,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <SearchableSelect
               value={form.price_list_id || null}
               onChange={(v) => setForm({ ...form, price_list_id: v })}
-              options={[{ value: "", label: "(default / tier)" }, ...priceLists.map((l) => ({ value: l.id, label: `${l.code} — ${l.name}`, searchHaystack: `${l.code} ${l.name}` }))]}
+              options={[{ value: "", label: "(default / tier)" }, ...priceLists.map((l) => ({ value: l.id, label: l.name, searchHaystack: `${l.code} ${l.name}` }))]}
               placeholder="(default / tier)"
             />
           </Field>

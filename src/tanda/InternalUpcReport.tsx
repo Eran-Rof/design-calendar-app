@@ -38,6 +38,7 @@ const C = {
 const th: React.CSSProperties = {
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap",
+  background: "#0b1220", position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, color: C.text,
@@ -124,7 +125,7 @@ export default function InternalUpcReport() {
       ) : rows.length === 0 ? (
         <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No UPCs found.</div>
       ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", border: `1px solid ${C.cardBdr}`, borderRadius: 8 }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
