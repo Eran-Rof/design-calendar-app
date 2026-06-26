@@ -223,7 +223,9 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
 
   const filtered = search.trim() === ""
     ? options
-    : options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+    // Match against the formatted label (e.g. "RYB1416 — ARENA Loose Relaxed")
+    // so the operator can find a style by its description, not just its code.
+    : options.filter(o => fmt(o).toLowerCase().includes(search.toLowerCase()));
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
@@ -372,6 +374,21 @@ export const SalesCompsModal: React.FC<Props> = ({
   const categories    = useMemo(() => [...allCategories].sort(),    [allCategories]);
   const subCategories = useMemo(() => [...allSubCategories].sort(), [allSubCategories]);
   const styles        = useMemo(() => [...allStyles].sort(),        [allStyles]);
+  // style_code → clean style description, sourced from the enriched grid rows
+  // (master fields). Lets the Style picker show the description beside the code.
+  const styleDescByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      const code = (r.master_style ?? "").trim();
+      const desc = (r.master_description ?? "").trim();
+      if (code && desc && !m.has(code)) m.set(code, desc);
+    }
+    return m;
+  }, [rows]);
+  const styleOptionLabel = (code: string) => {
+    const d = styleDescByCode.get(code);
+    return d ? `${code} — ${d}` : code;
+  };
   const stores        = useMemo(() => {
     if (allStores.length > 0) return [...allStores].sort();
     return ["ROF", "ROF ECOM", "PT", "PT ECOM"];
@@ -1254,7 +1271,7 @@ export const SalesCompsModal: React.FC<Props> = ({
               <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
-              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
+              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi optionLabel={styleOptionLabel} />
               <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi />
             </div>
 
