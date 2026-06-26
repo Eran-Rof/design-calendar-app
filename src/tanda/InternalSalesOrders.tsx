@@ -102,7 +102,7 @@ type ShipTo = { id: string; name: string; code?: string | null; location_type?: 
 function formatShipAddress(a: Record<string, unknown> | null | undefined): string {
   if (!a || typeof a !== "object") return "";
   const s = (k: string) => String(a[k] ?? "").trim();
-  const cityLine = [s("city"), [s("state"), s("postal_code")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const cityLine = [s("city"), [s("state"), s("postal") || s("postal_code")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   return [s("line1"), s("line2"), cityLine, s("country")].filter(Boolean).join(" · ");
 }
 
