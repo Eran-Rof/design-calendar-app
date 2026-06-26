@@ -44,8 +44,8 @@ type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
 
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
-export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
-export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
+export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
+export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string; lot?: string | null }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
 export interface LineMatrixBodyHandle {
   resolve: () => Promise<ResolvedLine[]>;
   /** Style codes currently in the matrix (resolved sections). */
@@ -58,7 +58,7 @@ export interface LineMatrixBodyHandle {
   getDocumentData: () => OrderDocData;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string> };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string> };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -128,6 +128,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [flat, setFlat] = useState<FlatLine[]>([]);
+  // PO: per style+color lot column. Auto-stamped to the PO number at issue
+  // server-side; shown here so the operator can view/override per line. Hidden on
+  // SO/AR (lots populated by later scenarios). Default visible in PO mode.
+  const [showLots, setShowLots] = useState(mode === "po");
   const [atsByItem, setAtsByItem] = useState<Record<string, number>>({});
   const [atsAsOf, setAtsAsOf] = useState<string | null>(null);
   const [atsLoading, setAtsLoading] = useState(false);
@@ -183,7 +187,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     // the date pickers on every previously-entered style (click to re-open).
     const seedDates = (showLineDates && lineDateDefault) ? { requested: lineDateDefault, confirmed: lineDateDefault } : undefined;
     setSections((p) => [
-      { id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, loading: false, err: null, dates: seedDates, datesOpen: true },
+      { id: nextSectionId.current++, styleId: "", payload: null, qty: {}, unit: {}, lot: {}, loading: false, err: null, dates: seedDates, datesOpen: true },
       ...p.map((s) => ({ ...s, datesOpen: false })),
     ]);
   }
@@ -232,6 +236,8 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     }));
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
+  function setLot(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: { ...s.lot, [rowKey]: v } } : s))); }
+  function setAllLot(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setSectionDate(id: number, which: "requested" | "confirmed", v: string) {
     // Report a user EDIT of the Vendor-confirmed date (the initial prefill goes
     // through addSection, not here, so this only fires on a real change).
@@ -270,11 +276,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     for (const sec of seed.sections) {
       const st = styles.find((s) => s.style_code === sec.styleCode);
       const id = nextSectionId.current++;
-      const qty: Record<string, number> = {}; const unit: Record<string, string> = {};
+      const qty: Record<string, number> = {}; const unit: Record<string, string> = {}; const lot: Record<string, string> = {};
       for (const c of sec.cells) {
         const rk = rowKeyOf(c.color, c.inseam ?? null);
         if (c.qty > 0) qty[matrixCellKey(rk, c.size)] = c.qty;
         if (c.unit) unit[rk] = c.unit;
+        if (c.lot) lot[rk] = c.lot;
       }
       const dates = (sec.requestedShipDate || sec.vendorConfirmedShipDate) ? { requested: sec.requestedShipDate || undefined, confirmed: sec.vendorConfirmedShipDate || undefined } : undefined;
       const defaultUnit = sec.defaultUnit;
@@ -282,7 +289,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const quickFill: Record<string, string> | undefined = sec.quickFill
         ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(color || null, null), String(total)]))
         : undefined;
-      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates, quickFill }]);
+      setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, lot, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates, quickFill }]);
       if (st) loadPayload(st.id).then((pl) => {
         // Apply a per-section default unit (e.g. an awarded RFQ cost) to every
         // color row that doesn't already carry a unit from a seeded cell.
@@ -407,9 +414,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             if (!r.ok || !j.id) throw new Error(j.error || `Could not resolve SKU for ${color || ""} ${size} ${inseam || ""}`.trim());
             itemId = j.id as string;
           }
+          const lotVal = (s.lot[rowKey] || "").trim();
           lines.push({
             inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100),
             ...(showLineDates ? { requested_ship_date: s.dates?.requested || null, vendor_confirmed_ship_date: s.dates?.confirmed || null } : {}),
+            ...(mode === "po" ? { lot_number: lotVal || null } : {}),
           });
         }
       }
@@ -500,7 +509,13 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        {mode === "po" && (
+          <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
+            title={showLots ? "Hide the per-line Lot column" : "Show the per-line Lot column (auto-set to the PO number at issue)"}>
+            🏷 {showLots ? "Hide lots" : "Show lots"}
+          </button>
+        )}
         {(canAdd ?? editable) && (
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>➕ Add style (matrix)</button>
@@ -656,6 +671,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   enabledFor: (rk) => packUsableFor(rk),
                   disabledTitle: "Set a size scale (pack) for this style in Style Master → 📐 Scale to enable quick-fill.",
                   valueFor: (rk) => s.quickFill?.[rk],
+                } : undefined}
+                lot={mode === "po" && showLots ? {
+                  values: s.lot,
+                  onChange: (rk, v) => setLot(s.id, rk, v),
+                  onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
+                  placeholder: "PO# at issue",
                 } : undefined}
               />
             )}

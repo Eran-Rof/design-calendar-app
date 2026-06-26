@@ -206,6 +206,7 @@ export default async function handler(req, res, params) {
           qty_ordered: qty, unit_cost_cents: unit, line_total_cents: Math.round(qty * unit),
           requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
           vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
+          lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
       await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
@@ -221,6 +222,16 @@ export default async function handler(req, res, params) {
     if (Object.keys(patch).length === 0) return res.status(200).json(po);
     const { data, error } = await admin.from("purchase_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // Scenario 1 — at issue, stamp the PO number as the lot on every line that
+    // doesn't already carry an operator-set lot. Runs after any line replacement
+    // above so freshly-inserted lines are covered. Never overwrites a manual lot.
+    if (body.status === "issued" && data.po_number) {
+      await admin.from("purchase_order_lines")
+        .update({ lot_number: data.po_number })
+        .eq("purchase_order_id", id)
+        .is("lot_number", null);
+    }
 
     // P13/C0 — open-PO commitment tracking (off-balance-sheet, D3).
     // On first issue, record one po_commitments row per line; on cancel, close them.

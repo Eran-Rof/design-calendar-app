@@ -166,6 +166,9 @@ export function validateInsert(body) {
       qty_ordered: qty,
       unit_price_cents: unit,
       line_total_cents: Math.round(qty * unit),
+      // Lot (grain: style+color). Set by customer PO (Scenario 3) or lot-aware
+      // ATS allocation (Scenario 5); accepted here so callers can seed it.
+      lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
       // Item 9 — revenue_account_id is resolved server-side from the customer
       // (default_revenue_account_id) → entity default; NOT taken from the payload.
     });

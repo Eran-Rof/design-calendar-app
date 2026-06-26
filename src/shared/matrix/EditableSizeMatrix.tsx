@@ -68,6 +68,18 @@ export type EditableSizeMatrixProps = {
      *  (plain, no grouping commas — callers parse the value with Number()). */
     forceDecimals?: number;
   };
+  /** Optional editable per-row Lot value (free text) with a bulk "set all"
+   *  header field. Grain is the row (style+color). Opt-in so SO / AR / adjustment
+   *  grids that share this component stay unchanged (PO entry uses it). */
+  lot?: {
+    label?: string;                         // default "Lot"
+    placeholder?: string;
+    /** Per-row lot value. Key = rowKey. */
+    values: Record<string, string>;
+    onChange: (rowKey: string, value: string) => void;
+    /** Stamp the given value onto every row. */
+    onSetAll?: (value: string) => void;
+  };
   /** Optional per-row quick-fill: a "Qty" column between the lead columns and
    *  the first size. The operator types one TOTAL for the row and on Enter/Tab
    *  the caller distributes it across the sizes (via the style's stored size
@@ -226,10 +238,11 @@ function QuickFillCell({
 }
 
 export function EditableSizeMatrix({
-  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit,
+  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot,
   allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
+  const [bulkLot, setBulkLot] = React.useState("");
   const [collapsed, setCollapsed] = React.useState(false);
 
   // Normalise a typed unit value for "set all": blank → null (no stamp); else
@@ -327,6 +340,23 @@ export function EditableSizeMatrix({
             {unit?.showLineTotal && (
               <th style={{ ...thBase, textAlign: "right", minWidth: 96 }}>Total $</th>
             )}
+            {lot && (
+              <th style={{ ...thBase, textAlign: "left", minWidth: 120, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{lot.label || "Lot"}</div>
+                {lot.onSetAll && (
+                  <input
+                    type="text"
+                    value={bulkLot}
+                    onChange={(e) => setBulkLot(e.target.value)}
+                    onBlur={() => { const v = bulkLot.trim(); if (v !== "") lot.onSetAll!(v); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = bulkLot.trim(); if (v !== "") lot.onSetAll!(v); } }}
+                    placeholder={lot.placeholder || "set all"}
+                    title="Type a lot and press Enter (or tab out) to stamp it onto every row, then edit individual rows as needed."
+                    style={{ ...unitInput, width: "12ch", textAlign: "left", borderColor: C.primary }}
+                  />
+                )}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -399,6 +429,18 @@ export function EditableSizeMatrix({
                     {rowExt ? `$${fmtMoney(rowExt)}` : "—"}
                   </td>
                 )}
+                {lot && (
+                  <td style={{ padding: "4px 6px", textAlign: "left" }}>
+                    <input
+                      type="text"
+                      value={lot.values[row.key] ?? ""}
+                      onChange={(e) => lot.onChange(row.key, e.target.value)}
+                      placeholder={lot.placeholder || "lot"}
+                      aria-label={`Lot ${row.color || ""}`}
+                      style={{ ...unitInput, width: "12ch", textAlign: "left" }}
+                    />
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -417,6 +459,7 @@ export function EditableSizeMatrix({
             {unit?.showLineTotal && (
               <td style={{ padding: "10px 12px", textAlign: "right", color: grandExt ? C.green : C.emptyCell, fontWeight: 800, fontFamily: "monospace" }}>{grandExt ? `$${fmtMoney(grandExt)}` : "—"}</td>
             )}
+            {lot && <td style={{ padding: "10px 12px" }} />}
           </tr>
         </tfoot>
       </table>

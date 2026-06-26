@@ -54,4 +54,31 @@ describe("EditableSizeMatrix collapsibleSizes", () => {
     fireEvent.blur(input);
     expect(onCellCommit).toHaveBeenCalledWith("RED|", "M", 50, 0);
   });
+
+  it("renders the opt-in per-row Lot column and fires onChange/onSetAll", () => {
+    const onChange = vi.fn();
+    const onSetAll = vi.fn();
+    render(
+      <EditableSizeMatrix
+        rows={rows} sizes={["M"]} qty={{}} onQtyChange={() => {}}
+        lot={{ values: { "RED|": "LOT-A" }, onChange, onSetAll }}
+      />,
+    );
+    // Per-row lot input shows the seeded value and pushes edits up.
+    const input = screen.getByLabelText("Lot RED") as HTMLInputElement;
+    expect(input.value).toBe("LOT-A");
+    fireEvent.change(input, { target: { value: "PO-2026-00007" } });
+    expect(onChange).toHaveBeenCalledWith("RED|", "PO-2026-00007");
+
+    // The "set all" header input stamps every row on Enter.
+    const setAll = screen.getByPlaceholderText("set all") as HTMLInputElement;
+    fireEvent.change(setAll, { target: { value: "LOT-Z" } });
+    fireEvent.keyDown(setAll, { key: "Enter" });
+    expect(onSetAll).toHaveBeenCalledWith("LOT-Z");
+  });
+
+  it("omits the Lot column when the lot prop is not given", () => {
+    render(<EditableSizeMatrix rows={rows} sizes={["M"]} qty={{}} onQtyChange={() => {}} />);
+    expect(screen.queryByLabelText("Lot RED")).toBeNull();
+  });
 });
