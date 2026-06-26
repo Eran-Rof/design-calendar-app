@@ -2,7 +2,7 @@
 
 > **Single source of truth for "% complete."** Update this doc whenever a phase or module lands (it's part of the PR, like the user-guide chapters). Roadmap: `project-erp-build-roadmap` memory + `docs/tangerine/` arch docs. 25 phases (P1–P25), 49 modules (M1–M49), 7 pre-existing apps (E1–E7). **The 3 pre-existing operational apps that feed Tangerine — ATS, PO WIP (Tanda), Inventory Planning — are documented in [`docs/apps/`](../apps/README.md).**
 
-**Last updated:** 2026-06-22 (SO customer-PO upload — AI semantic customer matching + deterministic confirm→apply; user-guide ch27)
+**Last updated:** 2026-06-26 (Customer Master — retired duplicate GL pickers on Details tab; GL Accounts tab is the single source of truth)
 
 ## Summary
 
@@ -20,6 +20,9 @@
 
 Legend: ✅ done · 🟡 in progress / partial · ⬜ not started · ➕ operator insertion (off original numbering)
 
+> **Recent cross-cutting landings (2026-06-26)** — not tied to a single phase row:
+> - **Customer Master — GL field de-dup** — removed the redundant **Default AR / Default revenue** pickers from the **Details** tab (the legacy `default_gl_ar_account_id` / `default_gl_revenue_account_id` columns, which **no posting engine ever read**). The **GL Accounts** tab (`default_ar_/revenue_/returns_/cogs_account_id` — the columns the SO line-revenue routing + AR invoice/receipt posting actually consume) is now the single source of truth. Handlers no longer write/return the legacy pair; columns kept in the DB (reversible, no migration). Prod had identical values across both families and zero legacy-only rows, so no data migration needed.
+>
 > **Recent cross-cutting landings (2026-06-22)** — not tied to a single phase row:
 > - **SO customer-PO upload — AI customer matching + deterministic apply** — the confirm-choices customer pick now defaults to an **AI semantic match** (`POST /api/internal/sales-orders/match-customer`, Claude Haiku): given the parsed PO customer name it picks the best account in the master by meaning (e.g. "Ross Stores, Inc." → "Ross Procurement"), not by incidental word overlap, with a one-line reason; the operator still confirms/overrides. Also hardened the confirm→apply path: the resolved style list + fetched matrices computed for the questions are reused verbatim by `applyParsed` (no re-resolve against state, no cache clear, `setCustomerId` not `pickCustomer`), fixing a case where the prefilled qtys/price could come back empty after confirming. User-guide ch27.
 >

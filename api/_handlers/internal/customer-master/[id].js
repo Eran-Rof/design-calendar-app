@@ -6,7 +6,6 @@
 //          Mutable fields: name, code, customer_type, country, payment_terms,
 //          default_currency, tax_exempt, tax_exempt_certificate, credit_limit,
 //          status, billing_address, shipping_address,
-//          default_gl_ar_account_id, default_gl_revenue_account_id,
 //          parent_customer_id, contact_name, contact_title, email, phone,
 //          website, wechat_id.
 // DELETE — soft-delete: set deleted_at = now(); 404 if already deleted.
@@ -29,7 +28,6 @@ const MUTABLE_FIELDS = new Set([
   "is_factored", "factor_id",
   "status",
   "billing_address", "shipping_address",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P4-family sales-rep / default / GL-routing columns.
   "sales_rep_1_id",
   "sales_rep_1_commission_pct",
@@ -50,7 +48,6 @@ const MUTABLE_FIELDS = new Set([
 // Nullable fields whose empty-string input should be normalized to null.
 const NULLABLE_TEXT_FIELDS = [
   "code", "country", "payment_terms", "payment_terms_id",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P4-family UUID FK fields normalize "" → null too.
   "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id",

@@ -715,8 +715,8 @@ _(no columns parsed)_
 
 - `code` text
 - `customer_type` text CHECK `IN ('wholesale', 'ecom', 'showroom', 'employee', 'other')`
-- `default_gl_ar_account_id` uuid → `gl_accounts`
-- `default_gl_revenue_account_id` uuid → `gl_accounts`
+- `default_gl_ar_account_id` uuid → `gl_accounts` — **RETIRED** (no longer written/shown; superseded by `default_ar_account_id`, the column the AR/SO posting engines read). Column kept for back-compat.
+- `default_gl_revenue_account_id` uuid → `gl_accounts` — **RETIRED** (superseded by `default_revenue_account_id`). Column kept for back-compat.
 - `payment_terms` text
 - `default_currency` char(3) NOT NULL DEFAULT 'USD'
 - `tax_exempt` boolean NOT NULL DEFAULT false

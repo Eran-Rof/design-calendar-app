@@ -59,8 +59,6 @@ type Customer = {
   country: string | null;
   channel_id: string | null;
   customer_type: string;
-  default_gl_ar_account_id: string | null;
-  default_gl_revenue_account_id: string | null;
   // P4-family sales-rep / default / GL-routing columns.
   sales_rep_1_id: string | null;
   sales_rep_1_commission_pct: number | string | null;
@@ -496,8 +494,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
                                     ? customer.billing_address : {}) as Address,
     shipping_address:             (customer?.shipping_address && typeof customer.shipping_address === "object"
                                     ? customer.shipping_address : {}) as Address,
-    default_gl_ar_account_id:     customer?.default_gl_ar_account_id     ?? "",
-    default_gl_revenue_account_id: customer?.default_gl_revenue_account_id ?? "",
     // P4-family sales-rep / default / GL-routing fields.
     sales_rep_1_id:               customer?.sales_rep_1_id               ?? "",
     sales_rep_1_commission_pct:   customer?.sales_rep_1_commission_pct != null ? String(customer.sales_rep_1_commission_pct) : "",
@@ -561,15 +557,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       .then((arr: Factor[]) => setFactors(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
-
-  // GL account picker options — postable accounts only, with "(select)" entry.
-  const glAccountOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: "", label: "(select)" },
-    ...glAccounts.filter((a) => a.is_postable).map((a) => ({
-      value: a.id,
-      label: `${a.code} — ${a.name}`,
-    })),
-  ], [glAccounts]);
 
   // GL routing pickers (Tab 3) — postable AND active accounts only.
   const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
@@ -672,8 +659,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         status:                       form.status,
         billing_address:              form.billing_address,
         shipping_address:             form.shipping_address,
-        default_gl_ar_account_id:     form.default_gl_ar_account_id || null,
-        default_gl_revenue_account_id: form.default_gl_revenue_account_id || null,
         // P4-family sales-rep / default / GL-routing fields.
         sales_rep_1_id:               form.sales_rep_1_id || null,
         sales_rep_1_commission_pct:   form.sales_rep_1_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_1_commission_pct),
@@ -866,22 +851,6 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               <input type="checkbox" checked={form.tax_exempt} onChange={(e) => setForm({ ...form, tax_exempt: e.target.checked })} />
               Yes (skip AR tax calc)
             </label>
-          </Field>
-          <Field label="Default AR account">
-            <SearchableSelect
-              value={form.default_gl_ar_account_id || null}
-              onChange={(v) => setForm({ ...form, default_gl_ar_account_id: v })}
-              options={glAccountOptions}
-              placeholder="(select)"
-            />
-          </Field>
-          <Field label="Default revenue account">
-            <SearchableSelect
-              value={form.default_gl_revenue_account_id || null}
-              onChange={(v) => setForm({ ...form, default_gl_revenue_account_id: v })}
-              options={glAccountOptions}
-              placeholder="(select)"
-            />
           </Field>
           <Field label="Contact name">
             <input
