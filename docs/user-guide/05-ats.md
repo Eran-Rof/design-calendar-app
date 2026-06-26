@@ -221,9 +221,9 @@ Turning on **By Size Matrix** adds a worksheet that pivots ATS availability into
 **Sales Comps…** is an interactive this-year-vs-last-year comparison:
 
 1. Pick a **date range** (the modal pre-fills with the window your grid is showing).
-2. Narrow by category, sub-category, style, store, gender, or customer — pre-populated from your grid filters, and broadenable beyond them. The **Style** picker lists each style as *code — description* (e.g. *RYB1416 — ARENA Loose Relaxed*), and its search box matches on either, so you can find a style by name as well as number.
+2. Narrow by category, sub-category, style, store, gender, or customer — pre-populated from your grid filters, and broadenable beyond them. The **Style** picker lists each style as *code — description* (e.g. *RYB1416 — ARENA Loose Relaxed*) — the dropdown widens to show the full description — and its search box matches on either, so you can find a style by name as well as number.
 3. Choose **Summary** or **Detailed** output.
-4. The results show totals for quantity, revenue, cost, margin $, and margin %; Detailed mode adds a per-SKU table sorted by largest revenue, plus a section comparing your open sales orders against last-year shipments of the same style.
+4. The results show totals for quantity, revenue, cost, margin $, and margin %; Detailed mode adds a per-SKU table sorted by largest revenue, plus a section comparing your open sales orders against last-year shipments of the same style. When viewing **by Style**, each row shows the style **description** next to its code.
 5. **Download** to save the comparison as a branded workbook.
 
 ## Notifications and Ask AI
