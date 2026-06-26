@@ -82,6 +82,7 @@ type SO = {
   revenue_account_id: string | null; notes: string | null; total_cents: number | string;
   customer_po?: string | null;
   fulfillment_source?: string | null;
+  is_closeout?: boolean | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
   // Non-factor credit ship-gate (house-account overdue AR / credit-card paid-in-full).
   credit_approval_status?: string | null; credit_hold_reason?: string | null;
@@ -399,6 +400,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [poDup, setPoDup] = useState<{ po: string; existing: { id: string; so_number: string | null; status: string; customer_id: string }[] } | null>(null);
   const [allStyles, setAllStyles] = useState<StyleLite[]>([]);
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
+  // Closeout order — when ticked, commission uses the customer's closeout rate.
+  const [isCloseout, setIsCloseout] = useState<boolean>(so?.is_closeout ?? false);
   // True when an uploaded customer PO auto-chose ATS and the operator hasn't yet
   // confirmed/changed it — highlights the Fulfillment source for a double-check.
   const [fulfillmentReview, setFulfillmentReview] = useState(false);
@@ -789,6 +792,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: resolvedLines,
         customer_po: customerPo.trim() || null,
         fulfillment_source: fulfillmentSource || null,
+        is_closeout: isCloseout,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
         factor_reference: factorReference.trim() || null,
@@ -1267,6 +1271,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
           {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
           {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>⚠️ Pick ATS or Production to start adding styles.</span>}
+          <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
+            <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
+            Closeout order
+          </label>
         </div>
 
         {/* The Add-style / Add-line buttons live in the matrix body itself

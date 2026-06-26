@@ -33,6 +33,7 @@ const MUTABLE_FIELDS = new Set([
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -282,7 +283,7 @@ export function validatePatch(body) {
   }
 
   // P4-family: commission percentages — numeric, 0..100; "" → null.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (k in out) {
       if (out[k] == null || out[k] === "") {
         out[k] = null;
