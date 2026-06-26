@@ -269,7 +269,11 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
           ...(openDir === "down"
             ? { top: "calc(100% + 4px)" }
             : { bottom: "calc(100% + 4px)" }),
-          left: 0, right: 0, zIndex: 1100,
+          // Grow to fit the widest option (e.g. "RYB1416 — ARENA Loose
+          // Relaxed") rather than clamping to the field width, so the style
+          // description is readable. At least the field width; capped so it
+          // never runs off-screen.
+          left: 0, right: "auto", minWidth: "100%", width: "max-content", maxWidth: "min(560px, 92vw)", zIndex: 1100,
           background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
           maxHeight: 260, display: "flex", flexDirection: "column", padding: 4,
           boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
@@ -287,7 +291,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             {filtered.map(o => (
               <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                 <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(o)}</span>
+                <span style={{ whiteSpace: "normal", wordBreak: "break-word" }}>{fmt(o)}</span>
               </label>
             ))}
           </div>
@@ -1407,6 +1411,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                   rows={built}
                   totals={builtTotals}
                   customerFacing={customerFacing}
+                  descByLabel={dim === "style" ? styleDescByCode : undefined}
                 />
               );
             })}
@@ -1483,7 +1488,7 @@ interface CompsTotalsProp {
   combined: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
   hasMixed: boolean;
 }
-function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean }): React.ReactElement {
+function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
   // Helper: render one totals row. Used three times below — once for
   // the combined total (single-grain modes), or twice (one per grain
   // when hasMixed is true and we're in explode-OFF mode).
@@ -1529,7 +1534,7 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
             const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
             return (
               <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
-                <td style={td()}>{r.label}</td>
+                <td style={td()}>{r.label}{descByLabel?.get(r.label) && <span style={{ color: C.textMuted, fontWeight: 400 }}> — {descByLabel.get(r.label)}</span>}</td>
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
                 {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
