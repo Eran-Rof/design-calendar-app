@@ -468,11 +468,13 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   // Initial credit_limit display value (in dollars). Prefer the canonical
   // credit_limit_cents (P4-7) and fall back to the legacy numeric credit_limit
   // column for rows that haven't been re-saved since P4-7.
+  // Whole-dollar integer string (no decimals) — the field shows comma-formatted
+  // whole dollars per operator request; cents precision isn't used for limits.
   const initCreditLimitDollars =
     customer?.credit_limit_cents != null && customer.credit_limit_cents !== ""
-      ? String(Number(customer.credit_limit_cents) / 100)
+      ? String(Math.round(Number(customer.credit_limit_cents) / 100))
       : customer?.credit_limit != null
-        ? String(customer.credit_limit)
+        ? String(Math.round(Number(customer.credit_limit)))
         : "";
   const [form, setForm] = useState({
     name:                         customer?.name                         ?? "",
@@ -558,12 +560,14 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       .catch(() => {});
   }, []);
 
-  // GL routing pickers (Tab 3) — postable AND active accounts only.
+  // GL routing pickers (Tab 3) — postable AND active accounts only. Label shows
+  // the account NAME only (code searchable) per operator "name not code" ask.
   const glRoutingOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
     ...glAccounts.filter((a) => a.is_postable && a.status === "active").map((a) => ({
       value: a.id,
-      label: `${a.code} — ${a.name}`,
+      label: a.name,
+      searchHaystack: `${a.code} ${a.name}`,
     })),
   ], [glAccounts]);
 
@@ -582,12 +586,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
 
   const brandOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
-    ...brands.map((b) => ({ value: b.id, label: `${b.code} — ${b.name}`, searchHaystack: `${b.code} ${b.name}` })),
+    ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code} ${b.name}` })),
   ], [brands]);
 
   const channelOptions: SearchableSelectOption[] = useMemo(() => [
     { value: "", label: "(select)" },
-    ...channels.map((c) => ({ value: c.id, label: `${c.code} — ${c.name}`, searchHaystack: `${c.code} ${c.name}` })),
+    ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code} ${c.name}` })),
   ], [channels]);
 
   // Chunk K — factor picker (operator item 17). Label = factor name (with
@@ -602,7 +606,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   // free-text value not in the master is injected as a one-off option so it
   // still shows and isn't dropped on save.
   const countryOptions: SearchableSelectOption[] = useMemo(() => {
-    const opts = countries.map((c) => ({ value: c.iso2, label: `${c.name} (${c.iso2})`, searchHaystack: `${c.name} ${c.iso2}` }));
+    const opts = countries.map((c) => ({ value: c.iso2, label: c.name, searchHaystack: `${c.name} ${c.iso2}` }));
     const cur = form.country;
     if (cur && !opts.some((o) => o.value === cur)) opts.unshift({ value: cur, label: cur, searchHaystack: cur });
     return opts;
@@ -619,7 +623,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
       { value: "", label: "(select)" },
       ...active.map((t) => ({
         value: t.id,
-        label: `${t.code} — ${t.name} (${t.due_days}d)`,
+        label: `${t.name} (${t.due_days}d)`,
         // Make the search match on the code, name, and the formatted due-days
         // chunk so an operator typing "n30" / "net 30" / "30d" all land.
         searchHaystack: `${t.code} ${t.name} ${t.due_days}d net${t.due_days}`,
@@ -798,12 +802,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               <span style={{ color: C.textMuted, fontSize: 13 }}>$</span>
               <input
                 type="text"
-                inputMode="decimal"
-                value={form.credit_limit}
-                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9.]/g, "") })}
-                style={{ ...inputStyle, width: "8ch", flex: "0 0 auto" }}
-                placeholder="0.00"
-                title="0 or blank = no credit limit (no gate)"
+                inputMode="numeric"
+                value={form.credit_limit ? Number(form.credit_limit).toLocaleString("en-US") : ""}
+                onChange={(e) => setForm({ ...form, credit_limit: e.target.value.replace(/[^0-9]/g, "").slice(0, 12) })}
+                style={{ ...inputStyle, width: "16ch", flex: "0 0 auto" }}
+                placeholder="0"
+                title="Whole dollars, up to 12 digits. 0 or blank = no credit limit (no gate)"
               />
               <input
                 type="text"
@@ -973,7 +977,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             <SearchableSelect
               value={form.price_list_id || null}
               onChange={(v) => setForm({ ...form, price_list_id: v })}
-              options={[{ value: "", label: "(default / tier)" }, ...priceLists.map((l) => ({ value: l.id, label: `${l.code} — ${l.name}`, searchHaystack: `${l.code} ${l.name}` }))]}
+              options={[{ value: "", label: "(default / tier)" }, ...priceLists.map((l) => ({ value: l.id, label: l.name, searchHaystack: `${l.code} ${l.name}` }))]}
               placeholder="(default / tier)"
             />
           </Field>
