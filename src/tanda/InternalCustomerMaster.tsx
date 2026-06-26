@@ -411,20 +411,27 @@ export default function InternalCustomerMaster() {
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
-                      style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600, marginRight: 6 }}
-                      title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
-                      aria-label={`Open scorecard for ${r.name}`}
-                    >
-                      📊 Scorecard
-                    </button>
-                    {!r.deleted_at && (
-                      <>
-                        <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={{ ...btnSecondary, marginLeft: 6 }}>Edit</button>
-                        <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
-                      </>
-                    )}
+                    {/* Row actions as one segmented bar — buttons joined edge-to-edge,
+                        rounded only on the outer corners (overlap borders by 1px). */}
+                    <div style={{ display: "inline-flex", verticalAlign: "middle" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
+                        style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600,
+                          ...(r.deleted_at ? {} : { borderTopRightRadius: 0, borderBottomRightRadius: 0 }) }}
+                        title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
+                        aria-label={`Open scorecard for ${r.name}`}
+                      >
+                        📊 Scorecard
+                      </button>
+                      {!r.deleted_at && (
+                        <>
+                          <button onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                            style={{ ...btnSecondary, borderRadius: 0, marginLeft: -1 }}>Edit</button>
+                          <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }}
+                            style={{ ...btnDanger, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, marginLeft: -1 }}>Delete</button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </ScrollHighlightRow>
               ))}
