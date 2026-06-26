@@ -411,13 +411,12 @@ export default function InternalCustomerMaster() {
                     ) : "—"}
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    {/* Row actions as one segmented bar — buttons joined edge-to-edge,
-                        rounded only on the outer corners (overlap borders by 1px). */}
-                    <div style={{ display: "inline-flex", verticalAlign: "middle" }}>
+                    {/* Three separate, fully-framed buttons inline (each its own
+                        bordered box, spaced — not joined, not borderless). */}
+                    <div style={{ display: "inline-flex", gap: 8, verticalAlign: "middle" }}>
                       <button
                         onClick={(e) => { e.stopPropagation(); setScorecardId(r.id); }}
-                        style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600,
-                          ...(r.deleted_at ? {} : { borderTopRightRadius: 0, borderBottomRightRadius: 0 }) }}
+                        style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, fontWeight: 600 }}
                         title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
                         aria-label={`Open scorecard for ${r.name}`}
                       >
@@ -425,10 +424,8 @@ export default function InternalCustomerMaster() {
                       </button>
                       {!r.deleted_at && (
                         <>
-                          <button onClick={(e) => { e.stopPropagation(); setEditing(r); }}
-                            style={{ ...btnSecondary, borderRadius: 0, marginLeft: -1 }}>Edit</button>
-                          <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }}
-                            style={{ ...btnDanger, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, marginLeft: -1 }}>Delete</button>
+                          <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
+                          <button onClick={(e) => { e.stopPropagation(); void softDelete(r); }} style={btnDanger}>Delete</button>
                         </>
                       )}
                     </div>
@@ -532,7 +529,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const [channels, setChannels] = useState<Channel[]>([]);
   const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
-  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers">("details");
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers" | "payable">("details");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -738,6 +735,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
             ["gl", "GL Accounts"],
             ["addresses", "Addresses & Locations"],
             ["buyers", "Buyers"],
+            ["payable", "AP/Trans/CBs"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -866,63 +864,9 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               Yes (skip AR tax calc)
             </label>
           </Field>
-          <Field label="Contact name">
-            <input
-              type="text"
-              value={form.contact_name}
-              onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
-              style={inputStyle}
-              placeholder="Primary contact"
-            />
-          </Field>
-          <Field label="Contact title">
-            <input
-              type="text"
-              value={form.contact_title}
-              onChange={(e) => setForm({ ...form, contact_title: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. Buyer"
-            />
-          </Field>
-          <Field label="Email">
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                style={{ ...inputStyle, paddingRight: 30 }}
-                placeholder="contact@example.com"
-              />
-              <MailLink email={form.email} />
-            </div>
-          </Field>
-          <Field label="Phone">
-            <input
-              type="text"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: formatUsPhone(e.target.value) })}
-              style={inputStyle}
-              placeholder="(555) 000-0000"
-            />
-          </Field>
-          <Field label="Website">
-            <input
-              type="text"
-              value={form.website}
-              onChange={(e) => setForm({ ...form, website: e.target.value })}
-              style={inputStyle}
-              placeholder="https://"
-            />
-          </Field>
-          <Field label="WeChat ID">
-            <input
-              type="text"
-              value={form.wechat_id}
-              onChange={(e) => setForm({ ...form, wechat_id: e.target.value })}
-              style={inputStyle}
-              placeholder="WeChat handle"
-            />
-          </Field>
+          {/* Contact information moved to the AP/Trans/CBs tab (operator #9/#10).
+              The scalar fields stay on the record (preserved on save) but are no
+              longer edited from the Details page. */}
         </div>
 
         {/* ── Tab 2 — Reps & Defaults ─────────────────────────────────── */}
@@ -1072,9 +1016,46 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
           </div>
         </div>
 
-        {/* ── Tab 5 — Contacts (up to 12) ─────────────────────────────── */}
+        {/* ── Tab 5 — Buyers ──────────────────────────────────────────── */}
         <div style={{ display: tab === "buyers" ? "block" : "none" }}>
           <BuyersEditor customerId={mode === "edit" ? (customer?.id ?? null) : null} />
+        </div>
+
+        {/* ── Tab 6 — AP / Transportation / Chargeback contacts (up to 8) ─ */}
+        <div style={{ display: tab === "payable" ? "block" : "none" }}>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+            Accounts-payable, transportation, and chargeback contacts (up to 8). Each carries a department, name, email, and phone.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto", gap: 8, marginBottom: 6, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span>Name</span><span>Department</span><span>Email</span><span>Phone</span><span />
+          </div>
+          {form.contacts.map((c, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <input type="text" value={c.name ?? ""} placeholder="Name"
+                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} style={inputStyle} />
+              <select value={c.department ?? ""}
+                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, department: e.target.value } : x) })} style={inputStyle as React.CSSProperties}>
+                <option value="">Dept…</option>
+                <option value="ap">Accounts Payable</option>
+                <option value="transportation">Transportation</option>
+                <option value="chargeback">Chargeback</option>
+              </select>
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <input type="email" value={c.email ?? ""} placeholder="email@example.com"
+                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, email: e.target.value } : x) })} style={{ ...inputStyle, paddingRight: 30 }} />
+                <MailLink email={c.email ?? ""} />
+              </div>
+              <input type="text" value={c.phone ?? ""} placeholder="(555) 000-0000"
+                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, phone: formatUsPhone(e.target.value) } : x) })} style={inputStyle} />
+              <button type="button" title="Remove contact" onClick={() => setForm({ ...form, contacts: form.contacts.filter((_, j) => j !== i) })} style={btnDanger}>✕</button>
+            </div>
+          ))}
+          {form.contacts.length < 8 && (
+            <button type="button" onClick={() => setForm({ ...form, contacts: [...form.contacts, { name: "", department: "", email: "", phone: "" }] })}
+              style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, marginTop: 4 }}>
+              + Add contact
+            </button>
+          )}
         </div>
 
         {err && (
