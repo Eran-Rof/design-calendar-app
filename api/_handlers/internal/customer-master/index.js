@@ -12,8 +12,12 @@
 //        country, payment_terms, default_currency, tax_exempt,
 //        tax_exempt_certificate, credit_limit, credit_limit_cents,
 //        status, billing_address, shipping_address,
-//        contact_name, contact_title, email, phone, website, wechat_id,
-//        default_gl_ar_account_id, default_gl_revenue_account_id }
+//        contact_name, contact_title, email, phone, website, wechat_id }
+//
+// GL routing accounts (AR / revenue / returns / COGS) live on the GL Accounts
+// tab and use the default_ar_/revenue_/returns_/cogs_account_id columns — the
+// only ones the SO + AR posting engines read. The older default_gl_ar/revenue
+// pair is retired (no longer written or shown); the columns remain in the DB.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
@@ -63,7 +67,6 @@ export function titleCaseCustomerName(raw) {
 const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P16 — SO routing defaults (brand/channel prefill + per-line revenue routing).
   "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id", "default_cogs_account_id",
@@ -77,6 +80,7 @@ const LIST_COLUMNS = [
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -203,13 +207,12 @@ export default async function handler(req, res) {
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
-      default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
-      default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
       // P4-family sales-rep / default / GL-routing columns.
       sales_rep_1_id: v.data.sales_rep_1_id || null,
       sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
       sales_rep_2_id: v.data.sales_rep_2_id || null,
       sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      closeout_commission_pct: v.data.closeout_commission_pct ?? null,
       default_brand_id: v.data.default_brand_id || null,
       default_channel_id: v.data.default_channel_id || null,
       default_revenue_account_id: v.data.default_revenue_account_id || null,
@@ -341,10 +344,6 @@ export function validateInsert(body) {
   } else {
     out.payment_terms_id = null;
   }
-  // UUID FK fields — coerce empty string to null.
-  for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
-    if (out[k] === "" || out[k] == null) out[k] = null;
-  }
   // P4-family UUID FK fields — coerce empty string to null + validate UUID.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   for (const k of [
@@ -359,7 +358,7 @@ export function validateInsert(body) {
     }
   }
   // P4-family commission percentages — numeric, 0..100.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (out[k] === "" || out[k] == null) {
       out[k] = null;
     } else {

@@ -28,7 +28,7 @@ type Provider = {
 type Snapshot = { id: string; snapshot_date: string; source: string; line_count: number; matched_count: number; created_at: string };
 type Diff = { sku_code: string; qty_3pl: number; qty_tangerine_location: number; qty_tangerine_total: number; direction: string };
 
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const tdNum: React.CSSProperties = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", fontFamily: "SFMono-Regular, Menlo, monospace" };
 const btn: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -264,7 +264,7 @@ export default function InternalThreePLRecon() {
       )}
 
       {/* Differences */}
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : !snapshot ? (

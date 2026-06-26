@@ -8,7 +8,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
 const C = { bg: "#0F172A", card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1", primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444" };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 
@@ -43,6 +43,7 @@ export default function InternalForm1099() {
         </div>
       )}
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Vendor</th><th style={th}>Tax ID</th><th style={{ ...th, textAlign: "right" }}>Paid (YTD)</th><th style={th}>1099?</th></tr></thead>
           <tbody>
@@ -57,6 +58,7 @@ export default function InternalForm1099() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 8 }}>MVP: sums AP paid (cash basis) per 1099 vendor in the calendar year. Box mapping + e-file are deferred.</div>
     </div>

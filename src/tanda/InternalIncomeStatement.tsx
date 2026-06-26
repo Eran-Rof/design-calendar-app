@@ -444,7 +444,7 @@ export default function InternalIncomeStatement() {
             <select
               value={brandFilter}
               onChange={(e) => setBrandFilter(e.target.value)}
-              style={{ ...inputStyle, width: 200 }}
+              style={{ ...inputStyle, width: 200, colorScheme: "dark" }}
             >
               <option value="all">All brands (consolidated)</option>
               {brands.map((b) => (

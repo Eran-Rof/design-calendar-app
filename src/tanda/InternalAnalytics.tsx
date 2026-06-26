@@ -157,12 +157,12 @@ export default function InternalAnalytics() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
-                <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Vendor</th>
-                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Avg / mo</th>
+                <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Vendor</th>
+                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Avg / mo</th>
                 {forecast.vendors[0]?.forecast.map((f, i) => (
-                  <th key={i} style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>{f.period_start.slice(0, 7)}</th>
+                  <th key={i} style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>{f.period_start.slice(0, 7)}</th>
                 ))}
-                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Conf.</th>
+                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Conf.</th>
               </tr>
             </thead>
             <tbody>

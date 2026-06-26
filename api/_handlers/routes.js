@@ -423,9 +423,11 @@ import r_internal_rma_reasons_index from "./internal/rma-reasons/index.js";
 import r_internal_sales_by_customer_index from "./internal/sales-by-customer/index.js";
 import r_internal_sales_by_rep_index from "./internal/sales-by-rep/index.js";
 import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
+import r_internal_sales_orders_id_record_payment from "./internal/sales-orders/[id]/record-payment.js";
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
+import r_internal_sales_orders_match_customer from "./internal/sales-orders/match-customer.js";
 import r_internal_sales_orders_parse_customer_po from "./internal/sales-orders/parse-customer-po.js";
 import r_internal_sales_orders_ship from "./internal/sales-orders/ship.js";
 import r_internal_sales_orders_split from "./internal/sales-orders/split.js";
@@ -572,6 +574,7 @@ import r_shopify_products from "./shopify/products.js";
 import r_shopify_returns from "./shopify/returns.js";
 import r_tanda_pos_sync from "./tanda-pos-sync.js";
 import r_tanda_sync_from_xoro from "./tanda/sync-from-xoro.js";
+import r_tanda_sync_sos_from_xoro from "./tanda/sync-sos-from-xoro.js";
 import r_vendor_invite from "./vendor-invite.js";
 import r_vendor_accept_invite from "./vendor/accept-invite.js";
 import r_vendor_ai_extract_invoice from "./vendor/ai-extract-invoice.js";
@@ -605,6 +608,7 @@ import r_vendor_edi_status from "./vendor/edi/status.js";
 import r_vendor_entities from "./vendor/entities.js";
 import r_vendor_erp from "./vendor/erp.js";
 import r_vendor_esg_score_index from "./vendor/esg-score/index.js";
+import r_vendor_i18n_geo from "./vendor/i18n-geo.js";
 import r_vendor_invoices from "./vendor/invoices.js";
 import r_vendor_invoices_id from "./vendor/invoices/[id].js";
 import r_vendor_marketplace_inquiries_id_respond from "./vendor/marketplace/inquiries/[id]/respond.js";
@@ -644,6 +648,7 @@ import r_vendor_shipments_id from "./vendor/shipments/[id].js";
 import r_vendor_sustainability_id from "./vendor/sustainability/[id].js";
 import r_vendor_sustainability_index from "./vendor/sustainability/index.js";
 import r_vendor_tax_withholding from "./vendor/tax/withholding.js";
+import r_vendor_translate from "./vendor/translate.js";
 import r_vendor_virtual_cards_id_confirm_spent from "./vendor/virtual-cards/[id]/confirm-spent.js";
 import r_vendor_virtual_cards_id_reveal from "./vendor/virtual-cards/[id]/reveal.js";
 import r_vendor_virtual_cards_index from "./vendor/virtual-cards/index.js";
@@ -762,6 +767,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/broker-invoices/:id", handler: r_internal_procurement_broker_invoices_id },
   { pattern: "/api/internal/procurement/customs-entries/:id", handler: r_internal_procurement_customs_entries_id },
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: r_internal_sales_orders_create_invoice },
+  { pattern: "/api/internal/sales-orders/:id/record-payment", handler: r_internal_sales_orders_id_record_payment },
   { pattern: "/api/internal/workflow-executions/:id/approve", handler: r_internal_workflow_executions_id_approve },
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof", handler: r_internal_entities_id_coa_copy },
   { pattern: "/api/internal/inventory-adjustments/:id/post", handler: r_internal_inventory_adjustments_post },
@@ -870,6 +876,7 @@ export const ROUTES = [
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },
   { pattern: "/api/internal/procurement/customs-entries", handler: r_internal_procurement_customs_entries_index },
+  { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
@@ -1166,6 +1173,7 @@ export const ROUTES = [
   { pattern: "/api/internal/employee-titles", handler: r_internal_employee_titles_index },
   { pattern: "/api/internal/journal-entries", handler: r_internal_journal_entries_index },
   { pattern: "/api/internal/purchase-orders", handler: r_internal_purchase_orders_index },
+  { pattern: "/api/tanda/sync-sos-from-xoro", handler: r_tanda_sync_sos_from_xoro },
   { pattern: "/api/vendor/diversity-profile", handler: r_vendor_diversity_profile_index },
   { pattern: "/api/cron/fba-orders-nightly", handler: r_cron_fba_orders_nightly },
   { pattern: "/api/cron/scorecards-monthly", handler: r_cron_scorecards_monthly },
@@ -1296,6 +1304,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/esg-score", handler: r_vendor_esg_score_index },
   { pattern: "/api/vendor/scorecard", handler: r_vendor_scorecard },
   { pattern: "/api/vendor/shipments", handler: r_vendor_shipments },
+  { pattern: "/api/vendor/translate", handler: r_vendor_translate },
   { pattern: "/api/internal/brands", handler: r_internal_brands_index },
   { pattern: "/api/internal/colors", handler: r_internal_colors_index },
   { pattern: "/api/internal/search", handler: r_internal_search_index },
@@ -1304,6 +1313,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/api-keys", handler: r_vendor_api_keys_index },
   { pattern: "/api/vendor/disputes", handler: r_vendor_disputes_index },
   { pattern: "/api/vendor/entities", handler: r_vendor_entities },
+  { pattern: "/api/vendor/i18n-geo", handler: r_vendor_i18n_geo },
   { pattern: "/api/vendor/invoices", handler: r_vendor_invoices },
   { pattern: "/api/vendor/payments", handler: r_vendor_payments_index },
   { pattern: "/api/internal/cases", handler: r_internal_cases_index },
