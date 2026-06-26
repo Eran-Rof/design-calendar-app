@@ -284,7 +284,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // Create-from-SO dialog.
   const [soPickOpen, setSoPickOpen] = useState(false);
   const [soQuery, setSoQuery] = useState("");
-  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
+  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null; customer_po: string | null; fulfillment_source: string | null }[]>([]);
   const [soBusy, setSoBusy] = useState(false);
   // Get-PO-price (awarded RFQ) flow.
   type AwardQuote = { costing_line_id: string; style_code: string; vendor_id: string; vendor_name: string | null; quoted_cost: number | null; currency: string; awarded_at: string | null; quoted_date: string | null };
@@ -415,6 +415,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         return;
       }
       type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      // Scenario 3 — a PO created from an SO inherits the customer's PO number as
+      // the lot on every line (the lot column is editable; blank customer PO falls
+      // back to the PO# auto-stamped at issue). Grain = style+color.
+      const soLot = (full.customer_po && String(full.customer_po).trim()) || null;
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -422,7 +426,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered }); // no unit cost
+          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, lot: soLot }); // no unit cost; lot = customer PO
         } else if (l.inventory_item_id) {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
         }
@@ -441,7 +445,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       const sections = [...byStyle.values()];
       setSeed({ sections, flat });
       setSoPickOpen(false);
-      notify("PO matrix prefilled from the sales order.", "success");
+      notify(soLot
+        ? `PO matrix prefilled from the sales order. Lots set to customer PO ${soLot} (editable per line).`
+        : "PO matrix prefilled from the sales order. No customer PO on the SO — lots will default to the PO number at issue.", "success");
       // Get-PO-price flow: after the SO fills the matrix, pull awarded RFQ prices.
       if (applyAwardAfterSO.current) {
         applyAwardAfterSO.current = false;
@@ -863,8 +869,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                   <span style={{ fontSize: 13 }}>
                     <b>{so.so_number || "(draft)"}</b>
                     <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
+                    {so.customer_po && <span style={{ color: C.primary, marginLeft: 8 }} title="This customer PO becomes the lot on the new PO's lines">🏷 PO {so.customer_po}</span>}
                   </span>
-                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.fulfillment_source ? ` · ${so.fulfillment_source}` : ""}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
                 </div>
               ))}
             </div>
