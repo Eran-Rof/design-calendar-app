@@ -64,6 +64,7 @@ import r_external_v1_invoices from "./external/v1/invoices.js";
 import r_external_v1_orders from "./external/v1/orders.js";
 import r_external_v1_ping from "./external/v1/ping.js";
 import r_external_v1_styles from "./external/v1/styles.js";
+import r_internal_addresses_postal_suggest from "./internal/addresses/postal-suggest.js";
 import r_internal_adjustment_reasons_id from "./internal/adjustment-reasons/[id].js";
 import r_internal_adjustment_reasons_index from "./internal/adjustment-reasons/index.js";
 import r_internal_adjustment_types_id from "./internal/adjustment-types/[id].js";
@@ -881,6 +882,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
+  { pattern: "/api/internal/addresses/postal-suggest", handler: r_internal_addresses_postal_suggest },
   { pattern: "/api/internal/discount-offers/generate", handler: r_internal_discount_offers_generate },
   { pattern: "/api/internal/pim/style-thumbs-by-code", handler: r_internal_pim_style_thumbs_by_code },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: r_internal_style_matrix_resolve_sku },

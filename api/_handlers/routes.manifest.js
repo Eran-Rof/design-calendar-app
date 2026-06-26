@@ -348,6 +348,7 @@ export default [
   ["/api/internal/size-scales"                               , "./internal/size-scales/index.js"],
   ["/api/internal/seasons/:id"                               , "./internal/seasons/[id].js"],
   ["/api/internal/seasons"                                   , "./internal/seasons/index.js"],
+  ["/api/internal/addresses/postal-suggest"                  , "./internal/addresses/postal-suggest.js"],
   ["/api/internal/colors/nrf-suggest"                        , "./internal/colors/nrf-suggest.js"],
   ["/api/internal/colors/:id"                                , "./internal/colors/[id].js"],
   ["/api/internal/colors"                                    , "./internal/colors/index.js"],
