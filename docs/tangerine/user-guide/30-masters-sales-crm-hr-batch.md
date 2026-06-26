@@ -84,6 +84,7 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 - **Customer `by_brand`** comes from `sales_orders.total_cents` grouped by `brand_id` (AR invoices carry no brand column).
 - **Customer `dilution`** is `Σ(DR−CR)` on `contra_revenue` / `dilution` JE lines for JEs sourced from that customer's invoices — and shows **0 with a caption** until dilution GL accounts exist (see [§30.6](#306-pl-dilution-line)).
+- **Customer `commission`** is split by **closeout**: This-Year net sales (gross − dilution) from invoices whose sales order is flagged **closeout** (`sales_orders.is_closeout`, ticked via the **Closeout order** checkbox on SO entry) use the customer's **closeout commission rate** (`customers.closeout_commission_pct`, set on the Reps tab); the rest use the normal `sales_rep_1% + sales_rep_2%`. The scorecard reports `closeout_sales_cents`, `closeout_commission_pct`, and a blended effective `commission_pct`. When no closeout rate is set, the normal rate applies to everything (unchanged behaviour).
 - **Vendor `pct_ontime_required`** is deliberately `null`: the PO schema has no separate required-vs-actual delivery date, so it would be dishonest to compute one.
 
 > **Note:** the **Vendor Scorecard** here (P16, `m=vendor_scorecard`) is the financial/360° drill-through. It is *separate* from the older procurement **Vendor Scorecards** performance grid in the PO-WIP app (`/tanda?view=scorecards`, handler `api/_handlers/internal/scorecards/`), which scores on-time delivery / invoice accuracy / acknowledgment.

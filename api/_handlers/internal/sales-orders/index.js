@@ -141,7 +141,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
-  "ar_account_id, revenue_account_id, notes, customer_po, subtotal_cents, total_cents, fulfillment_source, " +
+  "ar_account_id, revenue_account_id, notes, customer_po, subtotal_cents, total_cents, fulfillment_source, is_closeout, " +
   "factor_approval_status, factor_reference, factor_approved_cents, buyer_id, " +
   "credit_approval_status, credit_hold_reason, amount_paid_cents, paid_in_full_at, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
@@ -204,6 +204,7 @@ export function validateInsert(body) {
       notes: body.notes ? String(body.notes).trim() : null,
       customer_po: body.customer_po ? String(body.customer_po).trim() : null,
       fulfillment_source: ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null,
+      is_closeout: body.is_closeout === true || body.is_closeout === "true",
       factor_approval_status: factorStatus,
       factor_reference: body.factor_reference ? String(body.factor_reference).trim() : null,
       factor_approved_cents: factorApprovedCents,
@@ -357,6 +358,7 @@ export default async function handler(req, res) {
       notes: v.data.notes,
       customer_po: v.data.customer_po,
       fulfillment_source: v.data.fulfillment_source,
+      is_closeout: v.data.is_closeout,
       factor_approval_status: v.data.factor_approval_status,
       factor_reference: v.data.factor_reference,
       factor_approved_cents: v.data.factor_approved_cents,

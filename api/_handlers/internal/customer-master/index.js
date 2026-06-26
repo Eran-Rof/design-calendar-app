@@ -80,6 +80,7 @@ const LIST_COLUMNS = [
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -211,6 +212,7 @@ export default async function handler(req, res) {
       sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
       sales_rep_2_id: v.data.sales_rep_2_id || null,
       sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      closeout_commission_pct: v.data.closeout_commission_pct ?? null,
       default_brand_id: v.data.default_brand_id || null,
       default_channel_id: v.data.default_channel_id || null,
       default_revenue_account_id: v.data.default_revenue_account_id || null,
@@ -356,7 +358,7 @@ export function validateInsert(body) {
     }
   }
   // P4-family commission percentages — numeric, 0..100.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (out[k] === "" || out[k] == null) {
       out[k] = null;
     } else {

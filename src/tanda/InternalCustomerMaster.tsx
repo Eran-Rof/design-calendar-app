@@ -64,6 +64,7 @@ type Customer = {
   sales_rep_1_commission_pct: number | string | null;
   sales_rep_2_id: string | null;
   sales_rep_2_commission_pct: number | string | null;
+  closeout_commission_pct: number | string | null;
   default_brand_id: string | null;
   default_channel_id: string | null;
   price_list_id: string | null;
@@ -501,6 +502,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     sales_rep_1_commission_pct:   customer?.sales_rep_1_commission_pct != null ? String(customer.sales_rep_1_commission_pct) : "",
     sales_rep_2_id:               customer?.sales_rep_2_id               ?? "",
     sales_rep_2_commission_pct:   customer?.sales_rep_2_commission_pct != null ? String(customer.sales_rep_2_commission_pct) : "",
+    closeout_commission_pct:      customer?.closeout_commission_pct != null ? String(customer.closeout_commission_pct) : "",
     default_brand_id:             customer?.default_brand_id             ?? "",
     default_channel_id:           customer?.default_channel_id           ?? "",
     price_list_id:                customer?.price_list_id                ?? "",
@@ -668,6 +670,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
         sales_rep_1_commission_pct:   form.sales_rep_1_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_1_commission_pct),
         sales_rep_2_id:               form.sales_rep_2_id || null,
         sales_rep_2_commission_pct:   form.sales_rep_2_commission_pct.trim() === "" ? null : parseFloat(form.sales_rep_2_commission_pct),
+        closeout_commission_pct:      form.closeout_commission_pct.trim() === "" ? null : parseFloat(form.closeout_commission_pct),
         default_brand_id:             form.default_brand_id || null,
         default_channel_id:           form.default_channel_id || null,
         price_list_id:                form.price_list_id || null,
@@ -955,6 +958,19 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
               onChange={(e) => setForm({ ...form, sales_rep_2_commission_pct: e.target.value })}
               style={inputStyle}
               placeholder="0.00"
+            />
+          </Field>
+          <Field label="Closeout commission %">
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              value={form.closeout_commission_pct}
+              onChange={(e) => setForm({ ...form, closeout_commission_pct: e.target.value })}
+              style={inputStyle}
+              placeholder="0.00"
+              title="Commission % used for this customer's CLOSEOUT orders (when the SO is flagged closeout), in place of the normal rep rate."
             />
           </Field>
           <Field label="Default brand">
