@@ -151,8 +151,7 @@ Next to your email in the top-right is a **🌐 language picker**. Choose your l
 > transition: legacy synced POs and newer POs created in the current ERP (the
 > latter carry a small **TGR** tag next to the PO number). Going forward all POs
 > will come from the new system. You can **acknowledge** TGR POs and **submit
-> shipments (ASNs)** against them just like any other; **invoicing** for TGR POs
-> follows shortly.
+> shipments (ASNs) and invoices** against them just like any other.
 
 For each PO the list shows the PO number, issue date, required-by date (with a "(Nd)" countdown or "overdue" flag), amount, date received, quantity received vs. ordered, quantity and amount remaining, status, and your acknowledgment date.
 
