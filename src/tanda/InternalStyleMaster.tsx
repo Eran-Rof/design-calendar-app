@@ -163,6 +163,10 @@ type ColorLite = { id: string; name: string; code?: string | null; hex?: string 
 // gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
 type GenderMaster = { id: string; code: string; label: string; sort_order: number };
 
+// Operator: weight (kg) and carton CBM (m³) show WITHOUT the leading zero
+// (e.g. 0.0807 → .0807, 0.36 → .36). Number(".0807") still parses on save.
+const noLead = (v: string): string => v.replace(/^(-?)0(?=\.\d)/, "$1");
+
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
@@ -808,9 +812,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     rise:                 style?.rise                  ?? "",
     hts_code:             style?.hts_code              ?? "",
     duty_rate_pct:        style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "",
-    unit_weight_kg:       style?.unit_weight_kg != null ? String(style.unit_weight_kg) : "",
+    unit_weight_kg:       style?.unit_weight_kg != null ? noLead(String(style.unit_weight_kg)) : "",
     units_per_carton:     style?.units_per_carton != null ? String(style.units_per_carton) : "",
-    carton_cbm_m3:        style?.carton_cbm_m3 != null ? String(style.carton_cbm_m3) : "",
+    carton_cbm_m3:        style?.carton_cbm_m3 != null ? noLead(String(style.carton_cbm_m3)) : "",
     // AI master-carton estimator (CBM). Inputs persist inside cbm_inputs; the
     // unit-weight estimator field is in LB (the rollup column unit_weight_kg
     // stays the source of truth and is kept in sync from it).
@@ -841,7 +845,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const cbmFromInches = (l: string, w: string, h: string): string => {
     const L = Number(l), W = Number(w), H = Number(h);
     if (!Number.isFinite(L) || !Number.isFinite(W) || !Number.isFinite(H) || L <= 0 || W <= 0 || H <= 0) return "";
-    return ((L * W * H) / 61023.6).toFixed(4);
+    return noLead(((L * W * H) / 61023.6).toFixed(4));
   };
   // A hand-edited dimension (or ticking the override box) means a forwarder-
   // measured carton — flag override and recompute the effective CBM from it.
@@ -893,7 +897,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         carton_width_in:  data.carton_width_in != null ? String(data.carton_width_in) : "",
         carton_height_in: data.carton_height_in != null ? String(data.carton_height_in) : "",
         gross_weight_lb:  data.gross_weight_lb != null ? String(data.gross_weight_lb) : "",
-        carton_cbm_m3:    data.cbm != null ? String(data.cbm) : f.carton_cbm_m3,
+        carton_cbm_m3:    data.cbm != null ? noLead(String(data.cbm)) : f.carton_cbm_m3,
         cbm_confidence:   data.confidence || "",
         cbm_note:         data.note || "",
         carton_cbm_override: false,
@@ -1854,7 +1858,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div>
                 <input type="text" inputMode="decimal" value={form.unit_weight_kg}
-                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, unit_weight_kg: e.target.value }); }}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, unit_weight_kg: noLead(e.target.value) }); }}
                   style={inputStyle} placeholder="0.00" />
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Unit weight (kg)</div>
               </div>
@@ -1866,7 +1870,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
               <div>
                 <input type="text" inputMode="decimal" value={form.carton_cbm_m3}
-                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, carton_cbm_m3: e.target.value }); }}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, carton_cbm_m3: noLead(e.target.value) }); }}
                   style={inputStyle} placeholder="0.000" />
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Carton CBM (m³)</div>
               </div>
@@ -1910,7 +1914,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                   onChange={(e) => {
                     if (!/^\d*\.?\d*$/.test(e.target.value)) return;
                     const lb = e.target.value;
-                    const kg = lb.trim() === "" ? "" : (Number(lb) / 2.20462).toFixed(4);
+                    const kg = lb.trim() === "" ? "" : noLead((Number(lb) / 2.20462).toFixed(4));
                     setForm({ ...form, cbm_unit_weight_lb: lb, unit_weight_kg: kg });
                   }}
                   style={inputStyle} placeholder="0.00" />
