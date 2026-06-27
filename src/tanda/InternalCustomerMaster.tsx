@@ -329,10 +329,12 @@ export default function InternalCustomerMaster() {
             the >7 threshold where SearchableSelect's type-ahead becomes
             useful.
           */}
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 140 }}>
-            <option value="">(all)</option>
-            {CUSTOMER_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[{ value: "", label: "(all)" }, ...CUSTOMER_TYPE_OPTIONS.map((t) => ({ value: t, label: t }))]}
+            inputStyle={{ ...inputStyle, width: 140 }}
+          />
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
@@ -804,9 +806,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
             </div>
           </Field>
           <Field label="Customer type">
-            <select value={form.customer_type} onChange={(e) => setForm({ ...form, customer_type: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {CUSTOMER_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.customer_type || null}
+              onChange={(v) => setForm({ ...form, customer_type: v })}
+              options={CUSTOMER_TYPE_OPTIONS.map((t) => ({ value: t, label: t }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Country">
             <SearchableSelect
@@ -881,9 +886,12 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
             )}
           </Field>
           <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.status || null}
+              onChange={(v) => setForm({ ...form, status: v })}
+              options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Tax exempt?">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
@@ -1058,13 +1066,17 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
               <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto auto", gap: 8, alignItems: "center" }}>
                 <input type="text" value={c.name ?? ""} placeholder="Name"
                   onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} style={inputStyle} />
-                <select value={c.department ?? ""}
-                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, department: e.target.value } : x) })} style={inputStyle as React.CSSProperties}>
-                  <option value="">Dept…</option>
-                  <option value="ap">Accounts Payable</option>
-                  <option value="transportation">Transportation</option>
-                  <option value="chargeback">Chargeback</option>
-                </select>
+                <SearchableSelect
+                  value={c.department ?? ""}
+                  onChange={(v) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, department: v } : x) })}
+                  options={[
+                    { value: "", label: "Dept…" },
+                    { value: "ap", label: "Accounts Payable" },
+                    { value: "transportation", label: "Transportation" },
+                    { value: "chargeback", label: "Chargeback" },
+                  ]}
+                  inputStyle={inputStyle as React.CSSProperties}
+                />
                 <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                   <input type="email" value={c.email ?? ""} placeholder="email@example.com"
                     onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, email: e.target.value } : x) })} style={{ ...inputStyle, paddingRight: 30 }} />

@@ -1520,13 +1520,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             />
           </Field>
           <Field label="Gender">
-            <select
-              value={form.gender_code}
-              onChange={(e) => setForm({ ...form, gender_code: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              {genderSelectOptions.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.gender_code || null}
+              onChange={(v) => setForm({ ...form, gender_code: v })}
+              options={genderSelectOptions.map((g) => ({ value: g.value, label: g.label }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
 
           {/* Polish ask B — classifier dropdowns. Options sourced from the
@@ -1622,13 +1621,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
 
           {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
           <Field label="Rise">
-            <select
-              value={form.rise}
-              onChange={(e) => setForm({ ...form, rise: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(select)"}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.rise || null}
+              onChange={(v) => setForm({ ...form, rise: v })}
+              options={RISE_OPTIONS.map((r) => ({ value: r, label: r || "(select)" }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
 
           <Field label="Season">
@@ -1648,14 +1646,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             <input type="number" value={form.design_year} onChange={(e) => setForm({ ...form, design_year: e.target.value })} style={inputStyle} placeholder="2026" />
           </Field>
           <Field label="Lifecycle">
-            <select value={form.lifecycle_status} onChange={(e) => setForm({ ...form, lifecycle_status: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {LIFECYCLE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.lifecycle_status || null}
+              onChange={(v) => setForm({ ...form, lifecycle_status: v })}
+              options={LIFECYCLE_OPTIONS.map((g) => ({ value: g, label: g }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Planning class">
-            <select value={form.planning_class} onChange={(e) => setForm({ ...form, planning_class: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(select)"}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.planning_class || null}
+              onChange={(v) => setForm({ ...form, planning_class: v })}
+              options={PLANNING_OPTIONS.map((g) => ({ value: g, label: g || "(select)" }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Base fabric">
             <SearchableSelect
@@ -1893,20 +1897,21 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Product type (category)</div>
               </div>
               <div>
-                <select
-                  value={form.cbm_fold_type}
-                  onChange={(e) => setForm({ ...form, cbm_fold_type: e.target.value })}
-                  style={inputStyle as React.CSSProperties}
-                >
-                  <option value="">Fold type…</option>
-                  {[
-                    "Flat / Boxed — folded flat in layers",
-                    "Half-fold — folded once, stacked",
-                    "Rolled — knits, loungewear",
-                    "Hanging / GOH — on hangers, garment-on-hanger carton",
-                    "Bulk / Loose — poly-bagged, loose-packed",
-                  ].map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
+                <SearchableSelect
+                  value={form.cbm_fold_type || null}
+                  onChange={(v) => setForm({ ...form, cbm_fold_type: v })}
+                  options={[
+                    { value: "", label: "Fold type…" },
+                    ...[
+                      "Flat / Boxed — folded flat in layers",
+                      "Half-fold — folded once, stacked",
+                      "Rolled — knits, loungewear",
+                      "Hanging / GOH — on hangers, garment-on-hanger carton",
+                      "Bulk / Loose — poly-bagged, loose-packed",
+                    ].map((f) => ({ value: f, label: f })),
+                  ]}
+                  inputStyle={inputStyle as React.CSSProperties}
+                />
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Fold type</div>
               </div>
               <div>
@@ -2415,9 +2420,12 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
               keeps everything inside the modal width. */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end", minWidth: 0 }}>
             <Field label="Role">
-              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}>
-                {FABRIC_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <SearchableSelect
+                value={draft.role || null}
+                onChange={(v) => setDraft({ ...draft, role: v })}
+                options={FABRIC_ROLES.map((r) => ({ value: r, label: r }))}
+                inputStyle={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
+              />
             </Field>
             <Field label="Yards/unit">
               <input
@@ -2431,16 +2439,15 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
           </div>
           <div style={{ marginTop: 8, minWidth: 0 }}>
             <Field label="Fabric">
-              <select
-                value={draft.fabric_code_id}
-                onChange={(e) => setDraft({ ...draft, fabric_code_id: e.target.value })}
-                style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
-              >
-                <option value="">— select —</option>
-                {fabrics.map((f) => (
-                  <option key={f.id} value={f.id}>{f.code} — {f.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={draft.fabric_code_id || null}
+                onChange={(v) => setDraft({ ...draft, fabric_code_id: v })}
+                options={[
+                  { value: "", label: "— select —" },
+                  ...fabrics.map((f) => ({ value: f.id, label: `${f.code} — ${f.name}` })),
+                ]}
+                inputStyle={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
+              />
             </Field>
           </div>
           <div style={{ marginTop: 8, minWidth: 0 }}>
