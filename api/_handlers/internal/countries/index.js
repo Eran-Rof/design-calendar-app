@@ -111,12 +111,21 @@ export function validateInsert(body) {
     typeof body.is_active === "boolean" ? body.is_active :
       body.is_active === "true" || body.is_active === 1;
 
+  let phoneCode = null;
+  if (body.phone_code != null && body.phone_code !== "") {
+    phoneCode = typeof body.phone_code === "number" ? body.phone_code : parseInt(String(body.phone_code).replace(/\D/g, ""), 10);
+    if (!Number.isInteger(phoneCode) || phoneCode < 0) {
+      return { error: "phone_code must be a non-negative integer" };
+    }
+  }
+
   return {
     data: {
       iso2,
       name:       String(body.name).trim(),
       sort_order: sortOrder,
       is_active:  isActive,
+      ...(phoneCode != null ? { phone_code: phoneCode } : {}),
     },
   };
 }
