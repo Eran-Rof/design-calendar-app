@@ -20,10 +20,12 @@ const MUTABLE_FIELDS = new Set([
   "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
   "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "hts_code", "duty_rate_pct", "additional_tariff_pct",
-  "unit_weight_kg", "units_per_carton", "carton_cbm_m3", "attributes",
+  "unit_weight_kg", "units_per_carton", "carton_cbm_m3",
+  "carton_length_in", "carton_width_in", "carton_height_in", "gross_weight_lb",
+  "cbm_confidence", "cbm_note", "cbm_inputs", "carton_cbm_override", "attributes",
 ]);
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, carton_length_in, carton_width_in, carton_height_in, gross_weight_lb, cbm_confidence, cbm_note, cbm_inputs, carton_cbm_override, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -199,5 +201,19 @@ export function validatePatch(body) {
     if (out.units_per_carton === "" || out.units_per_carton == null) out.units_per_carton = null;
     else { const n = Math.floor(Number(out.units_per_carton)); out.units_per_carton = Number.isFinite(n) && n > 0 ? n : null; }
   }
+  // AI carton-CBM estimate fields.
+  for (const k of ["carton_length_in", "carton_width_in", "carton_height_in", "gross_weight_lb"]) {
+    if (k in out) {
+      if (out[k] === "" || out[k] == null) out[k] = null;
+      else { const n = Number(out[k]); out[k] = Number.isFinite(n) && n >= 0 ? n : null; }
+    }
+  }
+  for (const k of ["cbm_confidence", "cbm_note"]) {
+    if (k in out) { if (out[k] == null || out[k] === "") out[k] = null; else out[k] = String(out[k]).trim() || null; }
+  }
+  if ("cbm_inputs" in out) {
+    out.cbm_inputs = out.cbm_inputs && typeof out.cbm_inputs === "object" ? out.cbm_inputs : null;
+  }
+  if ("carton_cbm_override" in out) out.carton_cbm_override = out.carton_cbm_override === true || out.carton_cbm_override === "true";
   return { data: out };
 }

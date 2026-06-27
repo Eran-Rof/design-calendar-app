@@ -485,6 +485,7 @@ import r_internal_style_fabric_codes_id from "./internal/style-fabric-codes/[id]
 import r_internal_style_fabric_codes_index from "./internal/style-fabric-codes/index.js";
 import r_internal_style_master_id from "./internal/style-master/[id].js";
 import r_internal_style_master_auto_assign_scales from "./internal/style-master/auto-assign-scales.js";
+import r_internal_style_master_cbm_estimate from "./internal/style-master/cbm-estimate.js";
 import r_internal_style_master_dim_values from "./internal/style-master/dim-values.js";
 import r_internal_style_master_index from "./internal/style-master/index.js";
 import r_internal_style_master_notes from "./internal/style-master/notes.js";
@@ -885,6 +886,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
+  { pattern: "/api/internal/style-master/cbm-estimate", handler: r_internal_style_master_cbm_estimate },
   { pattern: "/api/internal/addresses/postal-suggest", handler: r_internal_addresses_postal_suggest },
   { pattern: "/api/internal/discount-offers/generate", handler: r_internal_discount_offers_generate },
   { pattern: "/api/internal/pim/style-thumbs-by-code", handler: r_internal_pim_style_thumbs_by_code },

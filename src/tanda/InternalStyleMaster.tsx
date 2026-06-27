@@ -123,6 +123,14 @@ type Style = {
   unit_weight_kg: number | null;
   units_per_carton: number | null;
   carton_cbm_m3: number | null;
+  carton_length_in: number | null;
+  carton_width_in: number | null;
+  carton_height_in: number | null;
+  gross_weight_lb: number | null;
+  cbm_confidence: string | null;
+  cbm_note: string | null;
+  cbm_inputs: Record<string, unknown> | null;
+  carton_cbm_override: boolean | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -803,7 +811,97 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     unit_weight_kg:       style?.unit_weight_kg != null ? String(style.unit_weight_kg) : "",
     units_per_carton:     style?.units_per_carton != null ? String(style.units_per_carton) : "",
     carton_cbm_m3:        style?.carton_cbm_m3 != null ? String(style.carton_cbm_m3) : "",
+    // AI master-carton estimator (CBM). Inputs persist inside cbm_inputs; the
+    // unit-weight estimator field is in LB (the rollup column unit_weight_kg
+    // stays the source of truth and is kept in sync from it).
+    carton_length_in:     style?.carton_length_in != null ? String(style.carton_length_in) : "",
+    carton_width_in:      style?.carton_width_in != null ? String(style.carton_width_in) : "",
+    carton_height_in:     style?.carton_height_in != null ? String(style.carton_height_in) : "",
+    gross_weight_lb:      style?.gross_weight_lb != null ? String(style.gross_weight_lb) : "",
+    cbm_confidence:       style?.cbm_confidence ?? "",
+    cbm_note:             style?.cbm_note ?? "",
+    carton_cbm_override:  style?.carton_cbm_override === true,
+    cbm_fold_type:        (style?.cbm_inputs?.fold_type as string) ?? "",
+    cbm_product_type:     (style?.cbm_inputs?.product_type as string) ?? style?.category_name ?? "",
+    cbm_unit_weight_lb:   (style?.cbm_inputs?.unit_weight_lb != null
+                            ? String(style.cbm_inputs.unit_weight_lb)
+                            : (style?.unit_weight_kg != null ? (style.unit_weight_kg * 2.20462).toFixed(3) : "")),
   });
+  // The inputs the persisted estimate was generated from (cache key).
+  const [cbmInputs, setCbmInputs] = useState<Record<string, unknown> | null>(style?.cbm_inputs ?? null);
+  const [cbmLoading, setCbmLoading] = useState(false);
+
+  const cbmKey = () => ({
+    product_type: form.cbm_product_type.trim(),
+    fold_type: form.cbm_fold_type.trim(),
+    pack_qty: form.units_per_carton.trim(),
+    unit_weight_lb: form.cbm_unit_weight_lb.trim(),
+  });
+  // Recompute the canonical carton_cbm_m3 from inch dims (L*W*H / 61023.6).
+  const cbmFromInches = (l: string, w: string, h: string): string => {
+    const L = Number(l), W = Number(w), H = Number(h);
+    if (!Number.isFinite(L) || !Number.isFinite(W) || !Number.isFinite(H) || L <= 0 || W <= 0 || H <= 0) return "";
+    return ((L * W * H) / 61023.6).toFixed(4);
+  };
+  // A hand-edited dimension (or ticking the override box) means a forwarder-
+  // measured carton — flag override and recompute the effective CBM from it.
+  const setOverrideDim = (key: "carton_length_in" | "carton_width_in" | "carton_height_in", val: string) => {
+    setForm((f) => {
+      const next = { ...f, [key]: val, carton_cbm_override: true };
+      next.carton_cbm_m3 = cbmFromInches(next.carton_length_in, next.carton_width_in, next.carton_height_in);
+      return next;
+    });
+  };
+
+  async function estimateCarton() {
+    if (cbmLoading) return;
+    if (form.carton_cbm_override) {
+      notify("A measured-carton override is set — untick it to re-estimate.", "info");
+      return;
+    }
+    const key = cbmKey();
+    if (!key.product_type && !key.fold_type) {
+      notify("Pick a product type and fold type first.", "info");
+      return;
+    }
+    // Cache: skip the API call when nothing changed and an estimate exists.
+    if (cbmInputs && form.carton_cbm_m3.trim() &&
+        JSON.stringify(cbmInputs) === JSON.stringify(key)) {
+      notify("Inputs unchanged — using the cached estimate.", "info");
+      return;
+    }
+    setCbmLoading(true);
+    try {
+      const r = await fetch("/api/internal/style-master/cbm-estimate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_type: key.product_type,
+          fold_type: key.fold_type,
+          unit_weight_lb: key.unit_weight_lb,
+          pack_qty: key.pack_qty,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (data.note) { notify(data.note, "info"); return; }
+      setForm((f) => ({
+        ...f,
+        carton_length_in: data.carton_length_in != null ? String(data.carton_length_in) : "",
+        carton_width_in:  data.carton_width_in != null ? String(data.carton_width_in) : "",
+        carton_height_in: data.carton_height_in != null ? String(data.carton_height_in) : "",
+        gross_weight_lb:  data.gross_weight_lb != null ? String(data.gross_weight_lb) : "",
+        carton_cbm_m3:    data.cbm != null ? String(data.cbm) : f.carton_cbm_m3,
+        cbm_confidence:   data.confidence || "",
+        cbm_note:         data.note || "",
+        carton_cbm_override: false,
+      }));
+      setCbmInputs(key);
+    } catch (e: unknown) {
+      notify(`Carton estimate failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setCbmLoading(false);
+    }
+  }
   // AI HTS classification state (Claude Haiku via /api/internal/hts/suggest).
   type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
   const [htsSuggestions, setHtsSuggestions] = useState<HtsSuggestion[]>([]);
@@ -1239,6 +1337,15 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
         units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
         carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
+        // AI master-carton estimate (+ manual override) — operator CBM estimator.
+        carton_length_in:     form.carton_length_in.trim() === "" ? null : Number(form.carton_length_in),
+        carton_width_in:      form.carton_width_in.trim() === "" ? null : Number(form.carton_width_in),
+        carton_height_in:     form.carton_height_in.trim() === "" ? null : Number(form.carton_height_in),
+        gross_weight_lb:      form.gross_weight_lb.trim() === "" ? null : Number(form.gross_weight_lb),
+        cbm_confidence:       form.cbm_confidence.trim() || null,
+        cbm_note:             form.cbm_note.trim() || null,
+        cbm_inputs:           cbmInputs,
+        carton_cbm_override:  form.carton_cbm_override,
         attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: serializeScalePack(), color_ids: colorIds, inseams },
       };
       let url: string;
@@ -1732,6 +1839,102 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Used on Purchase Orders to roll up total weight, cartons, and CBM.</div>
+          </Field>
+
+          {/* AI master-carton estimator. Estimates carton dims + CBM + gross
+              weight from product type / fold / unit weight / pack qty. A
+              hand-entered (forwarder-measured) carton overrides the estimate. */}
+          <Field label="Master carton — AI estimate">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <SearchableSelect
+                  value={form.cbm_product_type || null}
+                  onChange={(v) => setForm({ ...form, cbm_product_type: v || "" })}
+                  options={[{ value: "", label: "(select)" }, ...dimValues.categories.map((c) => ({ value: c, label: c }))]}
+                  placeholder="Product type…"
+                />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Product type (category)</div>
+              </div>
+              <div>
+                <select
+                  value={form.cbm_fold_type}
+                  onChange={(e) => setForm({ ...form, cbm_fold_type: e.target.value })}
+                  style={inputStyle as React.CSSProperties}
+                >
+                  <option value="">Fold type…</option>
+                  {[
+                    "Flat / Boxed — folded flat in layers",
+                    "Half-fold — folded once, stacked",
+                    "Rolled — knits, loungewear",
+                    "Hanging / GOH — on hangers, garment-on-hanger carton",
+                    "Bulk / Loose — poly-bagged, loose-packed",
+                  ].map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Fold type</div>
+              </div>
+              <div>
+                <input type="text" inputMode="decimal" value={form.cbm_unit_weight_lb}
+                  onChange={(e) => {
+                    if (!/^\d*\.?\d*$/.test(e.target.value)) return;
+                    const lb = e.target.value;
+                    const kg = lb.trim() === "" ? "" : (Number(lb) / 2.20462).toFixed(4);
+                    setForm({ ...form, cbm_unit_weight_lb: lb, unit_weight_kg: kg });
+                  }}
+                  style={inputStyle} placeholder="0.00" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Unit weight (lb) — syncs kg above</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-start" }}>
+                <button type="button" onClick={() => void estimateCarton()} disabled={cbmLoading}
+                  style={{ ...btnSecondary, width: "100%" }}
+                  title="Estimate the master carton dimensions, CBM and gross weight with AI (Claude). Uses units/carton from the Pack/logistics row above.">
+                  {cbmLoading ? "Estimating…" : "🤖 Estimate carton"}
+                </button>
+              </div>
+            </div>
+
+            {/* Carton dimensions — editable; editing flags a measured override. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+              {([
+                ["carton_length_in", "L (in)"],
+                ["carton_width_in", "W (in)"],
+                ["carton_height_in", "H (in)"],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <input type="text" inputMode="decimal" value={form[key]}
+                    onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setOverrideDim(key, e.target.value); }}
+                    style={inputStyle} placeholder="0.0" />
+                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+              <div>
+                <input type="text" inputMode="decimal" value={form.gross_weight_lb}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, gross_weight_lb: e.target.value }); }}
+                  style={inputStyle} placeholder="0.0" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Gross wt (lb)</div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 12 }}>
+                <input type="checkbox" checked={form.carton_cbm_override}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    carton_cbm_override: e.target.checked,
+                    carton_cbm_m3: e.target.checked
+                      ? (cbmFromInches(f.carton_length_in, f.carton_width_in, f.carton_height_in) || f.carton_cbm_m3)
+                      : f.carton_cbm_m3,
+                  }))} />
+                Measured carton (overrides AI estimate)
+              </label>
+              {form.cbm_confidence && (
+                <span style={{ fontSize: 11, fontWeight: 600,
+                  color: form.cbm_confidence === "high" ? C.success : form.cbm_confidence === "medium" ? C.warn : C.danger }}>
+                  Confidence: {form.cbm_confidence}{form.cbm_confidence !== "high" ? " — verify by hand" : ""}
+                </span>
+              )}
+            </div>
+            {form.cbm_note && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>{form.cbm_note}</div>}
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Estimate only — for freight planning. The carton CBM (m³) above is what Purchase Orders roll up; a measured carton overrides it everywhere.</div>
           </Field>
 
           {/* Opt-in GS1 UPC minting — add mode only. Disabled (with tooltip)
