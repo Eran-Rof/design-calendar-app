@@ -139,7 +139,7 @@ export default function InternalVirtualCards() {
               <div><StatusChip status={c.status} /></div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(c.issued_at)}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
+                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}
               </div>
             </div>

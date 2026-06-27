@@ -81,7 +81,7 @@ export default function AddressFields({
   const v = value || {};
   const set = (k: string, val: string) => onChange({ ...v, [k]: val });
 
-  // 🤖 AI postal-code fill (operator #7) — fills `postal` from the rest of the
+  // AI postal-code fill (operator #7) — fills `postal` from the rest of the
   // address (US ZIP / ZIP+4 when determinable, else 5-digit; standard otherwise).
   const [postalBusy, setPostalBusy] = useState(false);
   const suggestPostal = async () => {
@@ -168,7 +168,7 @@ export default function AddressFields({
           <button type="button" onClick={() => void suggestPostal()} disabled={postalBusy || !String(v.city ?? "").trim()}
             title="Use AI to fill the postal code from the rest of the address"
             style={{ background: "#0b1220", color: "#3B82F6", border: "1px solid #3B82F6", borderRadius: 4, padding: "0 8px", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
-            {postalBusy ? "…" : "🤖"}
+            {postalBusy ? "…" : "AI"}
           </button>
         </div>
         <SearchableSelect value={countryValue || null} onChange={onCountryChange} options={countryOptions} placeholder="Country" inputStyle={selectInput} />

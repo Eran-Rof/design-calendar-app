@@ -184,7 +184,7 @@ export default function CostingApp() {
               display: "inline-flex", alignItems: "center", gap: 6,
             }}
           >
-            ✨ Ask AI
+            Ask AI
           </button>
           <a
             href="/notifications?from=costing"
@@ -196,7 +196,7 @@ export default function CostingApp() {
               display: "inline-flex", alignItems: "center", gap: 6,
             }}
           >
-            🔔 Notifications
+            Notifications
             {unread > 0 && (
               <span style={{
                 minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -240,7 +240,7 @@ export default function CostingApp() {
       <WarnHost />
 
       {/* Ask AI slide-in panel — shared analytics assistant, opened from the
-          top-bar "✨ Ask AI" button. appId "tangerine" routes to Opus + the full
+          top-bar "Ask AI" button. appId "tangerine" routes to Opus + the full
           sales/inventory schema (constants.MODEL_BY_APP). */}
       <AskAIPanel
         open={aiOpen}

@@ -428,7 +428,6 @@ function NotificationsTabLink() {
         display: "inline-flex", alignItems: "center", gap: 6,
       }}
     >
-      <span style={{ fontSize: 15, lineHeight: 1 }}>🔔</span>
       <span>Notifications</span>
       {unread > 0 && (
         <span style={{

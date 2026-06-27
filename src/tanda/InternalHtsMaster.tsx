@@ -364,7 +364,7 @@ function HtsFormModal({ mode, row, onClose, onSaved }: ModalProps) {
           <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 12, color: C.textSub }}>
-                🤖 Type a product/fabric description below, then auto-fill the code, chapter, heading & duty with AI.
+                Type a product/fabric description below, then auto-fill the code, chapter, heading & duty with AI.
               </span>
               <button
                 type="button"
@@ -373,7 +373,7 @@ function HtsFormModal({ mode, row, onClose, onSaved }: ModalProps) {
                 style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0, opacity: !form.description.trim() ? 0.5 : 1 }}
                 title="Use Claude AI to classify and fill HTS fields from the description"
               >
-                {aiLoading ? "…" : "🤖 Suggest HTS"}
+                {aiLoading ? "…" : "Suggest HTS"}
               </button>
             </div>
             {aiErr && <div style={{ fontSize: 11, color: C.warn }}>{aiErr}</div>}

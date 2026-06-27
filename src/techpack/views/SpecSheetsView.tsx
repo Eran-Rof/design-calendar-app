@@ -99,7 +99,6 @@ export function SpecSheetsView({
                     onMouseLeave={e => e.currentTarget.style.background = "none"}
                     onClick={openCreateModal}
                   >
-                    <span style={{ fontSize: 16 }}>📏</span>
                     <div>
                       <div>Add New Spec Sheet</div>
                       <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 400 }}>Create from scratch</div>
@@ -111,7 +110,6 @@ export function SpecSheetsView({
                     onMouseEnter={e => (e.currentTarget.style.background = "#334155")}
                     onMouseLeave={e => (e.currentTarget.style.background = "none")}
                   >
-                    <span style={{ fontSize: 16 }}>📤</span>
                     <div>
                       <div>Import from Excel</div>
                       <div style={{ fontSize: 11, color: "#6B7280", fontWeight: 400 }}>Upload .xlsx file</div>
@@ -127,7 +125,6 @@ export function SpecSheetsView({
 
       {filteredSS.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={{ fontSize: 40 }}>📏</div>
           <p>No spec sheets yet. Create your first one or upload from Excel.</p>
         </div>
       ) : (
@@ -158,7 +155,7 @@ export function SpecSheetsView({
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
-                  <button style={S.iconBtnTiny} title="Edit" onClick={() => setSelectedSpecSheet(ss)}>✏️</button>
+                  <button style={S.iconBtnTiny} title="Edit" onClick={() => setSelectedSpecSheet(ss)}>Edit</button>
                   <button
                     style={{ ...S.iconBtnTiny, color: "#EF4444" }}
                     title="Delete"
@@ -167,7 +164,7 @@ export function SpecSheetsView({
                       message: `Delete "${ss.styleName || ss.styleNumber || "this spec sheet"}"? This cannot be undone.`,
                       onConfirm: () => { void saveSpecSheets(specSheets.filter(x => x.id !== ss.id)); },
                     })}
-                  >🗑️</button>
+                  >Delete</button>
                 </div>
               </div>
             </div>

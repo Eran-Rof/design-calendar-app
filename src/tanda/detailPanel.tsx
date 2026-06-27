@@ -464,11 +464,11 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Excel
                 </button>
-                <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
-                <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
+                <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>Print</button>
+                <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
                   style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
                   onMouseEnter={e => { e.currentTarget.style.background = "#EF4444"; e.currentTarget.style.color = "#fff"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>🗑 Delete PO</button>
+                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>Delete PO</button>
                 <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => { setSelected(null); setSearch(""); }}>✕ Close</button>
               </div>
             </div>
@@ -546,7 +546,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
                   <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
-                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
+                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>{delayed} delayed</span>}
                 </div>
                 {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
@@ -599,8 +599,8 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
             <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
-            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>📎 Files</button>
-            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email/Teams</button>
+            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>Files</button>
+            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>Email/Teams</button>
             <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>

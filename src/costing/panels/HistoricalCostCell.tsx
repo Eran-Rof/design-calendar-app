@@ -109,7 +109,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
           padding: "2px 6px", fontSize: 10, fontWeight: 600,
           cursor: "pointer",
         }}
-      >📋 PO Hist</button>
+      >PO Hist</button>
       {open && pos && ReactDOM.createPortal(
         <div
           ref={popRef}

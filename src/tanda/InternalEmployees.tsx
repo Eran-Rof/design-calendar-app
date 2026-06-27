@@ -344,7 +344,7 @@ export default function InternalEmployees() {
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("email")}>{e.email}</td>
                 <td style={td} hidden={!isVisible("title")}>{titleOf(e)}</td>
                 <td style={td} hidden={!isVisible("department")}>{deptOf(e)}</td>
-                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "🟢" : "⚪"}</td>
+                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "Active" : "Inactive"}</td>
                 <td style={td}>
                   <button style={btnSecondary} onClick={() => setEditing(e)}>Edit</button>
                   &nbsp;

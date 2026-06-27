@@ -85,11 +85,11 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
 };
 
 export const DOMAIN_EMOJI: Record<Domain, string> = {
-  ap:        "🧾",
-  ar:        "🧮",
-  cash:      "💵",
-  gl:        "📓",
-  inventory: "📦",
+  ap:        "",
+  ar:        "",
+  cash:      "",
+  gl:        "",
+  inventory: "",
 };
 
 // Which manual-trigger endpoints exist today (built in P9-2..P9-6 —
@@ -488,7 +488,7 @@ export default function InternalReconciliationDashboard() {
     <div style={{ color: C.text }} data-testid="recon-dashboard">
       {/* ───── Header ───── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Parallel-Run Reconciliation</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Parallel-Run Reconciliation</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             5-domain recon · Xoro vs Tangerine · soft-block close until cleared (D4)
@@ -526,7 +526,6 @@ export default function InternalReconciliationDashboard() {
               data-testid={`recon-card-${d}`}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{DOMAIN_EMOJI[d]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{DOMAIN_LABEL[d]}</span>
               </div>
               {run ? (
@@ -624,7 +623,7 @@ export default function InternalReconciliationDashboard() {
               {DOMAINS.map((dom) => (
                 <tr key={dom}>
                   <td style={{ ...td, fontWeight: 600, position: "sticky", left: 0, background: C.card, zIndex: 1 }}>
-                    {DOMAIN_EMOJI[dom]} {DOMAIN_LABEL[dom]}
+                    {DOMAIN_LABEL[dom]}
                   </td>
                   {dates.map((date) => {
                     const cell = byDomainDate[dom][date];
@@ -781,7 +780,7 @@ function VarianceSidePanel({
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 18 }}>
-            {DOMAIN_EMOJI[run.domain]} {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
+            {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
           </h3>
           <button onClick={onClose} style={btnSecondary} data-testid="recon-side-panel-close">Close</button>
         </div>

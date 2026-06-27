@@ -144,8 +144,8 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }: {
           {images.map((img: any) => {
             const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image");
             const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
-            const fileIcons: Record<string, string> = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
-            const icon = fileIcons[ext] || "📎";
+            const fileIcons: Record<string, string> = { PDF: "", AI: "", EPS: "", PSD: "", SVG: "" };
+            const icon = fileIcons[ext] || "";
             return (
             <div
               key={img.id}
@@ -177,11 +177,11 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }: {
                   }}
                 />
                 {img.type === "uploading" && (
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 16 }}>⏳</div>
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 11 }}>Uploading…</div>
                 )}
               </div>
               ) : img.type === "uploading" ? (
-              <div style={{ width: "100%", height: "100%", borderRadius: 8, border: `1px solid ${TH.border}`, display: "flex", alignItems: "center", justifyContent: "center", background: TH.surfaceHi, fontSize: 20 }}>⏳</div>
+              <div style={{ width: "100%", height: "100%", borderRadius: 8, border: `1px solid ${TH.border}`, display: "flex", alignItems: "center", justifyContent: "center", background: TH.surfaceHi, fontSize: 11 }}>Uploading…</div>
               ) : (
               <a href={img.src} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                 <div style={{
@@ -190,7 +190,6 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }: {
                   flexDirection: "column", alignItems: "center", justifyContent: "center",
                   background: TH.surfaceHi, cursor: "pointer", fontSize: 24,
                 }}>
-                  <div>{icon}</div>
                   <div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div>
                 </div>
               </a>
@@ -278,7 +277,7 @@ function ImageUploader({ images = [], onChange, label = "Attachments" }: {
         }}
         onClick={() => fileRef.current?.click()}
       >
-        {draggingOver ? "Drop files here" : "📁 Upload or Drag & Drop (Images, PDF, AI, PSD)"}
+        {draggingOver ? "Drop files here" : "Upload or Drag & Drop (Images, PDF, AI, PSD)"}
       </div>
       {uploadingCount > 0 && (
         <div style={{ fontSize: 11, color: TH.primary, marginTop: 6, textAlign: "center", display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>

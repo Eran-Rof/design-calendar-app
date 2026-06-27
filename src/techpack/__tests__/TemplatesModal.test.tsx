@@ -81,7 +81,7 @@ describe("<TemplatesModal />", () => {
     expect(onUse).toHaveBeenCalledWith(expect.objectContaining({ id: "t1" }));
   });
 
-  it("🗑️ button only renders on non-builtin templates", () => {
+  it("Delete button only renders on non-builtin templates", () => {
     render(<TemplatesModal
       allTemplates={[
         template({ id: "user1", name: "Custom", isBuiltin: false }),
@@ -90,16 +90,16 @@ describe("<TemplatesModal />", () => {
       onClose={vi.fn()} onUse={vi.fn()} onDownload={vi.fn()} onUpload={vi.fn()} onDelete={vi.fn()}
     />);
     // Only 1 trash button (the non-builtin)
-    expect(screen.getAllByText("🗑️").length).toBe(1);
+    expect(screen.getAllByText("Delete").length).toBe(1);
   });
 
-  it("🗑️ fires onDelete with the deleted template", () => {
+  it("Delete fires onDelete with the deleted template", () => {
     const onDelete = vi.fn();
     render(<TemplatesModal
       allTemplates={[template({ id: "u1", name: "Custom", isBuiltin: false })]}
       onClose={vi.fn()} onUse={vi.fn()} onDownload={vi.fn()} onUpload={vi.fn()} onDelete={onDelete}
     />);
-    fireEvent.click(screen.getByText("🗑️"));
+    fireEvent.click(screen.getByText("Delete"));
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: "u1" }));
   });
 

@@ -309,7 +309,6 @@ export default function PAUnpackerPanel() {
           transition: "all 0.15s",
         }}
       >
-        <div style={{ fontSize: 36, marginBottom: 6 }}>📥</div>
         <div style={{ fontSize: 14, fontWeight: 600, color: TH.text }}>
           Drag & drop PA files here, or click to choose
         </div>
@@ -412,7 +411,7 @@ export default function PAUnpackerPanel() {
             <ViewToggleButton active={viewMode === "flat"} onClick={() => setViewMode("flat")}>Flat Table</ViewToggleButton>
             <button onClick={handleDownload}
               style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", marginLeft: 8 }}>
-              ⬇ Download Excel
+              Download Excel
             </button>
           </div>
         </div>

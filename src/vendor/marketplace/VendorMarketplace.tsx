@@ -152,7 +152,7 @@ function ListingEditor({ listing, onSaved, onPublish }: { listing: Listing | nul
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {listing && (
             <span style={{ fontSize: 11, color: listing.status === "published" ? C.success : C.textMuted, fontWeight: 700, textTransform: "uppercase" }}>
-              {listing.status}{listing.status === "published" ? ` · 👁 ${listing.views}` : ""}
+              {listing.status}{listing.status === "published" ? ` · ${listing.views} views` : ""}
             </span>
           )}
           {listing && <button onClick={onPublish} style={{ ...btnSecondary, color: listing.status === "published" ? C.warn : C.success }}>{listing.status === "published" ? "Unpublish" : "Publish"}</button>}

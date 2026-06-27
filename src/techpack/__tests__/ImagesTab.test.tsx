@@ -52,7 +52,7 @@ describe("<ImagesTab />", () => {
       uploadImage={vi.fn()}
       setLightboxImg={vi.fn()}
     />);
-    const removeButtons = screen.getAllByText("🗑️");
+    const removeButtons = screen.getAllByText("Delete");
     fireEvent.click(removeButtons[0]); // remove i1
     expect(updateSelected).toHaveBeenCalledWith({
       images: [{ id: "i2", url: "u2.jpg", name: "back.jpg", type: "image/jpeg" }],

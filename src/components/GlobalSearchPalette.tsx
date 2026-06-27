@@ -492,7 +492,6 @@ export function GlobalSearchPalette({ open, onClose, onToggle, navigate, openInN
             background: "#0F172A",
           }}
         >
-          <span style={{ fontSize: 18, color: "#94A3B8" }} aria-hidden="true">🔍</span>
           <input
             ref={inputRef}
             value={q}

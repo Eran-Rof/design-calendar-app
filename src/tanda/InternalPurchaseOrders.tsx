@@ -178,7 +178,7 @@ export default function InternalPurchaseOrders() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📦 Purchase Orders</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Purchase Orders</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <ExportButton rows={exportRows} filename="purchase-orders" sheetName="Purchase Orders" columns={exportColumns} />
           <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New purchase order</button>
@@ -826,14 +826,14 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {/* Build the matrix from an existing Sales Order (new PO only). */}
         {isNew && editable && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Create from Sales Order</button>
             <button type="button" onClick={() => {
               // If the matrix already has styles (from an SO or added manually),
               // price THOSE in place — no "from an SO?" prompt, no qty reset.
               const codes = bodyRef.current?.getStyleCodes() || [];
               if (codes.length) { setAwardInPlace(true); void openAwardDialog(codes); }
               else { setAwardInPlace(false); setPriceAskOpen(true); }
-            }} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
+            }} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>Get PO price</button>
             {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
           </div>
         )}
@@ -841,7 +841,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {/* Scenario 4 — split an existing (pre-receiving) PO across customer POs. */}
         {!isNew && po && !["received", "cancelled"].includes(po.status) && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-            <button type="button" onClick={() => { setSplitLots([]); setSplitInput(""); setSplitOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>🪓 Split by customer PO</button>
+            <button type="button" onClick={() => { setSplitLots([]); setSplitInput(""); setSplitOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Split by customer PO</button>
             <span style={{ fontSize: 11, color: C.textMuted }}>Divide each line evenly (full cartons) across multiple customer POs — each becomes its own lot.</span>
           </div>
         )}
@@ -875,7 +875,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
-          <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">🖨 View</button>
+          <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">View</button>
 
           {/* Draft / new — the original save + issue flow. */}
           {(isNew || po?.status === "draft") && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
@@ -883,16 +883,16 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
           {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
           {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}
-          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
+          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>Mark in-transit</button>}
           {/* "Received" is no longer a manual flip — it's set when a goods receipt
               is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
-            <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">📥 Receive…</button>
+            <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">Receive…</button>
           )}
 
           {/* Revising a saved PO — save the revision (notifies the vendor) or cancel. */}
           {isRevisable && editMode && <button onClick={() => setEditMode(false)} style={btnSecondary} disabled={submitting}>Cancel edit</button>}
-          {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "💾 Save revision"}</button>}
+          {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save revision"}</button>}
         </div>
       </div>
 
@@ -900,7 +900,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {soPickOpen && (
         <div onClick={(e) => { e.stopPropagation(); if (!soBusy) setSoPickOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>📋 Create PO from a Sales Order</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Create PO from a Sales Order</h3>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Pick a sales order — its styles, colors, sizes, and quantities fill the PO matrix. Unit costs stay blank (the SO carries selling prices, not costs).</div>
             <input type="text" value={soQuery} onChange={(e) => setSoQuery(e.target.value)} autoFocus placeholder="Search SO # / customer / style…" style={{ ...inputStyle, marginBottom: 10 }} />
             <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
@@ -913,7 +913,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                   <span style={{ fontSize: 13 }}>
                     <b>{so.so_number || "(draft)"}</b>
                     <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
-                    {so.customer_po && <span style={{ color: C.primary, marginLeft: 8 }} title="This customer PO becomes the lot on the new PO's lines">🏷 PO {so.customer_po}</span>}
+                    {so.customer_po && <span style={{ color: C.primary, marginLeft: 8 }} title="This customer PO becomes the lot on the new PO's lines">PO {so.customer_po}</span>}
                   </span>
                   <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.fulfillment_source ? ` · ${so.fulfillment_source}` : ""}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
                 </div>
@@ -930,7 +930,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {splitOpen && (
         <div onClick={(e) => { e.stopPropagation(); if (!splitBusy) setSplitOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>🪓 Split by customer PO</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Split by customer PO</h3>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
               Enter the customer PO numbers this PO covers. Each line is divided evenly across them on a full-carton basis, and every split carries its customer PO as the lot. Replaces the PO's current lines.
             </div>
@@ -944,7 +944,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
               {splitLots.length === 0 && <span style={{ fontSize: 12, color: C.textMuted }}>No customer POs added yet (need at least two).</span>}
               {splitLots.map((lot) => (
                 <span key={lot} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 10px", fontSize: 12 }}>
-                  🏷 {lot}
+                  {lot}
                   <button type="button" onClick={() => setSplitLots((p) => p.filter((x) => x !== lot))} style={{ background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 13, lineHeight: 1 }} title="Remove">✕</button>
                 </span>
               ))}
@@ -961,7 +961,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {priceAskOpen && (
         <div onClick={(e) => { e.stopPropagation(); setPriceAskOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(440px, 95vw)", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Get PO price</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Get PO price</h3>
             <div style={{ fontSize: 13, color: C.textSub, marginBottom: 16 }}>Is this PO being created from a Sales Order?</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => { setPriceAskOpen(false); applyAwardAfterSO.current = true; setSoQuery(""); setSoPickOpen(true); }} style={btnPrimary}>Yes — pick the SO first</button>
@@ -975,10 +975,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {awardOpen && (
         <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices — review</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Awarded RFQ prices — review</h3>
             {awardMissing.length > 0 && (
               <div style={{ padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, marginBottom: 12 }}>
-                ⚠️ No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
+                No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
               </div>
             )}
             {awardQuotes.length > 0 && (

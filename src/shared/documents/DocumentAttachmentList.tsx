@@ -171,7 +171,7 @@ export default function DocumentAttachmentList({
       {!compact && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
-            📎 Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
+            Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
           </div>
           <button style={btnPrimary} onClick={() => setUploadOpen(true)}>+ Upload</button>
         </div>
@@ -202,7 +202,7 @@ export default function DocumentAttachmentList({
               </div>
             )}
           </div>
-          <button style={btnSecondary} onClick={() => void download(d.id)}>⬇ Download</button>
+          <button style={btnSecondary} onClick={() => void download(d.id)}>Download</button>
           <button style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} onClick={() => void archive(d.id)}>Archive</button>
         </div>
       ))}

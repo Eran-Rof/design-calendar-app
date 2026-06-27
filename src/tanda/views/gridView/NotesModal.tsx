@@ -49,7 +49,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
   })();
 
   // Variant notes aggregated across all milestones — shown in the "all notes"
-  // modal (no filterPhase, no filterVariant) so the row-level 📝 includes them.
+  // modal (no filterPhase, no filterVariant) so the row-level notes icon includes them.
   const variantNotesFlat = (!isVariantMode && !filterPhase) ? ms.flatMap(m =>
     Object.entries(m.variant_notes || {}).flatMap(([vk, arr]) =>
       arr.map(ne => ({ ...ne, phase: m.phase, variant: vk, milestoneId: m.id }))
@@ -153,7 +153,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                                     style={{ background: "#1A2B40", border: "1px solid #334155", color: "#93C5FD", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
                                     onMouseEnter={e => { e.currentTarget.style.background = "#1E3A5F"; e.currentTarget.style.color = "#60A5FA"; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = "#1A2B40"; e.currentTarget.style.color = "#93C5FD"; }}
-                                  >✏</button>
+                                  >✎</button>
                                   <button
                                     onClick={() => handleDelete(i)}
                                     title="Delete note"

@@ -27,7 +27,7 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
 
   const onSelect = async (raw: string) => {
     if (raw === "__add__") {
-      const newName = await promptDialog(`Add new ${kind}:`, { title: `New ${kind}`, icon: "➕", required: true });
+      const newName = await promptDialog(`Add new ${kind}:`, { title: `New ${kind}`, required: true });
       if (!newName || !newName.trim()) return;
       const clean = newName.trim();
       await addMaster(kind, clean);

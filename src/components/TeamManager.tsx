@@ -53,7 +53,6 @@ function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, s
 
   if (!isAdmin) return (
     <div style={{ padding: 32, textAlign: "center", color: TH.textMuted }}>
-      <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
       <div style={{ fontSize: 15, fontWeight: 600, color: TH.textSub }}>Admin access required</div>
       <div style={{ fontSize: 13, marginTop: 6 }}>Only admins can manage team members.</div>
     </div>

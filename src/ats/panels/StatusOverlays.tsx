@@ -57,7 +57,6 @@ export const UploadErrorModal: React.FC<UploadErrorModalProps> = ({ uploadError,
       <div style={{ ...S.modal, width: "min(440px, 95vw)", border: "1px solid #EF4444" }} onClick={e => e.stopPropagation()}>
         <div style={{ ...S.modalHeader, borderBottom: "1px solid #7f1d1d" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(239,68,68,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚠</div>
             <h2 style={{ ...S.modalTitle, color: "#FCA5A5" }}>Upload Failed</h2>
           </div>
           <button style={S.closeBtn} onClick={() => setUploadError(null)}>✕</button>

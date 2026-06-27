@@ -513,12 +513,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         {mode === "po" && (
           <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
             title={showLots ? "Hide the per-line Lot column" : "Show the per-line Lot column (auto-set to the PO number at issue)"}>
-            🏷 {showLots ? "Hide lots" : "Show lots"}
+            {showLots ? "Hide lots" : "Show lots"}
           </button>
         )}
         {(canAdd ?? editable) && (
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>➕ Add style (matrix)</button>
+            <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Add style (matrix)</button>
             <button onClick={addFlat} style={btnSecondary}>+ Add non-matrix line</button>
           </div>
         )}
@@ -542,7 +542,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
 
       {sections.length === 0 && flat.length === 0 && (
         <div style={{ color: C.textMuted, fontSize: 13, padding: "16px 12px", border: `1px dashed ${C.cardBdr}`, borderRadius: 8, marginBottom: 12 }}>
-          {editable ? "Click ➕ Add style (matrix) and type ordered quantities into the color × size grid. Most styles are matrix-driven; use + Add non-matrix line for the rare one-off SKU." : "No lines."}
+          {editable ? "Click Add style (matrix) and type ordered quantities into the color × size grid. Most styles are matrix-driven; use + Add non-matrix line for the rare one-off SKU." : "No lines."}
         </div>
       )}
 
@@ -609,7 +609,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // Qty column. Only offered when editable and the style has a usable pack
         // for these sizes.
         const sizesList = s.payload?.sizes || [];
-        // The pack ratio may be flat or per-inseam (Style Master → 📐 Scale).
+        // The pack ratio may be flat or per-inseam (Style Master → Scale).
         // Resolve it for the row's inseam (rowKey = `color|inseam`) so each inseam
         // row distributes by its own pack; a flat pack applies to every inseam.
         const rawPack = styles.find((st) => st.id === s.styleId)?.attributes?.size_scale_pack;
@@ -637,7 +637,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSectionDatesOpen(s.id, true); }}
                 title="Click to edit this style's dates"
                 style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 10, fontSize: 12, color: C.textMuted, cursor: "pointer" }}>
-                <span>📅 In DC: <b style={{ color: C.textSub }}>{s.dates?.requested ? fmtDateDisplay(s.dates.requested) : "—"}</b></span>
+                <span>In DC: <b style={{ color: C.textSub }}>{s.dates?.requested ? fmtDateDisplay(s.dates.requested) : "—"}</b></span>
                 <span>Vendor-confirmed: <b style={{ color: C.textSub }}>{s.dates?.confirmed ? fmtDateDisplay(s.dates.confirmed) : "—"}</b></span>
                 <span style={{ color: C.primary }}>✎ edit</span>
               </div>
@@ -669,7 +669,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 quickFill={editable ? {
                   onApply: (rk, total) => setRowQtys(s.id, rk, distributeByPack(total, sizesList, packForRow(rk))),
                   enabledFor: (rk) => packUsableFor(rk),
-                  disabledTitle: "Set a size scale (pack) for this style in Style Master → 📐 Scale to enable quick-fill.",
+                  disabledTitle: "Set a size scale (pack) for this style in Style Master → Scale to enable quick-fill.",
                   valueFor: (rk) => s.quickFill?.[rk],
                 } : undefined}
                 lot={mode === "po" && showLots ? {
@@ -685,7 +685,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void conformCartons(s.id); }}
                 title={`Click to have Tangerine round these up to full cartons of ${CARTON}`}
                 style={{ marginTop: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, cursor: "pointer" }}>
-                ⚠️ Not full cartons of {CARTON}: {partialCells.map((c) => `${c.label} (${c.qty})`).join(", ")} — <u>click to auto-fix</u> (round up), or adjust by hand.
+                Not full cartons of {CARTON}: {partialCells.map((c) => `${c.label} (${c.qty})`).join(", ")} — <u>click to auto-fix</u> (round up), or adjust by hand.
               </div>
             )}
           </div>
@@ -700,7 +700,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}
         >
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.warn}`, borderRadius: 10, padding: 22, width: "min(460px, 95vw)" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.warn, marginBottom: 8 }}>⚠️ Not enough available to ship</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.warn, marginBottom: 8 }}>Not enough available to ship</div>
             <div style={{ fontSize: 13, color: C.textSub, lineHeight: 1.5, marginBottom: 18 }}>
               There is not enough quantity available to fill the order for
               {" "}<strong>{pendingAts.color || "—"} {pendingAts.size}</strong>. You entered

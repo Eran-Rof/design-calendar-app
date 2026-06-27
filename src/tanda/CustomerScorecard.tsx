@@ -2,7 +2,7 @@
 //
 // Chunk E — Customer drill-through scorecard (operator item 1).
 //
-// A wide fixed-overlay modal opened from the ℹ️ button on each Customer Master
+// A wide fixed-overlay modal opened from the info button on each Customer Master
 // row. Fetches /api/internal/customer-scorecard?customer_id=… and renders:
 //   • header: customer + assigned sales rep(s)
 //   • scorecard metric tiles (balance, avg days-to-pay, brand/gender breakdown)

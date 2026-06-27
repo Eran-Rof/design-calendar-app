@@ -269,7 +269,7 @@ export default function InternalSalesOrders() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛒 Sales Orders</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Sales Orders</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New sales order</button>
       </div>
 
@@ -1180,7 +1180,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const saveCloseButtons = (
     <>
       <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
-      <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">🖨 View</button>
+      <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">View</button>
       {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
       {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
       {!editable && !isNew && so?.status === "confirmed" && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
@@ -1200,7 +1200,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               title={`Open AR invoice ${relatedInvoice.invoice_number}`}
               style={{ color: C.success, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
             >
-              Sales order {so?.so_number || "(draft)"} — {so?.status} · 🧾 {relatedInvoice.invoice_number} ↗
+              Sales order {so?.so_number || "(draft)"} — {so?.status} · {relatedInvoice.invoice_number} ↗
             </span>
           ) : (
             `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`
@@ -1256,25 +1256,25 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   } catch (e) { notify(`Could not generate a placeholder PO: ${e instanceof Error ? e.message : String(e)}`, "error"); }
                   finally { setGenningPlaceholder(false); }
                 }} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }} title="Open the order now with a placeholder PO; replace it when the buyer's real PO comes in (Scenario 2).">
-                  {genningPlaceholder ? "…" : "🅿 Generate placeholder"}
+                  {genningPlaceholder ? "…" : "Generate placeholder"}
                 </button>
               </div>
             )}
             {customerPoIsPlaceholder && customerPo.trim() && (
               <div style={{ fontSize: 11, color: "#F59E0B", marginTop: 4 }}>
-                🅿 Placeholder PO. When the real customer PO arrives, replace it here (or upload it) — every not-yet-received PO on this order is re-lotted to the new number.
+                Placeholder PO. When the real customer PO arrives, replace it here (or upload it) — every not-yet-received PO on this order is re-lotted to the new number.
               </div>
             )}
             <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: C.textSub, cursor: editable ? "pointer" : "default" }} title="A bulk order is split later into multiple distro customer POs. Incoming distros are matched against it (Scenario 4.2).">
               <input type="checkbox" checked={isBulkOrder} disabled={!editable} onChange={(e) => setIsBulkOrder(e.target.checked)} />
-              📦 Bulk order (split later across distro customer POs)
+              Bulk order (split later across distro customer POs)
             </label>
           </Field>
           {isNew && editable && (
             <Field label="Or auto-fill from the customer's PO">
               <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoColorQs([]); setPoCustQ(null); setPoDup(null); setPoStep("upload"); setPoUploadOpen(true); }}
                 style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, width: "100%" }}>
-                🤖 Upload customer PO
+                Upload customer PO
               </button>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>PDF, Excel/CSV, or paste the email — AI fills the header + matrix.</div>
             </Field>
@@ -1284,7 +1284,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         {/* Post-prefill "double-check" review banner. */}
         {poReview && (
           <div style={{ marginBottom: 12, padding: "10px 12px", background: "#0b1f17", border: `1px solid ${C.success}`, borderRadius: 8 }}>
-            <div style={{ color: C.success, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🤖 Prefilled from the customer PO — please double-check everything before saving.</div>
+            <div style={{ color: C.success, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Prefilled from the customer PO — please double-check everything before saving.</div>
             {poReview.summary.length > 0 && <div style={{ fontSize: 12, color: C.textSub }}>{poReview.summary.join(" · ")}</div>}
             {poReview.unmatched.length > 0 && (
               <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: C.warn, fontSize: 12 }}>
@@ -1344,7 +1344,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           {/* Chunk K (operator item 17) — ship-gate cue. Server is the source of truth (409 on ship). */}
           {customers.find((c) => c.id === customerId)?.is_factored === true && factorStatus !== "approved" && (
             <div style={{ fontSize: 11, color: C.warn, marginTop: 8, fontWeight: 600 }}>
-              ⚠ Factored customer — factor approval must be &quot;approved&quot; before this order can ship.
+              Factored customer — factor approval must be &quot;approved&quot; before this order can ship.
             </div>
           )}
         </div>
@@ -1361,7 +1361,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Credit status</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: CREDIT_COLORS[creditStatus] || C.text }}>
-                {creditStatus === "approved" ? "✅" : creditStatus === "declined" ? "⛔" : "⚠"} {CREDIT_LABELS[creditStatus] || creditStatus}
+                {CREDIT_LABELS[creditStatus] || creditStatus}
               </span>
               {Number(so?.amount_paid_cents ?? 0) > 0 && (
                 <span style={{ fontSize: 11, color: C.textSub }}>paid {fmtCents(so?.amount_paid_cents)} of {fmtCents(so?.total_cents)}</span>
@@ -1377,7 +1377,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         {canSplit && (
           <div style={{ marginTop: 12, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
             <button onClick={() => setSplitOpen((v) => !v)} style={{ width: "100%", textAlign: "left", padding: "8px 12px", background: "#0b1220", color: C.text, border: 0, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-              <span style={{ color: C.textMuted, marginRight: 6 }}>{splitOpen ? "▼" : "▶"}</span>🏬 Ship to multiple stores (split into per-store orders)
+              <span style={{ color: C.textMuted, marginRight: 6 }}>{splitOpen ? "▼" : "▶"}</span>Ship to multiple stores (split into per-store orders)
             </button>
             {splitOpen && (
               <div style={{ padding: 12 }}>
@@ -1388,7 +1388,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   {shipTos.map((s) => (
                     <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, border: `1px solid ${splitLocs.includes(s.id) ? C.primary : C.cardBdr}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
                       <input type="checkbox" checked={splitLocs.includes(s.id)} onChange={() => toggleSplitLoc(s.id)} />
-                      {s.location_type === "dc" ? "🏭" : "🏬"} {s.code ? `${s.code} — ${s.name}` : s.name}
+                      {s.code ? `${s.code} — ${s.name}` : s.name}
                     </label>
                   ))}
                 </div>
@@ -1426,7 +1426,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
           {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
           {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
-          {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>⚠️ Pick ATS or Production to start adding styles.</span>}
+          {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>Pick ATS or Production to start adding styles.</span>}
           <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
             <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
             Closeout order
@@ -1449,7 +1449,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           if (missing.length === 0) return null;
           return (
             <div style={{ marginBottom: 8, padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12 }}>
-              ⚠️ Fill <strong>{missing.join(", ")}</strong> above to start adding styles.
+              Fill <strong>{missing.join(", ")}</strong> above to start adding styles.
             </div>
           );
         })()}
@@ -1486,18 +1486,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             bottom:-20 cancels the container's padding-bottom). */}
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>
-            {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
-            {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
-            {canShip && <button onClick={() => void openShipModal()} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
+            {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "Allocate stock"}</button>}
+            {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">View allocation</button>}
+            {canShip && <button onClick={() => void openShipModal()} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">Ship</button>}
             {/* Non-factor credit ship-gate operator actions. Record-payment for
                 CREDIT_CARD orders; Override→Approve releases any credit hold. */}
             {!isNew && so != null && isCardOrder && creditStatus !== "approved" && (
-              <button onClick={openPayModal} style={{ ...btnSecondary, color: C.primary, borderColor: "#1d4ed8" }} disabled={submitting} title="Record a payment against this credit-card order (paid in full releases the ship-gate)">💳 Record payment</button>
+              <button onClick={openPayModal} style={{ ...btnSecondary, color: C.primary, borderColor: "#1d4ed8" }} disabled={submitting} title="Record a payment against this credit-card order (paid in full releases the ship-gate)">Record payment</button>
             )}
             {creditOnHold && (
-              <button onClick={() => void overrideApproveCredit()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title={so?.credit_hold_reason || "Override the credit hold and approve this order to ship"}>✅ Override → Approve</button>
+              <button onClick={() => void overrideApproveCredit()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title={so?.credit_hold_reason || "Override the credit hold and approve this order to ship"}>Override → Approve</button>
             )}
-            {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
+            {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {saveCloseButtons}
@@ -1509,7 +1509,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {poUploadOpen && (
         <div onClick={(e) => { e.stopPropagation(); if (!poParsing) setPoUploadOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>🤖 Upload customer PO</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Upload customer PO</h3>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
               Upload the customer's PO (PDF, Excel/CSV) or paste the email below. AI reads it and prefills the customer, terms, dates, PO #, and the size matrix — then you double-check before saving.
             </div>
@@ -1542,7 +1542,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               // Duplicate guard — a non-cancelled SO already carries this PO #.
               <>
                 <div style={{ background: "#7f1d1d", color: "white", padding: "12px 14px", borderRadius: 8, fontSize: 13 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ This customer PO already exists</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>This customer PO already exists</div>
                   <div style={{ fontSize: 12 }}>PO <strong>{poDup.po}</strong> is already on {poDup.existing.length === 1 ? "an existing sales order" : `${poDup.existing.length} existing sales orders`}:</div>
                   <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12 }}>
                     {poDup.existing.map((e) => (
@@ -1607,7 +1607,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                     <SearchableSelect value={poCustQ.pick || null} onChange={(v) => setPoCustQ((q) => q ? { ...q, pick: v || "" } : q)}
                       options={[{ value: "", label: "— pick manually later —" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
                       placeholder="Search customer…" inputStyle={inputStyle} />
-                    {poCustQ.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>🤖 {poCustQ.reasoning}</div>}
+                    {poCustQ.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{poCustQ.reasoning}</div>}
                   </div>
                 )}
                 {poColorQs.map((q, i) => (
@@ -1645,7 +1645,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {shipOpen && (
         <div onClick={(e) => { e.stopPropagation(); setShipOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>🚚 Ship sales order</h3>
+            <h3 style={{ margin: "0 0 14px", fontSize: 16 }}>Ship sales order</h3>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>Records a carrier shipment and ships each line's allocated quantity. The SO moves to <b>shipped</b> when fully shipped (else fulfilling).</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Carrier">
@@ -1672,7 +1672,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {bulkMatches && bulkMatches.length > 0 && !bulkDetail && (
         <div onClick={() => closeBulkMatch()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 140 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: "1px solid #3B82F6", borderRadius: 10, padding: 22, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>📦 Distro matches a bulk order</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Distro matches a bulk order</div>
             <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5, marginBottom: 14 }}>
               This customer PO overlaps {bulkMatches.length} open bulk order{bulkMatches.length === 1 ? "" : "s"} for the same customer (by style/color). Cancel a bulk PO once its distros cover it.
             </div>
@@ -1729,8 +1729,8 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <button onClick={() => setBulkDetail(null)} style={btnSecondary}>← Back</button>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => downloadBulkCsv(bulkDetail)} style={btnSecondary}>⬇ Excel (CSV)</button>
-                <button onClick={() => printBulkDetail(bulkDetail)} style={btnSecondary}>🖨 Print</button>
+                <button onClick={() => downloadBulkCsv(bulkDetail)} style={btnSecondary}>Excel (CSV)</button>
+                <button onClick={() => printBulkDetail(bulkDetail)} style={btnSecondary}>Print</button>
               </div>
             </div>
           </div>
@@ -1743,7 +1743,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {lotPlan && (
         <div onClick={() => { setLotPlan(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: "1px solid #F59E0B", borderRadius: 10, padding: 22, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 8 }}>⚠️ Order can't be fully filled from stock</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#F59E0B", marginBottom: 8 }}>Order can't be fully filled from stock</div>
             <div style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5, marginBottom: 14 }}>
               {lotPlan.shortfalls.length} line{lotPlan.shortfalls.length === 1 ? "" : "s"} can't be fully shipped from available lots. Accepting saves the order, allocates what's available by lot, and leaves the rest as a backorder (no lot).
             </div>
@@ -1786,7 +1786,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       {payOpen && (
         <div onClick={(e) => { e.stopPropagation(); if (!submitting) setPayOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💳 Record payment</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Record payment</h3>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
               Order total {fmtCents(so?.total_cents)} · already paid {fmtCents(so?.amount_paid_cents)}. Paying in full releases the credit-card ship-gate.
             </div>

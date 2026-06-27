@@ -119,7 +119,7 @@ export default function InternalBenchmark() {
           </div>
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", background: overP75(r) ? "rgba(245,158,11,0.08)" : undefined }}>
-              <div style={{ fontWeight: 600 }}>{r.category} {overP75(r) && <span style={{ color: C.warn, fontSize: 10, marginLeft: 6 }}>⚠ ABOVE P75</span>}</div>
+              <div style={{ fontWeight: 600 }}>{r.category} {overP75(r) && <span style={{ color: C.warn, fontSize: 10, marginLeft: 6 }}>ABOVE P75</span>}</div>
               <div>{fmt(r.percentile_25)}</div>
               <div>{fmt(r.percentile_50)}</div>
               <div>{fmt(r.percentile_75)}</div>

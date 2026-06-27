@@ -9,10 +9,9 @@ import { useLanguage } from "./LanguageContext";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export default function LanguageSelector() {
-  const { lang, setLang, busy, languages } = useLanguage();
+  const { lang, setLang, languages } = useLanguage();
   return (
     <div data-no-i18n style={{ display: "flex", alignItems: "center", gap: 6 }} title="Language / 语言 / Idioma">
-      <span aria-hidden style={{ fontSize: 15, opacity: busy ? 0.5 : 0.9, transition: "opacity .2s" }}>🌐</span>
       <div style={{ width: 160 }}>
         <SearchableSelect
           value={lang}

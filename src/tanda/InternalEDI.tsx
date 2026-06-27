@@ -86,7 +86,7 @@ export default function InternalEDI() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🔌 EDI</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>EDI</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>X12 trading-partner exchange (vendor PO / ack / ASN / invoice)</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button style={tabBtn(tab === "partners")} onClick={() => setTab("partners")}>Partners ({partners.length})</button>
@@ -125,7 +125,7 @@ export default function InternalEDI() {
                   <td style={{ ...td, fontFamily: "monospace" }}>{p.partner_id}</td>
                   <td style={td}>{p.transport || "—"}</td>
                   <td style={td}><span style={chip(p.status === "active" ? C.success : C.textMuted)}>{p.status}</span></td>
-                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{p.last_sync_at ? new Date(p.last_sync_at).toLocaleString() : "—"}{p.last_sync_error ? ` · ⚠ ${p.last_sync_error}` : ""}</td>
+                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{p.last_sync_at ? new Date(p.last_sync_at).toLocaleString() : "—"}{p.last_sync_error ? ` · ${p.last_sync_error}` : ""}</td>
                 </tr>
               ))}
             </tbody>

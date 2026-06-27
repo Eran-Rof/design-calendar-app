@@ -154,7 +154,7 @@ export default function InternalBookkeeperApproval() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧾 Bookkeeper Approval</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Bookkeeper Approval</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={() => void load()} style={btnSecondary} disabled={loading}>Refresh</button>
           <ExportButton

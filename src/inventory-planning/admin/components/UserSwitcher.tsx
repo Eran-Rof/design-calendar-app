@@ -30,7 +30,7 @@ export default function UserSwitcher({ onChange }: UserSwitcherProps) {
   const permCount = Object.values(perms).filter(Boolean).length;
 
   async function changeUser() {
-    const next = await promptDialog("Switch user (email) — session-only impersonation for dev", { title: "Switch user", icon: "👤", defaultValue: email, placeholder: "name@domain.com" });
+    const next = await promptDialog("Switch user (email) — session-only impersonation for dev", { title: "Switch user", defaultValue: email, placeholder: "name@domain.com" });
     if (!next) return;
     setCurrentUserEmail(next);
     setEmail(next.trim().toLowerCase());

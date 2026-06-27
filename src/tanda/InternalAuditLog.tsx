@@ -332,7 +332,7 @@ export default function InternalAuditLog() {
           marginBottom: 16,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 22 }}>🕒 Audit Log</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Audit Log</h2>
         <div style={{ fontSize: 11, color: C.textMuted }}>
           {rows.length} change{rows.length === 1 ? "" : "s"} · page {Math.floor(offset / PAGE) + 1}
         </div>

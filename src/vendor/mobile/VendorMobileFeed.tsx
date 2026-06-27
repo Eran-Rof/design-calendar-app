@@ -33,15 +33,15 @@ function timeAgo(iso: string): string {
 }
 
 function iconFor(type: string): string {
-  if (type.includes("po")) return "📦";
-  if (type.includes("invoice")) return "🧾";
-  if (type.includes("payment")) return "💰";
-  if (type.includes("rfq")) return "📨";
-  if (type.includes("message")) return "💬";
-  if (type.includes("compliance")) return "📋";
-  if (type.includes("dispute")) return "⚠️";
-  if (type.includes("onboarding")) return "🚀";
-  return "🔔";
+  if (type.includes("po")) return "PO";
+  if (type.includes("invoice")) return "INV";
+  if (type.includes("payment")) return "PAY";
+  if (type.includes("rfq")) return "RFQ";
+  if (type.includes("message")) return "MSG";
+  if (type.includes("compliance")) return "DOC";
+  if (type.includes("dispute")) return "DSP";
+  if (type.includes("onboarding")) return "NEW";
+  return "•";
 }
 
 export default function VendorMobileFeed() {

@@ -129,8 +129,8 @@ export default function InternalWorkspaces() {
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>Vendor: {w.vendor?.name || "—"}</div>
               {w.description && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{w.description}</div>}
               <div style={{ display: "flex", gap: 8, fontSize: 11, color: C.textMuted, marginTop: 10 }}>
-                <span>📌 {w.pin_count || 0}</span>
-                <span>✅ {w.open_task_count || 0} open / {w.task_count || 0}</span>
+                <span>Pins {w.pin_count || 0}</span>
+                <span>{w.open_task_count || 0} open / {w.task_count || 0}</span>
                 <span style={{ marginLeft: "auto" }}>{fmtDateDisplay(w.created_at)}</span>
               </div>
             </button>

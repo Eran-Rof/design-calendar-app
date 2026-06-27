@@ -2,7 +2,7 @@
 //
 // Chunk E — Vendor drill-through scorecard (operator item 1; purchasing/delivery).
 //
-// Wide fixed-overlay modal opened from the ℹ️ button on each Vendor Master row.
+// Wide fixed-overlay modal opened from the info button on each Vendor Master row.
 // Fetches /api/internal/vendor-scorecard?vendor_id=… and renders:
 //   • header: vendor name + code + status + country
 //   • metric tiles: Vendor Health (overall score/100 + A–F grade, same source as

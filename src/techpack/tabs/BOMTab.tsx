@@ -218,7 +218,7 @@ export function BOMTab({
                       ];
                     })}
                     <td style={S.td}>
-                      <button style={S.iconBtnTiny} onClick={() => updateSelected({ bom: tp.bom.filter(x => x.id !== b.id) })}>🗑️</button>
+                      <button style={S.iconBtnTiny} onClick={() => updateSelected({ bom: tp.bom.filter(x => x.id !== b.id) })}>Delete</button>
                     </td>
                   </tr>
                 );

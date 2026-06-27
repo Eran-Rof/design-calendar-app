@@ -100,7 +100,7 @@ export default function InternalPriceLists() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🏷️ Price Lists</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Price Lists</h2>
         <button style={btnPrimary} onClick={() => setNewOpen(true)}>+ New price list</button>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -195,7 +195,7 @@ function ListModal({ list, customers, brands, styles, onClose, onSaved }: { list
   }
   async function deleteList() {
     if (!list) return;
-    if (!(await confirmDialog(`Delete price list "${list.code}" and all its prices?`, { confirmText: "Delete", danger: true, icon: "🗑️" }))) return;
+    if (!(await confirmDialog(`Delete price list "${list.code}" and all its prices?`, { confirmText: "Delete", danger: true }))) return;
     const r = await fetch(`/api/internal/price-lists/${list.id}`, { method: "DELETE" });
     if (!r.ok) { notify((await r.json().catch(() => ({}))).error || "Delete failed", "error"); return; }
     notify("Price list deleted.", "success"); onSaved();

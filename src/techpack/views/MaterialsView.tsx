@@ -98,7 +98,6 @@ export function MaterialsView({
 
       {filteredMats.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={{ fontSize: 40 }}>🧵</div>
           <p>No materials found. Add your first material!</p>
         </div>
       ) : (
@@ -127,7 +126,7 @@ export function MaterialsView({
                 ))}
               </span>
               <span style={{ width: 60, display: "flex", gap: 4 }}>
-                <button style={S.iconBtn} onClick={() => openEditModal(m)}>✏️</button>
+                <button style={S.iconBtn} onClick={() => openEditModal(m)}>Edit</button>
                 <button
                   style={S.iconBtn}
                   onClick={() => setConfirmDialog({
@@ -135,7 +134,7 @@ export function MaterialsView({
                     message: `Delete "${m.name}"? This cannot be undone.`,
                     onConfirm: () => { void saveMaterials(materials.filter(x => x.id !== m.id)); },
                   })}
-                >🗑️</button>
+                >Delete</button>
               </span>
             </div>
           ))}

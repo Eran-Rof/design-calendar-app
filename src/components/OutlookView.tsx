@@ -514,7 +514,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
           {/* Projects label */}
           <div style={{ padding: "8px 12px 4px", fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: C.text3, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>Projects ({collList.length})</span>
-            {isAdmin && <button onClick={() => { setConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>⚙</button>}
+            {isAdmin && <button onClick={() => { setConfigForm({ ...cfg }); setShowEmailConfig(true); }} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Config</button>}
           </div>
 
           {/* Collection list */}
@@ -629,7 +629,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
             ) : (isLoadingEmails && activeFolder === "inbox") || (isSentLoading && activeFolder === "sent") ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>Loading emails…</div>
             ) : (emailError && activeFolder === "inbox") || (sentErr && activeFolder === "sent") ? (
-              <div style={{ margin: 10, background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 8, padding: "10px 14px", color: C.error, fontSize: 12 }}>⚠ {emailError || sentErr}</div>
+              <div style={{ margin: 10, background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 8, padding: "10px 14px", color: C.error, fontSize: 12 }}>{emailError || sentErr}</div>
             ) : visibleEmails.length === 0 ? (
               <div style={{ padding: 24, textAlign: "center", color: C.text3, fontSize: 13 }}>No messages</div>
             ) : (
@@ -659,7 +659,6 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                       </div>
                       <div style={{ fontSize: 12, fontWeight: 500, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{em.subject}</div>
                       <div style={{ fontSize: 11, color: C.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {em.hasAttachments && <span style={{ marginRight: 4 }}>📎</span>}
                         {em.bodyPreview || ""}
                       </div>
                     </div>
@@ -686,7 +685,6 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
         <div style={{ flex: 1, background: C.bg0, display: "flex", flexDirection: "column", minWidth: 0 }}>
           {!selectedEmailId ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: C.text3 }}>
-              <span style={{ fontSize: 48, opacity: 0.25 }}>✉</span>
               <span style={{ fontSize: 14 }}>{selectedCollKey ? "Select a message to read" : "Select a collection from the left"}</span>
             </div>
           ) : (
@@ -706,14 +704,14 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                   <button style={{ ...iconBtn, color: C.error }} title="Move to Deleted Items" onClick={() => {
                     if (selectedEmail) setDeletedMessages(prev => [selectedEmail, ...prev]);
                     deleteEmail(selectedEmailId);
-                  }}>🗑️</button>
+                  }}>Delete</button>
                 </div>
               </div>
 
               {/* Error bar */}
               {sendError && (
                 <div style={{ background: C.bg1, borderBottom: `1px solid ${C.error}44`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>⚠ {sendError}</span>
+                  <span style={{ fontSize: 13, color: C.error, flex: 1 }}>{sendError}</span>
                   <button style={{ ...iconBtn, color: C.text2 }} onClick={() => setSendError(null)}>✕</button>
                 </div>
               )}
@@ -773,7 +771,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                 return true;
               })() && (
                 <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
+                  <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>Attachments:</span>
                   {(attachments[selectedEmailId] || []).filter((a: any) => !a.isInline).map((att: any) => {
                     const href = att.contentBytes
                       ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}`
@@ -781,7 +779,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                     return (
                       <a key={att.id} href={href} download={att.name}
                         style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, color: C.info, textDecoration: "none", cursor: "pointer", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        📄 {att.name}
+                        {att.name}
                         <span style={{ fontSize: 10, color: C.text3, flexShrink: 0 }}>
                           {att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
                         </span>
@@ -828,7 +826,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
             onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
             <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
               onClick={() => { setFolderCtxMenu(null); if (deletedMessages.length > 0) setEmptyDeletedConfirm(true); }}>
-              🗑 Empty folder
+              Empty folder
             </div>
           </div>
         )}
@@ -839,7 +837,6 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
             onClick={() => setEmptyDeletedConfirm(false)}>
             <div style={{ background: C.bg1, border: `1px solid ${C.border2}`, borderRadius: 12, padding: "24px 28px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)", maxWidth: 360, textAlign: "center" }}
               onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>🗑</div>
               <h3 style={{ color: C.text1, margin: "0 0 8px", fontSize: 16, fontWeight: 600 }}>Empty Deleted Items?</h3>
               <p style={{ color: C.text2, fontSize: 13, margin: "0 0 18px", lineHeight: 1.5 }}>Permanently delete {deletedMessages.length > 1 ? `all ${deletedMessages.length} messages` : "this message"}. This cannot be undone.</p>
               <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
@@ -869,7 +866,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
               }} style={ctxStyle}>↪ Forward</div>
               <div style={{ height: 1, background: C.border }} />
               <div onClick={() => { setDeletedMessages(prev => [ctxMail, ...prev]); deleteEmail(ctxMail.id); setCtxMenu(null); }}
-                style={{ ...ctxStyle, color: C.error }}>🗑 Delete</div>
+                style={{ ...ctxStyle, color: C.error }}>Delete</div>
             </div>
           );
         })()}
@@ -919,7 +916,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
               <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {sendError && (
                   <div style={{ background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 7, padding: "8px 12px", color: C.error, fontSize: 12 }}>
-                    ⚠ {sendError}
+                    {sendError}
                     <button onClick={() => setSendError(null)} style={{ marginLeft: 8, border: "none", background: "none", color: C.error, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>✕</button>
                   </div>
                 )}
@@ -941,7 +938,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                   <div style={{ fontSize: 11, color: C.text3, marginBottom: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span>Attachments {composeAttachments.length > 0 && <span style={{ color: C.text2 }}>({composeAttachments.length}, {(composeAttachments.reduce((s, a) => s + a.size, 0) / 1024).toFixed(0)} KB / 3 MB)</span>}</span>
                     <label style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", color: C.info, fontSize: 11, cursor: "pointer" }}>
-                      📎 Add files
+                      Add files
                       <input type="file" multiple style={{ display: "none" }} onChange={e => { pickComposeAttachments(e.target.files); (e.target as HTMLInputElement).value = ""; }} disabled={composeAttachLoading} />
                     </label>
                   </div>
@@ -950,7 +947,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
                       {composeAttachments.map((a, i) => (
                         <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 8px", fontSize: 11, color: C.text1 }}>
-                          📄 {a.name} <span style={{ color: C.text3 }}>({(a.size / 1024).toFixed(0)} KB)</span>
+                          {a.name} <span style={{ color: C.text3 }}>({(a.size / 1024).toFixed(0)} KB)</span>
                           <button onClick={() => setComposeAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
                         </span>
                       ))}

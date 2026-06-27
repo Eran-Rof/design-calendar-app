@@ -83,7 +83,7 @@ const GRID_COLS_WITH_ACTION = "1.4fr 130px 120px 110px 100px 140px 160px";
 const GRID_COLS_NO_ACTION = "1.4fr 130px 120px 110px 100px 140px";
 
 /**
- * Vendor quote comparison grid with an expandable 📝 per-quote notes view
+ * Vendor quote comparison grid with an expandable per-quote notes view
  * (quote-level + per-line notes). Owns its own fetch against
  * /api/internal/rfqs/:id/quotes.
  *
@@ -175,7 +175,7 @@ export function RfqQuotesPanel({
     <div>
       <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.text }}>Quote comparison ({quotes.length})</h3>
-        <button onClick={downloadCsv} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>⬇ CSV</button>
+        <button onClick={downloadCsv} style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}>CSV</button>
         {showSort && (
           <>
             <div style={{ color: C.textMuted, fontSize: 12 }}>Sort:</div>
@@ -228,7 +228,7 @@ export function RfqQuotesPanel({
                       title={isOpen ? "Hide details" : (isRevised ? "Show revision history + vendor notes" : "Show vendor notes")}
                       style={{ cursor: "pointer", color: C.primary, fontSize: 11, userSelect: "none" }}
                     >
-                      {isOpen ? "▾" : "▸"} {hasNotes ? "📝" : "🕑"}
+                      {isOpen ? "▾" : "▸"} {hasNotes ? "notes" : "pending"}
                     </span>
                   )}
                   {q.vendor_name || "—"}
@@ -481,7 +481,7 @@ export function RfqMessageThread({ rfqId, vendorId, theme, onPosted }: { rfqId: 
                         </a>
                       ) : (
                         <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: mine ? "rgba(255,255,255,0.9)" : C.primary, fontSize: 12, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
-                          📄 {a.name}
+                          {a.name}
                         </a>
                       )
                     ))}
@@ -517,8 +517,8 @@ export function RfqMessageThread({ rfqId, vendorId, theme, onPosted }: { rfqId: 
         )}
         <div style={{ padding: "6px 16px 10px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" style={{ display: "none" }} onChange={pickFiles} />
-          <button onClick={() => fileInputRef.current?.click()} title="Attach file" style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
-            📎
+          <button onClick={() => fileInputRef.current?.click()} title="Attach file" style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: "transparent", color: C.textMuted, cursor: "pointer", fontSize: 12, lineHeight: 1 }}>
+            Attach
           </button>
           <button onClick={() => void send()} disabled={sending || (!draft.trim() && pendingFiles.length === 0)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", fontSize: 12, fontWeight: 600, fontFamily: "inherit", opacity: sending || (!draft.trim() && pendingFiles.length === 0) ? 0.5 : 1, cursor: sending || (!draft.trim() && pendingFiles.length === 0) ? "not-allowed" : "pointer" }}>
             {uploading ? "Uploading…" : sending ? "Sending…" : "Send"}

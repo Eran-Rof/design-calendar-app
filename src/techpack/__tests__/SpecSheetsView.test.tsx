@@ -84,13 +84,13 @@ describe("<SpecSheetsView />", () => {
     expect(setSelectedSpecSheet).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
   });
 
-  it("🗑️ on a card opens the delete confirm dialog", () => {
+  it("Delete on a card opens the delete confirm dialog", () => {
     const setConfirmDialog = vi.fn();
     render(<SpecSheetsView {...defaultProps({
       specSheets: [ss({ id: "a", styleName: "Bartram" })],
       setConfirmDialog,
     })} />);
-    fireEvent.click(screen.getByText("🗑️"));
+    fireEvent.click(screen.getByText("Delete"));
     const dialog = setConfirmDialog.mock.calls[0][0];
     expect(dialog.title).toBe("Delete Spec Sheet");
     expect(dialog.message).toContain("Bartram");

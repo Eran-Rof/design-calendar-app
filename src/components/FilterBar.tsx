@@ -112,7 +112,7 @@ function FilterBar({
             display: "flex", alignItems: "center", gap: 5,
           }}
         >
-          ⚙ Filters
+          Filters
           {hasActive && (
             <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 9, padding: "1px 5px", fontWeight: 700 }}>
               {totalActive}

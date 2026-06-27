@@ -424,7 +424,7 @@ export default function InternalStyleMaster() {
         .map(([k, v]) => `${k}: ${v}`).join(" · ");
       const ok = await confirmDialog(
         `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on ${basis})?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
-        { title: source === "sales" ? "Assign size scales from sales" : "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
+        { title: source === "sales" ? "Assign size scales from sales" : "Auto-assign size scales", icon: "", confirmText: `Assign ${prev.matched}` },
       );
       if (!ok) return;
       const ar = await fetch(`/api/internal/style-master/auto-assign-scales${qs}`, {
@@ -487,7 +487,7 @@ export default function InternalStyleMaster() {
   async function backfillHts() {
     const ok = await confirmDialog(
       "Auto-fill HTS codes for Bangladesh, China & Madagascar on every apparel style?\n\nUses AI (per style, gender-aware) to classify a single HS code and the duty rate for each country, and applies the flat +10% additional tariff. Styles that already have all 3 countries are skipped. This runs in the background and may take a few minutes.",
-      { title: "Auto-fill HTS (BD / CN / MG)", icon: "🤖", confirmText: "Start" },
+      { title: "Auto-fill HTS (BD / CN / MG)", icon: "", confirmText: "Start" },
     );
     if (!ok) return;
     setHtsBackfill({ running: true, updated: 0, processed: 0 });
@@ -537,7 +537,7 @@ export default function InternalStyleMaster() {
             disabled={assigningScales}
             title="Match each unscaled style to the best-fitting size scale by its size variants (preview before applying)"
           >
-            {assigningScales ? "Assigning…" : "🎯 Auto-assign size scales"}
+            {assigningScales ? "Assigning…" : "Auto-assign size scales"}
           </button>
           <button
             onClick={() => void autoAssignScales("sales")}
@@ -545,7 +545,7 @@ export default function InternalStyleMaster() {
             disabled={assigningScales}
             title="Assign each unscaled style the best-fitting size scale based on the sizes ACTUALLY SOLD (sales orders + invoices), not the full SKU catalog"
           >
-            {assigningScales ? "Assigning…" : "🎯 From sales history"}
+            {assigningScales ? "Assigning…" : "From sales history"}
           </button>
           <button
             onClick={() => void downloadSkippedScales()}
@@ -553,7 +553,7 @@ export default function InternalStyleMaster() {
             disabled={assigningScales}
             title="Download the styles the auto-assign skips (single/pair sizes or no good match), with the reason, to assign a scale by hand"
           >
-            ⬇ Skipped styles
+            Skipped styles
           </button>
           <button
             onClick={() => void backfillHts()}
@@ -561,7 +561,7 @@ export default function InternalStyleMaster() {
             disabled={htsBackfill.running}
             title="Use AI to fill HTS codes + duty rates for Bangladesh, China & Madagascar on every apparel style (gender-aware), with the flat +10% additional tariff"
           >
-            {htsBackfill.running ? `🤖 HTS… ${htsBackfill.updated}` : "🤖 Auto-fill HTS (BD/CN/MG)"}
+            {htsBackfill.running ? `HTS… ${htsBackfill.updated}` : "Auto-fill HTS (BD/CN/MG)"}
           </button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
         </div>
@@ -592,7 +592,7 @@ export default function InternalStyleMaster() {
             checked={reviewOnly}
             onChange={(e) => setReviewOnly(e.target.checked)}
           />
-          ⚠ Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+          Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
         </label>
         <TablePrefsButton
           tableKey={STYLE_MASTER_TABLE_KEY}
@@ -1614,7 +1614,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                   ? "Define a pack ratio per size — typing one total in the SO/PO matrix auto-fills every size from this"
                   : "Pick a size scale first"}
               >
-                📐 Scale{scaleTotal > 0 ? ` (${scaleTotal})` : ""}
+                Scale{scaleTotal > 0 ? ` (${scaleTotal})` : ""}
               </button>
             </div>
           </Field>
@@ -1721,7 +1721,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       style={{ ...btnSecondary, whiteSpace: "nowrap", flex: "0 1 auto", minWidth: 0, padding: "6px 10px", overflow: "hidden", textOverflow: "ellipsis" }}
                       title="Use Claude AI to suggest an HTS code + this country's duty rate from the style's Group + base fabric composition"
                     >
-                      {htsLoading && htsRowIdx === idx ? "…" : "🤖 Suggest HTS"}
+                      {htsLoading && htsRowIdx === idx ? "…" : "Suggest HTS"}
                     </button>
                     {coo.length > 1 && (
                       <button type="button" onClick={() => removeCoo(idx)} style={{ ...btnSecondary, flexShrink: 0, color: "#F87171", borderColor: "#7f1d1d" }} title="Remove this country of origin">✕</button>
@@ -1929,7 +1929,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 <button type="button" onClick={() => void estimateCarton()} disabled={cbmLoading}
                   style={{ ...btnSecondary, width: "100%" }}
                   title="Estimate the master carton dimensions, CBM and gross weight with AI (Claude). Uses units/carton from the Pack/logistics row above.">
-                  {cbmLoading ? "Estimating…" : "🤖 Estimate carton"}
+                  {cbmLoading ? "Estimating…" : "Estimate carton"}
                 </button>
               </div>
             </div>
@@ -2022,7 +2022,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           <div style={{ gridColumn: "1 / -1" }}>
             <details style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px" }}>
               <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.textSub, listStyle: "revert" }}>
-                📦 GS1 → EDI: the standard workflow
+                GS1 → EDI: the standard workflow
               </summary>
               <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.55, marginTop: 8 }}>
                 The UPC / GTIN barcodes for this style flow through the retail integration
@@ -2086,7 +2086,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             onClick={(e) => e.stopPropagation()}
             style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(880px, 95vw)", maxHeight: "90vh", overflow: "auto" }}
           >
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📐 Size Scale — pack ratio</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>Size Scale — pack ratio</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
               Enter a representative quantity per size (the ratio is what matters)
               {inseams.length > 0 ? <> — one <strong>row per inseam</strong>, so each inseam can have its own size curve</> : null}.

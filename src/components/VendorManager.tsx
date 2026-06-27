@@ -346,7 +346,6 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
   const [msg, setMsg] = useState(null);
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
       <div>Only admins can manage this section.</div>
     </div>
@@ -564,7 +563,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
                 fontWeight: 600,
               }}
             >
-              ⬇ Download Template
+              Download Template
             </button>
             <input
               ref={fileRef}
@@ -587,7 +586,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
                 fontWeight: 600,
               }}
             >
-              📂 Upload Excel
+              Upload Excel
             </button>
           </div>
         </div>
@@ -651,7 +650,7 @@ function VendorManager({ vendors, setVendors, isAdmin = false, taskTemplates }) 
                 {v.name}
               </div>
               <div style={{ fontSize: 12, color: TH.textMuted }}>
-                🌏 {v.country} · Transit {v.transitDays}d · MOQ{" "}
+                {v.country} · Transit {v.transitDays}d · MOQ{" "}
                 {v.moq?.toLocaleString()} · {v.contact}
               </div>
               <div

@@ -110,7 +110,7 @@ export default function NotificationBell() {
         aria-label="Notifications"
         title="Notifications"
       >
-        🔔
+        Alerts
         {unreadCount > 0 && (
           <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 999, background: TH.primary, color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -153,7 +153,7 @@ export default function NotificationBell() {
                         onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
                         title="Delete this notification"
                         style={{ background: "none", border: "none", color: TH.textMuted, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
-                      >🗑</button>
+                      >Delete</button>
                     </span>
                   </div>
                   {n.body && <div style={{ fontSize: 12, color: TH.textSub2, lineHeight: 1.4 }}>{n.body}</div>}

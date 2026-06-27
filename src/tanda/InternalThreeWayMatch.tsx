@@ -107,7 +107,7 @@ export default function InternalThreeWayMatch() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>⚖️ 3-Way Match</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>3-Way Match</h2>
         <button style={btnPrimary} onClick={() => { setCreating(true); setEditingId(null); setModalOpen(true); }}>+ New vendor invoice</button>
       </div>
 
@@ -292,7 +292,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
     await patch({ action: "approve" }, "AP invoice draft created — post it from the AP panel.", "success");
   }
   async function reject() {
-    const reason = await promptDialog("Reason for rejecting this vendor invoice?", { title: "Reject invoice", icon: "✋", multiline: true, required: true });
+    const reason = await promptDialog("Reason for rejecting this vendor invoice?", { title: "Reject invoice", icon: "", multiline: true, required: true });
     if (reason === null) return;
     if (!reason.trim()) { notify("A reason is required to reject.", "error"); return; }
     if (!(await confirmDialog(`Reject this invoice?\n\n${reason.trim()}`, { confirmText: "Reject", title: "Reject invoice" }))) return;
@@ -333,7 +333,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
                   ? <span style={{ color: C.danger, fontWeight: 600 }}>Exception — no posted receipt found for the linked PO.</span>
                   : m.within_tolerance
                     ? <span style={{ color: C.success, fontWeight: 600 }}>✓ Within tolerance — matched.</span>
-                    : <span style={{ color: C.warn, fontWeight: 600 }}>⚠ Variance exceeds tolerance.</span>
+                    : <span style={{ color: C.warn, fontWeight: 600 }}>Variance exceeds tolerance.</span>
               ) : <span style={{ color: C.textMuted }}>No PO linked — re-match is unavailable.</span>}
             </div>
             {draft.variance_reason && <div style={{ marginTop: 6, fontSize: 12, color: C.textMuted }}>{draft.variance_reason}</div>}

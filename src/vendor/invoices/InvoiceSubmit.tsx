@@ -470,13 +470,13 @@ export default function InvoiceSubmit() {
 
         {linesPrefilledFromExtract && (
           <div style={{ padding: "10px 12px", background: "#064E3B33", border: "1px solid #10B981", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#34D399" }}>
-            ✨ Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
+            Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
           </div>
         )}
 
         {totalWarnings > 0 && (
           <div style={{ padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#FBBF24" }}>
-            <strong>⚠ {totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
+            <strong>{totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
             {" "}vs the PO / packing list / shipment. You can still submit — a message will be sent to the reviewer listing them.
             {headerWarnings.length > 0 && (
               <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
@@ -521,7 +521,7 @@ export default function InvoiceSubmit() {
                       </div>
                       {l.include && warnings.length > 0 && (
                         <div style={{ padding: "4px 12px 8px 44px", fontSize: 11, color: "#FBBF24" }}>
-                          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                          {warnings.map((w, i) => <div key={i}>{w}</div>)}
                         </div>
                       )}
                     </div>

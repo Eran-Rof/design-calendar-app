@@ -32,7 +32,7 @@ export const MergeConfirmModal: React.FC<MergeConfirmModalProps> = ({
         onClick={e => e.stopPropagation()}
       >
         <div style={{ fontSize: 20, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>
-          {isLow ? "⚠️ Low Similarity Warning" : "Merge SKUs?"}
+          {isLow ? "Low Similarity Warning" : "Merge SKUs?"}
         </div>
         <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20, lineHeight: 1.6 }}>
           Merging <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{fromSku}</span> into <span style={{ color: "#10B981", fontFamily: "monospace" }}>{toSku}</span>.

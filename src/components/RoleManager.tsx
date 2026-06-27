@@ -12,7 +12,6 @@ function RoleManager({ roles, setRoles, isAdmin = false }: {
   const [form, setForm] = useState("");
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
       <div>Only admins can manage this section.</div>
     </div>
@@ -62,7 +61,7 @@ function RoleManager({ roles, setRoles, isAdmin = false }: {
       <div style={{ display: "grid", gap: 8 }}>
         {roles.map((role: string, i: number) => (
           <div key={i} style={{ ...S.card, display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>🎭 {role}</div>
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: TH.text }}>{role}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setForm(role); setEditing(i); }} style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Edit</button>
               <button onClick={() => appConfirm("You are about to delete this role. This action cannot be undone.", "Delete", () => setRoles((arr: string[]) => arr.filter((_: any, j: number) => j !== i)))} style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #FCA5A5", background: "none", color: "#B91C1C", cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}>Delete</button>

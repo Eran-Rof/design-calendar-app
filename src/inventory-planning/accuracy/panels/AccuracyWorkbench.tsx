@@ -220,7 +220,7 @@ export default function AccuracyWorkbench() {
             Suggestions ({suggestions.filter((s) => s.accepted_flag == null).length}/{suggestions.length})
           </TabButton>
           <TabButton active={tab === "ai_demand"} onClick={() => setTab("ai_demand")}>
-            AI Demand ✦
+            AI Demand
           </TabButton>
         </div>
 

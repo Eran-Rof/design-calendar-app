@@ -330,10 +330,10 @@ export default function InternalSizeScales() {
           }}
         >
           <button style={ctxMenuItem} onClick={() => startAddBelow(menu.row)}>
-            ➕ Add size scale below
+            Add size scale below
           </button>
           <button style={ctxMenuItem} onClick={() => { const r = menu.row; setMenu(null); setEditing(r); }}>
-            ✏️ Edit
+            Edit
           </button>
         </div>
       )}

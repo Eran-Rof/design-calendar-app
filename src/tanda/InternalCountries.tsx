@@ -303,7 +303,7 @@ function CountryFormModal({ mode, country, onClose, onSaved }: ModalProps) {
                     style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
                     title="Use Claude AI to suggest the ISO 3166-1 alpha-2 code from the country name"
                   >
-                    {isoLoading ? "…" : "🤖 Suggest"}
+                    {isoLoading ? "…" : "AI Suggest"}
                   </button>
                 </div>
                 {isoErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{isoErr}</div>}

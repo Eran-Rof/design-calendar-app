@@ -190,7 +190,7 @@ export default function InternalEmployeeTitles() {
                   {...getRowProps(t)}
                 >
                   <td style={td} hidden={!isVisible("name")}>{t.name}</td>
-                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
+                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "yes" : "—"}</td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{t.sort_order}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} style={btnSecondary}>Edit</button>

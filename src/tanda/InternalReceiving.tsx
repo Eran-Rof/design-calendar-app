@@ -106,7 +106,7 @@ export default function InternalReceiving() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📥 Receiving</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Receiving</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New receipt</button>
       </div>
 

@@ -177,7 +177,7 @@ export default function InternalNotificationPreferences() {
                         }}
                         title={existing ? `Set ${existing.updated_at}` : "Default (opt-in)"}
                       >
-                        {enabled ? "🟢 On" : "⚪ Off"}
+                        {enabled ? "On" : "Off"}
                       </button>
                     </td>
                   );

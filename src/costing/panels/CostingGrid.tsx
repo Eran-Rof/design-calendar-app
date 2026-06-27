@@ -617,7 +617,7 @@ export default function CostingGrid() {
             cursor: selectedRowIds.size === 0 ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
           }}
-        >⎘ Copy{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
+        >Copy{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
         <button
           onClick={async () => {
             const ids = Array.from(selectedRowIds);
@@ -1340,7 +1340,7 @@ export default function CostingGrid() {
             onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >
-            ✨ AI cost suggestion
+            AI cost suggestion
           </button>
           <button
             type="button"
@@ -1355,7 +1355,7 @@ export default function CostingGrid() {
             onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
           >
-            📐 AI size curve
+            AI size curve
           </button>
         </div>
       )}

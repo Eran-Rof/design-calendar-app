@@ -64,7 +64,7 @@ export function ListView({
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
       <div style={S.filters}>
-        <input style={{ ...S.input, flex: 1, marginBottom: 0 }} placeholder="🔍 Search PO#, vendor, brand, style #, memo…"
+        <input style={{ ...S.input, flex: 1, marginBottom: 0 }} placeholder="Search PO#, vendor, brand, style #, memo…"
           value={search} onChange={e => setSearch(e.target.value)} />
         <div style={{ width: 160 }}>
           <SearchableSelect
@@ -116,7 +116,7 @@ export function ListView({
         {!loading && filtered.length === 0 && (
           <div style={S.emptyState}>
             <p>{pos.length === 0 ? "No POs loaded. Click Sync to fetch from Xoro." : "No POs match your filters."}</p>
-            {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>🔄 Sync from Xoro</button>}
+            {pos.length === 0 && <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>Sync from Xoro</button>}
           </div>
         )}
         {filtered.map((po, i) => <PORow key={po.PoNumber ?? i} po={po} milestones={milestones[po.PoNumber ?? ""] || []} today={today} weekFromNow={weekFromNow} onClick={() => { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(po); }} detailed />)}

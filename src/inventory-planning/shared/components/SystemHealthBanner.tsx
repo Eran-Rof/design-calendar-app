@@ -61,7 +61,6 @@ export default function SystemHealthBanner() {
       marginBottom: 12,
       fontSize: 13,
     }}>
-      <span style={{ fontSize: 16, lineHeight: 1 }}>⚠</span>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, marginBottom: 2 }}>System health</div>
         <div style={{ color: PAL.textDim, fontSize: 12 }}>

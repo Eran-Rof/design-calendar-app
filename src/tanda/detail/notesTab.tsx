@@ -36,19 +36,19 @@ export function NotesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                 <div style={{ display: "flex", gap: 4 }}>
                   <button onClick={() => { setEditingNoteId(n.id); setEditingNoteText(n.note); }}
                     style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 12, padding: "2px 4px", fontFamily: "inherit" }}
-                    title="Edit">✏️</button>
+                    title="Edit">✎</button>
                   <button onClick={() => {
                     setConfirmModal({
                       title: "Delete Note",
                       message: `Delete this note by ${n.user_name}?\n\n"${n.note.length > 100 ? n.note.slice(0, 100) + "…" : n.note}"`,
-                      icon: "🗑️",
+                      icon: "",
                       confirmText: "Delete",
                       confirmColor: "#EF4444",
                       onConfirm: () => deleteNote(n.id),
                     });
                   }}
                     style={{ background: "none", border: "none", color: "#6B7280", cursor: "pointer", fontSize: 12, padding: "2px 4px", fontFamily: "inherit" }}
-                    title="Delete">🗑️</button>
+                    title="Delete">Delete</button>
                 </div>
               )}
             </div>

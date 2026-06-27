@@ -236,7 +236,7 @@ export default function PackGtinMasterPanel() {
         if (incomplete.length === 0) return null;
         return (
           <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 700 }}>⚠ {incomplete.length} incomplete BOM{incomplete.length > 1 ? "s" : ""}</span>
+            <span style={{ fontWeight: 700 }}>{incomplete.length} incomplete BOM{incomplete.length > 1 ? "s" : ""}</span>
             — These pack GTINs are missing UPC mappings and cannot be used for label export. Click the BOM icon on each row to review.
           </div>
         );

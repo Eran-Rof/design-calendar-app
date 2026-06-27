@@ -155,7 +155,7 @@ function NewNotificationToast({
       fontFamily: "system-ui, -apple-system, sans-serif",
     }}>
       <div style={{ fontSize: 10, color: "#60A5FA", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-        🔔 New notification
+        New notification
       </div>
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{notification.title}</div>
       {notification.body && (

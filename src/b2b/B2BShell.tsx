@@ -48,7 +48,7 @@ export default function B2BShell({
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           {cart.totalUnits > 0 && (
             <button type="button" onClick={() => setTab("orders")} style={cartChip} title="View cart">
-              🛒 {cart.totalUnits} · {formatMoney(cart.totalCents)}
+              Cart · {cart.totalUnits} · {formatMoney(cart.totalCents)}
             </button>
           )}
           <span style={{ color: B.textMuted, fontSize: 13, whiteSpace: "nowrap" }}>

@@ -251,7 +251,7 @@ export default function InternalUserAccess() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>🔐 User Access</h1>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>User Access</h1>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Per-module × per-action permissions. Pick a user, set their role, tick cells to override.
         </span>

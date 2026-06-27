@@ -67,7 +67,6 @@ export default function StaleDataBanner({ watch, dismissKey }: StaleDataBannerPr
       marginBottom: 12,
       fontSize: 13,
     }}>
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{worst.severity === "critical" ? "⚠" : "ⓘ"}</span>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, marginBottom: 2 }}>
           {worst.severity === "critical" ? "Critical: stale data" : "Data may be stale"}

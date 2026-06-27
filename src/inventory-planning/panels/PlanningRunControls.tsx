@@ -185,7 +185,7 @@ export default function PlanningRunControls({
       `This also deletes ALL of its data — forecasts, recommendations, projected inventory, ` +
       `scenarios, approvals and exports tied to this run. It cannot be undone.\n\n` +
       `(A run that already has execution batches can't be deleted — remove those in the Execution screen first.)`,
-      { title: "Delete planning run", confirmText: "Delete run", icon: "🗑" },
+      { title: "Delete planning run", confirmText: "Delete run" },
     );
     if (!ok) return;
     try {
@@ -348,7 +348,7 @@ export default function PlanningRunControls({
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
         {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
           <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
-                  title="Permanently delete this planning run and all its data">🗑 Delete run</button>
+                  title="Permanently delete this planning run and all its data">Delete run</button>
         )}
         {selected && (
           <>
@@ -603,7 +603,7 @@ export default function PlanningRunControls({
                   </div>
                 </div>
                 <div style={{ marginTop: 8, padding: "8px 10px", background: `${PAL.red}11`, border: `1px solid ${PAL.red}55`, borderRadius: 6 }}>
-                  <div style={{ color: PAL.red, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>⚠ Wipe + rebuild (destructive)</div>
+                  <div style={{ color: PAL.red, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Wipe + rebuild (destructive)</div>
                   <div style={{ color: PAL.textDim, fontSize: 12 }}>
                     Deletes <strong>every row tied to this run</strong> before rebuilding: forecast, recommendations, <strong>TBD stock-buy rows</strong>, <strong>bucket buys</strong>, and the override audit log. <strong>Planner edits — Buyer / Override / Buy / Unit Cost — are wiped</strong>. There is no undo.
                   </div>
