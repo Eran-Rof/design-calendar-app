@@ -1,4 +1,5 @@
--- 20260902000000_so_bulk_order_flag.sql
+-- 20260912000000_so_bulk_order_flag.sql (renumbered up from 20260902000000 to clear
+-- dup-version collisions with main's closeout_commission + date_preset_master)
 --
 -- Lot numbers — Scenario 4 (4.2): bulk ↔ distro matching. A "bulk" order is one
 -- large customer PO (e.g. an MMG bulk) whose quantity is later subdivided across
