@@ -1604,6 +1604,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               <button onClick={() => { const p = lotPlan; setLotPlan(null); setSubmitting(true); void commitSave(p.expanded, p.confirm); }} style={btnPrimary} disabled={submitting}>
                 {submitting ? "Saving…" : "Accept & save (backorder the rest)"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Record-payment modal — manual payment record for the credit-card gate.
           Processor (Stripe/hosted checkout) is deferred; this posts to the
           record-payment endpoint which increments amount_paid_cents and, on a
