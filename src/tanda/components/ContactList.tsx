@@ -14,6 +14,7 @@ import React from "react";
 import { formatUsPhone } from "../../shared/phone";
 
 export type Contact = {
+  id?: string;          // stable per-contact key (for customer_contact_notes)
   name?: string;
   email?: string;
   phone?: string;

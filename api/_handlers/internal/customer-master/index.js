@@ -93,12 +93,13 @@ const LIST_COLUMNS = [
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
 
-// Up to 12 contacts, each {name,email,phone,title,department} (strings only).
-// Blank rows are dropped; everything beyond 12 is truncated.
+// Up to 12 contacts, each {id,name,email,phone,title,department} (strings only).
+// `id` is a stable per-contact key (lets customer_contact_notes attach to a
+// contact); preserved verbatim. Blank rows are dropped; beyond `max` truncated.
 export function sanitizeContacts(raw, max) {
   if (raw == null) return undefined;
   if (!Array.isArray(raw)) return { error: "contacts must be an array" };
-  const keys = ["name", "email", "phone", "title", "department"];
+  const keys = ["id", "name", "email", "phone", "title", "department"];
   const out = [];
   for (const c of raw) {
     if (c == null || typeof c !== "object") continue;
@@ -107,7 +108,8 @@ export function sanitizeContacts(raw, max) {
       const val = c[k];
       if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
     }
-    if (Object.keys(row).length) out.push(row);
+    // An id-only row (no name/email/phone) is still blank → dropped below.
+    if (Object.keys(row).filter((k) => k !== "id").length) out.push(row);
     if (out.length >= max) break;
   }
   return out;

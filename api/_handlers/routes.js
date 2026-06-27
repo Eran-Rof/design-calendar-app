@@ -39,6 +39,7 @@ import r_cron_benchmark_compute from "./cron/benchmark-compute.js";
 import r_cron_compliance_automation from "./cron/compliance-automation.js";
 import r_cron_compliance_daily from "./cron/compliance-daily.js";
 import r_cron_contracts_daily from "./cron/contracts-daily.js";
+import r_cron_customer_contact_reminders from "./cron/customer-contact-reminders.js";
 import r_cron_discount_offers_daily from "./cron/discount-offers-daily.js";
 import r_cron_early_payment_analytics from "./cron/early-payment-analytics.js";
 import r_cron_fx_rate_sync from "./cron/fx-rate-sync.js";
@@ -220,6 +221,7 @@ import r_internal_crm_tasks_id from "./internal/crm/tasks/[id].js";
 import r_internal_crm_tasks_index from "./internal/crm/tasks/index.js";
 import r_internal_customer_buyers_id from "./internal/customer-buyers/[id].js";
 import r_internal_customer_buyers_index from "./internal/customer-buyers/index.js";
+import r_internal_customer_contact_notes_index from "./internal/customer-contact-notes/index.js";
 import r_internal_customer_locations_id from "./internal/customer-locations/[id].js";
 import r_internal_customer_locations_index from "./internal/customer-locations/index.js";
 import r_internal_customer_master_id from "./internal/customer-master/[id].js";
@@ -1114,7 +1116,9 @@ export const ROUTES = [
   { pattern: "/api/b2b/orders/:id", handler: r_b2b_orders_id },
   { pattern: "/api/internal/inventory-purchased-detail", handler: r_internal_inventory_purchased_detail },
   { pattern: "/api/internal/notification-preferences", handler: r_internal_notification_preferences_index },
+  { pattern: "/api/cron/customer-contact-reminders", handler: r_cron_customer_contact_reminders },
   { pattern: "/api/cron/walmart-settlements-weekly", handler: r_cron_walmart_settlements_weekly },
+  { pattern: "/api/internal/customer-contact-notes", handler: r_internal_customer_contact_notes_index },
   { pattern: "/api/internal/inventory-cycle-counts", handler: r_internal_inventory_cycle_counts_index },
   { pattern: "/api/internal/style-customer-numbers", handler: r_internal_style_customer_numbers_index },
   { pattern: "/api/cron/notification-digest-flush", handler: r_cron_notification_digest_flush },

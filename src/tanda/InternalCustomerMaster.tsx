@@ -33,6 +33,7 @@ import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
 import { type Contact } from "./components/ContactList";
 import BuyersEditor from "./components/BuyersEditor";
+import CustomerContactNotes from "./components/CustomerContactNotes";
 import MailLink from "./components/MailLink";
 import { formatUsPhone } from "../shared/phone";
 import CustomerLocations from "./components/CustomerLocations";
@@ -224,6 +225,20 @@ export default function InternalCustomerMaster() {
   const [editing, setEditing] = useState<Customer | null>(null);
   // Chunk E — customer whose scorecard drawer is open (null = closed).
   const [scorecardId, setScorecardId] = useState<string | null>(null);
+  // Deep-link from a contact-reminder notification:
+  //   ?m=customer_master&open=<customer_id>[&tab=payable&contact=<id>&note=<id>]
+  const [deep, setDeep] = useState<{ openId: string; tab?: "payable"; contact?: string | null; note?: string | null } | null>(null);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const open = p.get("open");
+    if (open) setDeep({ openId: open, tab: "payable", contact: p.get("contact"), note: p.get("note") });
+  }, []);
+  // Once the list has loaded, open the deep-linked customer (once).
+  useEffect(() => {
+    if (!deep || editing || rows.length === 0) return;
+    const c = rows.find((x) => x.id === deep.openId);
+    if (c) setEditing(c);
+  }, [deep, rows, editing]);
 
   // Wave 5 — row-click opens the edit modal; soft-deleted rows are
   // non-interactive (matches the existing "Edit / Delete buttons hidden
@@ -450,8 +465,11 @@ export default function InternalCustomerMaster() {
           mode="edit"
           customer={editing}
           paymentTerms={paymentTerms}
-          onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); void load(); }}
+          initialTab={deep && deep.openId === editing.id ? deep.tab : undefined}
+          initialContactId={deep && deep.openId === editing.id ? deep.contact : undefined}
+          initialNoteId={deep && deep.openId === editing.id ? deep.note : undefined}
+          onClose={() => { setEditing(null); setDeep(null); }}
+          onSaved={() => { setEditing(null); setDeep(null); void load(); }}
         />
       )}
       {scorecardId && (
@@ -467,9 +485,14 @@ interface ModalProps {
   paymentTerms: PaymentTermOption[];
   onClose: () => void;
   onSaved: () => void;
+  // Deep-link (from a contact-reminder notification): open straight to a tab /
+  // contact and highlight a note.
+  initialTab?: "details" | "reps" | "gl" | "addresses" | "buyers" | "payable";
+  initialContactId?: string | null;
+  initialNoteId?: string | null;
 }
 
-function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: ModalProps) {
+function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, initialTab, initialContactId, initialNoteId }: ModalProps) {
   // Initial credit_limit display value (in dollars). Prefer the canonical
   // credit_limit_cents (P4-7) and fall back to the legacy numeric credit_limit
   // column for rows that haven't been re-saved since P4-7.
@@ -520,7 +543,9 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
     phone:                        customer?.phone                        ?? "",
     website:                      customer?.website                      ?? "",
     wechat_id:                    customer?.wechat_id                    ?? "",
-    contacts:                     (Array.isArray(customer?.contacts) ? customer!.contacts : []) as Contact[],
+    // Stamp a stable id on any contact missing one so notes can attach (persists on save).
+    contacts:                     ((Array.isArray(customer?.contacts) ? customer!.contacts : []) as Contact[])
+                                    .map((c) => (c && c.id ? c : { ...c, id: (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2)) })),
   });
   const [countries, setCountries] = useState<{ iso2: string; name: string }[]>([]);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
@@ -529,7 +554,9 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
   const [channels, setChannels] = useState<Channel[]>([]);
   const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
-  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers" | "payable">("details");
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers" | "payable">(initialTab ?? "details");
+  // Which contact's notes panel is expanded (by contact id) on the AP/Trans/CB tab.
+  const [notesOpenId, setNotesOpenId] = useState<string | null>(initialContactId ?? null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1023,35 +1050,42 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved }: M
 
         {/* ── Tab 6 — AP / Transportation / Chargeback contacts (up to 8) ─ */}
         <div style={{ display: tab === "payable" ? "block" : "none" }}>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
-            Accounts-payable, transportation, and chargeback contacts (up to 8). Each carries a department, name, email, and phone.
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto", gap: 8, marginBottom: 6, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            <span>Name</span><span>Department</span><span>Email</span><span>Phone</span><span />
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto auto", gap: 8, marginBottom: 6, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span>Name</span><span>Department</span><span>Email</span><span>Phone</span><span /><span />
           </div>
           {form.contacts.map((c, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto", gap: 8, alignItems: "center", marginBottom: 8 }}>
-              <input type="text" value={c.name ?? ""} placeholder="Name"
-                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} style={inputStyle} />
-              <select value={c.department ?? ""}
-                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, department: e.target.value } : x) })} style={inputStyle as React.CSSProperties}>
-                <option value="">Dept…</option>
-                <option value="ap">Accounts Payable</option>
-                <option value="transportation">Transportation</option>
-                <option value="chargeback">Chargeback</option>
-              </select>
-              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                <input type="email" value={c.email ?? ""} placeholder="email@example.com"
-                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, email: e.target.value } : x) })} style={{ ...inputStyle, paddingRight: 30 }} />
-                <MailLink email={c.email ?? ""} />
+            <div key={c.id ?? i} style={{ marginBottom: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.1fr 1.6fr 1.2fr auto auto", gap: 8, alignItems: "center" }}>
+                <input type="text" value={c.name ?? ""} placeholder="Name"
+                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} style={inputStyle} />
+                <select value={c.department ?? ""}
+                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, department: e.target.value } : x) })} style={inputStyle as React.CSSProperties}>
+                  <option value="">Dept…</option>
+                  <option value="ap">Accounts Payable</option>
+                  <option value="transportation">Transportation</option>
+                  <option value="chargeback">Chargeback</option>
+                </select>
+                <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                  <input type="email" value={c.email ?? ""} placeholder="email@example.com"
+                    onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, email: e.target.value } : x) })} style={{ ...inputStyle, paddingRight: 30 }} />
+                  <MailLink email={c.email ?? ""} />
+                </div>
+                <input type="text" value={c.phone ?? ""} placeholder="(555) 000-0000"
+                  onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, phone: formatUsPhone(e.target.value) } : x) })} style={inputStyle} />
+                <button type="button"
+                  title={mode === "edit" && customer ? "Notes & reminders for this contact" : "Save the customer first to add notes"}
+                  disabled={!(mode === "edit" && customer && c.id)}
+                  onClick={() => setNotesOpenId((cur) => cur === c.id ? null : (c.id ?? null))}
+                  style={{ ...btnSecondary, color: notesOpenId === c.id ? C.primary : C.textSub, borderColor: notesOpenId === c.id ? C.primary : C.cardBdr, opacity: (mode === "edit" && customer && c.id) ? 1 : 0.45 }}>📝 Notes</button>
+                <button type="button" title="Remove contact" onClick={() => setForm({ ...form, contacts: form.contacts.filter((_, j) => j !== i) })} style={btnDanger}>✕</button>
               </div>
-              <input type="text" value={c.phone ?? ""} placeholder="(555) 000-0000"
-                onChange={(e) => setForm({ ...form, contacts: form.contacts.map((x, j) => j === i ? { ...x, phone: formatUsPhone(e.target.value) } : x) })} style={inputStyle} />
-              <button type="button" title="Remove contact" onClick={() => setForm({ ...form, contacts: form.contacts.filter((_, j) => j !== i) })} style={btnDanger}>✕</button>
+              {mode === "edit" && customer && c.id && notesOpenId === c.id && (
+                <CustomerContactNotes customerId={customer.id} contactId={c.id} highlightNoteId={initialNoteId ?? undefined} />
+              )}
             </div>
           ))}
           {form.contacts.length < 8 && (
-            <button type="button" onClick={() => setForm({ ...form, contacts: [...form.contacts, { name: "", department: "", email: "", phone: "" }] })}
+            <button type="button" onClick={() => setForm({ ...form, contacts: [...form.contacts, { id: (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2)), name: "", department: "", email: "", phone: "" }] })}
               style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, marginTop: 4 }}>
               + Add contact
             </button>
