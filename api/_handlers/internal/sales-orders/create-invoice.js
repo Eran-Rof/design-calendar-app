@@ -110,6 +110,33 @@ export default async function handler(req, res) {
   const cogs_account_id = entity?.default_cogs_account_id || null;
   const inventory_asset_account_id = entity?.default_inventory_account_id || null;
 
+  // Per-style GL routing (#6): resolve each line's revenue + COGS account from
+  // its STYLE (brand bucket), falling back to the customer default, then the
+  // entity default. The style account flows onto the invoice line, so posting
+  // (arInvoiceSent) books revenue + COGS per line to the brand's accounts.
+  const lineItemIds = [...new Set(openLines.map((l) => l.inventory_item_id).filter(Boolean))];
+  const styleAcctByItem = new Map(); // inventory_item_id -> { rev, cogs }
+  if (lineItemIds.length) {
+    const { data: items } = await admin.from("ip_item_master").select("id, style_code").in("id", lineItemIds);
+    const codeByItem = new Map((items || []).map((i) => [i.id, i.style_code]));
+    const codes = [...new Set((items || []).map((i) => i.style_code).filter(Boolean))];
+    const styleByCode = new Map();
+    if (codes.length) {
+      const { data: styles } = await admin.from("style_master")
+        .select("style_code, revenue_account_id, cogs_account_id").in("style_code", codes);
+      for (const s of styles || []) styleByCode.set(String(s.style_code).toLowerCase(), s);
+    }
+    for (const [itemId, code] of codeByItem) {
+      const s = code ? styleByCode.get(String(code).toLowerCase()) : null;
+      if (s) styleAcctByItem.set(itemId, { rev: s.revenue_account_id || null, cogs: s.cogs_account_id || null });
+    }
+  }
+  // Customer-level GL defaults for the fallback chain (style → customer → entity).
+  const { data: invCust } = await admin.from("customers")
+    .select("default_revenue_account_id, default_cogs_account_id").eq("id", so.customer_id).maybeSingle();
+  const custRevenueId = invCust?.default_revenue_account_id || null;
+  const custCogsId = invCust?.default_cogs_account_id || null;
+
   const today = new Date().toISOString().slice(0, 10);
   const invoice_number = await nextInvoiceNumber(admin, so.entity_id, today.slice(0, 4));
 
@@ -145,18 +172,23 @@ export default async function handler(req, res) {
   }
 
   // 3b. Insert invoice lines from the SO's open quantities.
-  const lineRows = openLines.map((l, idx) => ({
-    ar_invoice_id: invoice.id,
-    sales_order_line_id: l.id,
-    line_number: idx + 1,
-    description: l.description || null,
-    revenue_account_id: l.revenue_account_id || revenue_account_id,
-    inventory_item_id: l.inventory_item_id || null,
-    quantity: l.open_qty,
-    unit_price_cents: l.unit_price_cents,
-    line_total_cents: Math.round(l.open_qty * Number(l.unit_price_cents)),
-    tax_amount_cents: 0,
-  }));
+  const lineRows = openLines.map((l, idx) => {
+    const sa = l.inventory_item_id ? styleAcctByItem.get(l.inventory_item_id) : null;
+    return {
+      ar_invoice_id: invoice.id,
+      sales_order_line_id: l.id,
+      line_number: idx + 1,
+      description: l.description || null,
+      // Precedence: style → SO-line/customer → entity (revenue); style → customer → entity (COGS).
+      revenue_account_id: (sa && sa.rev) || l.revenue_account_id || custRevenueId || revenue_account_id,
+      cogs_account_id: (sa && sa.cogs) || custCogsId || cogs_account_id,
+      inventory_item_id: l.inventory_item_id || null,
+      quantity: l.open_qty,
+      unit_price_cents: l.unit_price_cents,
+      line_total_cents: Math.round(l.open_qty * Number(l.unit_price_cents)),
+      tax_amount_cents: 0,
+    };
+  });
   const { error: ilErr } = await admin.from("ar_invoice_lines").insert(lineRows);
   if (ilErr) {
     await admin.from("ar_invoices").delete().eq("id", invoice.id); // avoid orphan total=0 header

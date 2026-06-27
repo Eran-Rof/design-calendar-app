@@ -94,6 +94,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -241,7 +242,7 @@ export default function InternalCycleCounts() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>

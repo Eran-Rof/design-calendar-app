@@ -40,6 +40,8 @@ interface POOption {
   uuid_id: string;
   po_number: string;
   data: { BuyerName?: string; TotalAmount?: number } | null;
+  /** "xoro" = tanda_pos; "tangerine" = purchase_orders (new ERP). */
+  source?: "xoro" | "tangerine";
 }
 
 interface LineItem {
@@ -111,13 +113,37 @@ export default function InvoiceSubmit() {
           if (v?.default_payment_terms) setPaymentTerms(v.default_payment_terms);
         }
 
+        const vendorIdLocal = (vu as { vendor_id?: string } | null)?.vendor_id || null;
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
           .select("uuid_id, po_number, data")
           .order("date_order", { ascending: false });
         if (error) throw error;
-        const active = (data ?? []).filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived);
-        setPOs(active as POOption[]);
+        const xoro = (data ?? [])
+          .filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived)
+          .map((r) => ({ ...(r as POOption), source: "xoro" as const }));
+
+        // Tangerine-native POs (purchase_orders) — union them so the vendor can
+        // invoice against either source. Additive + fail-safe.
+        let tangerine: POOption[] = [];
+        try {
+          if (vendorIdLocal) {
+            const { data: tpos } = await supabaseVendor
+              .from("purchase_orders")
+              .select("id, po_number, total_cents")
+              .eq("vendor_id", vendorIdLocal)
+              .in("status", ["issued", "in_transit", "received"])
+              .order("order_date", { ascending: false });
+            tangerine = (tpos ?? []).map((p: { id: string; po_number: string; total_cents: number | null }) => ({
+              uuid_id: p.id,
+              po_number: p.po_number,
+              data: { TotalAmount: typeof p.total_cents === "number" ? p.total_cents / 100 : undefined },
+              source: "tangerine" as const,
+            }));
+          }
+        } catch { /* additive — ignore so the Xoro list still works */ }
+
+        setPOs([...xoro, ...tangerine]);
 
         // Pull the linked shipment's ship_date so we can flag invoice-before-ship.
         if (fromAsnId) {
@@ -135,14 +161,34 @@ export default function InvoiceSubmit() {
   // When PO changes, load its line items
   useEffect(() => {
     if (!selectedPoId) { setPoLines([]); setLineInputs([]); return; }
+    const isTangerine = pos.find((p) => p.uuid_id === selectedPoId)?.source === "tangerine";
     (async () => {
-      const { data, error } = await supabaseVendor
-        .from("po_line_items")
-        .select("id, line_index, item_number, description, qty_ordered, unit_price")
-        .eq("po_id", selectedPoId)
-        .order("line_index");
-      if (error) { setErr(error.message); return; }
-      const lines = (data ?? []) as LineItem[];
+      let lines: LineItem[] = [];
+      if (isTangerine) {
+        // Tangerine PO lines live in purchase_order_lines (cents → dollars).
+        const { data, error } = await supabaseVendor
+          .from("purchase_order_lines")
+          .select("id, line_number, description, qty_ordered, unit_cost_cents")
+          .eq("purchase_order_id", selectedPoId)
+          .order("line_number");
+        if (error) { setErr(error.message); return; }
+        lines = ((data ?? []) as Array<Record<string, unknown>>).map((l) => ({
+          id: l.id as string,
+          line_index: (l.line_number as number) ?? 0,
+          item_number: null,
+          description: (l.description as string | null) ?? null,
+          qty_ordered: (l.qty_ordered as number | null) ?? null,
+          unit_price: typeof l.unit_cost_cents === "number" ? (l.unit_cost_cents as number) / 100 : null,
+        }));
+      } else {
+        const { data, error } = await supabaseVendor
+          .from("po_line_items")
+          .select("id, line_index, item_number, description, qty_ordered, unit_price")
+          .eq("po_id", selectedPoId)
+          .order("line_index");
+        if (error) { setErr(error.message); return; }
+        lines = (data ?? []) as LineItem[];
+      }
       setPoLines(lines);
 
       // Match AI-extracted lines against PO lines. Prefer exact item_number
@@ -176,7 +222,7 @@ export default function InvoiceSubmit() {
       );
       if (extracted.length > 0) setLinesPrefilledFromExtract(true);
     })();
-  }, [selectedPoId, prefill]);
+  }, [selectedPoId, prefill, pos]);
 
   const subtotal = useMemo(() => {
     return lineInputs.reduce((acc, l) => {

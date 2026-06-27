@@ -151,6 +151,11 @@ export function matchColor(poColor: string | null, actualColors: string[]): stri
   return bestScore > 0 ? best : actualColors[0];
 }
 
+/** Key for a per-line colour override: style code + the PO's colour text (lower). */
+export function colorPickKey(styleCode: string, lineColor: string | null): string {
+  return `${styleCode}|${(lineColor || "").toLowerCase().trim()}`;
+}
+
 /**
  * Build the matrix seed from lines that have a chosen style. `fetchMatrix`
  * returns the style's matrix size columns + colours (from /api/internal/style-matrix).
@@ -158,6 +163,10 @@ export function matchColor(poColor: string | null, actualColors: string[]): stri
 export async function buildSeedFromResolved(
   resolved: { line: ParsedPoLine; chosen: StyleLite }[],
   fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
+  // Operator-confirmed colour rows (from the "confirm choices" step), keyed by
+  // colorPickKey(styleCode, lineColor). A confirmed pick is used as-is and never
+  // raises a "mapped to" warning.
+  colorPicks: Record<string, string> = {},
 ): Promise<{ sections: SeedSection[]; warnings: PrefillWarning[] }> {
   const byStyle = new Map<string, Cell[]>();
   // Per style+colour total to show in the matrix Qty quick-fill box (assorted /
@@ -169,11 +178,15 @@ export async function buildSeedFromResolved(
     let sizes: string[] = [];
     let colors: string[] = [];
     try { ({ sizes, colors } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
-    const color = matchColor(line.color, colors);
+    // An operator-confirmed colour row (from the confirm-choices step) wins and
+    // is never re-warned; otherwise fall back to the fuzzy match.
+    const picked = colorPicks[colorPickKey(chosen.style_code, line.color)];
+    const colorConfirmed = !!picked && colors.includes(picked);
+    const color = colorConfirmed ? picked : matchColor(line.color, colors);
     // Warn when the PO's colour text was mapped onto a different style colour
     // (token-overlap or the first-colour fallback) so the operator verifies the
-    // placement — single-colour styles and exact matches don't warn.
-    if (line.color && colors.length > 1 && color && color.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
+    // placement — single-colour styles, exact matches, and confirmed picks don't warn.
+    if (!colorConfirmed && line.color && colors.length > 1 && color && color.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
       warnings.push({ style: chosen.style_code, detail: `PO colour "${line.color}" mapped to "${color}" — verify it's the right colour row.` });
     }
     const unit = line.unit_price != null ? String(line.unit_price) : undefined;
@@ -250,7 +263,81 @@ export async function buildSeedFromResolved(
   return { sections, warnings };
 }
 
+// ── Colour disambiguation (for the "confirm choices" step) ───────────────────
+export type ColorQuestion = {
+  styleCode: string;
+  styleId: string;
+  lineColor: string;   // the PO's colour text
+  suggested: string;   // the fuzzy-matched colour row (default pick)
+  options: string[];   // the style's actual colour rows to choose from
+};
+
+/**
+ * Find the lines whose PO colour text did NOT map cleanly onto one of the
+ * style's actual colour rows — these are the ones the operator should confirm
+ * before the seed is built. Single-colour styles and exact matches are skipped
+ * (no question). Uses the same `matchColor` rule as the seed builder so the
+ * default pick matches what would have been auto-chosen. fetchMatrix is cached
+ * by the caller, so this does not double-fetch when the seed is later built.
+ */
+export async function computeColorQuestions(
+  resolved: { line: ParsedPoLine; chosen: StyleLite }[],
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
+): Promise<ColorQuestion[]> {
+  const out: ColorQuestion[] = [];
+  const seen = new Set<string>();
+  for (const { line, chosen } of resolved) {
+    if (!line.color) continue;
+    const key = colorPickKey(chosen.style_code, line.color);
+    if (seen.has(key)) continue;      // same style+colour on >1 line → ask once
+    let colors: string[] = [];
+    try { ({ colors } = await fetchMatrix(chosen.id)); } catch { continue; }
+    if (colors.length <= 1) continue;
+    const mapped = matchColor(line.color, colors);
+    if (mapped && mapped.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
+      seen.add(key);
+      out.push({ styleCode: chosen.style_code, styleId: chosen.id, lineColor: line.color, suggested: mapped, options: colors });
+    }
+  }
+  return out;
+}
+
 // ── Header matching ──────────────────────────────────────────────────────────
+type CustomerLite = { id: string; name: string; customer_code?: string | null };
+
+/** Exact (case-insensitive) customer-name match only — no fuzzy fallback. */
+export function matchCustomerExact(name: string | null, customers: CustomerLite[]): string | null {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  const exact = customers.find((c) => c.name.trim().toLowerCase() === n);
+  return exact?.id || null;
+}
+
+/**
+ * Ranked customer candidates for the "confirm choices" step when the parsed name
+ * isn't an exact match: exact > prefix > substring > token-overlap. Returns up to
+ * `limit` so the operator can pick the right one (the full searchable list is the
+ * ultimate fallback in the UI).
+ */
+export function customerCandidates(name: string | null, customers: CustomerLite[], limit = 6): { id: string; name: string }[] {
+  if (!name) return [];
+  const n = name.trim().toLowerCase();
+  if (!n) return [];
+  const toks = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1));
+  const nToks = toks(n);
+  const scored = customers.map((c) => {
+    const cn = c.name.trim().toLowerCase();
+    let score = 0;
+    if (cn === n) score = 100;
+    else if (cn.startsWith(n) || n.startsWith(cn)) score = 80;
+    else if (cn.includes(n) || n.includes(cn)) score = 60;
+    else { let ov = 0; for (const t of toks(cn)) if (nToks.has(t)) ov++; score = ov > 0 ? 20 + ov : 0; }
+    return { c, score };
+  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+  return scored.map((x) => ({ id: x.c.id, name: x.c.name }));
+}
+
 export function matchCustomer(name: string | null, customers: { id: string; name: string; customer_code?: string | null }[]): string | null {
   if (!name) return null;
   const n = name.trim().toLowerCase();

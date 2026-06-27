@@ -121,6 +121,20 @@ export default function InternalNotificationCenter() {
     void load();
   }
 
+  // Mark read, then deep-link if the event points at a record (e.g. a customer
+  // contact reminder → open that customer's AP/Trans/CB tab + contact note).
+  async function onNotifClick(d: NotificationDispatch) {
+    if (d.status === "sent") await markRead(d);
+    const ev = d.event;
+    if (ev.context_table === "customers" && ev.context_id) {
+      const p = new URLSearchParams({ m: "customer_master", open: String(ev.context_id) });
+      const pl = (ev.payload || {}) as Record<string, unknown>;
+      if (pl.contact_id) p.set("contact", String(pl.contact_id));
+      if (pl.note_id) p.set("note", String(pl.note_id));
+      window.location.href = `?${p.toString()}`;
+    }
+  }
+
   const unreadCount = rows.filter((d) => d.status === "sent").length;
 
   return (
@@ -186,11 +200,11 @@ export default function InternalNotificationCenter() {
           return (
             <div
               key={d.id}
-              onClick={() => void markRead(d)}
+              onClick={() => void onNotifClick(d)}
               style={{
                 padding: "12px 16px",
                 borderBottom: `1px solid ${C.cardBdr}`,
-                cursor: unread ? "pointer" : "default",
+                cursor: (unread || (d.event.context_table === "customers" && d.event.context_id)) ? "pointer" : "default",
                 background: unread ? "#0b1220" : "transparent",
                 display: "flex",
                 alignItems: "flex-start",

@@ -69,6 +69,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13,
@@ -282,7 +283,7 @@ export default function InternalUserAccess() {
       {!loading && data && (
         <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, alignItems: "start" }}>
           {/* ── Left: user list ─────────────────────────────────────────── */}
-          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ ...th, padding: "10px 12px" }}>Users ({data.users.length})</div>
             {data.users.length === 0 && (
               <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>No members in this entity.</div>

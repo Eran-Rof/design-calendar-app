@@ -13,6 +13,7 @@
 //         lines?: [{ sales_order_line_id, qty }] }  // default = remaining allocated per line
 
 import { createClient } from "@supabase/supabase-js";
+import { evaluateSoCreditGate } from "../../../_lib/customers/soShipGate.js";
 
 export const config = { maxDuration: 20 };
 
@@ -53,18 +54,44 @@ export default async function handler(req, res) {
 
   // 1. Load SO.
   const { data: so, error: soErr } = await admin
-    .from("sales_orders").select("id, status, entity_id, customer_id, factor_approval_status").eq("id", id).maybeSingle();
+    .from("sales_orders").select("id, status, entity_id, customer_id, factor_approval_status, credit_approval_status, payment_terms_id, total_cents, amount_paid_cents").eq("id", id).maybeSingle();
   if (soErr) return res.status(500).json({ error: soErr.message });
   if (!so) return res.status(404).json({ error: "Sales order not found" });
   if (!["allocated", "fulfilling", "confirmed"].includes(so.status)) {
     return res.status(409).json({ error: `Cannot ship a ${so.status} sales order (allocate/confirm it first).` });
   }
 
-  // 2. Factored-customer ship-gate (Chunk K / item 17).
+  // 2. Ship-gates. Factored customers are gated by factor approval (Chunk K /
+  //    item 17). NON-factored customers are gated by the credit gate
+  //    (house-account overdue AR / credit-card paid-in-full). An operator
+  //    override (credit_approval_status='approved') always releases the credit
+  //    gate. Mirrors the 409-block in sales-orders/[id].js.
   if (so.customer_id) {
     const { data: cust } = await admin.from("customers").select("is_factored").eq("id", so.customer_id).maybeSingle();
-    if (cust?.is_factored === true && so.factor_approval_status !== "approved") {
-      return res.status(409).json({ error: "Factored customer — factor approval required before shipping. Set Factor/Ins Approval = approved on the sales order first." });
+    if (cust?.is_factored === true) {
+      if (so.factor_approval_status !== "approved") {
+        return res.status(409).json({ error: "Factored customer — factor approval required before shipping. Set Factor/Ins Approval = approved on the sales order first." });
+      }
+    } else if (so.credit_approval_status !== "approved") {
+      try {
+        const decision = await evaluateSoCreditGate(admin, {
+          customer_id: so.customer_id, entity_id: so.entity_id,
+          payment_terms_id: so.payment_terms_id, total_cents: so.total_cents,
+          amount_paid_cents: so.amount_paid_cents,
+        });
+        if (decision.blocked) {
+          // Persist the latest hold reason so the UI badge stays accurate.
+          await admin.from("sales_orders").update({
+            credit_approval_status: decision.target_status,
+            credit_hold_reason: decision.reason,
+            credit_checked_at: new Date().toISOString(),
+          }).eq("id", so.id);
+          return res.status(409).json({ error: decision.reason, credit_gate: decision.gate });
+        }
+      } catch (e) {
+        // High-stakes: a failed overdue-AR lookup must not silently allow a ship.
+        return res.status(500).json({ error: `Credit gate check failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
     }
   }
 

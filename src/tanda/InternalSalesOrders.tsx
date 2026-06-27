@@ -16,10 +16,12 @@ import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import {
-  resolveLine, buildSeedFromResolved, matchCustomer, matchPaymentTerms, isoDate,
-  type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning,
+  resolveLine, buildSeedFromResolved, matchCustomer, matchCustomerExact, matchPaymentTerms, isoDate,
+  computeColorQuestions, customerCandidates, colorPickKey,
+  type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning, type ColorQuestion,
 } from "./lib/customerPoPrefill";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import DateRangePresets from "./components/DateRangePresets";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -30,8 +32,14 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "customer",    label: "Customer" },
   { key: "order_date",  label: "Order date" },
   { key: "start_ship",  label: "Start Ship" },
+  { key: "cancel_date", label: "Cancel date" },
   { key: "status",      label: "Status" },
   { key: "factor",      label: "Factor" },
+  { key: "credit",      label: "Credit" },
+  { key: "avg_cost",    label: "Avg cost" },
+  { key: "avg_sell",    label: "Avg sell" },
+  { key: "margin_pct",  label: "Margin %" },
+  { key: "margin_amt",  label: "Margin $" },
   { key: "total",       label: "Total" },
 ];
 
@@ -41,6 +49,9 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+// Frozen header cell: th + sticky to the scroll container's top. Opaque
+// background (#0b1220 matches `th`) so scrolling rows don't bleed through.
+const thStick: React.CSSProperties = { ...th, position: "sticky", top: 0, zIndex: 2, background: "#0b1220" };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 // colorScheme:"dark" makes native controls (esp. <input type=date> text + the
 // calendar/picker icon) render light-on-dark instead of the near-invisible
@@ -72,8 +83,15 @@ type SO = {
   customer_po?: string | null;
   is_bulk_order?: boolean | null;
   fulfillment_source?: string | null;
+  is_closeout?: boolean | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
+  // Non-factor credit ship-gate (house-account overdue AR / credit-card paid-in-full).
+  credit_approval_status?: string | null; credit_hold_reason?: string | null;
+  amount_paid_cents?: number | string | null; paid_in_full_at?: string | null;
   parent_sales_order_id?: string | null; is_split_parent?: boolean;
+  // Per-SO cost/margin aggregates (server-computed; style-scoped when filtered).
+  avg_cost_cents?: number | null; avg_sell_cents?: number | null;
+  margin_cents?: number | null; margin_pct?: number | null;
 };
 // Scenario 4.2 — bulk↔distro match shapes (mirror /sales-orders/bulk-match).
 type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
@@ -88,13 +106,24 @@ type ShipTo = { id: string; name: string; code?: string | null; location_type?: 
 function formatShipAddress(a: Record<string, unknown> | null | undefined): string {
   if (!a || typeof a !== "object") return "";
   const s = (k: string) => String(a[k] ?? "").trim();
-  const cityLine = [s("city"), [s("state"), s("postal_code")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const cityLine = [s("city"), [s("state"), s("postal") || s("postal_code")].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   return [s("line1"), s("line2"), cityLine, s("country")].filter(Boolean).join(" · ");
 }
 
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
   return `${neg ? "-" : ""}$${Math.trunc(abs / 100).toLocaleString()}.${String(Math.round(abs % 100)).padStart(2, "0")}`;
+}
+// 2-decimal money from cents, with a — placeholder for null (used by the
+// Avg cost / Avg sell / Margin $ metric columns).
+function fmtCents2(c: number | null | undefined): string {
+  if (c == null) return "—";
+  return `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+// Margin % to one decimal, with a — placeholder for null.
+function fmtPct(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return `${p.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, confirmed: C.primary, allocated: "#8B5CF6", fulfilling: C.warn,
@@ -106,6 +135,16 @@ const FACTOR_COLORS: Record<string, string> = {
   not_submitted: C.textMuted, pending: C.warn, approved: C.success, partial: "#8B5CF6",
   declined: C.danger, not_required: C.textSub,
 };
+// Non-factor credit ship-gate states (operator ask): on_hold=amber, pending=blue,
+// approved=green, declined=red. not_required = no gate (shown as a dash).
+const CREDIT_COLORS: Record<string, string> = {
+  not_required: C.textMuted, pending: C.primary, on_hold: C.warn, approved: C.success, declined: C.danger,
+};
+const CREDIT_LABELS: Record<string, string> = {
+  pending: "card unpaid", on_hold: "on hold", approved: "approved", declined: "declined",
+};
+// True for a credit status worth surfacing in the grid/badge (not the neutral default).
+const showCredit = (s?: string | null): boolean => !!s && s !== "not_required";
 
 export default function InternalSalesOrders() {
   const [rows, setRows] = useState<SO[]>([]);
@@ -127,6 +166,12 @@ export default function InternalSalesOrders() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
 
+  // Date-range filter (client-side). `dateField` chooses WHICH date the [from,to]
+  // window applies to: the order date or the start (requested) ship date.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("order_date");
+
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
@@ -137,28 +182,54 @@ export default function InternalSalesOrders() {
     return m;
   }, [customers]);
 
+  // Client-side date-range filter on the chosen date field. A row with a null
+  // value for the selected field is dropped only when a bound is set.
+  const filteredRows = useMemo(() => {
+    if (!dateFrom && !dateTo) return rows;
+    return rows.filter((so) => {
+      const raw = dateField === "order_date" ? so.order_date : so.requested_ship_date;
+      const d = (raw || "").slice(0, 10);
+      if (!d) return false;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [rows, dateFrom, dateTo, dateField]);
+
   // Export rows mirror the displayed list (same filter/search), with ids
   // resolved to human labels and cents kept in cents for currency formatting.
   const exportRows = useMemo(
     () =>
-      rows.map((so) => ({
+      filteredRows.map((so) => ({
         so_number: so.so_number || "(draft)",
         customer: customerName[so.customer_id] || "—",
         order_date: so.order_date,
         start_ship: so.requested_ship_date || "",
+        cancel_date: so.cancel_date || "",
         status: so.status,
         factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
+        credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
+        avg_cost_cents: so.avg_cost_cents ?? null,
+        avg_sell_cents: so.avg_sell_cents ?? null,
+        margin_pct: so.margin_pct ?? null,
+        margin_cents: so.margin_cents ?? null,
         total_cents: Number(so.total_cents ?? 0),
       })),
-    [rows, customerName],
+    [filteredRows, customerName],
   );
   const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
     { key: "order_date", header: "Order date", format: "date" },
     { key: "start_ship", header: "Start Ship", format: "date" },
+    { key: "cancel_date", header: "Cancel date", format: "date" },
     { key: "status",     header: "Status" },
     { key: "factor",     header: "Factor" },
+    { key: "credit",     header: "Credit" },
+    { key: "avg_cost_cents", header: "Avg cost", format: "currency_cents" },
+    { key: "avg_sell_cents", header: "Avg sell", format: "currency_cents" },
+    { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
+    { key: "margin_cents", header: "Margin $", format: "currency_cents" },
     { key: "total_cents", header: "Total", format: "currency_cents" },
   ];
 
@@ -168,7 +239,16 @@ export default function InternalSalesOrders() {
       const params = new URLSearchParams();
       if (statusFilter) params.set("status", statusFilter);
       if (customerFilter) params.set("customer_id", customerFilter);
-      if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
+      if (searchDebounced.trim()) {
+        params.set("q", searchDebounced.trim());
+        // Style-aware metrics: when the user is searching, scope the per-SO
+        // cost/sell/margin aggregates to the matching style's lines. The server
+        // only narrows when a line actually matches, so a non-style search (e.g.
+        // a customer name) safely falls back to the whole-SO aggregate.
+        params.set("style", searchDebounced.trim());
+      }
+      const styleDrill = readDrillParam("style_id");
+      if (styleDrill) params.set("style_id", styleDrill);
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as SO[]);
@@ -199,6 +279,20 @@ export default function InternalSalesOrders() {
             placeholder="All customers" inputStyle={inputStyle} />
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #, customer, style…" style={{ ...inputStyle, width: 240 }} />
+        {/* Date-range filter (client-side). Field picker + From/To + presets. */}
+        <select value={dateField} onChange={(e) => setDateField(e.target.value as "order_date" | "requested_ship_date")} style={{ ...inputStyle, width: 160 }} title="Which date the range filters on">
+          <option value="order_date">Order date</option>
+          <option value="requested_ship_date">Start ship date</option>
+        </select>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="From date" title="From" />
+        <span style={{ color: C.textMuted, fontSize: 13 }}>→</span>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="To date" title="To" />
+        <DateRangePresets variant="dropdown" from={dateFrom} to={dateTo}
+          onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+          buttonStyle={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "6px 10px", fontSize: 13 }} />
+        {(dateFrom || dateTo) && (
+          <button style={btnSecondary} onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear date range">Clear dates</button>
+        )}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}
@@ -212,28 +306,44 @@ export default function InternalSalesOrders() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          {/* Frozen header — sticks to the scroll container's top while rows
+              scroll. Opaque background so rows don't show through (mirrors the
+              Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
-            <th style={th} hidden={!isVisible("so_number")}>SO #</th><th style={th} hidden={!isVisible("customer")}>Customer</th><th style={th} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={th} hidden={!isVisible("start_ship")}>Start Ship</th><th style={th} hidden={!isVisible("status")}>Status</th><th style={th} hidden={!isVisible("factor")}>Factor</th><th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
+            <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>No sales orders.</td></tr>}
-            {rows.map((so) => (
+            {loading && <tr><td style={td} colSpan={13}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={13}>No sales orders.</td></tr>}
+            {filteredRows.map((so) => {
+              const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
+              return (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(so.order_date)}</td>
                 <td style={td} hidden={!isVisible("start_ship")}>{so.requested_ship_date ? fmtDateDisplay(so.requested_ship_date) : "—"}</td>
+                <td style={td} hidden={!isVisible("cancel_date")}>{so.cancel_date ? fmtDateDisplay(so.cancel_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[so.status] || C.text, fontWeight: 600 }}>● {so.status}</span></td>
                 <td style={td} hidden={!isVisible("factor")}>{so.factor_approval_status && so.factor_approval_status !== "not_submitted"
                   ? <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: FACTOR_COLORS[so.factor_approval_status] || C.text, border: `1px solid ${FACTOR_COLORS[so.factor_approval_status] || C.cardBdr}` }}>{so.factor_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={td} hidden={!isVisible("credit")}>{showCredit(so.credit_approval_status)
+                  ? <span title={so.credit_hold_reason || undefined} style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: CREDIT_COLORS[so.credit_approval_status!] || C.text, border: `1px solid ${CREDIT_COLORS[so.credit_approval_status!] || C.cardBdr}` }}>{CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status}</span>
+                  : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{fmtCents2(so.avg_cost_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -289,8 +399,19 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const [poParsed, setPoParsed] = useState<ParsedPo | null>(null);
   const [poAmbig, setPoAmbig] = useState<{ res: LineResolution; pick: "base" | "ppk" }[]>([]);
   const [poReview, setPoReview] = useState<{ warnings: PrefillWarning[]; summary: string[]; unmatched: string[] } | null>(null);
+  // Which step of the upload dialog is showing: file/text → base/PPK pick →
+  // confirm fuzzy choices (customer + colour rows) → or a duplicate-PO block.
+  const [poStep, setPoStep] = useState<"upload" | "ambig" | "confirm" | "dup">("upload");
+  // "Confirm choices" step state — a customer pick (when the parsed name didn't
+  // match exactly) and a colour-row pick per fuzzy-mapped line.
+  const [poCustQ, setPoCustQ] = useState<{ parsedName: string; pick: string; reasoning?: string | null } | null>(null);
+  const [poColorQs, setPoColorQs] = useState<(ColorQuestion & { pick: string })[]>([]);
+  // Duplicate-PO guard: a non-cancelled SO already carries this customer PO #.
+  const [poDup, setPoDup] = useState<{ po: string; existing: { id: string; so_number: string | null; status: string; customer_id: string }[] } | null>(null);
   const [allStyles, setAllStyles] = useState<StyleLite[]>([]);
   const [fulfillmentSource, setFulfillmentSource] = useState(so?.fulfillment_source || "");
+  // Closeout order — when ticked, commission uses the customer's closeout rate.
+  const [isCloseout, setIsCloseout] = useState<boolean>(so?.is_closeout ?? false);
   // True when an uploaded customer PO auto-chose ATS and the operator hasn't yet
   // confirmed/changed it — highlights the Fulfillment source for a double-check.
   const [fulfillmentReview, setFulfillmentReview] = useState(false);
@@ -451,6 +572,15 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   }
   // Style → matrix size columns (cached per style id within this parse).
   const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[] }>>(new Map());
+  // The operator's confirmed colour-row picks from the last apply, so post-prefill
+  // actions (carton rounding) keep them and don't re-raise resolved warnings.
+  const poColorPicksRef = useRef<Record<string, string>>({});
+  // The resolved {line, chosen-style} list + unmatched-style notes computed in
+  // prepareConfirm, handed verbatim to applyParsed when the operator clicks
+  // Continue — so the apply never re-resolves against (possibly stale) state and
+  // reuses the matrices already fetched for the colour questions.
+  const poResolvedRef = useRef<{ line: ParsedPoLine; chosen: StyleLite }[]>([]);
+  const poUnmatchedRef = useRef<string[]>([]);
   async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
@@ -474,8 +604,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     };
     reader.readAsDataURL(file);
   }
+  // Look up any non-cancelled SO that already carries this exact customer PO #.
+  async function findDuplicateSo(po: string): Promise<{ id: string; so_number: string | null; status: string; customer_id: string }[]> {
+    try {
+      const r = await fetch(`/api/internal/sales-orders?customer_po=${encodeURIComponent(po)}`);
+      if (!r.ok) return [];
+      const a = await r.json();
+      return (Array.isArray(a) ? a : []).map((s: { id: string; so_number: string | null; status: string; customer_id: string }) =>
+        ({ id: s.id, so_number: s.so_number, status: s.status, customer_id: s.customer_id }));
+    } catch { return []; }
+  }
   async function parsePO() {
-    setPoErr(null); setPoParsing(true); setPoReview(null);
+    setPoErr(null); setPoParsing(true); setPoReview(null); setPoDup(null);
     try {
       const payload = poB64 ? { filename: poFileName, base64: poB64 } : { text: poText };
       const r = await fetch("/api/internal/sales-orders/parse-customer-po", {
@@ -486,28 +626,94 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
       const parsed = j.parsed as ParsedPo;
       setPoParsed(parsed);
       const styles = await ensureStyles();
+      // Duplicate guard — same customer PO # already on a (non-cancelled) SO.
+      // Block the prefill and let the operator cancel rather than create a dup.
+      if (parsed.customer_po_number) {
+        const existing = await findDuplicateSo(parsed.customer_po_number);
+        if (existing.length) { setPoDup({ po: parsed.customer_po_number, existing }); setPoStep("dup"); return; }
+      }
       // Detect base/PPK ambiguity; if any, ask before building the seed.
       const ambig = parsed.lines
         .map((l) => resolveLine(l, styles))
         .filter((res) => res.ambiguous)
         .map((res) => ({ res, pick: "base" as "base" | "ppk" }));
-      if (ambig.length) { setPoAmbig(ambig); }
-      else { await applyParsed(parsed, styles, {}); }
+      if (ambig.length) { setPoAmbig(ambig); setPoStep("ambig"); }
+      else { await prepareConfirm(parsed, styles, {}); }
     } catch (e) {
       setPoErr(e instanceof Error ? e.message : String(e));
     } finally {
       setPoParsing(false);
     }
   }
-  // Build the prefill + header from a parsed PO. `picks` maps an ambiguous line's
-  // style_code (lower) → the chosen variant.
-  async function applyParsed(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
+  // After base/PPK is resolved, gather the remaining fuzzy choices (customer +
+  // colour rows). If any need confirming, show the "confirm choices" step;
+  // otherwise build the prefill straight away.
+  async function prepareConfirm(parsed: ParsedPo, styles: StyleLite[], picks: Record<string, "base" | "ppk">) {
+    // Resolve each line to its chosen style (apply the base/PPK picks). Done ONCE
+    // here; the resolved list (and the matrices fetched below) are reused by
+    // applyParsed so the apply never re-resolves against possibly-stale state.
+    const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
+    const unmatchedStyles: string[] = [];
+    for (const line of parsed.lines) {
+      const res = resolveLine(line, styles);
+      let chosen = res.chosen;
+      if (res.ambiguous) {
+        const pick = picks[(line.style_code || "").toLowerCase()] || "base";
+        chosen = pick === "ppk" ? res.ppk : res.base;
+      }
+      if (chosen) resolved.push({ line: res.line, chosen });
+      else unmatchedStyles.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
+    }
+    sizeCache.current.clear();
+    poResolvedRef.current = resolved;
+    poUnmatchedRef.current = unmatchedStyles;
+    // Colour rows that didn't map cleanly → ask the operator to confirm. This
+    // also populates sizeCache with each style's matrix (reused by applyParsed).
+    const colorQs = (await computeColorQuestions(resolved, fetchMatrix)).map((q) => ({ ...q, pick: q.suggested }));
+    // Customer that didn't match exactly → ask. Default to the AI's pick (broad,
+    // semantic) when available, else the best string candidate.
+    const exactCust = matchCustomerExact(parsed.customer_name, customers);
+    let custQ: { parsedName: string; pick: string; reasoning?: string | null } | null = null;
+    if (!exactCust && parsed.customer_name) {
+      const ai = await aiMatchCustomer(parsed.customer_name);
+      const fallback = customerCandidates(parsed.customer_name, customers)[0]?.id || "";
+      custQ = { parsedName: parsed.customer_name, pick: ai.customer_id || fallback, reasoning: ai.reasoning };
+    }
+    if (colorQs.length || custQ) {
+      setPoColorQs(colorQs); setPoCustQ(custQ); setPoStep("confirm");
+      return;
+    }
+    await applyParsed(parsed, resolved, unmatchedStyles, {}, undefined);
+  }
+  // Ask the server's AI matcher to map a parsed customer name onto a customer in
+  // the master (semantic — e.g. "Ross Stores, Inc." → "Ross Procurement"). Falls
+  // back to {customer_id:null} when the AI is unavailable.
+  async function aiMatchCustomer(name: string): Promise<{ customer_id: string | null; reasoning: string | null }> {
+    try {
+      const r = await fetch("/api/internal/sales-orders/match-customer", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      if (!r.ok) return { customer_id: null, reasoning: null };
+      const j = await r.json();
+      const id = j.customer_id && customers.some((c) => c.id === j.customer_id) ? j.customer_id : null;
+      return { customer_id: id, reasoning: j.reasoning ?? null };
+    } catch { return { customer_id: null, reasoning: null }; }
+  }
+  // Build the prefill + header from a parsed PO using the resolved list computed
+  // in prepareConfirm. `colorPicks` carries operator-confirmed colour rows
+  // (colorPickKey → colour). `customerPick` is the confirmed customer id from the
+  // choices step ("" = leave to pick manually); `undefined` means no customer
+  // question was asked → fall back to the exact/fuzzy match.
+  async function applyParsed(
+    parsed: ParsedPo, resolved: { line: ParsedPoLine; chosen: StyleLite }[], unmatchedStyles: string[],
+    colorPicks: Record<string, string> = {}, customerPick?: string,
+  ) {
     const summary: string[] = [];
-    const unmatched: string[] = [];
+    const unmatched: string[] = [...unmatchedStyles];
 
     // Header
     if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); summary.push(`PO # ${parsed.customer_po_number}`); }
-    const custId = matchCustomer(parsed.customer_name, customers);
+    const custId = customerPick !== undefined ? (customerPick || null) : matchCustomer(parsed.customer_name, customers);
     if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
     const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
@@ -519,22 +725,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     // and flag the field so the operator confirms (or switches to Production).
     setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
 
-    // Resolve each line to a chosen style (apply disambiguation picks).
-    const resolved: { line: ParsedPoLine; chosen: StyleLite }[] = [];
-    for (const line of parsed.lines) {
-      const res = resolveLine(line, styles);
-      let chosen = res.chosen;
-      if (res.ambiguous) {
-        const pick = picks[(line.style_code || "").toLowerCase()] || "base";
-        chosen = pick === "ppk" ? res.ppk : res.base;
-      }
-      // res.line carries any style/color split out of a combined "STYLE-COLOR" code.
-      if (chosen) resolved.push({ line: res.line, chosen });
-      else unmatched.push(`Style "${line.style_code || line.description || "?"}" — not found, add manually`);
-    }
-
-    sizeCache.current.clear();
-    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
+    // Reuse the matrices fetched in prepareConfirm (sizeCache is NOT cleared here)
+    // so the seed builds from the exact data the colour questions were based on.
+    poColorPicksRef.current = colorPicks;
+    const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix, colorPicks);
     if (sections.length) {
       // Reset the seed so the body re-seeds with the prefilled grids.
       setSeedKey((k) => k + 1);
@@ -550,6 +744,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     }
     setPoReview({ warnings, summary, unmatched });
     setPoAmbig([]);
+    setPoColorQs([]);
+    setPoCustQ(null);
+    setPoStep("upload");
     setPoUploadOpen(false);
   }
   // Round every partial-carton (×24) prefilled size UP to a full carton, per the
@@ -573,7 +770,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         resolved.push({ line: roundedLine, chosen });
       }
       sizeCache.current.clear();
-      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix);
+      const { sections, warnings } = await buildSeedFromResolved(resolved, fetchMatrix, poColorPicksRef.current);
       setSeedKey((k) => k + 1);
       setSeed({ sections, flat: [] });
       setPoReview((prev) => prev ? { ...prev, warnings, summary: [...prev.summary, "Rounded sizes up to full cartons"] } : prev);
@@ -606,6 +803,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         customer_po: customerPo.trim() || null,
         is_bulk_order: isBulkOrder,
         fulfillment_source: fulfillmentSource || null,
+        is_closeout: isCloseout,
         // Item 3 — factor / credit-insurance approval (manual).
         factor_approval_status: factorStatus,
         factor_reference: factorReference.trim() || null,
@@ -780,6 +978,71 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     finally { setSubmitting(false); }
   }
 
+  // Non-factor credit ship-gate — operator actions. The gate is server-owned
+  // (409 on allocate/ship); these are the operator release/record paths.
+  // "Override → Approve" sets credit_approval_status='approved' (source manual);
+  // "Record payment" posts a manual payment that, on a paid-in-full CREDIT_CARD
+  // order, auto-approves the gate. Both visible on a non-draft SO that carries a
+  // surfaced credit status (on_hold / pending).
+  const creditStatus = so?.credit_approval_status || "not_required";
+  const creditOnHold = !isNew && (creditStatus === "on_hold" || creditStatus === "pending");
+  async function overrideApproveCredit() {
+    if (!so) return;
+    const ok = await confirmDialog(
+      `Override the credit hold on this order and mark it APPROVED to ship?\n\n${so.credit_hold_reason || "This releases the non-factor credit ship-gate."}`,
+      "Approve credit override",
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credit_approval_status: "approved", credit_approval_source: "manual" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Credit hold overridden — order approved to ship.", "success");
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  // Record-payment dialog (credit-card orders). Manual record path; a future
+  // hosted-payment/webhook flow can drive the same server endpoint.
+  const [payOpen, setPayOpen] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("credit_card");
+  const [payReference, setPayReference] = useState("");
+  const isCardOrder = useMemo(() => {
+    const t = paymentTerms.find((pt) => pt.id === (so?.payment_terms_id || paymentTermsId));
+    return t?.code === "CREDIT_CARD";
+  }, [paymentTerms, so, paymentTermsId]);
+  function openPayModal() {
+    // Default the amount to the outstanding balance (total − already paid).
+    const total = Number(so?.total_cents ?? 0);
+    const paid = Number(so?.amount_paid_cents ?? 0);
+    const due = Math.max(total - paid, 0);
+    setPayAmount(due > 0 ? (due / 100).toFixed(2) : "");
+    setPayReference(""); setPayMethod("credit_card"); setPayOpen(true);
+  }
+  async function recordPayment() {
+    if (!so) return;
+    const dollars = moneyToNumber(payAmount);
+    if (dollars == null || dollars <= 0) { setErr("Enter a payment amount greater than 0."); return; }
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}/record-payment`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount_cents: Math.round(dollars * 100), method: payMethod, reference: payReference.trim() || null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Payment recorded.", j.paid_in_full ? "success" : "info");
+      setPayOpen(false);
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
   // Item 15 — split a draft SO across multiple of the customer's stores/DCs.
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitLocs, setSplitLocs] = useState<string[]>([]);
@@ -922,7 +1185,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
           {isNew && editable && (
             <Field label="Or auto-fill from the customer's PO">
-              <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoUploadOpen(true); }}
+              <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoColorQs([]); setPoCustQ(null); setPoDup(null); setPoStep("upload"); setPoUploadOpen(true); }}
                 style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, width: "100%" }}>
                 🤖 Upload customer PO
               </button>
@@ -999,6 +1262,28 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           )}
         </div>
 
+        {/* Non-factor credit ship-gate state — surfaced when the SO is on_hold
+            (house-account overdue AR) or pending (credit-card not paid in full).
+            Server is the source of truth (409 on allocate/ship). The release
+            actions (Record payment / Override → Approve) live in the footer. */}
+        {!isNew && showCredit(creditStatus) && (
+          <div style={{
+            border: `1px solid ${CREDIT_COLORS[creditStatus] || C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12,
+            background: creditStatus === "approved" ? "#06281f" : creditStatus === "on_hold" ? "#3b2f0b" : "#0b1c3b",
+          }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Credit status</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: CREDIT_COLORS[creditStatus] || C.text }}>
+                {creditStatus === "approved" ? "✅" : creditStatus === "declined" ? "⛔" : "⚠"} {CREDIT_LABELS[creditStatus] || creditStatus}
+              </span>
+              {Number(so?.amount_paid_cents ?? 0) > 0 && (
+                <span style={{ fontSize: 11, color: C.textSub }}>paid {fmtCents(so?.amount_paid_cents)} of {fmtCents(so?.total_cents)}</span>
+              )}
+            </div>
+            {so?.credit_hold_reason && <div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>{so.credit_hold_reason}</div>}
+          </div>
+        )}
+
         <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
 
         {/* Item 15 — ship to multiple stores: split this draft into per-store child SOs. */}
@@ -1051,6 +1336,10 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
           {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
           {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>⚠️ Pick ATS or Production to start adding styles.</span>}
+          <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
+            <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
+            Closeout order
+          </label>
         </div>
 
         {/* The Add-style / Add-line buttons live in the matrix body itself
@@ -1109,6 +1398,14 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             {canAllocate && <button onClick={() => void allocate()} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Reserve available on-hand stock to this order's lines, then open the Allocations workbench for this order">{submitting ? "…" : "📦 Allocate stock"}</button>}
             {!isNew && so != null && <button onClick={openAllocations} style={{ ...btnSecondary, color: "#8B5CF6", borderColor: "#5b21b6" }} disabled={submitting} title="Open the Allocations workbench focused on this sales order">📊 View allocation</button>}
             {canShip && <button onClick={() => void openShipModal()} style={{ ...btnSecondary, color: "#06B6D4", borderColor: "#0e7490" }} disabled={submitting} title="Record a carrier shipment (ships the allocated quantities)">🚚 Ship</button>}
+            {/* Non-factor credit ship-gate operator actions. Record-payment for
+                CREDIT_CARD orders; Override→Approve releases any credit hold. */}
+            {!isNew && so != null && isCardOrder && creditStatus !== "approved" && (
+              <button onClick={openPayModal} style={{ ...btnSecondary, color: C.primary, borderColor: "#1d4ed8" }} disabled={submitting} title="Record a payment against this credit-card order (paid in full releases the ship-gate)">💳 Record payment</button>
+            )}
+            {creditOnHold && (
+              <button onClick={() => void overrideApproveCredit()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title={so?.credit_hold_reason || "Override the credit hold and approve this order to ship"}>✅ Override → Approve</button>
+            )}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "🧾 Create AR invoice"}</button>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1126,7 +1423,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
               Upload the customer's PO (PDF, Excel/CSV) or paste the email below. AI reads it and prefills the customer, terms, dates, PO #, and the size matrix — then you double-check before saving.
             </div>
 
-            {poAmbig.length === 0 ? (
+            {poStep === "upload" && (
               <>
                 <Field label="PO document">
                   <input type="file" accept=".pdf,.xlsx,.xls,.csv,.txt,.eml" disabled={poParsing}
@@ -1148,7 +1445,34 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                   </button>
                 </div>
               </>
-            ) : (
+            )}
+
+            {poStep === "dup" && poDup && (
+              // Duplicate guard — a non-cancelled SO already carries this PO #.
+              <>
+                <div style={{ background: "#7f1d1d", color: "white", padding: "12px 14px", borderRadius: 8, fontSize: 13 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ This customer PO already exists</div>
+                  <div style={{ fontSize: 12 }}>PO <strong>{poDup.po}</strong> is already on {poDup.existing.length === 1 ? "an existing sales order" : `${poDup.existing.length} existing sales orders`}:</div>
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                    {poDup.existing.map((e) => (
+                      <li key={e.id}>{e.so_number || "(draft, no SO #)"} — {e.status}{customers.find((c) => c.id === e.customer_id) ? ` · ${customers.find((c) => c.id === e.customer_id)!.name}` : ""}</li>
+                    ))}
+                  </ul>
+                  <div style={{ fontSize: 12, marginTop: 8 }}>Creating another would duplicate it. Cancel, or open the existing order instead.</div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                  {poDup.existing[0] && (
+                    <button type="button" style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}
+                      onClick={() => window.open(`?m=sales_orders&q=${encodeURIComponent(poDup.existing[0].so_number || poDup.po)}`, "_blank")}>
+                      Open existing SO ↗
+                    </button>
+                  )}
+                  <button type="button" style={btnPrimary} onClick={() => { setPoUploadOpen(false); setPoDup(null); setPoStep("upload"); }}>Cancel — don't create a duplicate</button>
+                </div>
+              </>
+            )}
+
+            {poStep === "ambig" && (
               // Base vs PPK disambiguation — one or more styles exist in both forms.
               <>
                 <div style={{ fontSize: 13, color: C.textSub, marginBottom: 10 }}>These styles exist in both a <strong>base</strong> and a <strong>prepack (PPK)</strong> form. Pick which to order:</div>
@@ -1171,11 +1495,53 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 ))}
                 {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-                  <button onClick={() => setPoAmbig([])} style={btnSecondary} disabled={poParsing}>Back</button>
+                  <button onClick={() => { setPoAmbig([]); setPoStep("upload"); }} style={btnSecondary} disabled={poParsing}>Back</button>
                   <button disabled={poParsing} style={btnPrimary} onClick={() => {
                     if (!poParsed) return;
                     const picks = Object.fromEntries(poAmbig.map((a) => [(a.res.line.style_code || "").toLowerCase(), a.pick]));
-                    void applyParsed(poParsed, allStyles, picks);
+                    void prepareConfirm(poParsed, allStyles, picks);
+                  }}>Continue</button>
+                </div>
+              </>
+            )}
+
+            {poStep === "confirm" && (
+              // Confirm the fuzzy choices — customer (no exact match) + colour rows
+              // that didn't map cleanly. Operator picks; then we build the prefill.
+              <>
+                <div style={{ fontSize: 13, color: C.textSub, marginBottom: 10 }}>A couple of things need confirming before we fill the order:</div>
+                {poCustQ && (
+                  <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}>The PO names customer <strong style={{ color: C.text }}>"{poCustQ.parsedName}"</strong> — pick the matching customer:</div>
+                    <SearchableSelect value={poCustQ.pick || null} onChange={(v) => setPoCustQ((q) => q ? { ...q, pick: v || "" } : q)}
+                      options={[{ value: "", label: "— pick manually later —" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
+                      placeholder="Search customer…" inputStyle={inputStyle} />
+                    {poCustQ.reasoning && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>🤖 {poCustQ.reasoning}</div>}
+                  </div>
+                )}
+                {poColorQs.map((q, i) => (
+                  <div key={i} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: 10, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 6 }}><strong style={{ color: C.text }}>{q.styleCode}</strong> — PO colour <strong style={{ color: C.text }}>"{q.lineColor}"</strong>. Which colour row?</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {q.options.map((opt) => {
+                        const active = q.pick === opt;
+                        return (
+                          <button key={opt} type="button" onClick={() => setPoColorQs((p) => p.map((x, j) => j === i ? { ...x, pick: opt } : x))}
+                            style={{ ...btnSecondary, color: active ? C.primary : C.textSub, borderColor: active ? C.primary : C.cardBdr, fontWeight: active ? 700 : 400, fontSize: 12, padding: "4px 10px" }}>
+                            {opt}{opt === q.suggested ? " ★" : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                {poErr && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "10px 0 0", fontSize: 12 }}>{poErr}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                  <button onClick={() => { setPoStep(poAmbig.length ? "ambig" : "upload"); }} style={btnSecondary} disabled={poParsing}>Back</button>
+                  <button disabled={poParsing} style={btnPrimary} onClick={() => {
+                    if (!poParsed) return;
+                    const colorPicks = Object.fromEntries(poColorQs.map((q) => [colorPickKey(q.styleCode, q.lineColor), q.pick]));
+                    void applyParsed(poParsed, poResolvedRef.current, poUnmatchedRef.current, colorPicks, poCustQ ? poCustQ.pick : undefined);
                   }}>Continue</button>
                 </div>
               </>
@@ -1275,6 +1641,29 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 <button onClick={() => downloadBulkCsv(bulkDetail)} style={btnSecondary}>⬇ Excel (CSV)</button>
                 <button onClick={() => printBulkDetail(bulkDetail)} style={btnSecondary}>🖨 Print</button>
               </div>
+      {/* Record-payment modal — manual payment record for the credit-card gate.
+          Processor (Stripe/hosted checkout) is deferred; this posts to the
+          record-payment endpoint which increments amount_paid_cents and, on a
+          paid-in-full CREDIT_CARD order, auto-approves the credit ship-gate. */}
+      {payOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!submitting) setPayOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💳 Record payment</h3>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+              Order total {fmtCents(so?.total_cents)} · already paid {fmtCents(so?.amount_paid_cents)}. Paying in full releases the credit-card ship-gate.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <Field label="Amount $"><input type="text" inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} onBlur={() => setPayAmount((v) => fmtMoneyComma(v))} style={inputStyle} placeholder="0.00" /></Field>
+              <Field label="Method">
+                <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} style={inputStyle}>
+                  {["credit_card", "ach", "wire", "check", "cash", "paypal", "stripe", "other"].map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Reference #"><input type="text" value={payReference} onChange={(e) => setPayReference(e.target.value)} style={inputStyle} placeholder="auth code / txn id (optional)" /></Field>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setPayOpen(false)} style={btnSecondary} disabled={submitting}>Cancel</button>
+              <button onClick={() => void recordPayment()} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Record payment"}</button>
             </div>
           </div>
         </div>
