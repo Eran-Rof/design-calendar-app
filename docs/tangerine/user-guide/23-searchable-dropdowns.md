@@ -77,6 +77,24 @@ Same shape as a controlled native `<select>` — `value` + `onChange` + option l
 
 ---
 
+## Date range presets
+
+Wherever you set a **from / to date range** to filter — a report, a list, a dashboard, the Inventory Snapshot header and its Sold / Purchased drill popups, commission payouts, AR/AP invoices and payments, GL detail, trial balance, and so on — a **Presets** dropdown sits to the left of the two date inputs. Pick a quick range and the From / To dates fill in for you:
+
+- **MTD** (month-to-date), **YTD** (year-to-date)
+- **Last 30 / 60 / 90 days**
+- **This / Last month**, **This / Last quarter**, **This / Last year**
+- **This year → last month**
+- **Custom…** to type the dates yourself
+
+Every preset is **relative to today** — it recomputes each time you use it (never a frozen date range), so "Last 30 days" always means the 30 days ending today.
+
+**Manage and add your own presets** from **Master Data → Date Presets**. The built-in presets above are pre-loaded there as editable rows, so you can relabel, reorder, or hide any of them, and add new ones (e.g. "Last 14 days"). Anything you change there appears automatically in **every** date-range Presets dropdown across all the apps — no per-screen setup. See [Master Data → Date Presets Master](02-master-data.md#-date-presets-master).
+
+> The Presets dropdown only appears on date-**range** filters (a from *and* a to). Single-date entry fields — order / ship / due / effective dates, an "as of" aging date — are not ranges, so they don't carry presets.
+
+---
+
 ## Code map
 
 - Component: `src/tanda/components/SearchableSelect.tsx`

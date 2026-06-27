@@ -134,7 +134,39 @@ Code: `api/cron/crm-tasks-due-tomorrow.js`.
 
 ---
 
-## 20.9 What's NOT in v1
+## 20.9 Customer Master — contacts, defaults & reps
+
+The **Customer Master** (📚 Master Data → Customer Master) record is organized into tabs. Recent operator-facing changes:
+
+### Row actions in the list
+
+Each customer row carries three inline action buttons — **Scorecard** (blue) · **Edit** (grey) · **Delete** (red), each its own framed button. A soft-deleted row shows only **Scorecard**.
+
+### Details tab
+
+- **Default dropdowns show the name only.** Brand, Channel, Payment terms, GL routing accounts, Price list and Country pickers display the plain name (no leading `CODE —` prefix); typing a code still matches because the code stays in the search text.
+- **Credit limit** is a comma-formatted, whole-dollar field (up to 12 digits, e.g. `1,250,000`, no cents).
+- The Details tab **no longer carries GL account pickers or the contact-info block** — GL routing lives only on the **GL Accounts** tab, and contacts live on the **AP/Trans/CBs** tab (below).
+
+### AP/Trans/CBs tab
+
+A dedicated contacts tab holds up to **8** contacts. Each row has:
+
+- **Department** — Accounts Payable / Transportation / Chargeback
+- **Name**, **Email**, **Phone**
+
+Use **+ Add contact** to add a row (disabled once 8 are present) and remove rows individually.
+
+**Contact notes & reminders** — each contact has a **📝 Notes** panel. Add a timestamped note (your name + date/time are stamped automatically) with an optional **reminder** date/time. When a reminder comes due, an hourly job sends you an in-app **notification**; clicking it deep-links straight back to that customer's **AP/Trans/CBs** tab with the contact expanded and the note highlighted.
+
+### Reps tab
+
+- **Default brand** picker (one per customer; shows brand name only). Every customer was backfilled to the brand they bought the most of historically (customers with no resolvable history default to Ring of Fire); the picker is editable and never overwrites a manual choice.
+- **Closeout commission %** — the (usually lower) commission rate sales reps earn on closeout orders. See [Chapter 19 §19.2](19-revenue-operations.md) for how it splits into the scorecard.
+
+---
+
+## 20.10 What's NOT in v1
 
 - **Bulk operations** on opps / tasks (assign 30 in one click).
 - **Saved filter sets** ("My open high-priority tasks for ROF customer-prefix").

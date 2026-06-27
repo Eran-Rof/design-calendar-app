@@ -100,3 +100,34 @@ inbound when the 3PL confirms the shipment. These use the same X12 envelope
 engine and the `edi_messages` store (`transaction_set` 940/945). The full
 workflow, plus the per-provider connection settings the operator must enter, is
 documented in **[Chapter 36 — 3PL](36-3pl.md#363-waving-a-sales-order-to-a-3pl-edi-940--945)**.
+
+## 3PL goods-receipt advice (944) → draft PO receipt
+
+When a 3PL **receives your inventory into the warehouse** against one of your
+native (Tangerine) purchase orders, it sends back an **EDI 944 (Stock Transfer
+Receipt Advice)** telling you exactly what landed. Tangerine turns that advice
+into a **draft goods receipt** you confirm and post — it never books inventory
+on its own.
+
+**What happens when a 944 arrives:**
+
+1. The advice is parsed to a PO number plus the received quantity per SKU. It
+   accepts a **raw X12 944**, a structured **JSON** body (`{ po_number, lines:
+   [{ sku, qty_received }] }`), or a tiny **`sku,qty` CSV** — so a 3PL that
+   isn't on true X12 can still report receipts.
+2. Tangerine finds the matching native PO (it must be **issued** or
+   **in transit**) and maps each advice SKU to its PO line (loose SKU match).
+3. The raw advice is always logged to the EDI message store
+   (`transaction_set '944'`, inbound) — even if the PO can't be found — so
+   nothing is lost. **Unmatched SKUs are reported back, not silently dropped.**
+4. A **draft goods receipt** is created on the PO (it is *not* posted).
+
+**You finish it in Receiving.** The draft lands in **Inventory → Receiving**
+(`m=receiving`), where you review the quantities, then **confirm and post** it —
+that is what creates the FIFO inventory layers + the **GR/IR** journal entry and
+flips the PO to *received*. Operator confirmation is deliberately required for
+an EDI-driven receipt; the 944 never auto-posts.
+
+> **Endpoint:** `POST /api/internal/edi/tpl/:provider_id/receipt-advice`.
+> The 944 is the inbound counterpart to the outbound 940 you send when you wave
+> an order — see **[Chapter 36 — 3PL](36-3pl.md#363-waving-a-sales-order-to-a-3pl-edi-940--945)**.

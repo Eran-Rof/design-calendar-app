@@ -184,11 +184,19 @@ or touch a from/to date-range filter anywhere in any app, add the drop-in
 - Built-in presets (MTD, YTD, Last 30/60/90d, This/Last month/quarter/year, …)
   live in `src/tanda/components/dateRangeMath.ts` (`DEFAULT_PRESETS`). Add new
   built-ins there.
-- The selector auto-loads the operator's **additional** presets from the
-  **Date Presets master** (`/api/internal/date-presets`, Tangerine module
-  `date_preset_master`) and merges them in — so existing pickers pick up custom
-  presets automatically. Master presets are relative expressions (`kind` + `n`),
-  recomputed against "today" via `computeForKind()` — never stored absolute ranges.
+- The selector auto-loads the operator's presets from the **Date Presets master**
+  (`/api/internal/date-presets`, Tangerine module `date_preset_master`) and merges
+  them in — so existing pickers pick up custom presets automatically. Master
+  presets are relative expressions (`kind` + `n`), recomputed against "today" via
+  `computeForKind()` — never stored absolute ranges.
+- The master is **backfilled with the current built-ins** (MTD, YTD, This/Last
+  Year, Last 30/60/90d, Last month/quarter, TY→last month) as rows tagged with a
+  `source_key` naming the code preset they mirror (migration `20260911…`). So the
+  operator sees and manages the live presets — reorder / relabel / disable — from
+  the master, not just add new ones. `mergePresets()` drops any code built-in
+  whose key is covered by an active `source_key` row, so each preset shows ONCE
+  (the editable master row wins); delete a backfilled row and the code built-in
+  transparently reappears as the fallback.
 - Single-date FORM fields (invoice date, due date, ship date) are exempt —
   presets apply to date-range FILTERS only.
 
