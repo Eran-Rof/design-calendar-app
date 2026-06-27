@@ -883,7 +883,10 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      if (data.note) { notify(data.note, "info"); return; }
+      // Graceful no-op (e.g. ANTHROPIC_API_KEY not configured) returns ONLY a
+      // note with no estimate. A successful estimate also carries `note` (the
+      // one-line assumption), so only bail when there are no dims/cbm to apply.
+      if (data.note && data.cbm == null && data.carton_length_in == null) { notify(data.note, "info"); return; }
       setForm((f) => ({
         ...f,
         carton_length_in: data.carton_length_in != null ? String(data.carton_length_in) : "",
