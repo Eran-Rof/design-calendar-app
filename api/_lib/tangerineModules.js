@@ -23,6 +23,7 @@ export const TANGERINE_MODULES = [
   { key: "adjustment_type_master", display_name: "Adjustment Types Master", group_name: "Master Data", sort_order: 14, available_actions: ["read","write","export"] },
   { key: "adjustment_reason_master", display_name: "Adjustment Reason Master", group_name: "Master Data", sort_order: 15, available_actions: ["read","write","export"] },
   { key: "transfer_reason_master", display_name: "Transfer Reasons Master", group_name: "Master Data", sort_order: 16, available_actions: ["read","write","export"] },
+  { key: "date_preset_master", display_name: "Date Presets Master", group_name: "Master Data", sort_order: 16, available_actions: ["read","write","export"] },
   { key: "warehouse_master", display_name: "Warehouses Master", group_name: "Master Data", sort_order: 17, available_actions: ["read","write","export"] },
   { key: "carrier_master", display_name: "Carrier Master", group_name: "Master Data", sort_order: 18, available_actions: ["read","write","export"] },
   { key: "buyer_scope_master", display_name: "Buyer Scope Master", group_name: "Master Data", sort_order: 19, available_actions: ["read","write","export"] },

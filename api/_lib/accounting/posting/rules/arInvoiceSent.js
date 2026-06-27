@@ -167,9 +167,12 @@ export function arInvoiceSent(event) {
       const drIx = 1 + d.lines.length + cogsLines.length;
       const crIx = drIx + 1;
       const cogsMemo = `COGS ${d.invoice_number} L${lineIxLabel}`;
+      // Per-style COGS routing (#6): use the line's own COGS account when set
+      // (stamped from the style's brand bucket), else the invoice-level default.
+      const lineCogsAccountId = ln.cogs_account_id || d.cogs_account_id;
       cogsLines.push({
         _kind: "cogs_dr",
-        account_id: d.cogs_account_id,
+        account_id: lineCogsAccountId,
         debit: "0",   // sentinel — rewritten by postEvent after consume()
         credit: "0",
         memo: cogsMemo,

@@ -111,3 +111,37 @@ describe("BP-max implied price is outlier-guarded (RYB1416 bug)", () => {
     for (const c of costs) expect(c).toBeLessThan(50);
   });
 });
+
+describe("Buyer worksheet: subtotal + grand-total live formulas; Total column right-aligned", () => {
+  // Two variants of style AAA (→ a subtotal) + one of BBB + a grand total.
+  const rows: ATSRow[] = [
+    row({ sku: "AAA - Red",   master_style: "AAA", master_color: "Red",   avgCost: 10 }),
+    row({ sku: "AAA - Blue",  master_style: "AAA", master_color: "Blue",  avgCost: 10 }),
+    row({ sku: "BBB - Green", master_style: "BBB", master_color: "Green", avgCost: 12 }),
+  ];
+
+  it("Mrgn % and Total $ are formulas on EVERY row — body, subtotal, and grand total", () => {
+    const p = buildExportPayload(rows, PERIODS, [], null, baseOpts({ buyerWorksheet: true, subtotals: true }), null, undefined, true)!;
+    const mrgnIdx = headerIdx(p, "Mrgn %");
+    const ttlIdx = headerIdx(p, "Total $");
+    expect(mrgnIdx).toBeGreaterThanOrEqual(0);
+    expect(ttlIdx).toBeGreaterThanOrEqual(0);
+    // 3 body rows + 1 subtotal (AAA) + 1 grand total = 5 rows carrying BOTH a
+    // Mrgn % and a Total $ formula.
+    const both = (p.aoa as any[][]).filter((r) => r && typeof r[mrgnIdx]?.f === "string" && typeof r[ttlIdx]?.f === "string");
+    expect(both.length).toBeGreaterThanOrEqual(5);
+    // Margin formula references the row's own Sls Prc + Avg Cost cells.
+    expect(both.every((r) => /\([A-Z]+\d+-[A-Z]+\d+\)\/[A-Z]+\d+/.test(r[mrgnIdx].f))).toBe(true);
+  });
+
+  it("the Total column data cells are right-aligned (body + subtotal + grand total)", () => {
+    const p = buildExportPayload(rows, PERIODS, [], null, baseOpts({ buyerWorksheet: true, subtotals: true }), null, undefined, true)!;
+    const totalIdx = headerIdx(p, "Total");
+    expect(totalIdx).toBeGreaterThanOrEqual(0);
+    const totalCells = (p.aoa as any[][])
+      .map((r) => r && r[totalIdx])
+      .filter((c) => c && (typeof c.v === "number" || typeof c.f === "string"));
+    expect(totalCells.length).toBeGreaterThan(0);
+    for (const c of totalCells) expect(c.s?.alignment?.horizontal).toBe("right");
+  });
+});

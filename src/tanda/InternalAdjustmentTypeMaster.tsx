@@ -33,6 +33,7 @@ type AdjustmentType = {
   entity_id: string;
   code: string;
   name: string;
+  description: string | null;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -70,6 +71,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -189,7 +191,7 @@ export default function InternalAdjustmentTypeMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -253,9 +255,10 @@ interface ModalProps {
 
 function AdjustmentTypeFormModal({ mode, type, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    name:       type?.name ?? "",
-    sort_order: type?.sort_order != null ? String(type.sort_order) : "0",
-    is_active:  type?.is_active ?? true,
+    name:        type?.name ?? "",
+    description: type?.description ?? "",
+    sort_order:  type?.sort_order != null ? String(type.sort_order) : "0",
+    is_active:   type?.is_active ?? true,
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -275,9 +278,10 @@ function AdjustmentTypeFormModal({ mode, type, onClose, onSaved }: ModalProps) {
       }
       // code is server-generated (add) / locked (edit) — don't send.
       const body = {
-        name:       form.name.trim(),
-        sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
-        is_active:  form.is_active,
+        name:        form.name.trim(),
+        description: form.description.trim() === "" ? null : form.description.trim(),
+        sort_order:  form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
+        is_active:   form.is_active,
       };
       const r = await fetch(url, {
         method,
@@ -345,6 +349,18 @@ function AdjustmentTypeFormModal({ mode, type, onClose, onSaved }: ModalProps) {
               />
               is_active
             </label>
+          </Field>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <Field label="Description">
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              style={{ ...inputStyle, minHeight: 70, resize: "vertical", fontFamily: "inherit" }}
+              placeholder="Details about how this adjustment type is used"
+              rows={3}
+            />
           </Field>
         </div>
 

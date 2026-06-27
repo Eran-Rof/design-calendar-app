@@ -44,9 +44,16 @@ const NRF_INTRO =
   "color name (using the hex when provided) to the single closest NRF 3-digit code " +
   "and its standard family name. Codes are always 3 digits (zero-padded).";
 
+// NRF maps to Color A only: for a two-tone "A/B" name use just the first token.
+function colorAName(name) {
+  return String(name || "").split("/")[0].trim() || String(name || "").trim();
+}
+
 // One AI call for a batch of {name, hex} → [{ name, nrf_code, nrf_name }].
+// Matches on Color A (first "/"-token) but echoes the full input name back so
+// the caller can key the result to the original row.
 async function matchBatch(ai, items) {
-  const list = items.map((c, i) => `${i + 1}. "${c.name}"${c.hex ? ` (hex ${c.hex})` : ""}`).join("\n");
+  const list = items.map((c, i) => `${i + 1}. "${colorAName(c.name)}"${c.hex ? ` (hex ${c.hex})` : ""}`).join("\n");
   const prompt = `${NRF_INTRO}
 
 Match each of these colors to its NRF code:
@@ -120,7 +127,7 @@ Respond with ONLY this JSON (no markdown):
     try { matches = await matchBatch(ai, slice); } catch { matches = []; }
     const byLower = new Map(matches.filter((m) => m && m.name).map((m) => [String(m.name).toLowerCase().trim(), m]));
     for (const c of slice) {
-      const m = byLower.get(c.name.toLowerCase().trim());
+      const m = byLower.get(colorAName(c.name).toLowerCase().trim());
       const code = m?.nrf_code ? String(m.nrf_code).trim() : null;
       if (!code) continue;
       const { error: uErr } = await admin.from("color_master")
