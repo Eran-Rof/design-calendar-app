@@ -9,7 +9,25 @@
 // All math lives in ./dateRangeMath.ts (pure, unit-tested).
 
 import React from "react";
-import { DEFAULT_PRESETS, type Preset } from "./dateRangeMath";
+import { DEFAULT_PRESETS, mergePresets, type Preset, type DatePresetMasterRow } from "./dateRangeMath";
+
+// ── Module-level cache: fetch the operator's Date Presets master once, share
+// across every <DateRangePresets/> instance so each date-range picker shows the
+// custom presets without N duplicate fetches. ───────────────────────────────
+let customPresetsCache: DatePresetMasterRow[] | null = null;
+let customPresetsPromise: Promise<DatePresetMasterRow[]> | null = null;
+function loadCustomPresets(): Promise<DatePresetMasterRow[]> {
+  if (customPresetsCache) return Promise.resolve(customPresetsCache);
+  if (typeof fetch !== "function") return Promise.resolve([]);
+  if (!customPresetsPromise) {
+    customPresetsPromise = Promise.resolve()
+      .then(() => fetch("/api/internal/date-presets"))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { customPresetsCache = Array.isArray(d) ? d : []; return customPresetsCache; })
+      .catch(() => { customPresetsCache = []; return customPresetsCache; });
+  }
+  return customPresetsPromise;
+}
 
 type Props = {
   /** Current "from" value as YYYY-MM-DD (or empty). */
@@ -77,6 +95,17 @@ export default function DateRangePresets({
   variant = "chips",
 }: Props) {
   const today = new Date();
+
+  // Merge in the operator's custom presets (Date Presets master) so every
+  // date-range picker shows them. Cached module-wide; re-renders once loaded.
+  const [customPresets, setCustomPresets] = React.useState<DatePresetMasterRow[]>(customPresetsCache ?? []);
+  React.useEffect(() => {
+    let cancel = false;
+    void loadCustomPresets().then((d) => { if (!cancel) setCustomPresets(d); });
+    return () => { cancel = true; };
+  }, []);
+  const merged = React.useMemo(() => mergePresets(presets, customPresets), [presets, customPresets]);
+  presets = merged;
 
   // Dropdown variant — one compact <select> instead of the chip row. The
   // option whose computed range matches (from, to) is shown as selected.

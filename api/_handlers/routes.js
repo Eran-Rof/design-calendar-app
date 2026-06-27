@@ -227,6 +227,8 @@ import r_internal_customer_locations_index from "./internal/customer-locations/i
 import r_internal_customer_master_id from "./internal/customer-master/[id].js";
 import r_internal_customer_master_index from "./internal/customer-master/index.js";
 import r_internal_customer_scorecard_index from "./internal/customer-scorecard/index.js";
+import r_internal_date_presets_id from "./internal/date-presets/[id].js";
+import r_internal_date_presets_index from "./internal/date-presets/index.js";
 import r_internal_design_trend_brief_list from "./internal/design/trend-brief/list.js";
 import r_internal_design_trend_brief_synthesize from "./internal/design/trend-brief/synthesize.js";
 import r_internal_discount_offers_analytics from "./internal/discount-offers/analytics.js";
@@ -1068,6 +1070,7 @@ export const ROUTES = [
   { pattern: "/api/internal/vendor-master/:id", handler: r_internal_vendor_master_id },
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
   { pattern: "/api/internal/build-orders/:id", handler: r_internal_build_orders_id },
+  { pattern: "/api/internal/date-presets/:id", handler: r_internal_date_presets_id },
   { pattern: "/api/internal/fabric-codes/:id", handler: r_internal_fabric_codes_id },
   { pattern: "/api/internal/fabric-mills/:id", handler: r_internal_fabric_mills_id },
   { pattern: "/api/internal/fixed-assets/:id", handler: r_internal_fixed_assets_id },
@@ -1224,6 +1227,7 @@ export const ROUTES = [
   { pattern: "/api/cron/shopify-backfill", handler: r_cron_shopify_backfill },
   { pattern: "/api/internal/b2b-accounts", handler: r_internal_b2b_accounts_index },
   { pattern: "/api/internal/build-orders", handler: r_internal_build_orders_index },
+  { pattern: "/api/internal/date-presets", handler: r_internal_date_presets_index },
   { pattern: "/api/internal/edi-messages", handler: r_internal_edi_messages_index },
   { pattern: "/api/internal/edi-partners", handler: r_internal_edi_partners_index },
   { pattern: "/api/internal/fabric-codes", handler: r_internal_fabric_codes_index },

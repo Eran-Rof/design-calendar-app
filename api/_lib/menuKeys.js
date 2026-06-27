@@ -108,6 +108,7 @@ const KEYS = [
   "tanda/master/adjustment-types",
   "tanda/master/adjustment-reasons",
   "tanda/master/transfer-reasons",
+  "tanda/master/date-presets",
   "tanda/master/warehouses",
   "tanda/master/hts-master",
   "tanda/master/fabric-mills",
