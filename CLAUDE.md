@@ -139,6 +139,32 @@ Match the existing project structure exactly. If the project uses:
 
 ---
 
+## UI conventions
+
+**NON-NEGOTIABLE — all dropdown fields use the app (dark) colors.** Every
+dropdown across every app — native `<select>` *and* its option popup, plus
+custom dropdowns (`SearchableSelect`, `MultiSelectDropdown`, the Settings menu,
+costing picker cells, the vendor language picker, etc.) — must render in the app
+palette, never a light/OS-default control:
+
+- bg `#0b1220` (input) / `#1E293B` (card/menu) · border `#334155` · text
+  `#F1F5F9` · muted `#94A3B8` · accent `#3B82F6` · `<select> option` bg
+  `#0b1220` text `#F1F5F9`.
+- Native `<select>` inherit the global dark default in `index.html` (#1330) —
+  **do not inject a light `select`/`select option` rule anywhere** (an unscoped
+  `select option{background:#FFFFFF}` in `App.tsx` once leaked white option
+  popups into every dark app). Only add inline color to a select when it must
+  *differ* from the dark default, and never to make it lighter.
+- New custom dropdowns: reuse the shared `SearchableSelect`, or copy its dark
+  palette — don't hand-roll a light menu.
+- The PLM launcher (`App.tsx` / `PLM.tsx`) is the one intentionally light
+  surface; everything else is dark.
+
+When you add or touch any dropdown, verify the **closed control and the open
+popup** both match the app palette.
+
+---
+
 ## Testing
 
 - If tests exist: write tests for every new endpoint and background job

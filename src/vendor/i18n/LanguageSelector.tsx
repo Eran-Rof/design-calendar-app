@@ -30,7 +30,7 @@ export default function LanguageSelector() {
         }}
       >
         {languages.map((l) => (
-          <option key={l.code} value={l.code} style={{ color: "#0f172a" }}>
+          <option key={l.code} value={l.code} style={{ background: "#0b1220", color: "#F1F5F9" }}>
             {l.native}
           </option>
         ))}

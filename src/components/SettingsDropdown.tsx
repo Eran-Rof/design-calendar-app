@@ -91,7 +91,7 @@ function SettingsDropdown({
             position: "absolute",
             ...(openUp ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
             right: 0,
-            background: "#1A202C",
+            background: "#1E293B",
             border: "1px solid rgba(255,255,255,0.12)",
             borderRadius: 10,
             boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
