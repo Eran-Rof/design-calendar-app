@@ -1641,6 +1641,11 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
                 <button onClick={() => downloadBulkCsv(bulkDetail)} style={btnSecondary}>⬇ Excel (CSV)</button>
                 <button onClick={() => printBulkDetail(bulkDetail)} style={btnSecondary}>🖨 Print</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Record-payment modal — manual payment record for the credit-card gate.
           Processor (Stripe/hosted checkout) is deferred; this posts to the
           record-payment endpoint which increments amount_paid_cents and, on a
