@@ -20,7 +20,11 @@
 // returnsAccountId = 4100 (revenue reversal target). costBySku = Map<item_id,
 // unit_cost_cents> resolved from the latest layer (required for restock lines).
 // Throws if a restock line has no resolved cost (so the caller surfaces it).
-export function buildCreditMemoLines({ rmaLines, returnsAccountId, costByItem }) {
+// returnsByItem (optional) = Map<inventory_item_id, returns_account_id> resolved
+// per the line's STYLE (style → customer default). When a line's item has an
+// entry, its revenue reversal routes to that brand's Sales Returns account;
+// otherwise it falls back to returnsAccountId (the entity-level 4100).
+export function buildCreditMemoLines({ rmaLines, returnsAccountId, costByItem, returnsByItem }) {
   const lines = [];
   let i = 0;
   for (const rl of rmaLines || []) {
@@ -32,12 +36,14 @@ export function buildCreditMemoLines({ rmaLines, returnsAccountId, costByItem })
     const unitPrice = Number(rl.unit_price_cents) || 0;
     const lineTotalCents = Math.round(qty * unitPrice);
     const isRestock = rl.disposition === "restock" && rl.inventory_item_id;
+    const lineReturnsAccountId =
+      (rl.inventory_item_id && returnsByItem && returnsByItem.get(rl.inventory_item_id)) || returnsAccountId;
 
     const line = {
       id: rl.id,
       line_index: ++i,
       description: rl.description || (isRestock ? "Return (restock)" : "Return (scrap)"),
-      revenue_account_id: returnsAccountId, // route revenue reversal to 4100
+      revenue_account_id: lineReturnsAccountId, // per-style Sales Returns acct, else 4100
       unit_price_cents: unitPrice,
       line_total_cents: String(lineTotalCents),
     };

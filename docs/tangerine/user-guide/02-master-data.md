@@ -442,6 +442,17 @@ These apply to the **Customer**, **Vendor**, and **Factor** masters (and custome
 - **Click-to-email.** Email fields show a **✉ mailto** affordance (and email cells in lists are clickable) so you can start an email in one click. Inert until the address is valid.
 - **US phone mask.** Phone inputs auto-format to **(XXX) XXX-XXXX** as you type — everywhere **except the Vendor master** (vendors are often overseas, so their phone stays free-form). A value beginning with `+` is treated as international and left as typed.
 
+## 📅 Date Presets Master
+
+**Master Data → Date Presets.** Date-range filters across the suite (reports, lists, dashboards) offer a **Presets** picker with built-in quick ranges — MTD, YTD, Last 30 / 60 / 90 days, This / Last month, This / Last quarter, This / Last year, and more. This panel lets you add **your own** presets on top of those.
+
+Each preset is a **relative rule**, not a fixed date range — it recomputes every time you use it, so "Last 14 days" always means the 14 days ending today.
+
+- **Add a preset:** click **+ Add preset**, give it a **Label** (what shows in the picker, e.g. "Last 14 days"), choose a **Kind**, and — for the "Last N days" / "Last N months" kinds — enter **N**. The modal shows the **range as of today** so you can confirm it.
+- **Kinds:** Today, Yesterday, Last N days, Last N months, Month-to-date, Year-to-date, This/Last month, This/Last quarter, This/Last year, and "This year → last month".
+- **Sort order** controls where your preset appears in the picker; **Active** hides it without deleting.
+- Your presets appear automatically in **every** date-range filter across all apps — no per-screen setup.
+
 ## Common patterns
 
 These hold for all three master panels:

@@ -9,13 +9,31 @@
 // website, notes). The master simply curates the list; there is no FK from
 // fabric codes or styles to this table yet.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
+import ContactList, { type Contact } from "./components/ContactList";
+
+// ── Country master cache: fetch /api/internal/countries once, share across
+// every mounted modal (mirrors AddressFields' module-level cache). ────────────
+type Country = { iso2: string; name: string };
+let countriesCache: Country[] | null = null;
+let countriesPromise: Promise<Country[]> | null = null;
+function loadCountries(): Promise<Country[]> {
+  if (countriesCache) return Promise.resolve(countriesCache);
+  if (!countriesPromise) {
+    countriesPromise = fetch("/api/internal/countries")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { countriesCache = Array.isArray(d) ? d : []; return countriesCache; })
+      .catch(() => { countriesCache = []; return countriesCache; });
+  }
+  return countriesPromise;
+}
 
 const FABRIC_MILLS_TABLE_KEY = "tangerine:fabricmills:columns";
 const FABRIC_MILL_COLUMNS: ColumnDef[] = [
@@ -36,6 +54,7 @@ type FabricMill = {
   country_code: string | null;
   contact_name: string | null;
   contact_email: string | null;
+  contacts: Contact[] | null;
   website: string | null;
   notes: string | null;
   is_active: boolean;
@@ -284,6 +303,7 @@ function FabricMillFormModal({ mode, mill, onClose, onSaved }: ModalProps) {
     country_code:  mill?.country_code  ?? "",
     contact_name:  mill?.contact_name  ?? "",
     contact_email: mill?.contact_email ?? "",
+    contacts:      (Array.isArray(mill?.contacts) ? mill!.contacts : []) as Contact[],
     website:       mill?.website       ?? "",
     notes:         mill?.notes         ?? "",
     sort_order:    mill?.sort_order != null ? String(mill.sort_order) : "0",
@@ -291,6 +311,30 @@ function FabricMillFormModal({ mode, mill, onClose, onSaved }: ModalProps) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Country dropdown sourced from the country master (stores the iso2 code).
+  const [countries, setCountries] = useState<Country[]>(countriesCache ?? []);
+  useEffect(() => {
+    let cancel = false;
+    void loadCountries().then((d) => { if (!cancel) setCountries(d); });
+    return () => { cancel = true; };
+  }, []);
+
+  // Resolve the stored value (iso2 OR a legacy free-text value) to an iso2.
+  const rawCountry = form.country_code;
+  const matchedCountry = useMemo(
+    () => countries.find((c) => c.iso2 === rawCountry.toUpperCase() || c.name.toLowerCase() === rawCountry.toLowerCase()),
+    [countries, rawCountry],
+  );
+  const countryValue = matchedCountry?.iso2 || rawCountry;
+  const countryOptions = useMemo(() => {
+    const opts = countries.map((c) => ({ value: c.iso2, label: c.name, searchHaystack: `${c.name} ${c.iso2}` }));
+    // Tolerate an existing free-text value that isn't an iso2 — show it anyway.
+    if (rawCountry && !matchedCountry && !opts.some((o) => o.value === rawCountry)) {
+      opts.unshift({ value: rawCountry, label: rawCountry, searchHaystack: rawCountry });
+    }
+    return opts;
+  }, [countries, rawCountry, matchedCountry]);
 
   async function submit() {
     setSubmitting(true);
@@ -311,6 +355,7 @@ function FabricMillFormModal({ mode, mill, onClose, onSaved }: ModalProps) {
         country_code:  form.country_code.trim()  || null,
         contact_name:  form.contact_name.trim()  || null,
         contact_email: form.contact_email.trim() || null,
+        contacts:      form.contacts,
         website:       form.website.trim()       || null,
         notes:         form.notes.trim()         || null,
         sort_order:    form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
@@ -362,13 +407,13 @@ function FabricMillFormModal({ mode, mill, onClose, onSaved }: ModalProps) {
               autoFocus
             />
           </Field>
-          <Field label="Country code">
-            <input
-              type="text"
-              value={form.country_code}
-              onChange={(e) => setForm({ ...form, country_code: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. CN, TW, IN"
+          <Field label="Country">
+            <SearchableSelect
+              value={countryValue || null}
+              onChange={(val) => setForm({ ...form, country_code: val })}
+              options={countryOptions}
+              placeholder="Select country…"
+              inputStyle={inputStyle}
             />
           </Field>
           <Field label="Contact name">
@@ -419,6 +464,15 @@ function FabricMillFormModal({ mode, mill, onClose, onSaved }: ModalProps) {
               is_active
             </label>
           </Field>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <ContactList
+              label="Additional contacts"
+              value={form.contacts}
+              onChange={(next) => setForm({ ...form, contacts: next })}
+              max={5}
+              fields={["name", "email", "phone", "title"]}
+            />
+          </div>
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="Notes">
               <textarea

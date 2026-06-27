@@ -82,6 +82,8 @@ Within an app, links to related apps appear in the top bar — for example Desig
 
 > **The browser tab title follows your current screen** — for example the tab reads "Timeline · Design Calendar" — so multiple open tabs are easy to tell apart.
 
+> **Consistent dark interface.** Across every app the working screens use the same dark theme — and that now includes all **dropdown / picker fields**: both the closed control and the list of choices that opens use the app's dark colours, so a dropdown never flashes a stray white box. (The PLM launcher home screen is the one intentionally light surface.)
+
 > The 🍊 **Tangerine ERP** app has the deepest navigation in the suite (dozens of accounting, inventory, sales and procurement panels grouped under section dropdowns). It has its own dedicated getting-started guide — see the Tangerine user guide for its nav layout, **🔍 Find a panel** search box, and Favorites.
 
 ## How access works

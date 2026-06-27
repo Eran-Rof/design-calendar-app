@@ -15,7 +15,7 @@ const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
 const MUTABLE_FIELDS = new Set([
   "name", "code", "legal_name", "country", "transit_days", "categories",
-  "contact", "contact_title", "email", "phone", "website", "wechat_id",
+  "contact", "contact_title", "email", "phone", "phone_country_code", "website", "wechat_id",
   "moq", "payment_terms", "payment_terms_id", "default_currency",
   "default_gl_ap_account_id", "default_gl_expense_account_id",
   "status", "is_1099_vendor", "address",
@@ -25,7 +25,7 @@ const MUTABLE_FIELDS = new Set([
 const PII_FIELDS = new Set(["tax_id", "bank_account_encrypted"]);
 
 const SAFE_SELECT =
-  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, website, wechat_id, moq, " +
+  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, phone_country_code, website, wechat_id, moq, " +
   "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
@@ -133,6 +133,14 @@ export function validatePatch(body) {
     const n = parseInt(out.moq, 10);
     if (!Number.isFinite(n) || n < 0) return { error: "moq must be a non-negative integer" };
     out.moq = n;
+  }
+  if ("phone_country_code" in out) {
+    if (out.phone_country_code === "" || out.phone_country_code == null) {
+      out.phone_country_code = null;
+    } else {
+      const n = parseInt(String(out.phone_country_code).replace(/\D/g, ""), 10);
+      out.phone_country_code = Number.isFinite(n) && n > 0 ? n : null;
+    }
   }
   if (out.code != null) out.code = out.code === "" ? null : String(out.code).trim().toUpperCase();
   for (const k of ["legal_name", "country", "contact", "contact_title", "email", "phone", "website", "wechat_id", "payment_terms"]) {

@@ -76,7 +76,7 @@ function titleCaseVendorName(raw) {
 // payment_terms_id (P3-9) is the new structured FK; the legacy free-text
 // payment_terms column is retained read-only for backward-compat display.
 const SAFE_SELECT =
-  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, website, wechat_id, moq, " +
+  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, phone_country_code, website, wechat_id, moq, " +
   "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
@@ -208,6 +208,9 @@ export function validateInsert(body) {
       contact_title:               body.contact_title ?? null,
       email:                       body.email ?? null,
       phone:                       body.phone ?? null,
+      phone_country_code:          body.phone_country_code != null && body.phone_country_code !== ""
+                                     ? parseInt(String(body.phone_country_code).replace(/\D/g, ""), 10) || null
+                                     : null,
       website:                     body.website ?? null,
       wechat_id:                   body.wechat_id ?? null,
       moq:                         body.moq ?? null,

@@ -255,7 +255,7 @@ export default function InternalShopifyStores() {
               <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 12, color: C.textMuted }}>Store:</span>
                 <select value={activeId} onChange={(e) => { setBulkStoreId(e.target.value); setBulkLog([]); }} disabled={bulkBusy != null}
-                  style={{ background: C.bg, color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 10px", fontSize: 13 }}>
+                  style={{ background: C.bg, color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 10px", fontSize: 13, colorScheme: "dark" }}>
                   {eligible.map((e) => <option key={e.id} value={e.id}>{e.store_name} ({e.shopify_domain})</option>)}
                 </select>
               </div>

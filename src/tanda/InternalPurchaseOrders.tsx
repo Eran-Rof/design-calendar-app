@@ -18,6 +18,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
+import DateRangePresets from "./components/DateRangePresets";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -27,6 +28,8 @@ const PO_COLUMNS: ColumnDef[] = [
   { key: "order_date",    label: "Order date" },
   { key: "expected_date", label: "Expected" },
   { key: "status",        label: "Status" },
+  { key: "avg_cost",      label: "Avg cost" },
+  { key: "sell_price",    label: "Sell price" },
   { key: "total",         label: "Total" },
 ];
 
@@ -36,7 +39,12 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+// Frozen header cell — th + sticky to the scroll container's top. Opaque bg so
+// rows scroll underneath cleanly (mirrors InventoryMatrix SnapshotView thStick).
+const thStick: React.CSSProperties = { ...th, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
+const dateInput: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "5px 8px", fontSize: 13, colorScheme: "dark" };
+const dl: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
@@ -45,6 +53,9 @@ type PO = {
   id: string; po_number: string | null; vendor_id: string; brand_id: string | null;
   order_date: string; expected_date: string | null; status: string; currency: string;
   payment_terms_id: string | null; notes: string | null; subtotal_cents: number | string; total_cents: number | string;
+  // List-endpoint enrichment: qty-weighted avg unit cost + resolved sell price
+  // (null when no priceable lines). See enrichPricing() in the list handler.
+  avg_cost_cents?: number | null; sell_cents?: number | null;
 };
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
@@ -83,6 +94,9 @@ export default function InternalPurchaseOrders() {
   // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
   // click from the Vendor Scorecard lands here pre-filtered to that vendor.
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
+  // Optional style scope (deep-link ?style=<style_code>): when set, the Avg cost
+  // + Sell price columns count only that style's lines (whole-PO otherwise).
+  const [styleScope] = useState(() => readDrillParam("style"));
   // Scorecard per-line drill: ?q=<po_number> seeds the search on mount so a
   // new-tab deep-link lands here filtered to that single PO. Server-side q is
   // all-field (search_purchase_orders RPC): matches PO #, notes, vendor
@@ -90,6 +104,11 @@ export default function InternalPurchaseOrders() {
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("q"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
+  // Date-range filter (client-side): pick WHICH date to filter on, then a
+  // [from,to] window (preset dropdown + manual pickers). Empty = no bound.
+  const [dateField, setDateField] = useState<"order_date" | "expected_date">("order_date");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(PO_TABLE_KEY, PO_COLUMNS);
@@ -101,6 +120,20 @@ export default function InternalPurchaseOrders() {
     return m;
   }, [vendors]);
 
+  // Apply the date-range window client-side on the selected date field. A row
+  // with no value on that field is dropped while a bound is set (can't place it).
+  const filteredRows = useMemo(() => {
+    if (!dateFrom && !dateTo) return rows;
+    return rows.filter((po) => {
+      const v = (po[dateField] || "") as string;
+      if (!v) return false;
+      const d = v.slice(0, 10);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [rows, dateField, dateFrom, dateTo]);
+
   async function load() {
     setLoading(true); setErr(null);
     try {
@@ -108,6 +141,7 @@ export default function InternalPurchaseOrders() {
       if (statusFilter) params.set("status", statusFilter);
       if (vendorFilter) params.set("vendor_id", vendorFilter);
       if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
+      if (styleScope) params.set("style", styleScope);
       const r = await fetch(`/api/internal/purchase-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as PO[]);
@@ -120,20 +154,24 @@ export default function InternalPurchaseOrders() {
       .then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {});
   }, []);
 
-  const exportRows = useMemo(() => rows.map((po) => ({
+  const exportRows = useMemo(() => filteredRows.map((po) => ({
     po_number: po.po_number || "(draft)",
     vendor: vendorName[po.vendor_id] || "",
     order_date: po.order_date,
     expected_date: po.expected_date || "",
     status: po.status,
+    avg_cost: po.avg_cost_cents != null ? po.avg_cost_cents / 100 : "",
+    sell_price: po.sell_cents != null ? po.sell_cents / 100 : "",
     total: Number(po.total_cents ?? 0) / 100,
-  })), [rows, vendorName]);
+  })), [filteredRows, vendorName]);
   const exportColumns: ExportColumn<Record<string, unknown>>[] = [
     { key: "po_number", header: "PO #" },
     { key: "vendor", header: "Vendor" },
     { key: "order_date", header: "Order Date" },
     { key: "expected_date", header: "Expected" },
     { key: "status", header: "Status" },
+    { key: "avg_cost", header: "Avg Cost", format: "number" },
+    { key: "sell_price", header: "Sell Price", format: "number" },
     { key: "total", header: "Total", format: "number" },
   ];
 
@@ -158,6 +196,15 @@ export default function InternalPurchaseOrders() {
             placeholder="All vendors" inputStyle={inputStyle} />
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO #, vendor, style…" style={{ ...inputStyle, width: 240 }} />
+        {/* Date-range filter: which date + [from,to] window (presets + manual). */}
+        <select value={dateField} onChange={(e) => setDateField(e.target.value as "order_date" | "expected_date")} style={{ ...inputStyle, width: 150 }} title="Which date the range filters on">
+          <option value="order_date">PO date</option>
+          <option value="expected_date">Expected date</option>
+        </select>
+        <DateRangePresets variant="dropdown" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+        <label style={dl}>From <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+        <label style={dl}>To <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+        {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Clear dates</button>}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
@@ -170,22 +217,28 @@ export default function InternalPurchaseOrders() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      {styleScope && <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Avg cost &amp; Sell price scoped to style <b style={{ color: C.text }}>{styleScope}</b></div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th} hidden={!isVisible("po_number")}>PO #</th><th style={th} hidden={!isVisible("vendor")}>Vendor</th><th style={th} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={th} hidden={!isVisible("expected_date")}>Expected</th><th style={th} hidden={!isVisible("status")}>Status</th><th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <th style={thStick} hidden={!isVisible("po_number")}>PO #</th><th style={thStick} hidden={!isVisible("vendor")}>Vendor</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
+            <th style={thStick} hidden={!isVisible("expected_date")}>Expected</th><th style={thStick} hidden={!isVisible("status")}>Status</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("sell_price")}>Sell price</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No purchase orders.</td></tr>}
-            {rows.map((po) => (
+            {loading && <tr><td style={td} colSpan={8}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={8}>No purchase orders.</td></tr>}
+            {filteredRows.map((po) => (
               <tr key={po.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(po); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("po_number")}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("vendor")}>{vendorName[po.vendor_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(po.order_date)}</td>
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(po.total_cents)}</td>
               </tr>
             ))}
@@ -231,7 +284,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // Create-from-SO dialog.
   const [soPickOpen, setSoPickOpen] = useState(false);
   const [soQuery, setSoQuery] = useState("");
-  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
+  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null; customer_po: string | null; fulfillment_source: string | null }[]>([]);
   const [soBusy, setSoBusy] = useState(false);
   // Get-PO-price (awarded RFQ) flow.
   type AwardQuote = { costing_line_id: string; style_code: string; vendor_id: string; vendor_name: string | null; quoted_cost: number | null; currency: string; awarded_at: string | null; quoted_date: string | null };
@@ -362,6 +415,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         return;
       }
       type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      // Scenario 3 — a PO created from an SO inherits the customer's PO number as
+      // the lot on every line (the lot column is editable; blank customer PO falls
+      // back to the PO# auto-stamped at issue). Grain = style+color.
+      const soLot = (full.customer_po && String(full.customer_po).trim()) || null;
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -369,7 +426,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered }); // no unit cost
+          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, lot: soLot }); // no unit cost; lot = customer PO
         } else if (l.inventory_item_id) {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
         }
@@ -388,7 +445,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       const sections = [...byStyle.values()];
       setSeed({ sections, flat });
       setSoPickOpen(false);
-      notify("PO matrix prefilled from the sales order.", "success");
+      notify(soLot
+        ? `PO matrix prefilled from the sales order. Lots set to customer PO ${soLot} (editable per line).`
+        : "PO matrix prefilled from the sales order. No customer PO on the SO — lots will default to the PO number at issue.", "success");
       // Get-PO-price flow: after the SO fills the matrix, pull awarded RFQ prices.
       if (applyAwardAfterSO.current) {
         applyAwardAfterSO.current = false;
@@ -810,8 +869,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                   <span style={{ fontSize: 13 }}>
                     <b>{so.so_number || "(draft)"}</b>
                     <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
+                    {so.customer_po && <span style={{ color: C.primary, marginLeft: 8 }} title="This customer PO becomes the lot on the new PO's lines">🏷 PO {so.customer_po}</span>}
                   </span>
-                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.fulfillment_source ? ` · ${so.fulfillment_source}` : ""}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
                 </div>
               ))}
             </div>

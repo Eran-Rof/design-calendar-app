@@ -110,8 +110,8 @@ export default function InternalAnomalies() {
         </div>
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "160px 1.5fr 140px 110px 140px 220px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "160px 1.5fr 140px 110px 140px 220px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", position: "sticky", top: 0, zIndex: 2 }}>
           <div>Vendor</div>
           <div>Description</div>
           <div>Type</div>
@@ -148,7 +148,7 @@ function FilterSelect({ label, value, setValue, options }: { label: string; valu
   return (
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{label}</div>
-      <select value={value} onChange={(e) => setValue(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 }}>
+      <select value={value} onChange={(e) => setValue(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" }}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </div>

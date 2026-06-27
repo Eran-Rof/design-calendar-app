@@ -12,6 +12,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope, activeBrandId } from "../../../_lib/brandContext.js";
+import { resolvePricesForCustomer } from "../../../_lib/pricing/engine.js";
 
 export const config = { maxDuration: 20 };
 
@@ -122,6 +123,118 @@ export function validateInsert(body) {
   };
 }
 
+// ── List enrichment: per-PO Avg cost + Sell price ───────────────────────────
+// Decorates each PO header row with two qty-weighted, per-line aggregates so the
+// grid can show them without N round-trips:
+//   avg_cost_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's lines.
+//   sell_cents     — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
+//                    • if the PO is tied to a customer (sales_order_id →
+//                      sales_orders.customer_id) the M43 pricing engine resolves
+//                      the customer's price (own → assigned → tier → default);
+//                    • any style the customer path doesn't price (and every line
+//                      when there's no customer) falls back to that style's
+//                      BRAND DEFAULT list price (price_lists.brand_id = style's
+//                      brand, mirroring price-lists/style-cost.js).
+// styleFilter (style_code, case-insensitive) scopes BOTH aggregates to just that
+// style's lines — mirrors the grid's style search so the numbers match the view.
+async function enrichPricing(admin, rows, styleFilter) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const poIds = rows.map((r) => r.id);
+  const { data: lines } = await admin
+    .from("purchase_order_lines")
+    .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
+    .in("purchase_order_id", poIds);
+  const allLines = lines || [];
+
+  // SKU → { style_id, style_code } for every line item.
+  const itemIds = [...new Set(allLines.map((l) => l.inventory_item_id).filter(Boolean))];
+  let skuById = new Map();
+  if (itemIds.length) {
+    const { data: skus } = await admin
+      .from("ip_item_master").select("id, style_id, style_code").in("id", itemIds);
+    skuById = new Map((skus || []).map((s) => [s.id, s]));
+  }
+  const styleNeedle = styleFilter ? String(styleFilter).trim().toLowerCase() : null;
+
+  // Group the (optionally style-filtered) lines under each PO, carrying style_id.
+  const linesByPo = new Map();
+  const allStyleIds = new Set();
+  for (const l of allLines) {
+    const sku = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
+    if (styleNeedle && !(sku?.style_code && String(sku.style_code).toLowerCase() === styleNeedle)) continue;
+    const arr = linesByPo.get(l.purchase_order_id) || [];
+    arr.push({ ...l, style_id: sku?.style_id || null });
+    linesByPo.set(l.purchase_order_id, arr);
+    if (sku?.style_id) allStyleIds.add(sku.style_id);
+  }
+
+  // Resolve the customer for any PO carrying a sales_order_id (sell pricing).
+  const soIds = [...new Set(rows.map((r) => r.sales_order_id).filter(Boolean))];
+  const customerByPo = new Map();
+  if (soIds.length) {
+    const { data: sos } = await admin.from("sales_orders").select("id, customer_id").in("id", soIds);
+    const custBySo = new Map((sos || []).map((s) => [s.id, s.customer_id]));
+    for (const r of rows) if (r.sales_order_id && custBySo.get(r.sales_order_id)) customerByPo.set(r.id, custBySo.get(r.sales_order_id));
+  }
+
+  // Brand-default sell price per style (fallback when there's no customer price).
+  // Resolve each style's brand, then that brand's default list's price (min_qty=0).
+  const brandDefaultByStyle = new Map();
+  if (allStyleIds.size) {
+    const { data: styles } = await admin.from("style_master").select("id, brand_id").in("id", [...allStyleIds]);
+    const brandByStyle = new Map((styles || []).map((s) => [s.id, s.brand_id]));
+    const brandIds = [...new Set([...brandByStyle.values()].filter(Boolean))];
+    if (brandIds.length) {
+      const { data: brandLists } = await admin.from("price_lists")
+        .select("id, brand_id").in("brand_id", brandIds).eq("is_active", true).order("created_at");
+      const listByBrand = new Map();
+      for (const bl of brandLists || []) if (!listByBrand.has(bl.brand_id)) listByBrand.set(bl.brand_id, bl.id);
+      const listIds = [...new Set([...listByBrand.values()])];
+      if (listIds.length) {
+        const { data: pli } = await admin.from("price_list_items")
+          .select("price_list_id, style_id, price_cents").in("price_list_id", listIds).eq("min_qty", 0).eq("is_active", true);
+        const priceByListStyle = new Map((pli || []).map((p) => [`${p.price_list_id}|${p.style_id}`, Number(p.price_cents)]));
+        for (const sid of allStyleIds) {
+          const listId = listByBrand.get(brandByStyle.get(sid));
+          const px = listId ? priceByListStyle.get(`${listId}|${sid}`) : undefined;
+          if (px != null) brandDefaultByStyle.set(sid, px);
+        }
+      }
+    }
+  }
+
+  // Per-customer style price cache (one engine call per distinct customer).
+  const customerPriceCache = new Map(); // customerId → Map<styleId, cents>
+  for (const cust of new Set([...customerByPo.values()])) {
+    const priced = await resolvePricesForCustomer(admin, cust, [...allStyleIds]);
+    const m = new Map();
+    for (const [sid, e] of priced) m.set(sid, e.price_cents);
+    customerPriceCache.set(cust, m);
+  }
+
+  for (const r of rows) {
+    const myLines = linesByPo.get(r.id) || [];
+    let costNum = 0, costDen = 0, sellNum = 0, sellDen = 0;
+    const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
+    for (const l of myLines) {
+      const qty = Number(l.qty_ordered) || 0;
+      if (qty <= 0) continue;
+      const cost = Number(l.unit_cost_cents) || 0;
+      costNum += cost * qty; costDen += qty;
+      // Sell: customer price → brand-default → skip (can't fabricate a sell).
+      let sell = null;
+      if (l.style_id) {
+        if (custPrices && custPrices.get(l.style_id) != null) sell = custPrices.get(l.style_id);
+        else if (brandDefaultByStyle.get(l.style_id) != null) sell = brandDefaultByStyle.get(l.style_id);
+      }
+      if (sell != null) { sellNum += sell * qty; sellDen += qty; }
+    }
+    r.avg_cost_cents = costDen > 0 ? Math.round(costNum / costDen) : null;
+    r.sell_cents = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
+  }
+  return rows;
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -135,6 +248,9 @@ export default async function handler(req, res) {
     const status = (url.searchParams.get("status") || "").trim();
     const vendorId = (url.searchParams.get("vendor_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
+    // Optional style scope for the Avg cost + Sell price columns — when set, both
+    // aggregates count only that style's lines (matches the grid's style search).
+    const styleScope = (url.searchParams.get("style") || "").trim() || null;
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
@@ -167,7 +283,8 @@ export default async function handler(req, res) {
       ({ data, error } = await query);
     }
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+    const enriched = await enrichPricing(admin, data || [], styleScope);
+    return res.status(200).json(enriched);
   }
 
   if (req.method === "POST") {
@@ -193,7 +310,16 @@ export default async function handler(req, res) {
     }).select(SELECT_COLS).single();
     if (hErr) return res.status(500).json({ error: hErr.message });
 
-    const lineRows = v.data.lines.map((l) => ({ ...l, purchase_order_id: header.id }));
+    // Scenario 3 — a PO created from an SO inherits the SO's customer PO as the
+    // lot on every line the caller didn't already lot. The UI pre-fills this, but
+    // doing it server-side guarantees it for any programmatic PO-from-SO path and
+    // means the at-issue PO#-stamp won't later fill these (they're no longer null).
+    let soLot = null;
+    if (v.data.sales_order_id) {
+      const { data: so } = await admin.from("sales_orders").select("customer_po").eq("id", v.data.sales_order_id).maybeSingle();
+      soLot = (so?.customer_po && String(so.customer_po).trim()) || null;
+    }
+    const lineRows = v.data.lines.map((l) => ({ ...l, lot_number: l.lot_number || soLot, purchase_order_id: header.id }));
     const { error: lErr } = await admin.from("purchase_order_lines").insert(lineRows);
     if (lErr) return res.status(500).json({ error: `Header saved (${header.id}) but lines failed: ${lErr.message}` });
 

@@ -95,12 +95,13 @@ function periodWindows(today) {
 
 // Build one period block from a list of {invoice_date, quantity, line_total_cents, cogs_cents}.
 function buildPeriodBlock(lines, from, to, dilutionCents) {
-  let units = 0, revenue = 0, cogs = 0, cogsComplete = true;
+  let units = 0, revenue = 0, cogs = 0, cogsComplete = true, closeoutRevenue = 0;
   for (const ln of lines) {
     const dt = ln.invoice_date;
     if (!dt || dt < from || dt > to) continue;
     units   += n(ln.quantity);
     revenue += n(ln.line_total_cents);
+    if (ln.is_closeout) closeoutRevenue += n(ln.line_total_cents);
     if (ln.cogs_cents == null) cogsComplete = false;
     cogs    += n(ln.cogs_cents);
   }
@@ -114,6 +115,7 @@ function buildPeriodBlock(lines, from, to, dilutionCents) {
     units,
     aur_cents: aur,
     revenue_cents: revenue,
+    closeout_revenue_cents: closeoutRevenue,
     cogs_cents: cogs,
     cogs_complete: cogsComplete,
     margin_cents: margin,
@@ -151,7 +153,7 @@ export default async function handler(req, res) {
     // ── Header: customer + sales reps ────────────────────────────────────────
     const { data: cust } = await admin
       .from("customers")
-      .select("id, name, code, status, sales_rep_1_id, sales_rep_1_commission_pct, sales_rep_2_id, sales_rep_2_commission_pct, default_brand_id")
+      .select("id, name, code, status, sales_rep_1_id, sales_rep_1_commission_pct, sales_rep_2_id, sales_rep_2_commission_pct, closeout_commission_pct, default_brand_id")
       .eq("id", customerId)
       .maybeSingle();
     if (!cust) return res.status(404).json({ error: "Customer not found" });
@@ -173,12 +175,24 @@ export default async function handler(req, res) {
     // ── Invoices (all, non-void for balance; full list for the Invoices tab) ──
     const { data: invAll } = await admin
       .from("ar_invoices")
-      .select("id, invoice_number, invoice_kind, gl_status, invoice_date, due_date, total_amount_cents, paid_amount_cents, source, accrual_je_id")
+      .select("id, invoice_number, invoice_kind, gl_status, invoice_date, due_date, total_amount_cents, paid_amount_cents, source, accrual_je_id, sales_order_id")
       .eq("entity_id", entityId)
       .eq("customer_id", customerId)
       .order("invoice_date", { ascending: false })
       .limit(2000);
     const invoices = invAll || [];
+
+    // Closeout-order tagging — an invoice is "closeout" when its sales order is
+    // flagged is_closeout. Used to apply the customer's closeout commission rate
+    // to that portion of sales (per-invoice → per-line below).
+    const soIds = Array.from(new Set(invoices.map((i) => i.sales_order_id).filter(Boolean)));
+    const closeoutSo = new Set();
+    if (soIds.length) {
+      const { data: sos } = await admin
+        .from("sales_orders").select("id, is_closeout").in("id", soIds.slice(0, 1000));
+      for (const s of sos || []) if (s.is_closeout) closeoutSo.add(s.id);
+    }
+    const closeoutByInvoice = new Map(invoices.map((i) => [i.id, !!(i.sales_order_id && closeoutSo.has(i.sales_order_id))]));
 
     // Balance = open AR over non-void invoices (all-time, per brief).
     let balanceCents = 0;
@@ -248,6 +262,7 @@ export default async function handler(req, res) {
           line_total_cents: l.line_total_cents,
           cogs_cents: l.cogs_cents,
           gender_code: genderByItem.get(l.inventory_item_id) || null,
+          is_closeout: closeoutByInvoice.get(l.ar_invoice_id) || false,
         });
       }
     }
@@ -355,11 +370,22 @@ export default async function handler(req, res) {
     };
 
     // ── Commission + net profit (basis = This-Year window) ───────────────────
-    const commissionPct = n(cust.sales_rep_1_commission_pct) + n(cust.sales_rep_2_commission_pct);
+    // Normal sales use the rep rate (rep1% + rep2%); the closeout portion (sales
+    // from SOs flagged is_closeout) uses the customer's closeout rate instead,
+    // when one is set. Dilution is apportioned proportionally to each portion.
+    const normalPct = n(cust.sales_rep_1_commission_pct) + n(cust.sales_rep_2_commission_pct);
+    const hasCloseoutRate = cust.closeout_commission_pct != null && cust.closeout_commission_pct !== "";
+    const closeoutPct = hasCloseoutRate ? n(cust.closeout_commission_pct) : normalPct;
     const grossSalesCents = periods.this_year.revenue_cents;
+    const closeoutGrossCents = periods.this_year.closeout_revenue_cents;
     const dilutionCents = periods.this_year.dilution_cents;
     const netSalesCents = grossSalesCents - dilutionCents;
-    const commissionCents = Math.round(netSalesCents * (commissionPct / 100));
+    // Split net sales by the closeout share of gross.
+    const closeoutNetCents = grossSalesCents > 0 ? Math.round(netSalesCents * (closeoutGrossCents / grossSalesCents)) : 0;
+    const normalNetCents = netSalesCents - closeoutNetCents;
+    const commissionCents = Math.round(normalNetCents * (normalPct / 100) + closeoutNetCents * (closeoutPct / 100));
+    // Reported headline % = effective blended rate over net sales (keeps pct×net≈cents).
+    const commissionPct = netSalesCents !== 0 ? +((commissionCents / netSalesCents) * 100).toFixed(3) : normalPct;
     const marginCents = periods.this_year.margin_cents;
     const netProfitCents = marginCents - commissionCents - dilutionCents;
 
@@ -387,6 +413,7 @@ export default async function handler(req, res) {
         status: cust.status,
         sales_rep_1: mkRep(cust.sales_rep_1_id, cust.sales_rep_1_commission_pct),
         sales_rep_2: mkRep(cust.sales_rep_2_id, cust.sales_rep_2_commission_pct),
+        closeout_commission_pct: hasCloseoutRate ? n(cust.closeout_commission_pct) : null,
       },
       metrics: {
         balance_cents: balanceCents,
@@ -397,6 +424,8 @@ export default async function handler(req, res) {
         periods,
         commission_pct: commissionPct,
         commission_cents: commissionCents,
+        closeout_sales_cents: closeoutGrossCents,
+        closeout_commission_pct: hasCloseoutRate ? closeoutPct : null,
         gross_sales_cents: grossSalesCents,
         dilution_cents: dilutionCents,
         dilution_pct: grossSalesCents !== 0 ? dilutionCents / grossSalesCents : null,
@@ -415,7 +444,7 @@ export default async function handler(req, res) {
         dilution: dilutionAccountsExist
           ? "Σ(DR−CR) on contra_revenue/dilution JE lines for JEs sourced from this customer's invoices."
           : "needs contra_revenue/dilution GL accounts (none configured) — shown as 0.",
-        commission: "(rep1% + rep2%) × net sales (gross − dilution), This-Year window.",
+        commission: "(rep1% + rep2%) × normal net sales + closeout% × closeout net sales (gross − dilution, This-Year window). Closeout net = sales from SOs flagged is_closeout; uses the customer's closeout rate when set, else the rep rate.",
         net_profit: "margin − commission − dilution, This-Year window.",
       },
     });

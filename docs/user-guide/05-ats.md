@@ -202,7 +202,9 @@ Choosing **Export Excel…** opens an options panel. Tick what you want, then **
 - **Sls Prc @ Margin** — adds the implied **Sls Prc** (price = cost ÷ (1 − margin)) and a **Mrgn %** column. All variants of a style show the same price (the highest implied across the style, so nothing is under-priced) — a single wildly-out-of-line cost is ignored as a likely data error so it can't inflate the rest.
 - **Trailing 3 & SP LY sales** — adds quantity / sale price / margin for the last 3 months and the same period last year.
 - **Customer Facing** — strips **every** cost and margin column (Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %), so the workbook is safe to send to the customer.
-- **Buyer worksheet** — the live internal **pricing tool** (shows cost — *not* for customers). Adds an **Avg Cost** column, an editable **Sls Prc**, a **Mrgn %**, and a **Total $**, where **Mrgn % and Total $ are live Excel formulas**: type a new sale price into a Sls Prc cell and the margin % and total recalculate instantly. Uses the **Margin %** you set as the starting price. Mutually exclusive with Customer Facing.
+- **Buyer worksheet** — the live internal **pricing tool** (shows cost — *not* for customers). Adds an **Avg Cost** column, an editable **Sls Prc**, a **Mrgn %**, and a **Total $**, where **Mrgn % and Total $ are live Excel formulas**: type a new sale price into a Sls Prc cell and the margin % and total recalculate instantly. The live formulas run on **every** row — including the per-style **subtotal** rows and the bottom **grand-total** row (when the **Subtotals (per style)** toggle is on) — so editing a subtotal/total Sls Prc recomputes its margin and total too. Uses the **Margin %** you set as the starting price. Mutually exclusive with Customer Facing.
+
+> **Total column alignment:** the **Total** column's numbers are right-aligned across every report (main grid, Aged Inventory, Negative Inventory, Stock-vs-SO, Incomplete, Sales Comps, By Size Matrix) so the column reads consistently.
 - **Hide zero columns** — drops any data column that's entirely empty.
 - **By Size Matrix** — adds the size breakdown worksheet (below).
 - **Hide ATS data** — drops the date/availability columns and keeps the identity + history blocks (useful for a pure sales-history pull). This mode lets you set a **custom date range** for the trailing/last-year windows.
@@ -219,9 +221,9 @@ Turning on **By Size Matrix** adds a worksheet that pivots ATS availability into
 **Sales Comps…** is an interactive this-year-vs-last-year comparison:
 
 1. Pick a **date range** (the modal pre-fills with the window your grid is showing).
-2. Narrow by category, sub-category, style, store, gender, or customer — pre-populated from your grid filters, and broadenable beyond them.
+2. Narrow by category, sub-category, style, store, gender, or customer — pre-populated from your grid filters, and broadenable beyond them. The **Style** picker lists each style as *code — description* (e.g. *RYB1416 — ARENA Loose Relaxed*) — the dropdown widens to show the full description — and its search box matches on either, so you can find a style by name as well as number.
 3. Choose **Summary** or **Detailed** output.
-4. The results show totals for quantity, revenue, cost, margin $, and margin %; Detailed mode adds a per-SKU table sorted by largest revenue, plus a section comparing your open sales orders against last-year shipments of the same style.
+4. The results show totals for quantity, revenue, cost, margin $, and margin %; Detailed mode adds a per-SKU table sorted by largest revenue, plus a section comparing your open sales orders against last-year shipments of the same style. When viewing **by Style**, each row shows the style **description** next to its code.
 5. **Download** to save the comparison as a branded workbook.
 
 ## Notifications and Ask AI
