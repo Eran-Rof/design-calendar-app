@@ -82,17 +82,21 @@ export default function InternalPayments() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Outbound payments register. Create, track, and transition through the status machine.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="">All</option>
-            <option value="initiated">Initiated</option>
-            <option value="processing">Processing</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div style={{ minWidth: 180 }}>
+            <SearchableSelect value={entityId || null} onChange={(v) => setEntityId(v)}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))} inputStyle={selectSt} />
+          </div>
+          <div style={{ minWidth: 140 }}>
+            <SearchableSelect value={status || null} onChange={(v) => setStatus(v)}
+              options={[
+                { value: "", label: "All" },
+                { value: "initiated", label: "Initiated" },
+                { value: "processing", label: "Processing" },
+                { value: "completed", label: "Completed" },
+                { value: "failed", label: "Failed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]} placeholder="All" inputStyle={selectSt} />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New payment</button>
           <ExportButton
             rows={rows.map((p) => ({
@@ -219,19 +223,17 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New payment</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+            options={[{ value: "", label: "Select…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+            placeholder="Select…" inputStyle={inp} />
         </Row>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
           <Row label="Amount"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inp} /></Row>
           <Row label="Currency"><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} style={inp} /></Row>
         </div>
         <Row label="Method">
-          <select value={method} onChange={(e) => setMethod(e.target.value)} style={inp}>
-            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <SearchableSelect value={method || null} onChange={(v) => setMethod(v)}
+            options={METHODS.map((m) => ({ value: m, label: m }))} inputStyle={inp} />
         </Row>
         <Row label="Invoice (optional)">
           <SearchableSelect

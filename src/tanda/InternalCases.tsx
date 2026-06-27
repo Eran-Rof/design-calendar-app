@@ -409,14 +409,13 @@ function Select({ label, value, onChange, options, placeholder }: {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        <option value="">{placeholder || "All"}</option>
-        {options.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
-      </select>
+      <SearchableSelect
+        value={value || null}
+        onChange={(v) => onChange(v)}
+        options={[{ value: "", label: placeholder || "All" }, ...options.map((o) => ({ value: o, label: o.replace("_", " ") }))]}
+        placeholder={placeholder || "All"}
+        inputStyle={inputStyle}
+      />
     </div>
   );
 }
@@ -546,14 +545,20 @@ function CaseDetailModal({ id, onClose, customers }: {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
             <Field label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value as Case["status"])} style={inputStyle}>
-                {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-              </select>
+              <SearchableSelect
+                value={status}
+                onChange={(v) => setStatus(v as Case["status"])}
+                options={STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Severity">
-              <select value={severity} onChange={(e) => setSeverity(e.target.value as Case["severity"])} style={inputStyle}>
-                {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={severity}
+                onChange={(v) => setSeverity(v as Case["severity"])}
+                options={SEVERITY_VALUES.map((s) => ({ value: s, label: s }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Assignee">
               <SearchableSelect
@@ -738,9 +743,12 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
           />
         </Field>
         <Field label="Severity">
-          <select value={severity} onChange={(e) => setSeverity(e.target.value as Case["severity"])} style={inputStyle}>
-            {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={severity}
+            onChange={(v) => setSeverity(v as Case["severity"])}
+            options={SEVERITY_VALUES.map((s) => ({ value: s, label: s }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Assignee">
           <SearchableSelect
