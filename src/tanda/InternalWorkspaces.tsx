@@ -4,6 +4,7 @@ import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -76,13 +77,22 @@ export default function InternalWorkspaces() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Cross-team collab space with vendors — pin items, assign tasks, chat.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "active" | "archived")} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select>
+          <div style={{ width: 200 }}>
+            <SearchableSelect
+              value={entityId || null}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))}
+              inputStyle={selectSt}
+              onChange={(v) => setEntityId(v)}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <SearchableSelect
+              value={statusFilter}
+              options={[{ value: "active", label: "Active" }, { value: "archived", label: "Archived" }]}
+              inputStyle={selectSt}
+              onChange={(v) => setStatusFilter(v as "active" | "archived")}
+            />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New workspace</button>
           <ExportButton
             rows={rows.map((w) => ({
@@ -176,10 +186,13 @@ function CreateWorkspaceModal({ entityId, onClose, onCreated }: { entityId: stri
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New workspace</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select a vendor…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={vendorId || null}
+            options={vendors.map((v) => ({ value: v.id, label: v.name }))}
+            placeholder="Select a vendor…"
+            inputStyle={inp}
+            onChange={(v) => setVendorId(v)}
+          />
         </Row>
         <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q3 capacity planning" style={inp} /></Row>
         <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>
@@ -339,13 +352,18 @@ function PinModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onCl
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 480 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Pin an item</h3>
         <Row label="Entity type">
-          <select value={entityType} onChange={(e) => setEntityType(e.target.value)} style={inp}>
-            <option value="po">PO</option>
-            <option value="invoice">Invoice</option>
-            <option value="contract">Contract</option>
-            <option value="rfq">RFQ</option>
-            <option value="document">Compliance doc</option>
-          </select>
+          <SearchableSelect
+            value={entityType}
+            options={[
+              { value: "po", label: "PO" },
+              { value: "invoice", label: "Invoice" },
+              { value: "contract", label: "Contract" },
+              { value: "rfq", label: "RFQ" },
+              { value: "document", label: "Compliance doc" },
+            ]}
+            inputStyle={inp}
+            onChange={(v) => setEntityType(v)}
+          />
         </Row>
         <Row label="Entity ID (UUID)"><input value={entityId} onChange={(e) => setEntityId(e.target.value)} placeholder="00000000-..." style={inp} /></Row>
         <Row label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Auto-generated if blank" style={inp} /></Row>

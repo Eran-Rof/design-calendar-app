@@ -2,6 +2,7 @@ import React from "react";
 import { type Milestone, WIP_CATEGORIES, MILESTONE_STATUSES, MILESTONE_STATUS_COLORS, milestoneUid, itemQty, isLineClosed, lineDeliveryDate, normalizeSize, fmtDate, fmtCurrency, todayLocalIso } from "../../utils/tandaTypes";
 import S from "../styles";
 import { MilestoneDateInput } from "./MilestoneDateInput";
+import SearchableSelect from "../components/SearchableSelect";
 import type { DetailPanelCtx } from "../detailPanel";
 
 /**
@@ -194,10 +195,12 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                         onClick={() => setExpandedVariants(prev => { const next = new Set(prev); variantOpen ? next.delete(m.id) : next.add(m.id); return next; })}
                         style={{ width: 22, height: 22, borderRadius: "50%", border: `1px solid ${variantOpen ? "#60A5FA" : hasMismatch ? "#FDE68A" : "#334155"}`, background: variantOpen ? "#1D4ED8" : hasMismatch ? "#78350F" : "#0F172A", color: variantOpen ? "#fff" : hasMismatch ? "#FDE68A" : "#6B7280", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0, flexShrink: 0 }}
                       >{variantOpen ? "−" : "+"}</button>
-                      <select style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
+                      <SearchableSelect
                         value={m.status}
-                        onChange={e => {
-                          const newStatus = e.target.value;
+                        options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                        inputStyle={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
+                        onChange={v => {
+                          const newStatus = v;
                           const oldStatus = m.status;
                           const dates = { ...(m.status_dates || {}) };
                           const doSave = (d: Record<string, string>) => {
@@ -236,9 +239,8 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                             return;
                           }
                           proceed();
-                        }}>
-                        {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
-                      </select>
+                        }}
+                      />
                       <input type="date" style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 6, color: (m.status_dates || {})[m.status] ? "#60A5FA" : "#334155", fontSize: 12, padding: "5px 6px", width: "100%", boxSizing: "border-box" }}
                         title={`Date for "${m.status}" status`}
                         value={(m.status_dates || {})[m.status] || m.status_date || ""}
@@ -299,17 +301,16 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                         {partialClosed && <span title={`${row.closedQty} qty on closed lines`} style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{row.closedQty} CLOSED</span>}
                                       </td>
                                       <td style={{ padding: "5px 10px" }}>
-                                        <select
+                                        <SearchableSelect
                                           value={vEntry.status}
-                                          style={{ background: "#1E293B", border: `1px solid ${vMismatch ? "#F59E0B44" : "#334155"}`, borderRadius: 6, color: MILESTONE_STATUS_COLORS[vEntry.status] || "#6B7280", fontSize: 11, padding: "3px 5px", width: "100%", boxSizing: "border-box" as const }}
-                                          onChange={e => {
+                                          options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                                          inputStyle={{ background: "#1E293B", border: `1px solid ${vMismatch ? "#F59E0B44" : "#334155"}`, borderRadius: 6, color: MILESTONE_STATUS_COLORS[vEntry.status] || "#6B7280", fontSize: 11, padding: "3px 5px", width: "100%", boxSizing: "border-box" as const }}
+                                          onChange={v => {
                                             const today2 = todayLocalIso();
-                                            const newV = { ...variantStatuses, [key]: { status: e.target.value, status_date: vEntry.status_date || today2 } };
+                                            const newV = { ...variantStatuses, [key]: { status: v, status_date: vEntry.status_date || today2 } };
                                             saveMilestone({ ...m, variant_statuses: newV, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
                                           }}
-                                        >
-                                          {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
-                                        </select>
+                                        />
                                       </td>
                                       <td style={{ padding: "5px 10px" }}>
                                         <input
@@ -407,9 +408,12 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                 </div>
                 <div style={{ width: 150 }}>
                   <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Category</label>
-                  <select value={newPhaseForm.category} onChange={e => setNewPhaseForm(f => ({ ...f, category: e.target.value, afterPhase: "" }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
-                    {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={newPhaseForm.category}
+                    options={WIP_CATEGORIES.map(c => ({ value: c, label: c }))}
+                    inputStyle={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}
+                    onChange={v => setNewPhaseForm(f => ({ ...f, category: v, afterPhase: "" }))}
+                  />
                 </div>
                 <div style={{ width: 140 }}>
                   <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Due Date</label>
@@ -417,10 +421,12 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                 </div>
                 <div style={{ width: 180 }}>
                   <label style={{ color: "#6B7280", fontSize: 10, display: "block", marginBottom: 3, textTransform: "uppercase" }}>Insert After</label>
-                  <select value={newPhaseForm.afterPhase} onChange={e => setNewPhaseForm(f => ({ ...f, afterPhase: e.target.value }))} style={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}>
-                    <option value="">— At beginning —</option>
-                    {catPhases.map(p => <option key={p.id} value={p.id}>{p.phase}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={newPhaseForm.afterPhase || null}
+                    options={[{ value: "", label: "— At beginning —" }, ...catPhases.map(p => ({ value: p.id, label: p.phase }))]}
+                    inputStyle={{ ...S.select, width: "100%", fontSize: 12, padding: "6px 8px" }}
+                    onChange={v => setNewPhaseForm(f => ({ ...f, afterPhase: v }))}
+                  />
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>

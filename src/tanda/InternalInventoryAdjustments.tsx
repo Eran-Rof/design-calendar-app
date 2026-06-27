@@ -273,29 +273,34 @@ export default function InternalInventoryAdjustments() {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <select
-          style={{ ...inputStyle, width: 180 }}
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-        >
-          <option value="">All types</option>
-          {adjTypes.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={filterType || null}
+            onChange={(v) => setFilterType(v)}
+            options={[{ value: "", label: "All types" }, ...adjTypes.map((t) => ({ value: t.name, label: t.name }))]}
+            placeholder="All types"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           style={{ ...inputStyle, width: 320 }}
           placeholder="Filter by SKU…"
           value={filterItem}
           onChange={(e) => setFilterItem(e.target.value)}
         />
-        <select
-          style={{ ...inputStyle, width: 140 }}
-          value={filterPosted}
-          onChange={(e) => setFilterPosted(e.target.value as "" | "true" | "false")}
-        >
-          <option value="">All statuses</option>
-          <option value="false">Draft (unposted)</option>
-          <option value="true">Posted</option>
-        </select>
+        <div style={{ width: 140 }}>
+          <SearchableSelect
+            value={filterPosted || null}
+            onChange={(v) => setFilterPosted(v as "" | "true" | "false")}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "false", label: "Draft (unposted)" },
+              { value: "true", label: "Posted" },
+            ]}
+            placeholder="All statuses"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           type="date"
           style={{ ...inputStyle, width: 140 }}
@@ -692,14 +697,17 @@ function AdjustmentModal({
             {!isEdit && (
               <>
                 <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Receive into (brand pool)</label>
-                <select
-                  style={{ ...inputStyle, marginBottom: 12 }}
-                  value={receivingChannel}
-                  onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
-                >
-                  <option value="WS">Wholesale pool</option>
-                  <option value="EC">Ecom pool</option>
-                </select>
+                <div style={{ marginBottom: 12 }}>
+                  <SearchableSelect
+                    value={receivingChannel}
+                    onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+                    options={[
+                      { value: "WS", label: "Wholesale pool" },
+                      { value: "EC", label: "Ecom pool" },
+                    ]}
+                    inputStyle={inputStyle}
+                  />
+                </div>
               </>
             )}
           </>
@@ -1039,14 +1047,15 @@ function MatrixAdjustmentModal({
           </div>
           <div style={{ flex: "1 1 160px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Receive into (increase rows)</label>
-            <select
-              style={inputStyle}
+            <SearchableSelect
               value={receivingChannel}
-              onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
-            >
-              <option value="WS">Wholesale pool</option>
-              <option value="EC">Ecom pool</option>
-            </select>
+              onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+              options={[
+                { value: "WS", label: "Wholesale pool" },
+                { value: "EC", label: "Ecom pool" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 

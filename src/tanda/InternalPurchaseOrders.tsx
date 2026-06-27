@@ -186,10 +186,11 @@ export default function InternalPurchaseOrders() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "", label: "All statuses" }, ...STATUSES.map((s) => ({ value: s, label: s }))]}
+            placeholder="All statuses" inputStyle={inputStyle} />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect value={vendorFilter || null} onChange={(v) => setVendorFilter(v)}
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
@@ -197,10 +198,13 @@ export default function InternalPurchaseOrders() {
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO #, vendor, style…" style={{ ...inputStyle, width: 240 }} />
         {/* Date-range filter: which date + [from,to] window (presets + manual). */}
-        <select value={dateField} onChange={(e) => setDateField(e.target.value as "order_date" | "expected_date")} style={{ ...inputStyle, width: 150 }} title="Which date the range filters on">
-          <option value="order_date">PO date</option>
-          <option value="expected_date">Expected date</option>
-        </select>
+        <div style={{ width: 150 }} title="Which date the range filters on">
+          <SearchableSelect value={dateField} onChange={(v) => setDateField(v as "order_date" | "expected_date")}
+            options={[
+              { value: "order_date", label: "PO date" },
+              { value: "expected_date", label: "Expected date" },
+            ]} inputStyle={inputStyle} />
+        </div>
         <DateRangePresets variant="dropdown" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
         <label style={dl}>From <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
         <label style={dl}>To <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
@@ -709,10 +713,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <Section title="Identity &amp; status">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="PO type">
-              <select value={poType} onChange={(e) => setPoType(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                <option value="">(select)</option>
-                {[["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <SearchableSelect value={poType || null} onChange={(v) => setPoType(v)} disabled={!editable}
+                options={[{ value: "", label: "(select)" }, ...([["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
+                placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Customer">
               <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
@@ -772,10 +775,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                 options={[{ value: "", label: "(default entity)" }, ...entities.map((e) => ({ value: e.id, label: e.legal_name || e.name || e.code || e.id.slice(0, 8), searchHaystack: `${e.legal_name || e.name || ""} ${e.code || ""}` }))]} placeholder="(default entity)" disabled={!editable} />
             </Field>
             <Field label="Ship method / mode">
-              <select value={shipMethod} onChange={(e) => setShipMethod(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                <option value="">(select)</option>
-                {[["sea", "Sea"], ["air", "Air"], ["ground", "Ground"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <SearchableSelect value={shipMethod || null} onChange={(v) => setShipMethod(v)} disabled={!editable}
+                options={[{ value: "", label: "(select)" }, ...([["sea", "Sea"], ["air", "Air"], ["ground", "Ground"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
+                placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Consolidator / forwarder"><input type="text" value={freightForwarder} onChange={(e) => setFreightForwarder(e.target.value)} disabled={!editable} style={inputStyle} placeholder="freight forwarder" /></Field>
           </div>

@@ -199,10 +199,15 @@ export default function InternalCOA() {
           ariaLabel="Search chart of accounts"
           wrapperStyle={{ maxWidth: 280 }}
         />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All types</option>
-          {TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[{ value: "", label: "All types" }, ...TYPE_VALUES.map((t) => ({ value: t, label: t }))]}
+            placeholder="All types"
+            inputStyle={{ ...inputStyle, width: 200 }}
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
             type="checkbox"
@@ -465,19 +470,24 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
           </Field>
           <Field label="Account type">
             {mode === "add" ? (
-              <select value={form.account_type} onChange={(e) => onTypeChange(e.target.value)} style={inputStyle as React.CSSProperties}>
-                {TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <SearchableSelect
+                value={form.account_type || null}
+                onChange={(v) => onTypeChange(v)}
+                options={TYPE_VALUES.map((t) => ({ value: t, label: t }))}
+                inputStyle={inputStyle as React.CSSProperties}
+              />
             ) : (
               <input type="text" value={form.account_type} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
           </Field>
           <Field label="Normal balance">
             {mode === "add" ? (
-              <select value={form.normal_balance} onChange={(e) => setForm({ ...form, normal_balance: e.target.value as "DEBIT" | "CREDIT" })} style={inputStyle as React.CSSProperties}>
-                <option value="DEBIT">DEBIT</option>
-                <option value="CREDIT">CREDIT</option>
-              </select>
+              <SearchableSelect
+                value={form.normal_balance || null}
+                onChange={(v) => setForm({ ...form, normal_balance: v as "DEBIT" | "CREDIT" })}
+                options={[{ value: "DEBIT", label: "DEBIT" }, { value: "CREDIT", label: "CREDIT" }]}
+                inputStyle={inputStyle as React.CSSProperties}
+              />
             ) : (
               <input type="text" value={form.normal_balance} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
@@ -508,10 +518,12 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             />
           </Field>
           <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "active" | "inactive" })} style={inputStyle as React.CSSProperties}>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-            </select>
+            <SearchableSelect
+              value={form.status || null}
+              onChange={(v) => setForm({ ...form, status: v as "active" | "inactive" })}
+              options={[{ value: "active", label: "active" }, { value: "inactive", label: "inactive" }]}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Flags">
             <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: C.textSub }}>
