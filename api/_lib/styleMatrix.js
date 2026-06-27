@@ -75,6 +75,44 @@ function ppkStem(styleCode) {
 function isPpkStyle(styleCode) {
   return /PPK/i.test(String(styleCode ?? ""));
 }
+export { isPpkStyle };
+
+// Units-per-pack for a set of PPK style_codes, from the prepack_matrices master.
+// Returns Map<lower(ppk_style_code), unitsPerPack> where unitsPerPack = Σ
+// qty_per_pack across the matrix's sizes. Used by the size-less surfaces
+// (Inventory Snapshot + Sold/Purchased drills) to convert PACK quantities into
+// EACHES when "Explode PPK" is on: the snapshot has no size axis, so a per-size
+// explosion isn't meaningful there — multiplying each pack qty by its
+// units-per-pack yields the equivalent each-count for every lifecycle column.
+// PPK style_codes with no active matrix are simply omitted (caller leaves those
+// rows un-exploded, mirroring the matrix's "unmatched → not exploded" rule).
+export async function ppkUnitsPerPackByStyle(admin, entityId, styleCodes) {
+  const out = new Map();
+  const wanted = [...new Set((styleCodes || []).filter(Boolean).map((c) => String(c)))];
+  if (wanted.length === 0) return out;
+  const { data: matrices } = await admin
+    .from("prepack_matrices")
+    .select("id, ppk_style_code")
+    .eq("entity_id", entityId)
+    .eq("is_active", true)
+    .not("ppk_style_code", "is", null);
+  const wantedLower = new Set(wanted.map((c) => c.toLowerCase()));
+  const matched = (matrices || []).filter((m) => wantedLower.has(String(m.ppk_style_code).toLowerCase()));
+  if (matched.length === 0) return out;
+  const { data: comp } = await admin
+    .from("prepack_matrix_sizes")
+    .select("matrix_id, qty_per_pack")
+    .in("matrix_id", matched.map((m) => m.id));
+  const unitsByMatrix = new Map();
+  for (const r of comp || []) {
+    unitsByMatrix.set(r.matrix_id, (unitsByMatrix.get(r.matrix_id) || 0) + (Number(r.qty_per_pack) || 0));
+  }
+  for (const m of matched) {
+    const u = unitsByMatrix.get(m.id) || 0;
+    if (u > 0) out.set(String(m.ppk_style_code).toLowerCase(), u);
+  }
+  return out;
+}
 
 // Dedupe a list preserving first-seen order (drops falsy entries).
 function dedupeOrdered(list) {

@@ -24,6 +24,7 @@
 // Entity scoped (ROF default). Read-only. No migration — reuses existing tables.
 
 import { createClient } from "@supabase/supabase-js";
+import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
 
 export const config = { maxDuration: 60 };
 
@@ -116,6 +117,12 @@ export default async function handler(req, res) {
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const from = DATE_RE.test(String(body?.from || "")) ? String(body.from) : null;
   const to = DATE_RE.test(String(body?.to || "")) ? String(body.to) : null;
+  // Explode PPK: when on, PPK styles' PACK quantities are converted to EACHES by
+  // multiplying every lifecycle column by the style's units-per-pack (from the
+  // Prepack Matrix master). The snapshot has no size axis, so this is the
+  // size-less equivalent of the matrix's per-size explosion. PPK styles with no
+  // active matrix are left un-exploded (pack counts shown as-is).
+  const explodePpk = body?.explode_ppk === true || String(body?.explode_ppk || "") === "true";
 
   try {
     const eid = await entityId(admin);
@@ -130,6 +137,27 @@ export default async function handler(req, res) {
       admin.from("ip_item_master").select("id, style_id, style_code, color, size, sku_code").in("style_id", ids));
     const itemById = new Map(itemRows.map((r) => [r.id, r]));
     const itemIds = itemRows.map((r) => r.id);
+
+    // Explode-PPK multiplier per item: PPK SKUs get their units-per-pack ratio
+    // (so pack quantities read as eaches across every column); everything else
+    // is ×1. Off → all ×1 (no-op). PPK styles with no matrix stay ×1.
+    let packMult = null; // Map<item_id, ratio> | null when explode off
+    if (explodePpk) {
+      packMult = new Map();
+      const ppkStyleCodes = [...new Set(
+        itemRows.map((r) => r.style_code).filter((c) => c && isPpkStyle(c)),
+      )];
+      if (ppkStyleCodes.length) {
+        const unitsByStyle = await ppkUnitsPerPackByStyle(admin, eid, ppkStyleCodes);
+        for (const it of itemRows) {
+          if (it.style_code && isPpkStyle(it.style_code)) {
+            const u = unitsByStyle.get(String(it.style_code).toLowerCase());
+            if (u && u > 0) packMult.set(it.id, u);
+          }
+        }
+      }
+    }
+    const mult = (itemId) => (packMult ? (packMult.get(itemId) || 1) : 1);
     // Seed a row bucket for every (style, color) that has at least one SKU.
     const buckets = new Map(); // colorKey → aggregate row
     const bucketFor = (styleId, color) => {
@@ -159,7 +187,7 @@ export default async function handler(req, res) {
     const layerRows = await fetchChunked(itemIds, (ids) =>
       admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids));
     for (const r of layerRows) {
-      const q = Number(r.remaining_qty) || 0;
+      const q = (Number(r.remaining_qty) || 0) * mult(r.item_id);
       if (q > 0) { const b = bucketOfItem(r.item_id); if (b) b.on_hand += q; }
     }
 
@@ -170,7 +198,7 @@ export default async function handler(req, res) {
     for (const r of ohRows) { const c = latestByItem.get(r.item_id); if (!c || String(r.snapshot_date) > c) latestByItem.set(r.item_id, String(r.snapshot_date)); }
     for (const r of ohRows) {
       if (String(r.snapshot_date) !== latestByItem.get(r.item_id)) continue;
-      const b = bucketOfItem(r.item_id); if (b) b.on_hand_ats += Number(r.qty_on_hand) || 0;
+      const b = bucketOfItem(r.item_id); if (b) b.on_hand_ats += (Number(r.qty_on_hand) || 0) * mult(r.item_id);
     }
 
     // ── Allocated + On SO (sales_order_lines + open SO status) ─────────────────
@@ -180,11 +208,12 @@ export default async function handler(req, res) {
         .in("inventory_item_id", ids));
     for (const r of solRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
-      const alloc = Math.max((Number(r.qty_allocated) || 0) - (Number(r.qty_shipped) || 0), 0);
+      const m = mult(r.inventory_item_id);
+      const alloc = Math.max((Number(r.qty_allocated) || 0) - (Number(r.qty_shipped) || 0), 0) * m;
       if (alloc > 0) b.allocated += alloc;
       const status = r.sales_orders?.status;
       if (OPEN_SO_STATUSES.includes(status)) {
-        const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_shipped) || 0), 0);
+        const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_shipped) || 0), 0) * m;
         if (open > 0) b.on_so += open;
       }
     }
@@ -197,7 +226,7 @@ export default async function handler(req, res) {
         .in("purchase_orders.status", NATIVE_INBOUND_STATUSES));
     for (const r of polRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
-      const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0);
+      const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0) * mult(r.inventory_item_id);
       if (open <= 0) continue;
       b.on_po += open;
       if (NATIVE_TRANSIT_STATUSES.includes(r.purchase_orders?.status)) b.in_transit += open;
@@ -218,7 +247,7 @@ export default async function handler(req, res) {
         const itemId = idByTuple.get(tupleKey(p.style, p.color, p.size));
         if (!itemId) continue;
         const b = bucketOfItem(itemId); if (!b) continue;
-        const open = Math.max(Number(r.qty_remaining) || 0, 0);
+        const open = Math.max(Number(r.qty_remaining) || 0, 0) * mult(itemId);
         if (open <= 0) continue;
         b.on_po += open;
         if (TANDA_TRANSIT_STATUSES.includes(r.tanda_pos?.status)) b.in_transit += open;
@@ -232,14 +261,14 @@ export default async function handler(req, res) {
       if (to) q = q.lte("txn_date", to);
       return q;
     });
-    for (const r of whRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += Number(r.qty) || 0; }
+    for (const r of whRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.qty) || 0) * mult(r.sku_id); }
     const ecRows = await fetchChunked(itemIds, (ids) => {
       let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids);
       if (from) q = q.gte("order_date", from);
       if (to) q = q.lte("order_date", to);
       return q;
     });
-    for (const r of ecRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += Number(r.net_qty) || 0; }
+    for (const r of ecRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.net_qty) || 0) * mult(r.sku_id); }
 
     // ── Purchased — Xoro receipts (date-ranged on received_date) + Tangerine AP
     //     vendor-bill line qty (date-ranged on invoice_date). Mirrors the
@@ -250,7 +279,7 @@ export default async function handler(req, res) {
       if (to) q = q.lte("received_date", to);
       return q;
     });
-    for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += Number(r.qty) || 0; }
+    for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += (Number(r.qty) || 0) * mult(r.sku_id); }
     const billLines = await fetchChunked(itemIds, (ids) =>
       admin.from("invoice_line_items").select("inventory_item_id, quantity, invoice_id").in("inventory_item_id", ids));
     const billInvIds = [...new Set(billLines.map((l) => l.invoice_id).filter(Boolean))];
@@ -266,7 +295,7 @@ export default async function handler(req, res) {
     }
     for (const l of billLines) {
       if (!billDateOk.get(l.invoice_id)) continue;
-      const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += Number(l.quantity) || 0;
+      const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += (Number(l.quantity) || 0) * mult(l.inventory_item_id);
     }
 
     // ── Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour ────
