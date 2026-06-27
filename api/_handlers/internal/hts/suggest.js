@@ -44,8 +44,13 @@ Classify the following fabric/product for US customs import:
 - Gender / Wearer: ${gender || "(not specified)"}
 
 Gender is decisive for apparel HTS: men's/boys' garments classify under different
-codes than women's/girls', and babies'/infants' separately again — weight the
-men's-vs-women's-vs-boys'-vs-girls' distinction accordingly when it is specified.
+codes than women's/girls', and babies'/infants' separately again. When a Gender
+IS specified, EVERY suggestion you return MUST be the code for THAT gender only —
+do NOT return codes for other genders, and do NOT hedge across genders. The three
+suggestions should differ by fabric/knit-vs-woven/construction within the SAME
+gender, never by switching the wearer. (Treat Unisex as men's/boys' per the usual
+GRI convention unless the construction clearly dictates otherwise.) Only when no
+Gender is specified may you span genders.
 
 Country of Origin drives the DUTY RATE, not the HTS code. The HTS code itself
 does not change with country. When a Country of Origin IS specified, return the

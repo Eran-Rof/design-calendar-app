@@ -19,11 +19,11 @@ const UUID_RE          = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const MUTABLE_FIELDS = new Set([
   "style_name", "description", "category_id", "gender_code", "season", "design_year",
   "is_apparel", "launch_date", "lifecycle_status", "planning_class",
-  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "hts_code", "duty_rate_pct",
+  "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "hts_code", "duty_rate_pct", "additional_tariff_pct",
   "unit_weight_kg", "units_per_carton", "carton_cbm_m3", "attributes",
 ]);
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -182,6 +182,11 @@ export function validatePatch(body) {
   if ("duty_rate_pct" in out) {
     if (out.duty_rate_pct === "" || out.duty_rate_pct == null) out.duty_rate_pct = null;
     else { const n = Number(out.duty_rate_pct); out.duty_rate_pct = Number.isFinite(n) ? n : null; }
+  }
+  // additional_tariff_pct (Trump-administration flat +10%) — numeric or null.
+  if ("additional_tariff_pct" in out) {
+    if (out.additional_tariff_pct === "" || out.additional_tariff_pct == null) out.additional_tariff_pct = null;
+    else { const n = Number(out.additional_tariff_pct); out.additional_tariff_pct = Number.isFinite(n) ? n : null; }
   }
   // Logistics roll-up fields — non-negative number / positive int, or null.
   for (const k of ["unit_weight_kg", "carton_cbm_m3"]) {

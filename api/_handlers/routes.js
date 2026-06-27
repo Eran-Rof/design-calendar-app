@@ -296,6 +296,7 @@ import r_internal_gl_periods_preflight from "./internal/gl-periods/preflight.js"
 import r_internal_gl_periods_reopen from "./internal/gl-periods/reopen.js";
 import r_internal_hts_codes_id from "./internal/hts-codes/[id].js";
 import r_internal_hts_codes_index from "./internal/hts-codes/index.js";
+import r_internal_hts_backfill from "./internal/hts/backfill.js";
 import r_internal_hts_suggest from "./internal/hts/suggest.js";
 import r_internal_income_statement_index from "./internal/income-statement/index.js";
 import r_internal_insights_id from "./internal/insights/[id].js";
@@ -1004,6 +1005,7 @@ export const ROUTES = [
   { pattern: "/api/internal/bulk/process", handler: r_internal_bulk_process },
   { pattern: "/api/internal/costing/rfqs", handler: r_internal_costing_rfqs_index },
   { pattern: "/api/internal/edi/settings", handler: r_internal_edi_settings_index },
+  { pattern: "/api/internal/hts/backfill", handler: r_internal_hts_backfill },
   { pattern: "/api/internal/recon/run-ap", handler: r_internal_recon_run_ap },
   { pattern: "/api/internal/recon/run-ar", handler: r_internal_recon_run_ar },
   { pattern: "/api/internal/recon/run-gl", handler: r_internal_recon_run_gl },

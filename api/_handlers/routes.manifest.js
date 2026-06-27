@@ -336,6 +336,7 @@ export default [
   ["/api/internal/ap-payments"                               , "./internal/ap-payments/index.js"],
   ["/api/internal/ai/suggest-iso2"                           , "./internal/ai/suggest-iso2.js"],
   ["/api/internal/hts/suggest"                               , "./internal/hts/suggest.js"],
+  ["/api/internal/hts/backfill"                              , "./internal/hts/backfill.js"],
   ["/api/internal/hts-codes/:id"                             , "./internal/hts-codes/[id].js"],
   ["/api/internal/hts-codes"                                 , "./internal/hts-codes/index.js"],
   ["/api/internal/fabric-codes/:id"                          , "./internal/fabric-codes/[id].js"],
