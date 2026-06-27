@@ -70,6 +70,15 @@ flowchart LR
 
 Per decision D2 — net revenue is `SUM(ar_invoice_lines.line_total_cents) - SUM(ar_invoice_lines.tax_amount_cents)`. Discounts already baked into line totals. Commission = `net × rate_pct`. For split assignments, each rep gets `net × share_pct × rate_pct`.
 
+### Closeout commission rate
+
+Reps usually earn a **lower** rate on **closeout** orders. This is configured per customer, not per rep:
+
+- **Customer Master → Reps tab → Closeout commission %** (`customers.closeout_commission_pct`) sets the closeout rate for that customer's orders.
+- **Sales Order header → Closeout order** checkbox (`sales_orders.is_closeout`) flags an order as a closeout.
+
+The **Customer Scorecard** commission is closeout-aware. This-year **net sales** (gross − dilution) are split by each invoice's source-SO `is_closeout` flag: the closeout portion is commissioned at the customer's **Closeout commission %**, the rest at the normal `sales_rep_1% + sales_rep_2%`, with dilution apportioned proportionally. The scorecard reports the closeout sales, the closeout rate, and a **blended effective** commission %. If no closeout rate is set, the normal rate applies to everything — unchanged from before.
+
 ### Tier brackets (optional)
 
 A rep with empty tier table uses `default_commission_pct` on every accrual. A rep with brackets uses the rate matching their cumulative period-to-date invoiced total. First invoice that crosses a threshold splits the line across rates.

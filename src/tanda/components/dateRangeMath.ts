@@ -209,6 +209,13 @@ export type DatePresetMasterRow = {
   n: number | null;
   sort_order?: number;
   is_active?: boolean;
+  /**
+   * When set, this row MIRRORS a code DEFAULT_PRESET with this key (the master
+   * is backfilled with the current built-ins so operators can manage them).
+   * mergePresets() suppresses the matching code built-in so each preset shows
+   * exactly once — the editable master row wins.
+   */
+  source_key?: string | null;
 };
 
 /** Compute a relative-expression preset (the master `kind` + n) → {from,to}. */
@@ -258,8 +265,13 @@ export function presetFromMasterRow(row: DatePresetMasterRow): Preset {
  * operator's additional presets automatically.
  */
 export function mergePresets(base: Preset[], custom: DatePresetMasterRow[]): Preset[] {
-  const customPresets = (custom || []).filter((r) => r.is_active !== false).map(presetFromMasterRow);
+  const activeRows = (custom || []).filter((r) => r.is_active !== false);
+  // Built-ins backfilled into the master carry a source_key naming the code
+  // preset they mirror — suppress that built-in so it isn't shown twice (the
+  // editable master row wins). Operator-added rows have no source_key.
+  const covered = new Set(activeRows.map((r) => r.source_key).filter(Boolean) as string[]);
+  const customPresets = activeRows.map(presetFromMasterRow);
   const sentinel = base.find((p) => p.key === "custom");
-  const builtins = base.filter((p) => p.key !== "custom");
+  const builtins = base.filter((p) => p.key !== "custom" && !covered.has(p.key));
   return sentinel ? [...builtins, ...customPresets, sentinel] : [...builtins, ...customPresets];
 }
