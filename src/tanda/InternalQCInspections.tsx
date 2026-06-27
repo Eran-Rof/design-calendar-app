@@ -127,10 +127,18 @@ export default function InternalQCInspections() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All statuses</option>
-          {QC_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              ...QC_STATUSES.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All statuses"
+            inputStyle={inputStyle}
+          />
+        </div>
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <ExportButton rows={exportRows} columns={EXPORT_COLUMNS} filename="qc-inspections" sheetName="QC Inspections" />
       </div>
@@ -341,9 +349,12 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
               placeholder="(inspector — optional)" />
           </Field>
           <Field label="Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
-              {QC_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={status || null}
+              onChange={(v) => setStatus(v)}
+              options={QC_STATUSES.map((s) => ({ value: s, label: s }))}
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Overall pass rate (%)"><input type="text" inputMode="decimal" value={passRate} onChange={(e) => setPassRate(e.target.value)} placeholder="e.g. 98.34" style={inputStyle} /></Field>
         </div>
@@ -369,9 +380,12 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
                     <td style={td}>{idx + 1}</td>
                     <td style={td}><input type="text" value={f.category} onChange={(e) => updateFinding(idx, { category: e.target.value })} placeholder="e.g. seam_integrity" style={inputStyle} /></td>
                     <td style={td}>
-                      <select value={f.severity} onChange={(e) => updateFinding(idx, { severity: e.target.value })} style={inputStyle}>
-                        {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <SearchableSelect
+                        value={f.severity || null}
+                        onChange={(v) => updateFinding(idx, { severity: v })}
+                        options={SEVERITIES.map((s) => ({ value: s, label: s }))}
+                        inputStyle={inputStyle}
+                      />
                     </td>
                     <td style={td}><input type="text" inputMode="decimal" value={f.qty_affected} onChange={(e) => updateFinding(idx, { qty_affected: e.target.value })} placeholder="0" style={numInputStyle} /></td>
                     <td style={td}><input type="text" value={f.description} onChange={(e) => updateFinding(idx, { description: e.target.value })} placeholder="defect description" style={inputStyle} /></td>
@@ -494,15 +508,24 @@ function DispositionModal({ inspectionId, receiptId, onClose, onPosted }: { insp
         </div>
         <div style={{ display: "grid", gap: 10 }}>
           <Field label="Receipt line (SKU)">
-            <select value={receiptLineId} onChange={(e) => setReceiptLineId(e.target.value)} style={inputStyle}>
-              <option value="">— pick a line —</option>
-              {lines.map((l) => <option key={l.id} value={l.id}>{lineLabel(l)}</option>)}
-            </select>
+            <SearchableSelect
+              value={receiptLineId || null}
+              onChange={(v) => setReceiptLineId(v)}
+              options={[
+                { value: "", label: "— pick a line —" },
+                ...lines.map((l) => ({ value: l.id, label: lineLabel(l), searchHaystack: lineLabel(l) })),
+              ]}
+              placeholder="— pick a line —"
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Disposition">
-            <select value={disposition} onChange={(e) => setDisposition(e.target.value)} style={inputStyle}>
-              {DISPOSITIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={disposition || null}
+              onChange={(v) => setDisposition(v)}
+              options={DISPOSITIONS.map((d) => ({ value: d.value, label: d.label }))}
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Qty"><input type="text" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="units" style={inputStyle} /></Field>
           <Field label="Reason"><input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="why these units failed" style={inputStyle} /></Field>

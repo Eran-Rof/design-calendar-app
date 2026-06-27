@@ -209,20 +209,31 @@ export default function InternalJournalEntry() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <select value={basisFilter} onChange={(e) => setBasisFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All bases</option>
-          <option value="ACCRUAL">ACCRUAL</option>
-          <option value="CASH">CASH</option>
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 180 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={basisFilter || null}
+            onChange={(v) => setBasisFilter(v)}
+            options={[
+              { value: "", label: "All bases" },
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+            placeholder="All bases"
+            inputStyle={inputStyle}
+          />
+        </div>
+        <div style={{ width: 180 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -578,17 +589,27 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 16, marginBottom: 12 }}>
           <Field label="Basis">
-            <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
-              <option value="ACCRUAL">ACCRUAL</option>
-              <option value="CASH">CASH</option>
-              <option value="BOTH">BOTH (sibling pair)</option>
-            </select>
+            <SearchableSelect
+              value={basis}
+              onChange={(v) => { setDirty(true); setBasis(v as "ACCRUAL" | "CASH" | "BOTH"); }}
+              options={[
+                { value: "ACCRUAL", label: "ACCRUAL" },
+                { value: "CASH", label: "CASH" },
+                { value: "BOTH", label: "BOTH (sibling pair)" },
+              ]}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Journal type">
-            <select value={journalType} onChange={(e) => { setDirty(true); setJournalType(e.target.value as "manual" | "adjustment"); }} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
-              <option value="manual">MANUAL</option>
-              <option value="adjustment">ADJUSTMENT</option>
-            </select>
+            <SearchableSelect
+              value={journalType}
+              onChange={(v) => { setDirty(true); setJournalType(v as "manual" | "adjustment"); }}
+              options={[
+                { value: "manual", label: "MANUAL" },
+                { value: "adjustment", label: "ADJUSTMENT" },
+              ]}
+              inputStyle={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}
+            />
           </Field>
           <Field label="Posting date">
             <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
@@ -687,16 +708,18 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    <select
-                      value={l.subledger_type}
-                      onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
-                      style={inputStyle as React.CSSProperties}
-                    >
-                      <option value="">(select)</option>
-                      <option value="vendor">vendor</option>
-                      <option value="customer">customer</option>
-                      <option value="item">item</option>
-                    </select>
+                    <SearchableSelect
+                      value={l.subledger_type || null}
+                      onChange={(v) => updateLine(idx, { subledger_type: v, subledger_id: "" })}
+                      options={[
+                        { value: "", label: "(select)" },
+                        { value: "vendor", label: "vendor" },
+                        { value: "customer", label: "customer" },
+                        { value: "item", label: "item" },
+                      ]}
+                      placeholder="(select)"
+                      inputStyle={inputStyle as React.CSSProperties}
+                    />
                   </td>
                   <td style={td}>
                     {l.subledger_type === "vendor" || l.subledger_type === "customer" ? (

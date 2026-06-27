@@ -309,14 +309,21 @@ export default function InternalAPInvoices() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as GlStatus | "")} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="pending_approval">Pending approval</option>
-          <option value="posted">Posted</option>
-          <option value="paid">Paid</option>
-          <option value="void">Void</option>
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as GlStatus | "")}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "draft", label: "Draft" },
+              { value: "pending_approval", label: "Pending approval" },
+              { value: "posted", label: "Posted" },
+              { value: "paid", label: "Paid" },
+              { value: "void", label: "Void" },
+            ]}
+            placeholder="All statuses"
+          />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect
             value={vendorFilter || null}
@@ -851,11 +858,16 @@ function APInvoiceModal({
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Type">
-                <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="vendor_bill">Invoice</option>
-                  <option value="vendor_credit_memo">Credit</option>
-                  <option value="expense_report">Expense report</option>
-                </select>
+                <SearchableSelect
+                  value={kind || null}
+                  onChange={(v) => setKind(v)}
+                  options={[
+                    { value: "vendor_bill", label: "Invoice" },
+                    { value: "vendor_credit_memo", label: "Credit" },
+                    { value: "expense_report", label: "Expense report" },
+                  ]}
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
@@ -911,15 +923,15 @@ function APInvoiceModal({
             {lines.some((l) => l.kind === "inventory") && (
               <div style={{ marginTop: 12 }}>
                 <Field label="Receive inventory into (brand pool)">
-                  <select
+                  <SearchableSelect
                     value={receivingChannel}
-                    onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                    onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+                    options={[
+                      { value: "WS", label: "Wholesale pool" },
+                      { value: "EC", label: "Ecom pool" },
+                    ]}
                     disabled={!editable}
-                    style={inputStyle as React.CSSProperties}
-                  >
-                    <option value="WS">Wholesale pool</option>
-                    <option value="EC">Ecom pool</option>
-                  </select>
+                  />
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
                     Received units land in the brand's {receivingChannel === "EC" ? "Ecom" : "Wholesale"} pool when posted (single-pool brands ignore this).
                   </div>
@@ -976,10 +988,15 @@ function APInvoiceModal({
                     <tr key={l.key}>
                       <td style={td}>{idx + 1}</td>
                       <td style={td}>
-                        <select value={l.kind} onChange={(e) => updateLine(idx, { kind: e.target.value as "expense" | "inventory" })} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                          <option value="expense">expense</option>
-                          <option value="inventory">inventory</option>
-                        </select>
+                        <SearchableSelect
+                          value={l.kind}
+                          onChange={(v) => updateLine(idx, { kind: v as "expense" | "inventory" })}
+                          options={[
+                            { value: "expense", label: "expense" },
+                            { value: "inventory", label: "inventory" },
+                          ]}
+                          disabled={!editable}
+                        />
                       </td>
                       <td style={td}>
                         {l.kind === "expense" ? (
@@ -1184,13 +1201,17 @@ function APPaymentModal({
             <input type="text" value={amountDollars} onChange={(e) => setAmountDollars(e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Method">
-            <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle as React.CSSProperties}>
-              <option value="ach">ACH</option>
-              <option value="wire">Wire</option>
-              <option value="check">Check</option>
-              <option value="credit_card">Credit card</option>
-              <option value="cash">Cash</option>
-            </select>
+            <SearchableSelect
+              value={method || null}
+              onChange={(v) => setMethod(v)}
+              options={[
+                { value: "ach", label: "ACH" },
+                { value: "wire", label: "Wire" },
+                { value: "check", label: "Check" },
+                { value: "credit_card", label: "Credit card" },
+                { value: "cash", label: "Cash" },
+              ]}
+            />
           </Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>

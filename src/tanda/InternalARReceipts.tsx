@@ -277,23 +277,28 @@ export default function InternalARReceipts() {
             placeholder="All customers"
           />
         </div>
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          style={{ ...inputStyle, width: 160 }}
-        >
-          <option value="">All methods</option>
-          {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={method || null}
+            onChange={(v) => setMethod(v)}
+            options={[
+              { value: "", label: "All methods" },
+              ...METHODS.map((m) => ({ value: m, label: m })),
+            ]}
+            placeholder="All methods"
+          />
+        </div>
+        <div style={{ width: 150 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           From&nbsp;
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
@@ -316,16 +321,18 @@ export default function InternalARReceipts() {
           />
           Include voided
         </label>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value) || 100)}
-          style={{ ...inputStyle, width: 100 }}
-        >
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="250">250</option>
-          <option value="500">500</option>
-        </select>
+        <div style={{ width: 100 }}>
+          <SearchableSelect
+            value={String(limit)}
+            onChange={(v) => setLimit(Number(v) || 100)}
+            options={[
+              { value: "50", label: "50" },
+              { value: "100", label: "100" },
+              { value: "250", label: "250" },
+              { value: "500", label: "500" },
+            ]}
+          />
+        </div>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
         <ExportButton
           rows={rows.map((r) => {
@@ -639,9 +646,13 @@ function AddReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method *
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ ...inputStyle, marginTop: 4 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4 }}>
+              <SearchableSelect
+                value={paymentMethod || null}
+                onChange={(v) => setPaymentMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank account *
@@ -933,9 +944,14 @@ function DetailReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method
-            <select value={editMethod} onChange={(e) => setEditMethod(e.target.value)} disabled={!editable} style={{ ...inputStyle, marginTop: 4, opacity: editable ? 1 : 0.6 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4, opacity: editable ? 1 : 0.6 }}>
+              <SearchableSelect
+                value={editMethod || null}
+                onChange={(v) => setEditMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+                disabled={!editable}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank
