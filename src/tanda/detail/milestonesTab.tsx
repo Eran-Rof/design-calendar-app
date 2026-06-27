@@ -76,7 +76,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
           )}
           {poMs.length > 0 && (
             <button style={{ ...S.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => {
-              setConfirmModal({ title: "Regenerate Milestones", message: "Regenerate milestones? Your statuses, dates, and notes will be preserved.", icon: "🔄", confirmText: "Regenerate", confirmColor: "#3B82F6", onConfirm: () => regenerateMilestones(selected) });
+              setConfirmModal({ title: "Regenerate Milestones", message: "Regenerate milestones? Your statuses, dates, and notes will be preserved.", icon: "", confirmText: "Regenerate", confirmColor: "#3B82F6", onConfirm: () => regenerateMilestones(selected) });
             }}>
               Regenerate
             </button>
@@ -137,7 +137,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
               <span style={{ color: catComplete === catMs.length ? "#10B981" : "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, transition: "color 0.5s" }}>{cat}{catComplete === catMs.length ? " ✓" : ""}</span>
               {cascade.blocked && (
                 <span style={{ fontSize: 10, color: "#F59E0B", fontWeight: 600, padding: "1px 6px", borderRadius: 4, background: "#F59E0B18", border: "1px solid #F59E0B33" }}>
-                  ⚠ Blocked by {cascade.delayedCat}{cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}
+                  Blocked by {cascade.delayedCat}{cascade.upstreamDelay > 0 ? ` (${cascade.upstreamDelay}d late)` : ""}
                 </span>
               )}
               <span style={{ color: "#6B7280", fontSize: 11, marginLeft: "auto" }}>{catComplete}/{catMs.length}</span>
@@ -151,7 +151,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                   <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status</span>
                   <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Status Date</span>
                   <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right" }}>Days</span>
-                  <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>📝</span>
+                  <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "center" }}>Notes</span>
                 </div>
                 {catMs.map(m => {
                   const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - Date.now()) / 86400000) : null;
@@ -172,12 +172,12 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                         {m.phase}
                         {delayDays > 0 && (
                           <span style={{ fontSize: 10, background: "#7F1D1D", color: "#FCA5A5", borderRadius: 4, padding: "1px 5px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                            ⚠ {delayDays}d delayed
+                            {delayDays}d delayed
                           </span>
                         )}
                         {hasMismatch && (
                           <span style={{ fontSize: 10, background: "#78350F", color: "#FDE68A", borderRadius: 4, padding: "1px 5px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                            ⚠ Color mismatch
+                            Color mismatch
                           </span>
                         )}
                       </span>
@@ -220,7 +220,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                           };
                           const proceed = () => {
                             if (oldStatus === "Complete" && dates[oldStatus]) {
-                              setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "📅", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
+                              setConfirmModal({ title: "Clear Complete Date", message: `Clear the "Complete" date (${dates[oldStatus]})?`, icon: "", confirmText: "Clear Date", confirmColor: "#F59E0B", cancelText: "Keep Date", onConfirm: () => { delete dates[oldStatus]; doSave(dates); }, onCancel: () => doSave(dates) });
                               return;
                             }
                             doSave(dates);
@@ -230,7 +230,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                             setConfirmModal({
                               title: "Color/Variant Overrides Will Be Kept",
                               message: `${overrideCount} color variant${overrideCount === 1 ? " has" : "s have"} a status different from the phase. Changing the phase status to "${newStatus}" will NOT change those variants — they will remain as set. Continue?`,
-                              icon: "⚠️",
+                              icon: "",
                               confirmText: "Continue",
                               confirmColor: "#F59E0B",
                               cancelText: "Cancel",
@@ -262,7 +262,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                       <span style={{ color: daysColor, fontWeight: 600, textAlign: "right", fontSize: 12 }}>
                         {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}
                       </span>
-                      <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: (m.note_entries?.length || m.notes) ? 1 : 0.4, position: "relative" }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); setMsNoteText(""); }}>📝{(m.note_entries?.length ?? 0) > 0 && <span style={{ position: "absolute", top: -4, right: -6, fontSize: 8, background: "#3B82F6", color: "#fff", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{m.note_entries!.length}</span>}</span>
+                      <span style={{ textAlign: "center", cursor: "pointer", fontSize: 14, opacity: (m.note_entries?.length || m.notes) ? 1 : 0.4, position: "relative" }} title={m.notes || "Add note"} onClick={e => { e.stopPropagation(); setEditingNote(editingNote === m.id ? null : m.id); setMsNoteText(""); }}><span style={{ fontSize: 11 }}>Notes</span>{(m.note_entries?.length ?? 0) > 0 && <span style={{ position: "absolute", top: -4, right: -6, fontSize: 8, background: "#3B82F6", color: "#fff", borderRadius: "50%", width: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{m.note_entries!.length}</span>}</span>
                     </div>
                     {variantOpen && (
                       <div data-variant-panel style={{ padding: "8px 14px 10px 14px", borderTop: "1px solid #1E293B", background: "#0A1220" }}>
@@ -296,7 +296,7 @@ export function MilestonesTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElem
                                       <td style={{ padding: "5px 10px", color: "#9CA3AF", fontSize: 11, ...dim }}>{row.desc || "—"}</td>
                                       <td style={{ padding: "5px 10px", color: vMismatch ? "#FDE68A" : "#D1D5DB", whiteSpace: "nowrap" }}>
                                         <span style={dim}>{row.color || "—"}</span>
-                                        {vMismatch && !row.allClosed && <span style={{ fontSize: 10, color: "#F59E0B", marginLeft: 6 }}>⚠</span>}
+                                        {vMismatch && !row.allClosed && <span style={{ fontSize: 9, color: "#F59E0B", marginLeft: 6, fontWeight: 700 }}>differs</span>}
                                         {row.allClosed && <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>CLOSED</span>}
                                         {partialClosed && <span title={`${row.closedQty} qty on closed lines`} style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 9, fontWeight: 700, letterSpacing: 0.3 }}>{row.closedQty} CLOSED</span>}
                                       </td>

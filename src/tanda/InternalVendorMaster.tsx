@@ -362,7 +362,7 @@ export default function InternalVendorMaster() {
                       title="Open vendor scorecard (lead time, on-time %, purchases, invoices, POs)"
                       aria-label={`Open scorecard for ${r.name}`}
                     >
-                      📊 Scorecard
+                      Scorecard
                     </button>
                     {!r.deleted_at && (
                       <>

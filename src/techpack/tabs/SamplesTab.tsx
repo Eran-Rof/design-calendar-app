@@ -74,7 +74,7 @@ export function SamplesTab({
               <button
                 style={{ ...S.iconBtn, color: "#EF4444" }}
                 onClick={() => removeSample(s.id)}
-              >🗑️</button>
+              >Delete</button>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>

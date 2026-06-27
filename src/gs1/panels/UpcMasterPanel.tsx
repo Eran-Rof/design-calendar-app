@@ -266,7 +266,7 @@ export default function UpcMasterPanel() {
         if (dupes === 0) return null;
         return (
           <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 700 }}>⚠ {dupes} duplicate UPC conflict{dupes > 1 ? "s" : ""}</span>
+            <span style={{ fontWeight: 700 }}>{dupes} duplicate UPC conflict{dupes > 1 ? "s" : ""}</span>
             — Multiple UPCs exist for the same style/color/size combination. BOMs will be unreliable until resolved.
           </div>
         );

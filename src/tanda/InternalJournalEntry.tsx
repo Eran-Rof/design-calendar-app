@@ -476,7 +476,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // unless the caller passes force=true (used after a successful post).
   async function requestClose(force = false) {
     if (!force && dirty) {
-      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444" });
+      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "", confirmText: "Discard", confirmColor: "#EF4444" });
       if (!ok) return;
     }
     onClose();
@@ -518,7 +518,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       const diffStr = totals.diff.toFixed(2);
       const proceed = await confirmDialog(
         `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
-        { title: "Out of balance", icon: "⚠️", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
+        { title: "Out of balance", icon: "", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
       );
       if (!proceed) return;
     }
@@ -778,7 +778,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stagedDocs.length ? 8 : 0 }}>
             <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              📎 Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
+              Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
             </span>
             <label style={{ ...btnSecondary, cursor: "pointer", display: "inline-block" }}>
               + Add files

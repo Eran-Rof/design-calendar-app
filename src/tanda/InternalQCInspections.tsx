@@ -122,7 +122,7 @@ export default function InternalQCInspections() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🔍 QC Inspections</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>QC Inspections</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New inspection</button>
       </div>
 
@@ -402,7 +402,7 @@ function InspectionModal({ inspection, pos, onClose, onSaved }: { inspection: In
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Dispositions</div>
-              <button onClick={() => setDispOpen(true)} style={btnSecondary}>⚖️ Record disposition</button>
+              <button onClick={() => setDispOpen(true)} style={btnSecondary}>Record disposition</button>
             </div>
             {dispositions.length === 0 ? (
               <div style={{ fontSize: 12, color: C.textMuted }}>

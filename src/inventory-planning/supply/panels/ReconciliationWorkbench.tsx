@@ -213,7 +213,7 @@ export default function ReconciliationWorkbench() {
             <button style={{ ...S.btnSecondary, background: "#EA580C22", color: "#EA580C", borderColor: "#EA580C" }}
                     onClick={syncTangerine} disabled={syncing || !canSync}
                     title={canSync ? "Pull native Tangerine on-hand + open POs into the planning supply tables (for 'Tangerine ERP' runs)" : "Missing permission: manage_integrations"}>
-              {syncing ? "Syncing…" : "🍊 Sync Tangerine supply"}
+              {syncing ? "Syncing…" : "Sync Tangerine supply"}
             </button>
           </div>
           {/* Inline create-run form. Same place the request panel
@@ -244,7 +244,7 @@ export default function ReconciliationWorkbench() {
                   supply: {selectedRun.supply_source === "tangerine" ? "Tangerine ERP" : "Xoro / ATS mirror"}
                 </span>
                 {selectedRun.supply_source === "tangerine" && (
-                  <span style={{ color: PAL.textMuted, fontSize: 11 }}>(run 🍊 Sync Tangerine supply, then reconcile)</span>
+                  <span style={{ color: PAL.textMuted, fontSize: 11 }}>(run Sync Tangerine supply, then reconcile)</span>
                 )}
               </div>
               {/* Inline toggle: count Phase 1 planned_buy_qty as

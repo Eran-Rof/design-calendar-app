@@ -1000,7 +1000,7 @@ export function GridView({
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
         <input
           style={{ ...S.input, flex: 1, minWidth: 240, marginBottom: 0 }}
-          placeholder="🔍 Search PO#, vendor, buyer, buyer PO…"
+          placeholder="Search PO#, vendor, buyer, buyer PO…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -1116,7 +1116,7 @@ export function GridView({
           title="Download as Excel"
           style={{ background: "#217346", border: "1px solid #145A2E", color: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
         >
-          <span style={{ fontSize: 15 }}>⬇</span> Excel
+          Excel
         </button>
       </div>
 
@@ -1352,7 +1352,7 @@ export function GridView({
                         {/* Right closing border on last phase Notes sub-label */}
                         <span style={{ ...hdr2, ...(isLastPhase ? phaseDividerHost : {}) }}>
                           {isLastPhase && <span style={phaseDividerOverlayRight} />}
-                          📝
+                          Notes
                         </span>
                       </React.Fragment>
                     );
@@ -1414,7 +1414,7 @@ export function GridView({
                           onClick={() => setNotesModal({ po, ms: poMs })}
                           title={tip}
                         >
-                          <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
+                          <span style={{ fontSize: 11, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>Notes</span>
                           {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
                         </span>
                       );
@@ -1579,7 +1579,7 @@ export function GridView({
                           >
                             {isLastPhase && <span style={phaseDividerOverlayRight} />}
                             <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
-                              {phaseHasNotes ? `📝${noteCount}` : "📝"}
+                              {phaseHasNotes ? `Notes ${noteCount}` : "Notes"}
                             </span>
                           </span>
                         </React.Fragment>
@@ -1696,7 +1696,7 @@ export function GridView({
                                     <span style={{ ...hdr2, background: infoBg2 }}>Status Date</span>
                                     <span style={{ ...hdr2, background: infoBg2 }}>Days</span>
                                     <span style={{ ...hdr2, background: infoBg2, ...(isLast ? phaseDividerHost : {}) }}>
-                                      {isLast && <span style={phaseDividerOverlayRight} />}📝
+                                      {isLast && <span style={phaseDividerOverlayRight} />}Notes
                                     </span>
                                   </React.Fragment>
                                 );
@@ -1834,7 +1834,7 @@ export function GridView({
                                             >
                                               {isLast && <span style={phaseDividerOverlayRight} />}
                                               <span style={{ fontSize: 10, color: vnHas ? "#60A5FA" : "#374151" }}>
-                                                {vnHas ? `📝${vnCount}` : "📝"}
+                                                {vnHas ? `Notes ${vnCount}` : "Notes"}
                                               </span>
                                             </span>
                                           );
@@ -1973,7 +1973,7 @@ export function GridView({
             onClick={e => e.stopPropagation()}
           >
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>⚠ DDP Date Will Change</h2>
+              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>DDP Date Will Change</h2>
               <button onClick={() => setDDPChangeModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             </div>
             <div style={{ padding: "16px 20px" }}>

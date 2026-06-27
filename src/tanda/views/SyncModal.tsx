@@ -156,7 +156,7 @@ function SyncConfigModal({
     <div style={S.modalOverlay} onClick={closeSyncModal}>
       <div style={{ ...S.modal, width: 540 }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={S.modalTitle}>🔄 Sync from Xoro</h2>
+          <h2 style={S.modalTitle}>Sync from Xoro</h2>
           <button style={S.closeBtn} onClick={closeSyncModal}>✕</button>
         </div>
         <div style={S.modalBody}>
@@ -236,7 +236,6 @@ function SyncConfigModal({
                       setSyncFilters(p => ({ ...p, dateFrom: `${m}/${d}/${y}` }));
                     }
                   }} />
-                <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 16, pointerEvents: "none" }}>📅</span>
               </div>
             </div>
             <div>
@@ -260,7 +259,6 @@ function SyncConfigModal({
                       setSyncFilters(p => ({ ...p, dateTo: `${m}/${d}/${y}` }));
                     }
                   }} />
-                <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 16, pointerEvents: "none" }}>📅</span>
               </div>
             </div>
           </div>
@@ -292,7 +290,7 @@ function SyncConfigModal({
             {loadingVendors && <span style={{ color: "#6B7280", fontWeight: 400, marginLeft: 8 }}>Loading…</span>}
           </label>
           <input style={{ ...S.input, marginBottom: 8 }}
-            placeholder="🔍 Type to search vendors…"
+            placeholder="Type to search vendors…"
             value={vendorSearch}
             onChange={e => setVendorSearch(e.target.value)} />
           <div style={{ maxHeight: 160, overflowY: "auto", background: "#0F172A", borderRadius: 8, marginBottom: 8 }}>
@@ -324,7 +322,7 @@ function SyncConfigModal({
                   </div>
                   {isManual && (
                     <button style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 12 }}
-                      onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Remove Vendor", message: `Are you sure you want to remove vendor "${v}"?`, icon: "🗑", confirmText: "Remove", confirmColor: "#EF4444", onConfirm: () => removeManualVendor(v) }); }}>✕</button>
+                      onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Remove Vendor", message: `Are you sure you want to remove vendor "${v}"?`, icon: "", confirmText: "Remove", confirmColor: "#EF4444", onConfirm: () => removeManualVendor(v) }); }}>✕</button>
                   )}
                 </div>
               );
@@ -345,13 +343,13 @@ function SyncConfigModal({
             onClick={() => setConfirmModal({
               title: "Sync Vendors → Design Calendar",
               message: `Replace all Design Calendar vendors with the ${allVendors.length} vendor${allVendors.length !== 1 ? "s" : ""} currently in PO WIP? Any existing DC vendor settings (country, lead times, etc.) will be preserved where names match. Vendors not in PO WIP will be removed.`,
-              icon: "🔄",
+              icon: "",
               confirmText: "Replace",
               confirmColor: "#10B981",
               onConfirm: () => syncVendorsToDC(true, allVendors),
             })}
           >
-            🔄 Sync All Vendors → Design Calendar
+            Sync All Vendors → Design Calendar
           </button>
 
           {/* Selected summary */}
@@ -372,10 +370,10 @@ function SyncConfigModal({
             </button>
             <button style={{ ...S.btnSecondary }} onClick={() => { setShowSyncModal(false); setShowSyncLog(true); }}
               title={`${syncLog.length} sync${syncLog.length !== 1 ? "s" : ""} logged`}>
-              📋 Log{syncLog.length > 0 ? ` (${syncLog.length})` : ""}
+              Log{syncLog.length > 0 ? ` (${syncLog.length})` : ""}
             </button>
             <button style={{ ...S.btnPrimary, flex: 2 }} onClick={() => syncFromXoro(syncFilters)}>
-              🔄 {syncFilters.vendors.length === 0 && syncFilters.statuses.length === 0 && syncFilters.poNumbers.length === 0 && !syncFilters.dateFrom ? "Sync All POs" : "Sync Filtered POs"}
+              {syncFilters.vendors.length === 0 && syncFilters.statuses.length === 0 && syncFilters.poNumbers.length === 0 && !syncFilters.dateFrom ? "Sync All POs" : "Sync Filtered POs"}
             </button>
           </div>
         </div>
@@ -397,7 +395,7 @@ function SyncProgressModal({ syncProgress, syncProgressMsg, syncErr, cancelSync 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
       <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 16, padding: 32, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 32px 80px rgba(0,0,0,0.5)" }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#F1F5F9", marginBottom: 8 }}>🔄 Syncing from Xoro…</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#F1F5F9", marginBottom: 8 }}>Syncing from Xoro…</div>
         <div style={{ fontSize: 13, color: "#9CA3AF", marginBottom: 20 }}>{syncProgressMsg || "Please wait…"}</div>
         <div style={{ background: "#0F172A", borderRadius: 8, overflow: "hidden", height: 10, marginBottom: 12 }}>
           <div style={{ height: "100%", width: `${syncProgress}%`, background: "linear-gradient(90deg,#3B82F6,#8B5CF6)", borderRadius: 8, transition: "width 0.4s ease" }} />
@@ -433,7 +431,6 @@ function SyncDoneModal({ syncDone, setSyncDone }: {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
       <div style={{ background: "#1E293B", border: "1px solid #10B981", borderRadius: 16, padding: 32, width: "min(380px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 32px 80px rgba(0,0,0,0.5)", textAlign: "center" }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "#10B981", marginBottom: 16 }}>Sync Complete!</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
           {[["Added", added, "#10B981"], ["Updated", changed, "#60A5FA"], ["Removed", deleted, "#F87171"]].map(([label, count, color]) => (
@@ -463,7 +460,7 @@ function SyncLogModal({ syncLog, setShowSyncLog }: {
     <div style={S.modalOverlay} onClick={() => setShowSyncLog(false)}>
       <div style={{ ...S.modal, width: "min(620px, 95vw)", maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={S.modalTitle}>📋 Sync Log</h2>
+          <h2 style={S.modalTitle}>Sync Log</h2>
           <button style={S.closeBtn} onClick={() => setShowSyncLog(false)}>✕</button>
         </div>
         <div style={{ ...S.modalBody, overflowY: "auto", flex: 1 }}>
@@ -477,7 +474,6 @@ function SyncLogModal({ syncLog, setShowSyncLog }: {
                 return (
                   <div key={i} style={{ background: "#0F172A", border: `1px solid ${entry.success ? "#1E3A5F" : "#7F1D1D"}`, borderRadius: 10, padding: "12px 16px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                      <span style={{ fontSize: 15 }}>{entry.success ? "✅" : "❌"}</span>
                       <span style={{ fontSize: 13, fontWeight: 700, color: entry.success ? "#34D399" : "#F87171" }}>
                         {entry.success ? "Sync successful" : "Sync failed"}
                       </span>
@@ -486,15 +482,15 @@ function SyncLogModal({ syncLog, setShowSyncLog }: {
                       </span>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12, color: "#9CA3AF" }}>
-                      <span>👤 <b style={{ color: "#CBD5E1" }}>{entry.user}</b></span>
+                      <span>User: <b style={{ color: "#CBD5E1" }}>{entry.user}</b></span>
                       {entry.success ? (
                         <>
                           <span style={{ color: posUpdated > 0 ? "#F1F5F9" : "#6B7280" }}>
                             POs updated: <b style={{ color: posUpdated > 0 ? "#60A5FA" : "#6B7280" }}>{posUpdated > 0 ? posUpdated : "none"}</b>
                           </span>
-                          {entry.added > 0   && <span>➕ Added <b style={{ color: "#10B981" }}>{entry.added}</b></span>}
-                          {entry.changed > 0 && <span>✏️ Changed <b style={{ color: "#60A5FA" }}>{entry.changed}</b></span>}
-                          {entry.deleted > 0 && <span>🗑 Removed <b style={{ color: "#F87171" }}>{entry.deleted}</b></span>}
+                          {entry.added > 0   && <span>Added <b style={{ color: "#10B981" }}>{entry.added}</b></span>}
+                          {entry.changed > 0 && <span>Changed <b style={{ color: "#60A5FA" }}>{entry.changed}</b></span>}
+                          {entry.deleted > 0 && <span>Removed <b style={{ color: "#F87171" }}>{entry.deleted}</b></span>}
                         </>
                       ) : (
                         <span style={{ color: "#FCA5A5" }}>Error: {entry.error}</span>

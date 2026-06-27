@@ -210,7 +210,7 @@ export default function ExecutionBatchDetail({
   async function createPos() {
     if (!(await confirmDialog(
       "Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).\n\nTip: use \"Preview POs\" first to see what will be created and which actions will skip.",
-      { title: "Create Tangerine POs", confirmText: "Create POs", icon: "🍊", confirmColor: "#EA580C" },
+      { title: "Create Tangerine POs", confirmText: "Create POs", confirmColor: "#EA580C" },
     ))) return;
     setBusy(true);
     try {
@@ -239,7 +239,7 @@ export default function ExecutionBatchDetail({
 
   async function editApprovedQty(action: IpExecutionAction) {
     const current = action.approved_qty ?? action.suggested_qty;
-    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", icon: "🔢", inputType: "number", defaultValue: String(current) });
+    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", inputType: "number", defaultValue: String(current) });
     if (raw == null) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) { onToast({ text: "Invalid number", kind: "error" }); return; }
@@ -359,13 +359,13 @@ export default function ExecutionBatchDetail({
                   disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
                   title={canWriteback ? "Preview (dry-run) the draft POs this buy plan would create — no writes" : "Missing permission: run_writeback"}
                   onClick={previewPos}>
-            🔍 Preview POs
+            Preview POs
           </button>
           <button style={{ ...S.btnPrimary, background: "#EA580C" }}
                   disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
                   title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
                   onClick={createPos}>
-            🍊 Create Tangerine POs
+            Create Tangerine POs
           </button>
           <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
             Writeback is per-action (Xoro). <b>Create Tangerine POs</b> turns <code style={{ color: PAL.text }}>create_buy_request</code> actions into draft native POs, grouped by vendor.
@@ -401,7 +401,7 @@ export default function ExecutionBatchDetail({
             {/* Unlinked-vendor suggestions with one-click Link */}
             {poResult.vendor_suggestions.filter((s) => s.candidates.length > 0).map((s) => (
               <div key={"vs" + s.planning_vendor_id} style={{ background: PAL.yellow + "18", color: PAL.text, padding: "6px 10px", borderRadius: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ color: PAL.yellow }}>🔗 link planning vendor <b>{s.vendor_code || s.name}</b> →</span>
+                <span style={{ color: PAL.yellow }}>link planning vendor <b>{s.vendor_code || s.name}</b> →</span>
                 {s.candidates.map((cand) => (
                   <button key={cand.id} style={{ ...S.btnGhost, fontSize: 12 }} disabled={busy} onClick={() => linkVendor(s, cand.id)}
                           title={`Set portal_vendor_id → ${cand.name} (matched on ${cand.match_on})`}>
@@ -412,13 +412,13 @@ export default function ExecutionBatchDetail({
             ))}
             {poResult.vendor_suggestions.filter((s) => s.candidates.length === 0).map((s) => (
               <div key={"vsn" + s.planning_vendor_id} style={{ background: PAL.textMuted + "18", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>
-                🔗 planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
+                planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
               </div>
             ))}
 
             {poResult.warnings.map((w) => (
               <div key={"w" + w.action_id} style={{ background: PAL.yellow + "22", color: PAL.yellow, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                ⚠ {actionLabel(w.action_id)} · {w.message}
+                {actionLabel(w.action_id)} · {w.message}
               </div>
             ))}
             {poResult.skipped.filter((s) => s.code !== "vendor_unlinked").map((s) => (

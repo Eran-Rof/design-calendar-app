@@ -2298,7 +2298,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   cursor: displayRows.length === 0 ? "not-allowed" : "pointer",
                 }}
               >
-                ⎘ Copy top row
+                Copy top row
               </button>
               <MultiSelectDropdown
                 compact

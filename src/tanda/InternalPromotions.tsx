@@ -77,7 +77,7 @@ export default function InternalPromotions() {
   }, []);
 
   async function del(p: Promo) {
-    if (!(await confirmDialog(`Delete promotion "${p.name}"?`, { confirmText: "Delete", danger: true, icon: "🗑️" }))) return;
+    if (!(await confirmDialog(`Delete promotion "${p.name}"?`, { confirmText: "Delete", danger: true }))) return;
     const r = await fetch(`/api/internal/price-promotions/${p.id}`, { method: "DELETE" });
     if (!r.ok) { notify((await r.json().catch(() => ({}))).error || "Delete failed", "error"); return; }
     notify("Promotion deleted.", "success"); void load();
@@ -86,7 +86,7 @@ export default function InternalPromotions() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🎁 Promotions</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Promotions</h2>
         <button style={btnPrimary} onClick={() => setEditing("new")}>+ New promotion</button>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>

@@ -88,7 +88,7 @@ export default function DataQualityReport() {
           marginBottom: 16, padding: "8px 12px", borderRadius: 6,
           background: "#fffbeb", border: "1px solid #f6e05e", color: "#744210", fontSize: 13,
         }}>
-          ⚠ Partial scan: {truncated.join(", ")} exceeded the row ceiling, so cross-row
+          Partial scan: {truncated.join(", ")} exceeded the row ceiling, so cross-row
           checks (orphans, duplicates) may be incomplete. Treat results as indicative.
         </div>
       )}

@@ -137,7 +137,6 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
         {/* Idle state */}
         {!result && !running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>No prediction run yet</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Select a planning run and click "Run AI Prediction" to analyze demand using Claude.
@@ -147,7 +146,6 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
 
         {running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>Analyzing demand data…</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Claude is reviewing your sales history, inventory, and market context. This takes ~15–30 seconds.

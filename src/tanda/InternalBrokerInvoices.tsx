@@ -111,7 +111,7 @@ export default function InternalBrokerInvoices() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🚢 Broker Invoices</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Broker Invoices</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New broker invoice</button>
       </div>
 
@@ -148,7 +148,7 @@ export default function InternalBrokerInvoices() {
                 <td style={td} onClick={(e) => e.stopPropagation()}>
                   {r.allocation_je_id
                     ? <span style={{ color: C.success, fontSize: 12 }}>✓ Posted</span>
-                    : <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }} onClick={() => setPostFor(r)}>💲 Post landed cost</button>}
+                    : <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }} onClick={() => setPostFor(r)}>Post landed cost</button>}
                 </td>
               </tr>
             ))}
@@ -366,7 +366,7 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
         <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
-          Save the charges here, then use <b>💲 Post landed cost</b> in the list to allocate them onto a posted receipt&apos;s FIFO layers (in-stock units revalued up, sold-units&apos; share expensed to Landed Cost Variance) and book the broker AP bill.
+          Save the charges here, then use <b>Post landed cost</b> in the list to allocate them onto a posted receipt&apos;s FIFO layers (in-stock units revalued up, sold-units&apos; share expensed to Landed Cost Variance) and book the broker AP bill.
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>

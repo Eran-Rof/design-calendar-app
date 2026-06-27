@@ -19,7 +19,7 @@ export function SettingsModal({
     <div style={S.modalOverlay} onClick={closeSettingsGuarded}>
       <div style={S.modal} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={S.modalTitle}>⚙️ Settings</h2>
+          <h2 style={S.modalTitle}>Settings</h2>
           <button style={S.closeBtn} onClick={closeSettingsGuarded}>✕</button>
         </div>
         <div style={S.modalBody}>
@@ -46,7 +46,7 @@ export function SettingsModal({
           ))}
 
           <button style={{ ...S.btnPrimary, marginTop: 24 }} onClick={() => { setShowSettings(false); setShowSyncModal(true); }}>
-            🔄 Sync from Xoro Now
+            Sync from Xoro Now
           </button>
         </div>
       </div>

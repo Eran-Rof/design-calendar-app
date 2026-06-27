@@ -38,7 +38,7 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
       `scenarios, approvals and exports. It cannot be undone.` +
       (orphan ? `\n\nThis looks like a leftover scenario/saved-build run — safe to remove.` : "") +
       `\n\n(A run that has execution batches can't be deleted — remove those in the Execution screen first.)`,
-      { title: "Delete planning run", confirmText: "Delete run", icon: "🗑" },
+      { title: "Delete planning run", confirmText: "Delete run" },
     );
     if (!ok) return;
     setBusyId(run.id);
@@ -92,7 +92,7 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
                 <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(r.created_at.slice(0, 10))}</td>
                 <td style={S.td}>
                   <button style={{ ...S.btnGhost, color: PAL.red }} disabled={busyId === r.id} onClick={() => del(r)}>
-                    {busyId === r.id ? "Deleting…" : "🗑 Delete"}
+                    {busyId === r.id ? "Deleting…" : "Delete"}
                   </button>
                 </td>
               </tr>

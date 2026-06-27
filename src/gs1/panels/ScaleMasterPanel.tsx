@@ -303,7 +303,7 @@ export default function ScaleMasterPanel() {
               <span style={{ fontSize: 14, fontWeight: 600, color: TH.textSub }}>
                 {coverageResult.complete
                   ? "✓ Complete — all sizes have matching UPCs"
-                  : `⚠ Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
+                  : `Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
               </span>
               <span style={{ fontSize: 12, color: TH.textMuted }}>Scale {coverageResult.scale_code}</span>
             </div>

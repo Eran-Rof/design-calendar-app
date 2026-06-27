@@ -593,7 +593,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   </div>
                 )}
                 <div style={{ color: TH.text }}>
-                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " 🔒"}</div>
+                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " (locked)"}</div>
                   <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>{r.phase.category} · T−{r.phase.daysBeforeDDP}d</div>
                 </div>
                 <div>
@@ -645,8 +645,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   })()}
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
-                  {pending && <div style={{ color: "#FCD34D" }}>⏳ Pending review</div>}
-                  {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
+                  {pending && <div style={{ color: "#FCD34D" }}>Pending review</div>}
+                  {hasMismatch && <div style={{ color: "#7C3AED" }}>Lines differ</div>}
 
                   {/* Stack all reviewed history for this phase (across status +
                       expected_date fields) newest-first, so the vendor sees the
@@ -764,7 +764,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
                               {linePending && (
-                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
+                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>Pending</div>
                               )}
                             </div>
                             {/* Status date — same logic as the master row
@@ -893,7 +893,7 @@ function NotesButton({
           fontSize: 11, fontWeight: 700,
         }}
       >
-        💬{count + reviewCount > 0 ? count + reviewCount : ""}
+        Notes{count + reviewCount > 0 ? ` ${count + reviewCount}` : ""}
       </button>
 
       {open && (

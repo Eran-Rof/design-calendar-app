@@ -181,7 +181,7 @@ export default function InternalThreePLRecon() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📋 3PL Inventory Recon</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>3PL Inventory Recon</h2>
         <div style={{ minWidth: 240 }}>
           <SearchableSelect
             options={providers.map((p) => ({ value: p.id, label: p.name, searchHaystack: `${p.name} ${p.code || ""}` }))}
@@ -206,7 +206,7 @@ export default function InternalThreePLRecon() {
         <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
           <button style={btn} onClick={() => void ingest()} disabled={ingesting || !providerId || !paste.trim()}>{ingesting ? "Reconciling…" : "Ingest & reconcile"}</button>
           <label style={{ ...btnGhost, display: "inline-flex", alignItems: "center", gap: 6 }}>
-            ⬆ Upload file
+            Upload file
             <input type="file" accept=".csv,.txt,.edi,.x12,text/plain" onChange={onFile} style={{ display: "none" }} />
           </label>
           <span style={{ fontSize: 11, color: C.textMuted }}>Each ingest stores a dated snapshot and recomputes the differences.</span>
@@ -216,7 +216,7 @@ export default function InternalThreePLRecon() {
       {/* SFTP auto-pull settings (nightly cron) */}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, marginBottom: 14 }}>
         <button onClick={() => setShowSftp((v) => !v)} style={{ width: "100%", textAlign: "left", background: "transparent", border: 0, color: C.textSub, cursor: "pointer", padding: "10px 14px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-          {showSftp ? "▾" : "▸"} ⚙ Auto-pull (SFTP) — runs nightly at 02:30 UTC
+          {showSftp ? "▾" : "▸"} Auto-pull (SFTP) — runs nightly at 02:30 UTC
           {selectedProvider?.last_inventory_pulled_at && (
             <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted, fontWeight: 400 }}>
               last pulled {new Date(selectedProvider.last_inventory_pulled_at).toLocaleString()} {selectedProvider.last_inventory_file ? `· ${selectedProvider.last_inventory_file}` : ""}

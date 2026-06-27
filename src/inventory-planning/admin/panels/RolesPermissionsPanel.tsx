@@ -40,7 +40,7 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
 
   async function assign() {
     if (!selectedRole || !isAdmin) return;
-    const email = await promptDialog(`Grant "${selectedRole.role_name}" to which email?`, { title: "Grant role", icon: "🔑", placeholder: "name@domain.com", required: true });
+    const email = await promptDialog(`Grant "${selectedRole.role_name}" to which email?`, { title: "Grant role", placeholder: "name@domain.com", required: true });
     if (!email) return;
     try {
       await assignUserRole(email, selectedRole.id, currentUser.user_email);

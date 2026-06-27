@@ -632,7 +632,7 @@ export default function InternalPimProductCatalog() {
                         }}
                         title={r.loaded ? "No primary image" : "Loading…"}
                       >
-                        {r.loaded ? "🖼️" : "…"}
+                        {r.loaded ? "No image" : "…"}
                       </div>
                     )}
                   </td>

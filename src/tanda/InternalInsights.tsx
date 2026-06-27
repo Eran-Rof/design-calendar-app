@@ -28,12 +28,12 @@ const C = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  cost_saving: "💸 Cost saving",
-  risk_alert: "🚨 Risk alert",
-  consolidation: "🔗 Consolidation",
-  contract_renewal: "📝 Contract renewal",
-  performance_trend: "📈 Performance trend",
-  market_benchmark: "📊 Market benchmark",
+  cost_saving: "Cost saving",
+  risk_alert: "Risk alert",
+  consolidation: "Consolidation",
+  contract_renewal: "Contract renewal",
+  performance_trend: "Performance trend",
+  market_benchmark: "Market benchmark",
 };
 
 const TYPES = Object.keys(TYPE_LABEL);

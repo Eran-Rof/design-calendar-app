@@ -171,11 +171,11 @@ export default function InternalApprovalRequests() {
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as Request["status"])}
             options={[
-              { value: "pending", label: "🟡 Pending" },
-              { value: "approved", label: "🟢 Approved" },
-              { value: "rejected", label: "🔴 Rejected" },
-              { value: "cancelled", label: "⚪ Cancelled" },
-              { value: "expired", label: "⚪ Expired" },
+              { value: "pending", label: "Pending" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "cancelled", label: "Cancelled" },
+              { value: "expired", label: "Expired" },
             ]}
             inputStyle={inputStyle}
           />

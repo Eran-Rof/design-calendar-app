@@ -96,7 +96,7 @@ export function SpecSheetDetail({
               Excel
             </button>
             <label style={S.btnSmall} title="Upload from Excel">
-              📤 Upload Excel
+              Upload Excel
               <input type="file" accept=".xlsx,.csv" style={{ display: "none" }} onChange={async e => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -311,7 +311,7 @@ export function SpecSheetDetail({
                             <button
                               style={{ ...S.iconBtnTiny, flexShrink: 0, marginLeft: 4 }}
                               onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}
-                            >🗑️</button>
+                            >Delete</button>
                           </div>
                         </td>
                       </tr>
@@ -345,7 +345,7 @@ export function SpecSheetDetail({
                           <button
                             style={S.iconBtnTiny}
                             onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}
-                          >🗑️</button>
+                          >Delete</button>
                         </td>
                       </tr>
                     )

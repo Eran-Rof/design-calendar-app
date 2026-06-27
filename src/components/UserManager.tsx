@@ -72,7 +72,6 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
 
   if (!isAdmin) return (
     <div style={{ padding: 32, textAlign: "center", color: TH.textMuted }}>
-      <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
       <div style={{ fontSize: 15, fontWeight: 600, color: TH.textSub }}>Admin access required</div>
       <div style={{ fontSize: 13, marginTop: 6 }}>Only admins can manage users.</div>
     </div>
@@ -196,7 +195,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
               <div style={{ fontSize: 14, fontWeight: 700, color: TH.text }}>{u.name}</div>
               <div style={{ fontSize: 12, color: TH.textMuted }}>
                 @{u.username} · <span style={{ color: u.role === "admin" ? TH.primary : "#6D28D9", fontWeight: 600 }}>{u.role}</span>
-                {u.teamMemberId && <span style={{ color: "#059669", marginLeft: 6 }}>· 👥 team member</span>}
+                {u.teamMemberId && <span style={{ color: "#059669", marginLeft: 6 }}>· team member</span>}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>

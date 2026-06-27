@@ -654,7 +654,7 @@ export default function InternalPrepackMatrix() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📦 Prepack Matrices</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Prepack Matrices</h2>
         <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add matrix</button>
       </div>
       <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16, maxWidth: 760, lineHeight: 1.5 }}>
@@ -679,13 +679,13 @@ export default function InternalPrepackMatrix() {
         </label>
 
         <button onClick={downloadTemplate} style={btnSecondary} title="Download an .xlsx template to fill in">
-          ⬇ Download template
+          Download template
         </button>
         <button onClick={() => void downloadAllNeeded()} style={btnSecondary} disabled={needing} title="Download every PPK style still needing a matrix, grouped by size scale, ready to fill in">
-          {needing ? "Building…" : "⬇ Download all PPK"}
+          {needing ? "Building…" : "Download all PPK"}
         </button>
         <button onClick={() => fileRef.current?.click()} style={{ ...btnSecondary, color: C.success, borderColor: "#14532d" }} disabled={uploading}>
-          {uploading ? "Uploading…" : "⬆ Upload (xlsx / csv)"}
+          {uploading ? "Uploading…" : "Upload (xlsx / csv)"}
         </button>
         <input
           ref={fileRef}
@@ -807,7 +807,7 @@ export default function InternalPrepackMatrix() {
                   </tr>
                 ))}
                 {neededFiltered.length > 100 && (
-                  <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: C.textMuted }}>+{neededFiltered.length - 100} more — narrow the search, or use ⬇ Download all PPK.</td></tr>
+                  <tr><td colSpan={5} style={{ ...td, textAlign: "center", color: C.textMuted }}>+{neededFiltered.length - 100} more — narrow the search, or use Download all PPK.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1110,7 +1110,7 @@ function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
 
           {mismatch && (
             <div style={{ marginTop: 8, padding: "8px 12px", background: "#7f1d1d", color: "white", borderRadius: 6, fontSize: 12 }}>
-              ⚠ Carton total <strong>{totalBox}</strong> doesn't match the pack token <strong>{packToken}</strong> (<strong>{packQty}</strong>). Adjust the box quantities so they sum to {packQty}.
+              Carton total <strong>{totalBox}</strong> doesn't match the pack token <strong>{packToken}</strong> (<strong>{packQty}</strong>). Adjust the box quantities so they sum to {packQty}.
             </div>
           )}
         </div>

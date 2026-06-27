@@ -42,7 +42,7 @@ export default function ApprovalBar({ scenario, onAction, busy }: ApprovalBarPro
                   onClick={async () => {
                     const note = await promptDialog(
                       `Add a note for "${labelFor(to, scenario.status)}" (optional).`,
-                      { title: labelFor(to, scenario.status), icon: "📝", multiline: true, placeholder: "Optional note", confirmText: labelFor(to, scenario.status) },
+                      { title: labelFor(to, scenario.status), multiline: true, placeholder: "Optional note", confirmText: labelFor(to, scenario.status) },
                     );
                     // promptDialog returns null on cancel — abort to avoid a
                     // surprise transition.

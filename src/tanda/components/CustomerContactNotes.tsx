@@ -92,7 +92,7 @@ export default function CustomerContactNotes({ customerId, contactId, highlightN
                 {n.created_by_name || "—"} · {fmt(n.created_at)}
                 {n.remind_at && (
                   <span style={{ color: n.reminder_sent ? C.textMuted : C.warn, marginLeft: 8 }}>
-                    🔔 {fmt(n.remind_at)}{n.reminder_sent ? " (sent)" : ""}
+                    {fmt(n.remind_at)}{n.reminder_sent ? " (sent)" : ""}
                   </span>
                 )}
               </div>
@@ -105,7 +105,7 @@ export default function CustomerContactNotes({ customerId, contactId, highlightN
       <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} placeholder="Add a note…"
         style={{ ...input, resize: "vertical", fontFamily: "inherit" }} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-        <label style={{ fontSize: 11, color: C.textMuted }}>🔔 Remind me</label>
+        <label style={{ fontSize: 11, color: C.textMuted }}>Remind me</label>
         <input type="datetime-local" value={remindAt} onChange={(e) => setRemindAt(e.target.value)} style={{ ...input, width: 200 }} />
         <button type="button" onClick={() => void add()} disabled={busy || !body.trim()}
           style={{ ...btn, color: C.primary, borderColor: C.primary, marginLeft: "auto" }}>

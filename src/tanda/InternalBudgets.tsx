@@ -66,7 +66,7 @@ export default function InternalBudgets() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🎯 Budgets</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Budgets</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>budget vs actual by account</span>
         <label style={{ color: C.textMuted, fontSize: 12, marginLeft: 10 }}>FY <input style={{ ...input, width: "8ch" }} value={fy} onChange={(e) => setFy(Number(e.target.value) || thisYear)} /></label>
         <div style={{ marginLeft: "auto" }}><ExportButton rows={rows} columns={cols} filename={`budgets-${fy}`} /></div>

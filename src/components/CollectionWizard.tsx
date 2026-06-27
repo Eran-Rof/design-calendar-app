@@ -538,7 +538,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                 color: "#6D28D9",
               }}
             >
-              ✦ Private label — Line Review & Compliance/Testing auto-added
+              Private label — Line Review & Compliance/Testing auto-added
             </div>
           )}
           <label style={S.lbl}>Collection Name</label>
@@ -763,7 +763,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                     {selV.name}
                   </div>
                   <div style={{ fontSize: 12, color: TH.textMuted }}>
-                    🌏 {selV.country} · ⛵ {selV.transitDays}d transit · MOQ{" "}
+                    {selV.country} · {selV.transitDays}d transit · MOQ{" "}
                     {selV.moq?.toLocaleString()}
                   </div>
                 </div>
@@ -975,7 +975,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
           </div>
 
           <div style={{ fontSize: 11, color: TH.textMuted, marginBottom: 8 }}>
-            💡 Edit any date or days-back value — all later phases adjust
+            Edit any date or days-back value — all later phases adjust
             automatically. DDP changes require approval.
           </div>
           <div
@@ -1181,7 +1181,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                           borderRadius: 4,
                         }}
                       >
-                        ⚠️ past
+                        past
                       </span>
                     )}
                   </div>
@@ -1262,7 +1262,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
           {ddpWarn && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: 16 }}>
               <div style={{ background: "#FFFFFF", border: `1px solid ${TH.accentBdr}`, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 40px 100px rgba(0,0,0,0.4)" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 12 }}>⚠️ DDP Date Will Change</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 12 }}>DDP Date Will Change</div>
                 <div style={{ fontSize: 13, color: TH.textMuted, lineHeight: 1.65, marginBottom: 20 }}>
                   {ddpWarn.cascade ? (
                     <>
@@ -1296,7 +1296,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                       onClick={() => { proportionalResizePhases(ddpWarn.idx, ddpWarn.newDue); setDdpWarn(null); }}
                       style={{ padding: "12px 20px", borderRadius: 10, border: `2px solid ${TH.primary}`, background: TH.primary + "10", color: TH.primary, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
                     >
-                      ⚖️ Proportionally Resize Phase Durations —{" "}
+                      Proportionally Resize Phase Durations —{" "}
                       <span style={{ fontWeight: 400 }}>keep DDP {formatDate(ddpWarn.oldDDP)}</span>
                     </button>
                   )}
@@ -1312,7 +1312,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                     }}
                     style={{ padding: "12px 20px", borderRadius: 10, border: "2px solid #065F46", background: "#ECFDF5", color: "#065F46", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
                   >
-                    📌 Keep DDP as-is —{" "}
+                    Keep DDP as-is —{" "}
                     <span style={{ fontWeight: 400 }}>only update this phase's date</span>
                   </button>
                   {/* Option 4: Cancel */}

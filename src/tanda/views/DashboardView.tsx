@@ -72,7 +72,7 @@ export function DashboardView({
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <input
           style={{ ...S.input, flex: 1, marginBottom: 0 }}
-          placeholder="🔍 Search PO#, vendor, brand, style #…"
+          placeholder="Search PO#, vendor, brand, style #…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -118,14 +118,14 @@ export function DashboardView({
 
         {/* Key Stats Grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          <StatCard label="Total POs" value={dashPOs.length} color="#3B82F6" icon="📋" onClick={() => setView("list")} />
-          <StatCard label="Total Value" value={fmtCurrency(dashTotalValue)} color="#10B981" icon="💰" onClick={() => setView("list")} />
-          <StatCard label="Overdue POs" value={dashOverduePOs} color="#EF4444" icon="⚠️" onClick={() => { setFilterStatus("All"); setView("list"); }} />
-          <StatCard label="Due This Week" value={dashDueThisWeekPOs} color="#F59E0B" icon="📅" onClick={() => setView("list")} />
-          <StatCard label="Overdue Milestones" value={dashOverdueMilestones.length} color="#EF4444" icon="🚨" onClick={() => setView("timeline")} />
-          <StatCard label="Due This Week" value={dashDueThisWeekMilestones.length} color="#F59E0B" icon="📌" onClick={() => setView("timeline")} />
-          <StatCard label="Completion Rate" value={`${dashMilestoneCompletionRate}%`} color="#10B981" icon="📊" onClick={() => setView("vendors")} />
-          <StatCard label="Cascade Alerts" value={cascadeAlerts.filter(a => dashPoNums.has(a.poNum)).length} color="#F59E0B" icon="⚡" onClick={() => setView("timeline")} />
+          <StatCard label="Total POs" value={dashPOs.length} color="#3B82F6" icon="" onClick={() => setView("list")} />
+          <StatCard label="Total Value" value={fmtCurrency(dashTotalValue)} color="#10B981" icon="" onClick={() => setView("list")} />
+          <StatCard label="Overdue POs" value={dashOverduePOs} color="#EF4444" icon="" onClick={() => { setFilterStatus("All"); setView("list"); }} />
+          <StatCard label="Due This Week" value={dashDueThisWeekPOs} color="#F59E0B" icon="" onClick={() => setView("list")} />
+          <StatCard label="Overdue Milestones" value={dashOverdueMilestones.length} color="#EF4444" icon="" onClick={() => setView("timeline")} />
+          <StatCard label="Due This Week" value={dashDueThisWeekMilestones.length} color="#F59E0B" icon="" onClick={() => setView("timeline")} />
+          <StatCard label="Completion Rate" value={`${dashMilestoneCompletionRate}%`} color="#10B981" icon="" onClick={() => setView("vendors")} />
+          <StatCard label="Cascade Alerts" value={cascadeAlerts.filter(a => dashPoNums.has(a.poNum)).length} color="#F59E0B" icon="" onClick={() => setView("timeline")} />
         </div>
       </div>
 
@@ -178,7 +178,7 @@ export function DashboardView({
                     <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 6, transition: "width 0.3s" }} />
                   </div>
                   <span style={{ width: 70, fontSize: 11, color: "#94A3B8", fontFamily: "monospace", flexShrink: 0, textAlign: "right" }}>{catDone}/{catMs.length}</span>
-                  {catDelayed > 0 && <span style={{ fontSize: 10, color: "#EF4444", fontWeight: 600, flexShrink: 0 }}>⚠{catDelayed}</span>}
+                  {catDelayed > 0 && <span style={{ fontSize: 10, color: "#EF4444", fontWeight: 600, flexShrink: 0 }}>{catDelayed} delayed</span>}
                 </div>
               );
             })}
@@ -251,7 +251,7 @@ export function DashboardView({
       {/* Row 4: Cascade Alerts (if any) */}
       {cascadeAlerts.filter(a => dashPoNums.has(a.poNum)).length > 0 && (
         <div style={{ ...S.card, marginBottom: 16, borderLeft: "3px solid #F59E0B" }}>
-          <h3 style={{ ...S.cardTitle, color: "#F59E0B" }}>⚠ Cascade Alerts — {cascadeAlerts.length} Blocked</h3>
+          <h3 style={{ ...S.cardTitle, color: "#F59E0B" }}>Cascade Alerts — {cascadeAlerts.length} Blocked</h3>
           <div style={{ fontSize: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 120px 120px 70px", padding: "8px 12px", background: "#0F172A", borderRadius: "8px 8px 0 0", gap: 8 }}>
               <span style={{ color: "#6B7280", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>PO #</span>
@@ -344,7 +344,7 @@ export function DashboardView({
           <div style={S.emptyState}>
             <p>No purchase orders loaded.</p>
             <button style={S.btnPrimary} onClick={() => { setShowSyncModal(true); loadVendors(); }} disabled={syncing}>
-              {syncing ? "Syncing…" : "🔄 Sync from Xoro"}
+              {syncing ? "Syncing…" : "Sync from Xoro"}
             </button>
           </div>
         )}

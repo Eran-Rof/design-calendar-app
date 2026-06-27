@@ -214,7 +214,7 @@ export default function InternalApprovalRules() {
                 </td>
                 <td style={td} hidden={!visibleColumns.has("active")}>
                   <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); void toggleActive(r); }}>
-                    {r.is_active ? "🟢 Active" : "⚪ Inactive"}
+                    {r.is_active ? "Active" : "Inactive"}
                   </button>
                 </td>
                 <td style={td} hidden={!visibleColumns.has("actions")}>

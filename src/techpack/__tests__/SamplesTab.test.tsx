@@ -102,7 +102,7 @@ describe("<SamplesTab />", () => {
     expect(arg.samples[0].receiveDate).toBe("2026-04-01");
   });
 
-  it("clicking 🗑️ removes the sample", () => {
+  it("clicking Delete removes the sample", () => {
     const updateSelected = vi.fn();
     render(<SamplesTab
       tp={makeTp([sample({ id: "a" }), sample({ id: "b", type: "PP" })])}
@@ -112,7 +112,7 @@ describe("<SamplesTab />", () => {
       showToast={vi.fn()}
       today={TODAY}
     />);
-    fireEvent.click(screen.getAllByText("🗑️")[0]);
+    fireEvent.click(screen.getAllByText("Delete")[0]);
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.samples.map((s: Sample) => s.id)).toEqual(["b"]);
   });

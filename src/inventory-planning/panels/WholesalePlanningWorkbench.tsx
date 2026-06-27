@@ -1696,7 +1696,7 @@ export default function WholesalePlanningWorkbench() {
 
   // Promote a planner-added new style+color into the SHARED company masters
   // (ip_item_master + style_master) so it shows in Tangerine + ATS, where
-  // someone completes the details. Opt-in (a TBD row's "🏢 DB" button) — the
+  // someone completes the details. Opt-in (a TBD row's "Add to DB" button) — the
   // default stays temporary/planning-only. Idempotent server-side.
   async function promoteTbdStyleColor(row: IpPlanningGridRow) {
     const style = (row.sku_style ?? "").trim();
@@ -1709,7 +1709,7 @@ export default function WholesalePlanningWorkbench() {
       `Add "${style} / ${color}" to the company database?\n\n` +
       `It will be created in the Style Master + item master and become visible in Tangerine and ATS. ` +
       `It's flagged for review so someone can complete the details (brand, category, size scale, …).`,
-      { title: "Add to company database", icon: "🏢", confirmText: "Add to database", cancelText: "Cancel", confirmColor: "#3B82F6" },
+      { title: "Add to company database", confirmText: "Add to database", cancelText: "Cancel", confirmColor: "#3B82F6" },
     );
     if (!ok) return;
     try {
@@ -2580,7 +2580,7 @@ export default function WholesalePlanningWorkbench() {
 
                   {u.warnings.length > 0 && (
                     <div style={{ ...S.infoCell, padding: "10px 12px", marginBottom: 10, background: PAL.yellow + "11", border: `1px solid ${PAL.yellow}44` }}>
-                      <div style={{ ...S.infoLabel, color: PAL.yellow }}>⚠ Data-quality warnings ({u.warnings.length})</div>
+                      <div style={{ ...S.infoLabel, color: PAL.yellow }}>Data-quality warnings ({u.warnings.length})</div>
                       <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>
                         {u.warnings.slice(0, 5).map((w, i) => <div key={i}>· {w}</div>)}
                         {u.warnings.length > 5 && <div style={{ color: PAL.textMuted }}>+ {u.warnings.length - 5} more in console</div>}

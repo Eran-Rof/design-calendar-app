@@ -59,7 +59,7 @@ export default function InternalThreePL() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🚚 3PL</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>3PL</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>third-party logistics — providers + shipments</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button style={tabBtn(tab === "providers")} onClick={() => setTab("providers")}>Providers ({providers.length})</button>

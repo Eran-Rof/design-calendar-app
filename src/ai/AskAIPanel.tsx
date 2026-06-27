@@ -778,7 +778,6 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           background: "linear-gradient(180deg, #1E293B 0%, #0F172A 100%)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>✨</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#F1F5F9" }}>Ask Claude</div>
               <div style={{ fontSize: 11, color: "#64748B" }}>Ask me anything ROF related</div>
@@ -833,7 +832,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                   padding: "2px 8px", marginRight: 4, fontFamily: "inherit",
                 }}
               >
-                💡 {insights.length}
+                Insights {insights.length}
               </button>
             )}
             {/* Discoverable link to the operator-facts admin (Tier 2H).
@@ -1377,7 +1376,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               )}
               {m.cached && (
                 <div style={{ marginTop: 6, fontSize: 10, color: "#94A3B8", fontStyle: "italic", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>⚡ Cached answer{typeof m.cachedAgeSeconds === "number" ? ` · ${formatAge(m.cachedAgeSeconds)} ago` : ""}</span>
+                  <span>Cached answer{typeof m.cachedAgeSeconds === "number" ? ` · ${formatAge(m.cachedAgeSeconds)} ago` : ""}</span>
                 </div>
               )}
             </div>

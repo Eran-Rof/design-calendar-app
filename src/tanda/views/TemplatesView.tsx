@@ -100,7 +100,7 @@ export function TemplatesView({
               onChange={v => {
                 const newVendor = v;
                 if (tplDirty) {
-                  setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save & Switch", confirmColor: "#2563EB", cancelText: "🗑 Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
+                  setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "", confirmText: "Save & Switch", confirmColor: "#2563EB", cancelText: "Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
                 } else {
                   setTplVendor(newVendor);
                 }
@@ -114,7 +114,7 @@ export function TemplatesView({
           )}
           {isAdmin && tplVendor !== "__default__" && (
             <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px", borderColor: "#EF4444", color: "#EF4444" }}
-              onClick={() => setConfirmModal({ title: "Delete Template", message: `Delete template for "${tplVendor}"? POs will fall back to default template.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } })}>
+              onClick={() => setConfirmModal({ title: "Delete Template", message: `Delete template for "${tplVendor}"? POs will fall back to default template.`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } })}>
               Delete Template
             </button>
           )}
@@ -281,7 +281,7 @@ export function TemplatesView({
               {isAdmin && (
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                    onClick={() => setConfirmModal({ title: "Delete Phase", message: `Delete "${tpl.phase}" from this template?`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { const arr = localTpl.filter(t => t.id !== tpl.id); tplPushState(arr); } })}>✕</button>
+                    onClick={() => setConfirmModal({ title: "Delete Phase", message: `Delete "${tpl.phase}" from this template?`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { const arr = localTpl.filter(t => t.id !== tpl.id); tplPushState(arr); } })}>✕</button>
                 </div>
               )}
             </div>

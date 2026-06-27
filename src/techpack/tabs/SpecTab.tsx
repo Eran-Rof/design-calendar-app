@@ -192,7 +192,7 @@ export function SpecTab({
                     <button
                       style={S.iconBtnTiny}
                       onClick={() => updateSelected({ measurements: tp.measurements.filter(x => x.id !== m.id) })}
-                    >🗑️</button>
+                    >Delete</button>
                   </td>
                 </tr>
               ))}

@@ -282,7 +282,7 @@ export default function InternalCrmTasks() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          ✅ Tasks
+          Tasks
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           CRM follow-ups (M25)

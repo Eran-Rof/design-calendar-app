@@ -107,7 +107,7 @@ export default function GS1NavBar() {
           gap: 6,
         }}
       >
-        🔔 Notifications
+        Notifications
         {unread > 0 && (
           <span style={{
             minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,

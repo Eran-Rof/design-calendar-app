@@ -56,7 +56,6 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
 
       {!emailToken ? (
         <div style={{ textAlign: "center", padding: "30px 0" }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
           <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Sign in with Microsoft to view emails</div>
           {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
             <div style={{ color: "#D97706", fontSize: 12 }}>Azure credentials not configured — check Vercel env vars</div>
@@ -70,7 +69,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
             {(["inbox", "sent", "thread", "compose", "teams"] as const).map(tab => (
               <button key={tab} onClick={() => { setDtlEmailTab(tab); if (tab === "compose") setDtlComposeSubject(prefix + " "); if (tab === "sent") loadDtlSentEmails(pn); if (tab === "teams" && teamsToken && teamsChannelMap[pn] && !teamsMessages[pn]?.length) teamsLoadPOMessages(pn); }}
                 style={{ padding: "8px 14px", border: "1px solid #334155", borderBottom: dtlEmailTab === tab ? "none" : "1px solid #334155", background: dtlEmailTab === tab ? "#1E293B" : "#0F172A", color: dtlEmailTab === tab ? (tab === "teams" ? TEAMS_PURPLE_LT : OUTLOOK_BLUE) : "#6B7280", fontWeight: dtlEmailTab === tab ? 700 : 500, cursor: "pointer", fontFamily: "inherit", fontSize: 12, borderRadius: "8px 8px 0 0" }}>
-                {tab === "teams" ? "💬 Teams" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === "teams" ? "Teams" : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </button>
             ))}
           </div>
@@ -80,10 +79,9 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
               {isLoading ? (
                 <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading emails…</div>
               ) : err ? (
-                <div style={{ background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "12px 16px", color: "#FCA5A5", fontSize: 13 }}>⚠ {err}</div>
+                <div style={{ background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "12px 16px", color: "#FCA5A5", fontSize: 13 }}>{err}</div>
               ) : dtlList.length === 0 ? (
                 <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}>
-                  <div style={{ fontSize: 24, marginBottom: 6 }}>📧</div>
                   <div style={{ fontSize: 13 }}>No emails matching "{prefix}"</div>
                 </div>
               ) : (
@@ -106,13 +104,13 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 12, fontWeight: em.isRead ? 500 : 700, color: "#F1F5F9" }}>{sender}</span>
                               <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                              {em.hasAttachments && <span style={{ fontSize: 10, color: "#6B7280" }}>📎</span>}
+                              {em.hasAttachments && <span style={{ fontSize: 9, color: "#6B7280", border: "1px solid #334155", borderRadius: 3, padding: "0 3px" }}>file</span>}
                               {!em.isRead && <span style={{ width: 7, height: 7, borderRadius: "50%", background: OUTLOOK_BLUE, flexShrink: 0 }} />}
                             </div>
                             <div style={{ fontSize: 12, fontWeight: em.isRead ? 400 : 600, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
                             <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
                           </div>
-                          <button onClick={(ev) => { ev.stopPropagation(); deleteMainEmail(em.id); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 14, padding: 2, flexShrink: 0, opacity: 0.6 }}>🗑</button>
+                          <button onClick={(ev) => { ev.stopPropagation(); deleteMainEmail(em.id); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 11, padding: 2, flexShrink: 0, opacity: 0.6 }}>✕</button>
                         </div>
                       </div>
                     );
@@ -134,7 +132,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
               {dtlSentLoading[pn] ? (
                 <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0", fontSize: 13 }}>Loading sent emails…</div>
               ) : (dtlSentEmails[pn] || []).length === 0 ? (
-                <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}><div style={{ fontSize: 24, marginBottom: 6 }}>📤</div><div style={{ fontSize: 13 }}>No sent emails for "{prefix}"</div></div>
+                <div style={{ textAlign: "center", color: "#6B7280", padding: "24px 0" }}><div style={{ fontSize: 13 }}>No sent emails for "{prefix}"</div></div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {(dtlSentEmails[pn] || []).map((em: any) => {
@@ -149,7 +147,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
                               <span style={{ fontSize: 11, color: "#94A3B8" }}>To: {toList}</span>
                               <span style={{ fontSize: 10, color: "#6B7280" }}>{time}</span>
-                              {em.hasAttachments && <span style={{ fontSize: 10, color: "#6B7280" }}>📎</span>}
+                              {em.hasAttachments && <span style={{ fontSize: 9, color: "#6B7280", border: "1px solid #334155", borderRadius: 3, padding: "0 3px" }}>file</span>}
                             </div>
                             <div style={{ fontSize: 12, fontWeight: 500, color: "#E2E8F0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
                             <div style={{ fontSize: 11, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{em.bodyPreview || ""}</div>
@@ -201,13 +199,13 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                 if (fileAtts.length === 0 && !emailAttachmentsLoading[dtlEmailSel.id]) return null;
                 return (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "8px 0", borderTop: "1px solid #334155", marginTop: 8 }}>
-                    <span style={{ fontSize: 11, color: "#6B7280", marginRight: 4 }}>📎</span>
+                    <span style={{ fontSize: 11, color: "#6B7280", marginRight: 4 }}>Attachments:</span>
                     {fileAtts.map((att: any) => {
                       const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
                       return (
                         <a key={att.id} href={href} download={att.name}
                           style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 6, padding: "3px 9px", fontSize: 11, color: "#60A5FA", textDecoration: "none", cursor: "pointer" }}>
-                          📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
+                          {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
                         </a>
                       );
                     })}
@@ -252,7 +250,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
 
           {dtlSendErr && (
             <div style={{ marginTop: 8, background: "#7F1D1D", border: "1px solid #EF4444", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, color: "#FCA5A5", flex: 1 }}>⚠ {dtlSendErr}</span>
+              <span style={{ fontSize: 12, color: "#FCA5A5", flex: 1 }}>{dtlSendErr}</span>
               <button onClick={() => setDtlSendErr(null)} style={{ border: "none", background: "none", color: "#FCA5A5", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, fontSize: 11 }}>✕</button>
             </div>
           )}
@@ -261,7 +259,6 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
             <div>
               {!teamsToken ? (
                 <div style={{ textAlign: "center", padding: "30px 0" }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
                   <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>Sign in with Microsoft to use Teams</div>
                   {(!MS_CLIENT_ID || !MS_TENANT_ID) ? (
                     <div style={{ color: "#D97706", fontSize: 12 }}>Azure credentials not configured</div>
@@ -274,7 +271,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                   {/* Channel Messages */}
                   <div style={{ background: "#0F172A", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 10, overflow: "hidden" }}>
                     <div style={{ padding: "10px 14px", background: `${TEAMS_PURPLE}22`, borderBottom: `1px solid ${TEAMS_PURPLE}44`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>💬 Channel: {pn}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>Channel: {pn}</span>
                       <div style={{ display: "flex", gap: 6 }}>
                         {teamsChannelMap[pn] && <button onClick={() => teamsLoadPOMessages(pn)} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>}
                         <button onClick={() => { setSelected(null); setView("teams"); setTeamsSelPO(pn); setTeamsTab("channels"); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}22`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>Open Teams ↗</button>
@@ -330,7 +327,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                           {teamsContactsLoading
                             ? "Loading contacts…"
                             : teamsContactsError
-                              ? <span style={{ color: "#F87171" }}>⚠ Failed — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 11, padding: 0, textDecoration: "underline" }}>retry</button></span>
+                              ? <span style={{ color: "#F87171" }}>Failed — <button onClick={loadTeamsContacts} style={{ background: "none", border: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit", fontSize: 11, padding: 0, textDecoration: "underline" }}>retry</button></span>
                               : teamsContacts.length > 0
                                 ? `To (${teamsContacts.length} contacts)`
                                 : "To"}
@@ -367,7 +364,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                       <textarea value={dtlDMMsg} onChange={e => { setDtlDMMsg(e.target.value); setDtlDMErr(null); }} rows={3}
                         placeholder="Type your message…"
                         style={{ width: "100%", background: "#1E293B", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 7, padding: "8px 12px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", resize: "vertical" as const, boxSizing: "border-box" as const }} />
-                      {dtlDMErr && <div style={{ fontSize: 11, color: "#EF4444" }}>⚠ {dtlDMErr}</div>}
+                      {dtlDMErr && <div style={{ fontSize: 11, color: "#EF4444" }}>{dtlDMErr}</div>}
                       <button disabled={dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()}
                         onClick={async () => {
                           if (!dtlDMTo.trim() || !dtlDMMsg.trim()) return;

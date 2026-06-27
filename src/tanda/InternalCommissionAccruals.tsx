@@ -287,7 +287,7 @@ export default function InternalCommissionAccruals() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          💰 Commission Accruals
+          Commission Accruals
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           AR-invoice-posting-time accruals + per-rep settle (M44)

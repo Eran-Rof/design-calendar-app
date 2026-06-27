@@ -116,7 +116,7 @@ export default function ExecutionBatchManager() {
       `Permanently DELETE execution batch "${selected.batch_name}" (${selected.status})?\n\n` +
       `This removes the batch and all its actions. It cannot be undone. ` +
       `Any Tangerine POs already created from it are NOT affected.`,
-      { title: "Delete batch", confirmText: "Delete", icon: "🗑" },
+      { title: "Delete batch", confirmText: "Delete" },
     );
     if (!ok) return;
     try {
@@ -153,7 +153,7 @@ export default function ExecutionBatchManager() {
                 style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
                 onClick={deleteSelectedBatch}
                 title="Permanently delete this batch and its actions"
-              >🗑 Delete</button>
+              >Delete</button>
             )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>

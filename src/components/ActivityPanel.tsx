@@ -39,7 +39,7 @@ function ActivityPanel({ tasks, globalLog = [], currentUser, isAdmin, team, onCl
     })
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-  const FIELD_ICONS: Record<string, string> = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪", "collection created": "✨", "collection deleted": "🗑️", "collection renamed": "✏️", "DDP date": "📅", "task created": "➕", "task deleted": "🗑️", "SKUs updated": "🏷️" };
+  const FIELD_ICONS: Record<string, string> = { "due date": "", "status": "", "assignee": "", "vendor": "", "note added": "", "order type": "", "category": "", "season": "", "customer": "", "collection created": "", "collection deleted": "", "collection renamed": "", "DDP date": "", "task created": "", "task deleted": "", "SKUs updated": "" };
 
   // Group by date label
   const grouped: Record<string, typeof filtered> = {};
@@ -83,7 +83,6 @@ function ActivityPanel({ tasks, globalLog = [], currentUser, isAdmin, team, onCl
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
         {filtered.length === 0 && (
           <div style={{ textAlign: "center", color: TH.textMuted, padding: "48px 24px", fontSize: 13 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
             No activity {daysBack === 1 ? "today" : `in the last ${daysBack} days`}.
           </div>
         )}
@@ -92,14 +91,13 @@ function ActivityPanel({ tasks, globalLog = [], currentUser, isAdmin, team, onCl
             <div style={{ fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8, marginTop: 8 }}>{dateLabel}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {entries.map(h => {
-                const icon = FIELD_ICONS[h.field] || "✏️";
+                const icon = FIELD_ICONS[h.field] || "";
                 const accentColor = (h.field === "due date" || h.field === "DDP date") ? "#1D4ED8" : (h.field === "status" || h.field === "collection created" || h.field === "task created") ? "#059669" : (h.field === "collection deleted" || h.field === "task deleted") ? "#DC2626" : h.field === "note added" ? "#7C3AED" : TH.primary;
                 const member = team.find((m: any) => m.name === h.changedBy);
                 return (
                   <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 8, padding: "10px 12px", borderLeft: `3px solid ${accentColor}55` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 13 }}>{icon}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, textTransform: "capitalize" }}>{h.field}</span>
                       </div>
                       <span style={{ fontSize: 10, color: TH.textMuted }}>{formatDT(h.at)}</span>

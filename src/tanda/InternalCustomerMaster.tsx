@@ -437,7 +437,7 @@ export default function InternalCustomerMaster() {
                         title="Open customer scorecard (balance, purchases, margin, dilution, commission, invoices, SOs, JE)"
                         aria-label={`Open scorecard for ${r.name}`}
                       >
-                        📊 Scorecard
+                        Scorecard
                       </button>
                       {!r.deleted_at && (
                         <>
@@ -1088,7 +1088,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
                   title={mode === "edit" && customer ? "Notes & reminders for this contact" : "Save the customer first to add notes"}
                   disabled={!(mode === "edit" && customer && c.id)}
                   onClick={() => setNotesOpenId((cur) => cur === c.id ? null : (c.id ?? null))}
-                  style={{ ...btnSecondary, color: notesOpenId === c.id ? C.primary : C.textSub, borderColor: notesOpenId === c.id ? C.primary : C.cardBdr, opacity: (mode === "edit" && customer && c.id) ? 1 : 0.45 }}>📝 Notes</button>
+                  style={{ ...btnSecondary, color: notesOpenId === c.id ? C.primary : C.textSub, borderColor: notesOpenId === c.id ? C.primary : C.cardBdr, opacity: (mode === "edit" && customer && c.id) ? 1 : 0.45 }}>Notes</button>
                 <button type="button" title="Remove contact" onClick={() => setForm({ ...form, contacts: form.contacts.filter((_, j) => j !== i) })} style={btnDanger}>✕</button>
               </div>
               {mode === "edit" && customer && c.id && notesOpenId === c.id && (

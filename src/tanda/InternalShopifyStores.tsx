@@ -201,7 +201,7 @@ export default function InternalShopifyStores() {
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20 }}>🛍️ Connect Shopify Store</h2>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Connect Shopify Store</h2>
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
             Connect a store to enable orders sync, refunds, and product-image pull. The Admin API token is encrypted at rest and never shown again.
           </div>
@@ -248,7 +248,7 @@ export default function InternalShopifyStores() {
         const activeId = (bulkStoreId && eligible.some((e) => e.id === bulkStoreId)) ? bulkStoreId : eligible[0].id;
         return (
           <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 16, marginTop: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>🖼️ Bulk pull product images</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Bulk pull product images</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
               Matches Shopify products to styles by <b>SKU prefix = style code</b> (denim inseam handled), links them, and re-hosts every product's images onto the style. Safe to re-run (skips images already pulled). Runs against the selected store only.
             </div>

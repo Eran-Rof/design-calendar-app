@@ -43,7 +43,7 @@ function ImageGalleryModal({ title, images, onClose }) {
           ${
             img.src
               ? `<img src="${img.src}" alt="${name}" draggable="false">`
-              : `<div class="no-img">🖼️</div>`
+              : `<div class="no-img"></div>`
           }
         </div>
         <div class="info">
@@ -55,14 +55,14 @@ function ImageGalleryModal({ title, images, onClose }) {
           }
           ${img.subtitle ? `<div class="subtitle">${img.subtitle}</div>` : ""}
           <div class="actions">
-            <button onclick="dlImg(${idx})">⬇ Download</button>
-            <button onclick="printImg(${idx})">🖨 Print</button>
+            <button onclick="dlImg(${idx})">Download</button>
+            <button onclick="printImg(${idx})">Print</button>
           </div>
         </div>
         <div class="ctx-menu" id="ctx-${idx}">
-          <div onclick="dlImg(${idx})">⬇ Download Image</div>
-          <div onclick="printImg(${idx})">🖨 Print Image</div>
-          <div onclick="copyImgUrl(${idx})">🔗 Copy Image URL</div>
+          <div onclick="dlImg(${idx})">Download Image</div>
+          <div onclick="printImg(${idx})">Print Image</div>
+          <div onclick="copyImgUrl(${idx})">Copy Image URL</div>
         </div>
       </div>`;
       })
@@ -107,7 +107,7 @@ body{background:#0F1117;font-family:-apple-system,'Helvetica Neue',sans-serif;pa
       images.length !== 1 ? "s" : ""
     }</span>
   </div>
-  <button onclick="window.print()" style="padding:5px 14px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">🖨 Print All</button>
+  <button onclick="window.print()" style="padding:5px 14px;border-radius:7px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.7);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Print All</button>
 </div>
 <div class="grid">${cards}</div>
 <script>
@@ -261,7 +261,7 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
                 transition: "all 0.2s",
               }}
             >
-              {copied ? "✓ Copied!" : "🔗 Copy Link"}
+              {copied ? "✓ Copied!" : "Copy Link"}
             </button>
             <button
               onClick={onClose}
@@ -361,9 +361,7 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
                         }}
                         draggable={false}
                       />
-                    ) : (
-                      <span style={{ fontSize: 56, opacity: 0.3 }}>🖼️</span>
-                    )}
+                    ) : null}
                     {/* Hover overlay hint */}
                     <div
                       style={{
@@ -671,7 +669,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
           fontWeight: 700,
         }}
       >
-        📎 Attachments{(totalAttachments + skuAttachments) > 0 ? ` (${totalAttachments + skuAttachments})` : ""}
+        Attachments{(totalAttachments + skuAttachments) > 0 ? ` (${totalAttachments + skuAttachments})` : ""}
       </button>
 
       {showModal && (
@@ -686,7 +684,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
             {/* Header */}
             <div style={{ padding: "18px 22px", borderBottom: "1px solid #E2E8F0", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#1A202C" }}>📎 Attachments — {collName}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#1A202C" }}>Attachments — {collName}</div>
                 <div style={{ fontSize: 12, color: "#718096", marginTop: 2 }}>{totalAttachments + skuAttachments} total attachment{(totalAttachments + skuAttachments) !== 1 ? "s" : ""}</div>
               </div>
               <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#718096", padding: "4px 8px" }}>✕</button>
@@ -711,7 +709,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
                       {t.images.map((img, i) => {
                         const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
                         const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
-                        const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                        const fileIcons = { PDF: "", AI: "", EPS: "", PSD: "", SVG: "" };
                         return (
                           <div
                             key={i}
@@ -720,7 +718,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
                           >
                             {isImage
                               ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              : <div style={{ textAlign: "center", fontSize: 22 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: "#718096", marginTop: 2 }}>{ext}</div></div>
+                              : <div style={{ textAlign: "center", fontSize: 22 }}><div style={{ fontSize: 9, color: "#718096", marginTop: 2 }}>{ext}</div></div>
                             }
                           </div>
                         );
@@ -734,7 +732,7 @@ function CollImageBtn({ collKey, collData, brand, collections, tasks }) {
               {/* SKU attachments */}
               {skuAttachments > 0 && (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C", marginBottom: 8 }}>👕 SKU Images</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A202C", marginBottom: 8 }}>SKU Images</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {skus.flatMap(s => (s.images || []).map((img, i) => (
                       <div

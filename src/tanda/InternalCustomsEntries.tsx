@@ -116,7 +116,7 @@ export default function InternalCustomsEntries() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛃 Customs Entries</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Customs Entries</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New entry</button>
       </div>
 

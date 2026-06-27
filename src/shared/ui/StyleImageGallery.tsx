@@ -130,12 +130,12 @@ function Gallery({ styleId, label, onClose }: { styleId: string; label: string; 
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 11000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 12, width: "min(1000px, 96vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
-          <div style={{ fontWeight: 700, color: C.text, fontSize: 15 }}>🖼️ {label} <span style={{ color: C.sub, fontWeight: 400, fontSize: 12 }}>· {imgs.length} image{imgs.length === 1 ? "" : "s"}{sel.size > 0 ? ` · ${sel.size} selected` : ""}</span></div>
+          <div style={{ fontWeight: 700, color: C.text, fontSize: 15 }}>{label} <span style={{ color: C.sub, fontWeight: 400, fontSize: 12 }}>· {imgs.length} image{imgs.length === 1 ? "" : "s"}{sel.size > 0 ? ` · ${sel.size} selected` : ""}</span></div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button onClick={selectAll} style={btn(false)}>Select all</button>
             <button onClick={clearSel} disabled={sel.size === 0} style={btn(false)}>Clear</button>
-            <button onClick={() => void download()} disabled={busy != null || imgs.length === 0} style={btn(true, C.primary)}>{busy === "download" ? "Downloading…" : `⬇ Download${sel.size ? ` (${sel.size})` : " all"}`}</button>
-            <button onClick={print} disabled={imgs.length === 0} style={btn(true, C.accent)}>🖨 Print{sel.size ? ` (${sel.size})` : " all"}</button>
+            <button onClick={() => void download()} disabled={busy != null || imgs.length === 0} style={btn(true, C.primary)}>{busy === "download" ? "Downloading…" : `Download${sel.size ? ` (${sel.size})` : " all"}`}</button>
+            <button onClick={print} disabled={imgs.length === 0} style={btn(true, C.accent)}>Print{sel.size ? ` (${sel.size})` : " all"}</button>
             <button onClick={onClose} style={btn(false)}>✕</button>
           </div>
         </div>

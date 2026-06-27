@@ -51,9 +51,9 @@ const inputStyle: React.CSSProperties = {
 };
 
 const SECTION_META: Record<string, { label: string; emoji: string }> = {
-  operating: { label: "Operating Activities", emoji: "🔁" },
-  investing: { label: "Investing Activities", emoji: "🏗️" },
-  financing: { label: "Financing Activities", emoji: "🏦" },
+  operating: { label: "Operating Activities", emoji: "" },
+  investing: { label: "Investing Activities", emoji: "" },
+  financing: { label: "Financing Activities", emoji: "" },
 };
 
 function fmtCents(c: number | string | null | undefined): string {
@@ -250,7 +250,7 @@ export default function InternalCashFlow() {
                   >
                     <span>
                       <span style={{ marginRight: 8 }}>{isCollapsed ? "▶" : "▼"}</span>
-                      {meta.emoji} {meta.label}
+                      {meta.label}
                     </span>
                     <span style={{ fontVariantNumeric: "tabular-nums", color: C.textSub }}>
                       {fmtCents(sectionNet(sec))}
@@ -340,7 +340,7 @@ export default function InternalCashFlow() {
                   {!reconciliationOk && (
                     <tr style={{ background: C.warnBg }}>
                       <td style={{ padding: "8px 12px", color: "white", fontSize: 12, fontWeight: 600 }}>
-                        ⚠ Reconciliation gap — investigate (Beginning + Net Change ≠ Ending)
+                        Reconciliation gap — investigate (Beginning + Net Change ≠ Ending)
                       </td>
                       <td style={{ padding: "8px 12px", color: "white", fontSize: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                         gap: {fmtCents(computedEnding - endingCash)}

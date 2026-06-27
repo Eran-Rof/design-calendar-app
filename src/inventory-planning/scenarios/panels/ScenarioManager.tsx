@@ -275,7 +275,7 @@ export default function ScenarioManager() {
       `Permanently DELETE scenario "${selected.scenario_name}" (${selected.status})?\n\n` +
       `This removes the scenario and its assumptions/approvals/exports. ` +
       `It cannot be undone. To keep a record instead, use Archive (close).`,
-      { title: "Delete scenario", confirmText: "Delete", icon: "🗑" },
+      { title: "Delete scenario", confirmText: "Delete" },
     );
     if (!ok) return;
     setBusy(true);
@@ -350,7 +350,7 @@ export default function ScenarioManager() {
                   onClick={deleteSelected}
                   disabled={busy}
                   title="Permanently delete this scenario (or use Archive to close it without deleting)"
-                >🗑 Delete</button>
+                >Delete</button>
               </>
             )}
             {selected && (

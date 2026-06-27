@@ -121,9 +121,9 @@ export default function InternalMarketplace() {
               )}
 
               <div style={{ display: "flex", gap: 10, fontSize: 10, color: C.textMuted, marginTop: 10 }}>
-                <span>👁 {l.views} views</span>
+                <span>{l.views} views</span>
                 {l.esg_overall_score !== null && <span style={{ color: C.success }}>ESG {Number(l.esg_overall_score).toFixed(0)}</span>}
-                {l.lead_time_range && <span>⏱ {l.lead_time_range}</span>}
+                {l.lead_time_range && <span>{l.lead_time_range}</span>}
                 {l.min_order_value != null && <span>MOV ${Number(l.min_order_value).toLocaleString()}</span>}
               </div>
 

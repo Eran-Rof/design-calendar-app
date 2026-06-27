@@ -264,8 +264,8 @@ export default function CatalogPanel() {
           ]}
         />
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button onClick={exportCsv} style={BTN}>⬇ Export CSV</button>
-          <button onClick={exportGdsn} style={BTN}>⬇ Export GDSN (XML)</button>
+          <button onClick={exportCsv} style={BTN}>Export CSV</button>
+          <button onClick={exportGdsn} style={BTN}>Export GDSN (XML)</button>
           <button onClick={() => void publish()} style={BTN_PRIMARY}>Publish{checked.size ? ` (${checked.size})` : " all shown"}</button>
         </div>
       </div>

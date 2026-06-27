@@ -211,7 +211,7 @@ export default function InternalEdiCustomers() {
             <li><span style={docChip}>810</span> outbound — invoice emitted from the AR invoice.</li>
             <li><span style={docChip}>856</span> outbound — Advance Ship Notice from the shipment.</li>
           </ul>
-          <div style={{ marginTop: 8, color: C.warn }}>⚠ Transport / live transaction exchange is a follow-up — this panel configures partners only.</div>
+          <div style={{ marginTop: 8, color: C.warn }}>Transport / live transaction exchange is a follow-up — this panel configures partners only.</div>
         </div>
       </div>
 

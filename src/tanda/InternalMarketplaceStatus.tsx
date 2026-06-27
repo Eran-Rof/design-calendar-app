@@ -85,13 +85,6 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   faire:   "Faire",
 };
 
-export const CHANNEL_EMOJI: Record<Channel, string> = {
-  shopify: "🛍️",
-  fba:     "📦",
-  walmart: "🟦",
-  faire:   "🤝",
-};
-
 export type FeedKind = "orders" | "payouts" | "settlements" | "refunds" | "returns" | "inventory";
 
 export type FeedDef = {
@@ -293,7 +286,7 @@ export default function InternalMarketplaceStatus() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛒 Marketplace Status</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace Status</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             Shopify · FBA · Walmart · Faire
@@ -315,7 +308,6 @@ export default function InternalMarketplaceStatus() {
           return (
             <div key={ch} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{CHANNEL_EMOJI[ch]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{CHANNEL_LABEL[ch]}</span>
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Last sync</div>
@@ -419,7 +411,6 @@ export default function InternalMarketplaceStatus() {
                 return (
                   <tr key={`${s.channel}-${s.kind}`}>
                     <td style={td} hidden={!visibleColumns.has("channel")}>
-                      <span style={{ marginRight: 6 }}>{CHANNEL_EMOJI[s.channel]}</span>
                       {CHANNEL_LABEL[s.channel]}
                     </td>
                     <td style={td} hidden={!visibleColumns.has("feed")}>{feed?.label ?? s.kind}</td>
@@ -466,7 +457,7 @@ export default function InternalMarketplaceStatus() {
 
       <div style={{ background: C.card, border: `1px solid ${C.tangerine}55`, borderRadius: 10, padding: 14, fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>
         <div style={{ fontSize: 11, color: C.tangerine, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-          💡 Period close hook
+          Period close hook
         </div>
         Unmatched marketplace deposits (je_id IS NULL) landing in a period block its close — the P12-99
         pre-flight check <code>unmatched_marketplace_deposits</code> surfaces on the Periods panel. Run the

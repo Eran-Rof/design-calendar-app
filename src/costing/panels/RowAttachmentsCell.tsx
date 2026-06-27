@@ -1,6 +1,6 @@
 // RowAttachmentsCell — per-row document attachments for a costing line.
 //
-// Renders a compact 📎 button (with an attachment-count badge) inside the grid
+// Renders a compact Docs button (with an attachment-count badge) inside the grid
 // cell. Clicking opens a centered modal PORTALED to document.body — the grid
 // cells use overflow:hidden so an in-cell absolute popover would be clipped,
 // hence the portal (same pattern as StylePickerCell / VendorGridCell here).
@@ -64,7 +64,7 @@ export default function RowAttachmentsCell({ lineId, styleCode }: { lineId: stri
           alignItems: "center", gap: 3, height: 22,
         }}
       >
-        📎{hasDocs ? <span style={{ fontSize: 10 }}>{count}</span> : null}
+        Docs{hasDocs ? <span style={{ fontSize: 10 }}>{count}</span> : null}
       </button>
 
       {open && ReactDOM.createPortal(

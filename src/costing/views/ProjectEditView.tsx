@@ -376,7 +376,6 @@ export default function ProjectEditView() {
           padding: "6px 14px", fontSize: 11, color: "#FCA5A5",
           display: "flex", alignItems: "center", gap: 6,
         }}>
-          <span style={{ fontSize: 13 }}>⚠</span>
           Complete all required fields (marked <span style={{ color: "#EF4444", fontWeight: 700 }}>*</span>) before adding rows.
           Missing: {Array.from(headerMissingSet).join(", ")}.
         </div>

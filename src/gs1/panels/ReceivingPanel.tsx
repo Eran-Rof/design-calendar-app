@@ -122,13 +122,13 @@ export default function ReceivingPanel() {
       {/* Already-received / variance warning */}
       {receivingAlreadyReceived && receivingCarton && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700 }}>⚠ Already received</span>
+          <span style={{ fontWeight: 700 }}>Already received</span>
           — Carton {receivingCarton.sscc} was previously marked {receivingCarton.status}. Receiving again will create a duplicate session.
         </div>
       )}
       {receivingSession?.status === "variance" && (
         <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700 }}>⚠ Variance recorded</span>
+          <span style={{ fontWeight: 700 }}>Variance recorded</span>
           — This session has qty mismatches. Review the lines below and investigate before signing off.
         </div>
       )}
@@ -172,7 +172,7 @@ export default function ReceivingPanel() {
       {receivingAlreadyReceived && !confirmDone && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8,
           padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
-          <strong>⚠ This carton has already been received.</strong> Duplicate receiving is blocked.
+          <strong>This carton has already been received.</strong> Duplicate receiving is blocked.
           {/* Override button placeholder — intentionally disabled in Phase 2 */}
           <span style={{ marginLeft: 16, color: TH.textMuted, fontSize: 12 }}>
             (Override: TODO Phase 3)
@@ -252,7 +252,7 @@ export default function ReceivingPanel() {
             {explosion && explosion.missingBomGtins.length > 0 && (
               <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8,
                 padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#92400E" }}>
-                <strong>⚠ BOM missing for {explosion.missingBomGtins.length} Pack GTIN(s):</strong>
+                <strong>BOM missing for {explosion.missingBomGtins.length} Pack GTIN(s):</strong>
                 {" "}cannot explode to UPC-level receiving.
                 <ul style={{ margin: "6px 0 6px 16px", fontSize: 12 }}>
                   {explosion.missingBomGtins.map(g => <li key={g}><code>{g}</code></li>)}
@@ -370,7 +370,7 @@ export default function ReceivingPanel() {
                     </button>
                     {explosion.totalReceived !== explosion.totalExpected && (
                       <span style={{ fontSize: 12, color: "#92400E", alignSelf: "center" }}>
-                        ⚠ Variance will be recorded
+                        Variance will be recorded
                       </span>
                     )}
                   </div>

@@ -334,8 +334,8 @@ export default function BuyersEditor({ customerId }: { customerId: string | null
                   </div>
                   <div style={{ fontSize: 12, color: C.textSub, marginTop: 2 }}>{b.title || "—"}</div>
                   <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
-                    <span>📞 {b.phone || "—"}</span>
-                    <span>✉ {b.email || "—"}</span>
+                    <span>Phone: {b.phone || "—"}</span>
+                    <span>Email: {b.email || "—"}</span>
                     {b.reports_to_name && <span>↳ Reports to: {b.reports_to_name}</span>}
                   </div>
                   {b.scopes.length > 0 && (

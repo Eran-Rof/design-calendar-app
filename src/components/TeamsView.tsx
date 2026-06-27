@@ -498,7 +498,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!token ? (
                 <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
                   <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 12 }}>Sign in with Microsoft</div>
                   <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                     {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
@@ -540,7 +539,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
           {teamsTab === "direct" ? (
             !token ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
                 <div style={{ fontSize: 14, color: "#94A3B8", marginBottom: 12 }}>Sign in to use Direct Message</div>
                 <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                   {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
@@ -559,7 +557,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                       {contactsLoading
                         ? <span style={{ color: "#6B7280" }}>Loading contacts…</span>
                         : contactsError
-                          ? <span style={{ color: "#F87171" }}>⚠ {contactsError} — sign out above and sign back in, then try again</span>
+                          ? <span style={{ color: "#F87171" }}>{contactsError} — sign out above and sign back in, then try again</span>
                           : contacts.length > 0
                             ? <span style={{ color: "#6B7280" }}>To — {contacts.length} contacts · type to search all</span>
                             : <span style={{ color: "#6B7280" }}>To</span>}
@@ -621,7 +619,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                   </div>
                   {teamsDirectErr && (
                     <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 12 }}>
-                      ⚠ {teamsDirectErr}
+                      {teamsDirectErr}
                     </div>
                   )}
                   <button onClick={teamsSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
@@ -650,7 +648,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                 {/* Error bar */}
                 {dmError && (
                   <div style={{ background: "#1E293B", borderBottom: "1px solid #EF444444", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                    <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>⚠ {dmError}</span>
+                    <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>{dmError}</span>
                     <button onClick={() => setDmError(null)} style={{ border: "none", background: "none", color: "#EF4444", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>✕</button>
                   </div>
                 )}
@@ -697,7 +695,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
             })()
           ) : !selectedCollKey ? (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>Select a collection to open its chat</div>
               <div style={{ fontSize: 13 }}>Each collection gets its own Teams channel in RING OF FIRE</div>
             </div>
@@ -724,7 +721,6 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                 {!token ? (
                   <div style={{ textAlign: "center", paddingTop: 60 }}>
-                    <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 8 }}>Sign in to use Teams chat</div>
                     <button onClick={authenticate} disabled={authStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                       {authStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}
@@ -732,12 +728,11 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                   </div>
                 ) : !mapping ? (
                   <div style={{ textAlign: "center", paddingTop: 60 }}>
-                    <div style={{ fontSize: 36, marginBottom: 12 }}>💬</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>No Teams channel yet for this collection</div>
                     <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 20 }}>A channel will be created in the RING OF FIRE workspace</div>
                     {msgError && (
                       <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 16, textAlign: "left" }}>
-                        ⚠ {msgError}
+                        {msgError}
                       </div>
                     )}
                     <button
@@ -745,16 +740,15 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                       disabled={!!isCreating}
                       style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: isCreating ? "wait" : "pointer", opacity: isCreating ? 0.7 : 1 }}
                     >
-                      {isCreating ? "Creating channel…" : "💬 Start Teams Chat"}
+                      {isCreating ? "Creating channel…" : "Start Teams Chat"}
                     </button>
                   </div>
                 ) : isLoadingMsgs ? (
                   <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
                 ) : msgError ? (
-                  <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "12px 16px", color: "#EF4444", fontSize: 13 }}>⚠ {msgError}</div>
+                  <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "12px 16px", color: "#EF4444", fontSize: 13 }}>{msgError}</div>
                 ) : msgs.length === 0 ? (
                   <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}>
-                    <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
                     <div style={{ fontSize: 13 }}>No messages yet — start the conversation!</div>
                   </div>
                 ) : (

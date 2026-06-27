@@ -15,7 +15,7 @@
 //
 // The button:
 // - Disabled when `rows` is empty (cursor + opacity + title tooltip)
-// - Shows row count in the label, e.g. ⬇ Export (47)
+// - Shows row count in the label, e.g. Export (47)
 // - Filename gets a YYYY-MM-DD stamp appended automatically
 // - WYSIWYG — operates on whatever rows the caller passes (filtered / sorted)
 // - Menu closes on outside-click or Escape
@@ -121,7 +121,7 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
         }}
         title={disabled ? "No rows to export" : `Export ${rows.length} row${rows.length === 1 ? "" : "s"} (Excel or PDF)`}
       >
-        ⬇ {label || "Export"}
+        {label || "Export"}
         {rowSuffix}
         <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.7 }}>▾</span>
       </button>
@@ -136,7 +136,7 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             onClick={() => pick("xlsx")}
           >
-            📊 Excel (.xlsx)
+            Excel (.xlsx)
           </button>
           <button
             type="button"
@@ -146,7 +146,7 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             onClick={() => pick("pdf")}
           >
-            📄 PDF
+            PDF
           </button>
         </div>
       )}

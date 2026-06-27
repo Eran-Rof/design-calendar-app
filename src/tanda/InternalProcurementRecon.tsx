@@ -60,7 +60,7 @@ export default function InternalProcurementRecon() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Procurement Reconciliation</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Procurement Reconciliation</h2>
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
       </div>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}

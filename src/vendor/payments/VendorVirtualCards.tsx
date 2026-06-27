@@ -106,7 +106,7 @@ export default function VendorVirtualCards() {
                   <div style={{ marginTop: 10, padding: 10, background: C.bg, border: `1px solid ${reveal ? C.success : C.danger}`, borderRadius: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
                     {revealErr ? <span style={{ color: C.danger }}>{revealErr}</span> : reveal && (
                       <>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.warn, textTransform: "uppercase", marginBottom: 6 }}>⚠ {reveal.warning}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.warn, textTransform: "uppercase", marginBottom: 6 }}>{reveal.warning}</div>
                         <div>Number: <strong>{reveal.card_number}</strong></div>
                         <div>CVV: <strong>{reveal.cvv}</strong></div>
                         <div>Exp: {String(reveal.expiry_month).padStart(2, "0")}/{reveal.expiry_year}</div>

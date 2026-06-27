@@ -248,7 +248,7 @@ export default function BuildReconcileWorkbench() {
                     <td style={td} hidden={!visibleColumns.has("build")}>{r.build}</td>
                     <td style={{ ...td, color: r.vendor_id ? PAL.text : PAL.yellow }} hidden={!visibleColumns.has("vendor")}>
                       {r.vendor}
-                      {!r.vendor_id && <span style={{ marginLeft: 6, fontSize: 10, color: PAL.yellow }}>⚠ no master vendor</span>}
+                      {!r.vendor_id && <span style={{ marginLeft: 6, fontSize: 10, color: PAL.yellow }}>no master vendor</span>}
                     </td>
                     <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("skus")}>{r.skus.toLocaleString()}</td>
                     <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("total_qty")}>{r.qty.toLocaleString()}</td>

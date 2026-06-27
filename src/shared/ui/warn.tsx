@@ -109,7 +109,7 @@ export function confirmDialog(message: string, opts: ConfirmOptions = {}): Promi
     state.confirm = {
       message,
       title: opts.title ?? (danger ? "Please confirm" : "Confirm"),
-      icon: opts.icon ?? (danger ? "⚠️" : "❓"),
+      icon: opts.icon ?? (danger ? "!" : "?"),
       confirmText: opts.confirmText ?? (danger ? "Confirm" : "OK"),
       cancelText: opts.cancelText ?? "Cancel",
       confirmColor: opts.confirmColor ?? (danger ? "#EF4444" : "#3B82F6"),
@@ -131,7 +131,7 @@ export function promptDialog(message: string, opts: PromptOptions = {}): Promise
     state.prompt = {
       message,
       title: opts.title ?? "Enter a value",
-      icon: opts.icon ?? "✏️",
+      icon: opts.icon ?? "✎",
       confirmText: opts.confirmText ?? "OK",
       cancelText: opts.cancelText ?? "Cancel",
       defaultValue: opts.defaultValue ?? "",

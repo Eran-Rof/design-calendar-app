@@ -97,7 +97,6 @@ export const UploadWarningsModal: React.FC<UploadWarningsModalProps> = ({
       <div style={{ ...S.modal, width: 580, border: "1px solid #F59E0B" }} onClick={e => e.stopPropagation()}>
         <div style={{ ...S.modalHeader, borderBottom: "1px solid #78350f" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(245,158,11,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚠</div>
             <div>
               <h2 style={{ ...S.modalTitle, color: "#FCD34D", margin: 0 }}>Review Data Issues</h2>
               <div style={{ color: "#94A3B8", fontSize: 12, marginTop: 2 }}>
@@ -118,7 +117,6 @@ export const UploadWarningsModal: React.FC<UploadWarningsModalProps> = ({
                 borderRadius: 8, padding: "10px 14px",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 14 }}>{w.severity === "error" ? "✗" : "△"}</span>
                   <span style={{ color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontWeight: 700, fontSize: 13 }}>{w.field}</span>
                   <span style={{ marginLeft: "auto", color: w.severity === "error" ? "#FCA5A5" : "#FCD34D", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>
                     {w.affected.toLocaleString()} / {w.total.toLocaleString()}

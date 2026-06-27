@@ -35,7 +35,7 @@ export default function ComplianceChipCell({ lineId }: Props) {
   const onPick = async (raw: string) => {
     if (!raw) return;
     if (raw === "__add__") {
-      const v = await promptDialog("Add new compliance requirement code:", { title: "New compliance code", icon: "➕", required: true });
+      const v = await promptDialog("Add new compliance requirement code:", { title: "New compliance code", required: true });
       if (!v || !v.trim()) return;
       const clean = v.trim().toUpperCase();
       await addMaster("compliance", clean);

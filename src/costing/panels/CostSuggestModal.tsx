@@ -1,6 +1,6 @@
 // Costing Module — AI cost co-pilot modal.
 //
-// Opened from a grid row's right-click menu ("✨ AI cost suggestion"). Fetches a
+// Opened from a grid row's right-click menu ("AI cost suggestion"). Fetches a
 // grounded cost/sell/margin recommendation from the suggest endpoint (which
 // reads the line's LY/T3 comp + PO purchase history), shows the rationale and
 // the signals it used, and lets the operator APPLY the numbers into the line.
@@ -102,7 +102,6 @@ export default function CostSuggestModal({ line, onApply, onClose }: Props) {
       >
         {/* Header */}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>✨</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>AI cost suggestion</div>
             <div style={{ fontSize: 12, color: C.subtle }}>

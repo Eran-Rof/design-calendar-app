@@ -1026,7 +1026,7 @@ function ImagesTab({
       {/* Shopify: link a product, then re-host its images into this style. */}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: C.textSub, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          🛍️ Shopify product images
+          Shopify product images
           {isLinked && (
             <span style={{ background: C.tangerine, color: "#000", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>
               ✓ LINKED
@@ -1192,7 +1192,7 @@ function ImageTile({ img, onClick }: { img: ImageRow; onClick: () => void }) {
             style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: C.textMuted, fontSize: 24 }}>🖼️</span>
+          <span style={{ color: C.textMuted, fontSize: 12 }}>No image</span>
         )}
         {img.is_primary && (
           <div style={{

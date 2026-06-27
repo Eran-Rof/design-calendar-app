@@ -59,13 +59,6 @@ const DOMAIN_LABEL: Record<Domain, string> = {
   summary_je: "Summary JE",
 };
 
-const DOMAIN_EMOJI: Record<Domain, string> = {
-  ar:         "🧮",
-  ap:         "🧾",
-  inventory:  "📦",
-  summary_je: "📓",
-};
-
 type MirrorRun = {
   id: string;
   entity_id: string;
@@ -235,7 +228,7 @@ export default function InternalShadowMirrorStatus() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🔁 Shadow Mirror Status</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Shadow Mirror Status</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             Nightly Xoro → Tangerine mirror · cadence 21:30 local
@@ -271,7 +264,6 @@ export default function InternalShadowMirrorStatus() {
               title={run ? "Click for run details" : "No successful run yet"}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{DOMAIN_EMOJI[d]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{DOMAIN_LABEL[d]}</span>
               </div>
               {run ? (
@@ -294,7 +286,7 @@ export default function InternalShadowMirrorStatus() {
                   )}
                   {Array.isArray(run.errors) && run.errors.length > 0 && (
                     <div style={{ fontSize: 10, color: C.warn }}>
-                      ⚠ {run.errors.length} conflict{run.errors.length === 1 ? "" : "s"}
+                      {run.errors.length} conflict{run.errors.length === 1 ? "" : "s"}
                     </div>
                   )}
                 </>
@@ -441,7 +433,7 @@ export default function InternalShadowMirrorStatus() {
 
         <div style={{ background: C.card, border: `1px solid ${C.tangerine}55`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontSize: 11, color: C.tangerine, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            💡 Manual fallback
+            Manual fallback
           </div>
           <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>
             Need to enter an invoice for an event Xoro didn't capture? Use the <strong>AR Invoices</strong> / <strong>AP Invoices</strong> panel directly. Your manual entry uses <code>source='manual'</code> and the mirror will never overwrite it.
@@ -474,7 +466,7 @@ function RunDetailModal({ run, onClose }: { run: MirrorRun; onClose: () => void 
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(95vw, 640px)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>
-          {DOMAIN_EMOJI[run.domain]} {DOMAIN_LABEL[run.domain]} mirror — {run.mirror_date}
+          {DOMAIN_LABEL[run.domain]} mirror — {run.mirror_date}
         </h3>
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 12px", fontSize: 12, marginBottom: 16 }}>
           <span style={{ color: C.textMuted }}>Status</span>

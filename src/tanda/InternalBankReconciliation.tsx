@@ -154,7 +154,7 @@ export default function InternalBankReconciliation() {
               border: `1px solid ${tab === "transactions" ? C.primary : C.cardBdr}`,
             }}
           >
-            🔁 Transactions
+            Transactions
           </button>
           <button
             onClick={() => setTab("accounts")}
@@ -166,7 +166,7 @@ export default function InternalBankReconciliation() {
               border: `1px solid ${tab === "accounts" ? C.primary : C.cardBdr}`,
             }}
           >
-            🏦 Accounts
+            Accounts
           </button>
         </div>
       </div>

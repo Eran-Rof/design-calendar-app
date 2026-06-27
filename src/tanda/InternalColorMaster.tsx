@@ -184,7 +184,7 @@ export default function InternalColorMaster() {
         </label>
         <span style={{ fontSize: 12, color: C.textMuted }}>{rows.length} color{rows.length === 1 ? "" : "s"}</span>
         <button onClick={() => void autoMatchNrf()} disabled={nrfBusy} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, opacity: nrfBusy ? 0.6 : 1 }} title="Use AI to assign the NRF standard color code to every color that doesn't have one">
-          {nrfBusy ? (nrfMsg || "Matching…") : "🎨 Auto-match NRF (AI)"}
+          {nrfBusy ? (nrfMsg || "Matching…") : "Auto-match NRF (AI)"}
         </button>
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
@@ -481,11 +481,11 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               <button type="button" onClick={() => void suggestNrf()} disabled={nrfBusy || !form.name.trim()}
                 style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, whiteSpace: "nowrap" }}
                 title="Use AI to pick the NRF standard color code from this name + swatch">
-                {nrfBusy ? "…" : "🤖 Suggest"}
+                {nrfBusy ? "…" : "Suggest"}
               </button>
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              Changed the name or swatch? Click <strong>🤖 Suggest</strong> for the matching NRF code.
+              Changed the name or swatch? Click <strong>Suggest</strong> for the matching NRF code.
             </div>
           </Field>
         </div>

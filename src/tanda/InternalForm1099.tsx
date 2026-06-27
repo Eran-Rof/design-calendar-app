@@ -30,7 +30,7 @@ export default function InternalForm1099() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🧾 1099 Worksheet</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>1099 Worksheet</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>vendors flagged 1099 · paid ≥ $600 are reportable</span>
         <label style={{ color: C.textMuted, fontSize: 12, marginLeft: 10 }}>Year <input style={{ ...input, width: "8ch" }} value={year} onChange={(e) => setYear(Number(e.target.value) || 2026)} /></label>
         <div style={{ marginLeft: "auto" }}><ExportButton rows={rows} columns={cols} filename={`form-1099-${year}`} /></div>
@@ -51,7 +51,7 @@ export default function InternalForm1099() {
             {(data?.rows || []).map((r) => (
               <tr key={r.vendor_id} style={{ opacity: r.reportable ? 1 : 0.6 }}>
                 <td style={td}>{r.name}{r.code ? <span style={{ color: C.textMuted, fontSize: 11 }}> ({r.code})</span> : ""}</td>
-                <td style={td}>{r.has_tax_id ? <span style={{ color: C.success }}>on file</span> : <span style={{ color: C.danger }}>⚠ MISSING</span>}</td>
+                <td style={td}>{r.has_tax_id ? <span style={{ color: C.success }}>on file</span> : <span style={{ color: C.danger }}>MISSING</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontWeight: r.reportable ? 600 : 400 }}>${(r.paid_cents / 100).toFixed(2)}</td>
                 <td style={td}>{r.reportable ? <span style={{ color: C.success, fontWeight: 600 }}>yes</span> : "—"}</td>
               </tr>

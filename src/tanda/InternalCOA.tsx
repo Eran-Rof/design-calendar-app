@@ -669,7 +669,7 @@ function BrandAllocationEditor(
 
   return (
     <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>🏷️ Brand Allocation</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Brand Allocation</div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
         Pick the brand(s) this account serves. More than one opens a % split (must total 100%); a posting auto-splits into the brand sub-accounts.
       </div>

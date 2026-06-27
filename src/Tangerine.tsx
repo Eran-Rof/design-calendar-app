@@ -382,7 +382,7 @@ export default function Tangerine() {
   }
 
   async function handleSignOut() {
-    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "🚪", confirmText: "Sign out" }))) return;
+    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "", confirmText: "Sign out" }))) return;
     clearMsTokens();
     // P14 JWT phase — drop the cached per-user token so a signed-out browser
     // can't keep presenting it. (It also expires server-side after 12h.)
@@ -443,7 +443,7 @@ export default function Tangerine() {
             cursor: "pointer", whiteSpace: "nowrap",
             ...(aiOpen ? { borderColor: "#7C3AED", color: "#c4b5fd" } : {}),
           }}
-        >✨ Ask AI</button>
+        >Ask AI</button>
         <BrandChannelSwitcher inline />
       </div>
 
@@ -789,7 +789,7 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
         onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
         onFocus={() => { if (q.trim()) setOpen(true); }}
         onKeyDown={onKeyDown}
-        placeholder="🔍 Find a panel…"
+        placeholder="Find a panel…"
         aria-label="Find a panel"
         style={{
           background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
@@ -1233,7 +1233,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
           >
-            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+            <span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
           </a>
         )}
       </nav>
@@ -1257,7 +1257,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           aria-haspopup="menu"
           aria-expanded={appsOpen}
         >
-          <span>🧩</span>
           <span>Apps</span>
           <span style={{ fontSize: 10 }}>{appsOpen ? "▴" : "▾"}</span>
         </button>
@@ -1404,8 +1403,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
           {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
-          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
-          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="📝" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="" sublabel="External · new tab" />
         </div>
       </Section>
 

@@ -53,13 +53,13 @@ function bumpCount(key: string, prev: Record<string, number>): Record<string, nu
 
 // ── suite apps ────────────────────────────────────────────────────────────
 const SUITE_APPS = [
-  { href: "/",         emoji: "📅", label: "Design Calendar",  description: "Style cards and milestones" },
-  { href: "/ats",      emoji: "📦", label: "ATS",              description: "Available-to-ship planning" },
-  { href: "/tanda",    emoji: "📋", label: "PO WIP",           description: "Purchase order tracking" },
-  { href: "/costing",  emoji: "💰", label: "Costing",          description: "Costing projects and margins" },
-  { href: "/planning", emoji: "📈", label: "Planning",         description: "Inventory forecasting" },
-  { href: "/gs1",      emoji: "🏷️", label: "GS1",             description: "Prepack labels and SSCC" },
-  { href: "/vendor",   emoji: "🌐", label: "Vendor Portal",    description: "External vendor view" },
+  { href: "/",         label: "Design Calendar",  description: "Style cards and milestones" },
+  { href: "/ats",      label: "ATS",              description: "Available-to-ship planning" },
+  { href: "/tanda",    label: "PO WIP",           description: "Purchase order tracking" },
+  { href: "/costing",  label: "Costing",          description: "Costing projects and margins" },
+  { href: "/planning", label: "Planning",         description: "Inventory forecasting" },
+  { href: "/gs1",      label: "GS1",             description: "Prepack labels and SSCC" },
+  { href: "/vendor",   label: "Vendor Portal",    description: "External vendor view" },
 ];
 
 // ── types ─────────────────────────────────────────────────────────────────
@@ -423,7 +423,7 @@ export function NavDrawer({
             title="Search (expand to use)"
             onClick={e => { e.stopPropagation(); onToggleCollapsed(); setTimeout(() => searchRef.current?.focus(), 220); }}
             style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:15, width:"100%", textAlign:"center", lineHeight:1, padding:"3px 0" }}
-          >🔍</button>
+          >Search</button>
         ) : (
           <input
             ref={searchRef}
@@ -463,7 +463,7 @@ export function NavDrawer({
         {!search && (
           <div style={{ padding:"0 4px" }}>
             {collapsed
-              ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>⭐</div>
+              ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>★</div>
               : (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 10px 4px" }}>
                   <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>Favorites</span>
@@ -485,7 +485,6 @@ export function NavDrawer({
                 onClick={e => onFavClick(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
-                {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
                 {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>}
               </a>
             ))}
@@ -509,7 +508,6 @@ export function NavDrawer({
               onClick={e => onNavClick(e, m.key)}
               onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
             >
-              {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
               <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
               {(counts[m.key] ?? 0) > 0 && (
                 <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
@@ -535,7 +533,6 @@ export function NavDrawer({
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = hasActive && !isOpen ? "rgba(29,78,216,0.15)" : "transparent"; }}
               >
                 <div style={{ display:"flex", alignItems:"center", gap:7 }}>
-                  {collapsed && <span style={{ fontSize:14 }}>{sec.emoji}</span>}
                   {!collapsed && (
                     <span style={{ fontSize:13, fontWeight:600, color: hasActive ? C.text : C.textMuted, letterSpacing:0.5, textTransform:"uppercase", whiteSpace:"nowrap" }}>
                       {sec.section}
@@ -574,7 +571,7 @@ export function NavDrawer({
               {/* In collapsed mode show active item's icon always */}
               {collapsed && hasActive && (
                 <div style={rowStyle(activeModule!)} title={modules.find(m => m.key === activeModule)?.label ?? ""}>
-                  <span style={{ fontSize:14 }}>{modules.find(m => m.key === activeModule)?.emoji}</span>
+                  <span style={{ fontSize:14 }}>{modules.find(m => m.key === activeModule)?.label?.slice(0, 2)}</span>
                 </div>
               )}
             </div>
@@ -592,8 +589,8 @@ export function NavDrawer({
               onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = C.bgRow; }}
               onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
             >
-              <span style={{ fontSize:14 }}>📈</span>
               {!collapsed && <><span>Planning</span><span style={{ fontSize:10, opacity:0.5 }}>↗</span></>}
+              {collapsed && <span style={{ fontSize:11 }}>↗</span>}
             </a>
           </div>
         )}
@@ -617,8 +614,7 @@ export function NavDrawer({
           onMouseEnter={e => { e.currentTarget.style.background = C.bgRow; e.currentTarget.style.color = C.text; }}
           onMouseLeave={e => { if (!appsOpen) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; } }}
         >
-          <span style={{ fontSize:14 }}>🧩</span>
-          {!collapsed && <span>All Apps</span>}
+          {collapsed ? <span style={{ fontSize:13, fontWeight:700 }}>···</span> : <span>All Apps</span>}
         </button>
 
         {appsOpen && (
@@ -637,7 +633,6 @@ export function NavDrawer({
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                     title={a.description}
                   >
-                    <span style={{ fontSize:17 }}>{a.emoji}</span>
                     <div style={{ display:"flex", flexDirection:"column", lineHeight:1.2, minWidth:0 }}>
                       <span style={{ fontSize:12, fontWeight:600 }}>{a.label}</span>
                       <span style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.description}</span>

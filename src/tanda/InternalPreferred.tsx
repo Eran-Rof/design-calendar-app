@@ -117,7 +117,7 @@ export default function InternalPreferred() {
               { key: "notes",                header: "Notes" },
             ] as ExportColumn<Record<string, unknown>>[]}
           />
-          <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>🔎 Suggest</button>
+          <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>Suggest</button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add</button>
         </div>
       </div>
