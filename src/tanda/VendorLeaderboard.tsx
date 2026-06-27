@@ -3,6 +3,7 @@ import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
 import VendorScorecardDetail from "./VendorScorecardDetail";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface LiveKPI {
   vendor_id: string;
@@ -109,14 +110,21 @@ export default function VendorLeaderboard() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}>
-            <option value="score">Sort: composite score</option>
-            <option value="on_time">Sort: on-time %</option>
-            <option value="accuracy">Sort: invoice accuracy %</option>
-            <option value="ack">Sort: ack speed (fastest first)</option>
-            <option value="discrepancies">Sort: discrepancies (most first)</option>
-            <option value="po_count">Sort: PO count</option>
-          </select>
+          <div style={{ flex: "0 1 220px", minWidth: 160 }}>
+            <SearchableSelect
+              value={sortBy}
+              onChange={(v) => setSortBy(v as SortKey)}
+              options={[
+                { value: "score", label: "Sort: composite score" },
+                { value: "on_time", label: "Sort: on-time %" },
+                { value: "accuracy", label: "Sort: invoice accuracy %" },
+                { value: "ack", label: "Sort: ack speed (fastest first)" },
+                { value: "discrepancies", label: "Sort: discrepancies (most first)" },
+                { value: "po_count", label: "Sort: PO count" },
+              ]}
+              inputStyle={{ ...S.inp, marginBottom: 0, width: "100%" }}
+            />
+          </div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginLeft: "auto" }}>
             Rolling 180-day window · {sorted.length} vendors
           </div>

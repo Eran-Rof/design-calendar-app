@@ -19,6 +19,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import SearchableSelect from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
@@ -183,16 +184,17 @@ export default function InternalCycleCounts() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <select
-          style={{ ...inputStyle, width: 180 }}
+        <SearchableSelect
+          inputStyle={{ ...inputStyle, width: 180 }}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "" | Status)}
-        >
-          <option value="">All statuses</option>
-          <option value="in_progress">In progress</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+          onChange={(v) => setStatusFilter(v as "" | Status)}
+          options={[
+            { value: "", label: "All statuses" },
+            { value: "in_progress", label: "In progress" },
+            { value: "completed", label: "Completed" },
+            { value: "cancelled", label: "Cancelled" },
+          ]}
+        />
         <input
           style={{ ...inputStyle, width: 160 }}
           type="date"

@@ -361,11 +361,12 @@ function RmaLinesDetail({
                 <td style={{ ...td, textAlign: "right" }}>${(l.unit_price_cents / 100).toFixed(2)}</td>
                 <td style={td}>
                   {editable ? (
-                    <select style={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(e) => onSetDisposition(rma, l, e.target.value as "restock" | "scrap" | "pending")} disabled={busy}>
-                      <option value="pending">— pick —</option>
-                      <option value="restock" disabled={!l.inventory_item_id}>Restock{l.inventory_item_id ? "" : " (needs SKU)"}</option>
-                      <option value="scrap">Scrap</option>
-                    </select>
+                    <SearchableSelect inputStyle={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(v) => onSetDisposition(rma, l, v as "restock" | "scrap" | "pending")} disabled={busy}
+                      options={[
+                        { value: "pending", label: "— pick —" },
+                        { value: "restock", label: `Restock${l.inventory_item_id ? "" : " (needs SKU)"}`, disabled: !l.inventory_item_id },
+                        { value: "scrap", label: "Scrap" },
+                      ]} />
                   ) : <span style={chip(l.disposition === "restock" ? C.success : C.textMuted)}>{l.disposition}</span>}
                 </td>
               </tr>

@@ -13,6 +13,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import SearchableSelect from "./components/SearchableSelect";
 import { computeForKind } from "./components/dateRangeMath";
 
 // Kinds the API accepts, with friendly labels. N_KINDS need a positive n.
@@ -225,9 +226,12 @@ function DatePresetFormModal({ mode, preset, onClose, onSaved }: { mode: "add" |
             <input type="text" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} style={inputStyle} placeholder="e.g. Last 14 days" autoFocus />
           </Field>
           <Field label="Kind *">
-            <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.kind || null}
+              onChange={(v) => setForm({ ...form, kind: v })}
+              options={KINDS.map((k) => ({ value: k.value, label: k.label }))}
+              inputStyle={inputStyle}
+            />
           </Field>
           {needsN && (
             <Field label={form.kind === "last_n_months" ? "Months (N) *" : "Days (N) *"}>

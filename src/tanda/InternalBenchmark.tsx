@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
@@ -77,11 +78,16 @@ export default function InternalBenchmark() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Percentiles across the vendor base. Computed monthly from ≥ 5 vendors per category to protect individual data.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={metric} onChange={(e) => setMetric(e.target.value as "unit_price" | "lead_time" | "on_time_pct")} style={selectSt}>
-            <option value="unit_price">Unit price</option>
-            <option value="lead_time">Lead time</option>
-            <option value="on_time_pct">On-time %</option>
-          </select>
+          <SearchableSelect
+            value={metric}
+            onChange={(v) => setMetric(v as "unit_price" | "lead_time" | "on_time_pct")}
+            options={[
+              { value: "unit_price", label: "Unit price" },
+              { value: "lead_time", label: "Lead time" },
+              { value: "on_time_pct", label: "On-time %" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename={`market-benchmark-${metric}`}

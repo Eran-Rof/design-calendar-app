@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify } from "../shared/ui/warn";
 
 interface Listing {
@@ -176,9 +177,12 @@ function InquireModal({ listing, onClose, onSent }: { listing: Listing; onClose:
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: "min(520px, 95vw)" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Inquire about "{listing.title}"</h3>
         <Row label="On behalf of entity">
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={inp}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Your name (for audit)"><input value={inquirer} onChange={(e) => setInquirer(e.target.value)} style={inp} /></Row>
         <Row label="Message"><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>

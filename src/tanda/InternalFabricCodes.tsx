@@ -443,14 +443,15 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
             />
           </Field>
           <Field label="Default vendor">
-            <select
-              value={form.default_vendor_id}
-              onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
-              style={{ ...(inputStyle as React.CSSProperties), colorScheme: "dark" }}
-            >
-              <option value="">(select)</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.default_vendor_id || null}
+              onChange={(v) => setForm({ ...form, default_vendor_id: v })}
+              options={[
+                { value: "", label: "(select)" },
+                ...vendors.map((v) => ({ value: v.id, label: v.name })),
+              ]}
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Care instructions" wide>
             <textarea

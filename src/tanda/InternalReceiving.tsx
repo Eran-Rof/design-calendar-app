@@ -111,10 +111,10 @@ export default function InternalReceiving() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All statuses</option>
-          {["draft", "pending_approval", "approved", "posted"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 200 }}
+            options={[{ value: "", label: "All statuses" }, ...["draft", "pending_approval", "approved", "posted"].map((s) => ({ value: s, label: s }))]} />
+        </div>
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <ExportButton rows={exportRows} columns={EXPORT_COLUMNS} filename="receiving" sheetName="Receiving" />
       </div>

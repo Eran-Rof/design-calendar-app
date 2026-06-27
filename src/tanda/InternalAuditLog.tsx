@@ -417,17 +417,18 @@ export default function InternalAuditLog() {
           }}
         >
           Entity type
-          <select
-            value={sourceTable}
-            onChange={(e) => setSourceTable(e.target.value)}
-            style={{ ...inputStyle, width: 220 }}
-            data-testid="audit-source-table"
-          >
-            <option value="">— Any —</option>
-            {T11_SOURCE_TABLES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <div style={{ width: 220 }} data-testid="audit-source-table">
+            <SearchableSelect
+              value={sourceTable || null}
+              onChange={(v) => setSourceTable(v)}
+              options={[
+                { value: "", label: "— Any —" },
+                ...T11_SOURCE_TABLES.map((t) => ({ value: t, label: t })),
+              ]}
+              placeholder="— Any —"
+              inputStyle={inputStyle}
+            />
+          </div>
         </label>
         <label
           style={{

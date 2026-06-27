@@ -6,6 +6,7 @@ import {
   itemQty, isLineClosed, lineDeliveryDate, normalizeSize, sizeSort, todayLocalIso,
 } from "../../utils/tandaTypes";
 import S from "../styles";
+import SearchableSelect from "../components/SearchableSelect";
 
 interface GridPOPanelProps {
   po: XoroPO;
@@ -327,13 +328,12 @@ export function GridPOPanel({
                       {m.expected_date ? fmtDate(m.expected_date) : "—"}
                     </span>
                     <span style={{ ...cellBase, textAlign: "center" }}>
-                      <select
+                      <SearchableSelect
                         value={m.status}
-                        onChange={e => updateMsStatus(m, e.target.value)}
-                        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11, padding: "3px 4px", width: "100%", fontWeight: 600 }}
-                      >
-                        {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s] }}>{s}</option>)}
-                      </select>
+                        onChange={v => updateMsStatus(m, v)}
+                        options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                        inputStyle={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 11, padding: "3px 4px", width: "100%", fontWeight: 600 }}
+                      />
                     </span>
                     <span style={{ ...cellBase, textAlign: "right", color: daysColor, fontWeight: 700, borderRight: "none" }}>
                       {m.status === "Complete" ? "Done" : m.status === "N/A" ? "—" : daysRem === null ? "—" : daysRem < 0 ? `${Math.abs(daysRem)}d late` : daysRem === 0 ? "Today" : `${daysRem}d`}

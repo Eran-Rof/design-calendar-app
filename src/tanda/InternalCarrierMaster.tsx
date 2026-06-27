@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
@@ -353,17 +354,18 @@ function CarrierFormModal({ mode, carrier, onClose, onSaved }: ModalProps) {
           </Field>
 
           <Field label="Carrier type">
-            <select
-              value={form.carrier_type}
-              onChange={(e) => setForm({ ...form, carrier_type: e.target.value })}
-              style={{ ...inputStyle, cursor: "pointer" }}
-            >
-              <option value="parcel">Parcel</option>
-              <option value="ltl">LTL</option>
-              <option value="ocean">Ocean</option>
-              <option value="air">Air</option>
-              <option value="other">Other</option>
-            </select>
+            <SearchableSelect
+              value={form.carrier_type || null}
+              onChange={(v) => setForm({ ...form, carrier_type: v })}
+              options={[
+                { value: "parcel", label: "Parcel" },
+                { value: "ltl", label: "LTL" },
+                { value: "ocean", label: "Ocean" },
+                { value: "air", label: "Air" },
+                { value: "other", label: "Other" },
+              ]}
+              inputStyle={{ ...inputStyle, cursor: "pointer" }}
+            />
           </Field>
 
           <Field label="Sort order">

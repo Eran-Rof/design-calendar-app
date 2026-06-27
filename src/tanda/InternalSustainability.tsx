@@ -3,6 +3,7 @@ import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Report {
   id: string;
@@ -79,13 +80,18 @@ export default function InternalSustainability() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Review vendor submissions. Approval triggers ESG score calculation.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="submitted">Submitted</option>
-            <option value="under_review">Under review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={status}
+            onChange={(v) => setStatus(v)}
+            options={[
+              { value: "submitted", label: "Submitted" },
+              { value: "under_review", label: "Under review" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows.map((r) => ({ ...r, vendor_name: r.vendor?.name || r.vendor_id, certifications_list: (r.certifications || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
             filename="sustainability-reports"
