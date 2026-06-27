@@ -84,13 +84,18 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 On a **new** sales order, next to the Customer PO # field is a **🤖 Upload customer PO** button. It reads the customer's purchase order and prefills the whole order so you only have to review it.
 
 1. Click **🤖 Upload customer PO**. Either **choose a file** (PDF, Excel `.xlsx`/`.xls`, or `.csv`/`.txt`) **or paste the order email** into the text box, then **Read & prefill**. The document is sent to `POST /api/internal/sales-orders/parse-customer-po`, which uses Claude (Sonnet) to extract a structured PO. **A chosen file is also auto-attached to the order's Supporting Documents** (staged, uploaded when you save) so the original PO is filed with the SO.
-2. **Header prefill** — the AI's customer name, payment terms, start-ship / cancel dates, and PO number are matched to your masters and filled in (an unmatched customer or term is listed in the review banner for you to pick by hand). The matched customer also auto-sets **Channel**, and **Fulfillment source is auto-set to ATS** and **highlighted** for you to confirm.
-3. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
+2. **Duplicate guard** — before anything is filled, the PO number is checked against existing sales orders. If a **non-cancelled SO already carries that exact customer PO #**, the dialog stops and shows a **⚠️ This customer PO already exists** warning listing the existing order(s); your only choices are **Open existing SO ↗** (opens it in a new tab) or **Cancel — don't create a duplicate**. No duplicate SO is created.
+3. **Confirm choices** — when something the AI matched is uncertain, the dialog **asks you to choose before filling** (instead of silently guessing and asking you to spot it afterward):
+   - **Base vs PPK** — if a style exists in **both** a base and a prepack (PPK) form, you pick which to order.
+   - **Customer** — if the PO's customer name didn't match exactly, an **AI matcher** (`POST /api/internal/sales-orders/match-customer`, Claude Haiku) picks the best account from the master *semantically* — so a buying entity like **"Ross Stores, Inc."** maps to **"Ross Procurement"** rather than to an unrelated name that merely shares a word. Its pick is pre-selected (with a one-line reason) and you confirm or override it from the full searchable customer list.
+   - **Colour row** — if a PO colour didn't map cleanly onto one of the style's actual colours (e.g. PO `"Media Park"` → `"Media Park- Dark Wash"`), you pick the correct colour row (the suggested one is marked ★).
+   These steps only appear when needed; with nothing ambiguous, the order fills straight away.
+4. **Header prefill** — the AI's customer (your confirmed pick, or an exact match), payment terms, start-ship / cancel dates, and PO number are filled in. The customer also auto-sets **Channel**, and **Fulfillment source is auto-set to ATS** and **highlighted** for you to confirm. Anything still unmatched (e.g. a term, or a customer you left to pick manually) is listed in the review banner.
+5. **Matrix prefill** — each ordered style is matched to Style Master and dropped into the size matrix:
    - **Exact sizes** when the PO lists a size run (S 12 · M 24 · …) go straight into the cells. Any size that isn't a full **carton of 24** is flagged; a **Round those sizes up to full cartons** button rounds each up.
    - **Total only** (no size split) is distributed across sizes via the style's **Style Master size scale** (📐 Scale), rounding each size up to a full carton.
    - **PPK (prepack) styles** — the PO's total units ÷ the pack's units-per-carton, **rounded up** to whole cartons, prefilled into the PPK column. The rounding is noted in the review banner.
-   - If a style exists in **both** a base and a PPK form, a short prompt asks which to order before prefilling.
-4. **Double-check** — a green review banner summarizes what was filled, lists anything unmatched, and flags carton / PPK-rounding mismatches. **Always review every prefilled value before saving** — the AI is advisory.
+6. **Double-check** — a green review banner summarizes what was filled, lists anything unmatched, and flags carton / PPK-rounding mismatches. **Always review every prefilled value before saving** — the AI is advisory.
 
 The button is **new-SO only**. You can still type everything by hand; the upload is a shortcut, not a requirement.
 
@@ -135,6 +140,26 @@ The alert fires once per SO (deduped on the SO id), through the same `resolveInt
 
 The **Search SO #, customer, style…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring). So you can pull up an order by who it's for or by a style on it, not just its number. It works alongside the **Customer** and **Status** filters (all are ANDed) and updates as you type (200 ms debounce). The whole search — including the line-level style/SKU match — runs in the `search_sales_orders` SQL function, so it spans the entire order book (not just the loaded rows) without shipping a giant id list over HTTP.
 
+### Date-range filter
+
+Next to the search box the toolbar has a **date-range filter**: a **field picker** (`Order date` or `Start ship date`) followed by **From** / **To** date inputs and a **Presets…** dropdown (MTD, YTD, This Year, Last Year, Last month, Last 30d / 60d / 90d, Last Quarter, etc. — the shared `DateRangePresets`). The field picker chooses **which** date the window applies to: the order date (`order_date`) or the start ship / requested-ship date (`requested_ship_date`). Filtering is **client-side** over the loaded rows — orders whose chosen date falls within `[From, To]` (inclusive) are kept; an order with no value for the selected field is hidden whenever a bound is set. A **Clear dates** button appears once a range is active. The filter also narrows the **Export** download (it mirrors exactly what the grid shows).
+
+### List columns — Cancel date + cost/margin metrics
+
+Beyond the original SO #, Customer, Order date, Start Ship, Status, Factor and Total columns, the grid carries (all toggleable via **⚙ Columns**, and all included in **Export**):
+
+- **Cancel date** — the order's `cancel_date`.
+- **Avg cost** — the qty-weighted average unit **cost** across the SO's lines. Cost is sourced per SKU from **`ip_item_avg_cost`** (the same Xoro/Excel average-cost source the Inventory Snapshot uses), matched by `sku_code` (exact, then a loose alphanumeric match). Lines whose SKU has no cost history are excluded from the cost average.
+- **Avg sell** — the qty-weighted average unit **selling price** across the SO's lines (from `sales_order_lines.unit_price_cents`).
+- **Margin $** — Avg sell − Avg cost (per unit). Coloured green when ≥ 0, red when negative.
+- **Margin %** — Margin $ ÷ Avg sell × 100 (one decimal).
+
+All money is shown to **two decimals**; a metric reads **—** when it can't be computed (e.g. no priced lines, or no cost history on any line).
+
+> **Style-aware metrics.** Normally the four metric columns reflect the **whole SO**. But when you type a **style** into the search box (or arrive via a `?style_id=` drill), the metrics recompute to reflect **only that style's lines** on each order — so you can read the cost/sell/margin of one style across the orders that carry it. The aggregation runs **server-side** in `GET /api/internal/sales-orders` (per-SO `avg_cost_cents` / `avg_sell_cents` / `margin_cents` / `margin_pct`), accepting an optional `style` / `style_id` scope; it only narrows when a line actually matches the style, so a non-style search (e.g. a customer name) safely falls back to the whole-SO figures.
+
+The grid **header is frozen** — it stays pinned to the top while the rows scroll (the table sits in a scrolling container capped at the viewport height).
+
 ---
 
 ## 27.2 Confirm → draft AR invoice (M10-C)
@@ -160,6 +185,28 @@ When the SO's customer is flagged `customers.is_factored = true`, the order **ca
 - **`POST /sales-orders/:id/ship`** — re-checks `is_factored` + `factor_approval_status === 'approved'` and returns **409** otherwise, before any shipment row is written.
 
 The SO modal also shows an amber warning ("⚠ Factored customer — factor approval must be approved before this order can ship") whenever the selected customer is factored and the status isn't yet `approved`. The Allocations Workbench applies a stricter dollar-bounded version of this gate ([§27.5](#275-the-allocations-workbench-cross-so)).
+
+---
+
+## 27.3b Non-factor credit ship-gates (house-account & credit-card)
+
+Factored customers are gated by **factor approval** ([§27.3](#273-factor--credit-insurance-ship-gate)). **Non-factored** customers are gated instead by a separate **credit ship-gate** carried on the SO in `credit_approval_status` (`not_required` / `pending` / `on_hold` / `approved` / `declined`) plus `credit_hold_reason`, `credit_checked_at`, `credit_approval_source`, `credit_approved_by_user_id`, `amount_paid_cents`, and `paid_in_full_at` (migration `20260901000000`). The two gates never overlap — a customer is factored **or** subject to the credit gate, never both.
+
+The gate is evaluated server-side in `api/_lib/customers/soShipGate.js` and classified from the customer + the SO's payment term:
+
+- **House-account gate** — customer is **not factored** and on **net/credit terms** (a `payment_terms` row with `due_days > 0`, e.g. Net 30). The gate **activates** when the customer has **any open AR invoice past its due date** — an `ar_invoices` row with `gl_status IN ('sent','partial_paid','posted','posted_historical')`, an outstanding balance (`total_amount_cents − paid_amount_cents > 0`), and `due_date < today`. This is an **overdue-AR** gate: it does **not** depend on a credit limit being set. On breach → **capture but hold**: the SO still saves, but `credit_approval_status` flips to **`on_hold`**, and it **cannot allocate or ship** until the overdue AR is cleared or an operator overrides.
+- **Credit-card gate** — the SO's payment term is **`CREDIT_CARD`** (seeded for ROF, `due_days = 0`). **Payment in full must be recorded before the order can ship**: the order is held at **`pending`** until `amount_paid_cents ≥ total_cents`.
+
+**Capture but hold, never hard-block confirmation.** On **confirm** the gate is evaluated and `credit_approval_status` is stamped (`on_hold` / `pending` / `not_required`) with a human-readable `credit_hold_reason`; the SO always saves. The hard **409** block fires only on the **allocate** and **ship/fulfilling** transitions:
+
+- **`POST /sales-orders/:id/allocate`** — re-evaluates the gate and returns **409** (and persists the latest hold reason) before reserving any stock, unless `credit_approval_status = 'approved'`.
+- **`PATCH /sales-orders/:id`** (status → `fulfilling`/`shipped`) and **`POST /sales-orders/:id/ship`** — mirror the factor 409: blocked when the gate is breached and not `approved`. A failed overdue-AR lookup returns **500** (it never silently allows a ship).
+
+**Releasing a hold.** An operator can **override** at any time — `PATCH /sales-orders/:id` with `credit_approval_status = 'approved'` (source `manual`, recording `credit_approved_by_user_id`) clears the hold. In the SO modal this is the **✅ Override → Approve** footer button (visible while `on_hold`/`pending`); a confirm dialog shows the hold reason first.
+
+**Recording a credit-card payment (processor deferred).** Stripe / hosted checkout is **not** wired yet. For now an operator records a manual payment via **💳 Record payment** (footer button on a `CREDIT_CARD` order) → `POST /sales-orders/:id/record-payment` with `{ amount_cents, method, reference }`. This increments `amount_paid_cents`, stamps `paid_in_full_at` when it first reaches `total_cents`, and — on a `CREDIT_CARD` order now paid in full — auto-sets `credit_approval_status = 'approved'`, `credit_approval_source = 'payment'` (auto-releasing the gate). A future hosted-payment/webhook flow can drive the **same** columns for an identical release. (This SO-level payment tracking is for the ship-gate only; it is **not** an AR receipt — the downstream AR invoice is still cleared through the AR receipts flow.)
+
+The Sales Orders list carries a **Credit** column (column-toggle + export aware) with a colored badge — **`on hold`** amber, **`card unpaid`** blue, **`approved`** green, **`declined`** red (hover shows the hold reason). The SO modal shows a matching **Credit status** panel with the paid-of-total figure and the reason.
 
 ---
 

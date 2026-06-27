@@ -261,7 +261,8 @@ Xoro (source-of-truth)
    ↓ nightly CSV fetch (21:00 local)
 Supabase tables (read-only):
   ip_sales_history_wholesale   ← AR transactions
-  tanda_pos                    ← POs
+  tanda_pos                    ← POs (rich Xoro PO payload)
+  tanda_sos                    ← SOs (rich Xoro SO payload; mig 20260897000000)
   ip_inventory_snapshot        ← on-hand
   ip_item_master               ← SKU catalog
    ↓
@@ -294,6 +295,27 @@ Bridge logic: where does a Xoro PO become a Tangerine AP invoice?
   → Manual: operator types the bill into Tangerine AP when the vendor invoice arrives
   → Or: small "convert tanda_pos receipt → AP bill draft" tool (§C)
 ```
+
+**Native order import (Xoro → Tangerine native tables).** `scripts/import-xoro-orders.mjs`
+brings the mirrored orders into the native `purchase_orders/_lines` and
+`sales_orders/_lines` so they're first-class Tangerine records (real statuses,
+dates, per-size lines), not just a read-only mirror:
+
+- **POs** read `tanda_pos` → `purchase_orders/_lines`. Idempotent on
+  `(entity_id, po_number)`; only touches rows it owns (`notes` start with
+  `[xoro-import]`); blocks any PO whose vendor can't resolve (`vendor_id` is
+  NOT NULL). Run `--apply` to write. (Initial load: 176 POs / 6,146 lines.)
+- **SOs** read the rich `tanda_sos` mirror (populated by
+  `POST /api/tanda/sync-sos-from-xoro` ← `salesorder/getsalesorder`, ATS-App
+  creds) → `sales_orders/_lines`, behind `--sos-native`. Idempotent on
+  `(entity_id, so_number)`; blocks SOs with an unresolvable customer
+  (`customer_id` NOT NULL). The legacy ATS-blob path (`--include-sos`) is lossy
+  and preview-only.
+
+Both resolve each Xoro `ItemNumber` to a per-size `ip_item_master` SKU
+(exact → style·color·size tuple → loose), auto-creating per-size SKUs for
+on-master styles under `--apply`. Unresolvable lines still import with
+qty/cost/description preserved and `inventory_item_id = null`.
 
 **The hard part — COGS and inventory consumption:**
 

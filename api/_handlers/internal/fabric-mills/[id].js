@@ -14,7 +14,27 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MUTABLE_FIELDS = new Set(["name", "country_code", "contact_name", "contact_email", "website", "notes", "sort_order", "is_active"]);
+const MUTABLE_FIELDS = new Set(["name", "country_code", "contact_name", "contact_email", "website", "notes", "sort_order", "is_active", "contacts"]);
+
+// Up to `max` contacts, each {name,email,phone,title} (strings only). Blank
+// rows dropped; truncated beyond `max`. Mirrors the index.js sanitizer.
+function sanitizeContacts(raw, max) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) return { error: "contacts must be an array" };
+  const keys = ["name", "email", "phone", "title"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) {
+      const val = c[k];
+      if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
+    }
+    if (Object.keys(row).length) out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 const LOCKED_FIELDS  = new Set(["code", "entity_id", "id"]);
 
 function corsHeaders(res) {
@@ -122,6 +142,12 @@ export function validatePatch(body) {
   if ("contact_email" in out) out.contact_email = out.contact_email ? String(out.contact_email).trim() || null : null;
   if ("website"       in out) out.website       = out.website       ? String(out.website).trim()       || null : null;
   if ("notes"         in out) out.notes         = out.notes         ? String(out.notes).trim()         || null : null;
+
+  if ("contacts" in out) {
+    const c = sanitizeContacts(out.contacts, 5);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c;
+  }
 
   if ("sort_order" in out) {
     if (out.sort_order == null || out.sort_order === "") {

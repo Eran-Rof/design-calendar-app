@@ -25,6 +25,27 @@ export const config = { maxDuration: 15 };
 // e.g. MILL-00001.
 const CODE_PREFIX = "MILL-";
 
+// Up to `max` contacts, each {name,email,phone,title} (strings only). Blank
+// rows are dropped; everything beyond `max` is truncated. Mirrors the
+// customers.contacts sanitizer.
+export function sanitizeContacts(raw, max) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) return { error: "contacts must be an array" };
+  const keys = ["name", "email", "phone", "title"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) {
+      const val = c[k];
+      if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
+    }
+    if (Object.keys(row).length) out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -142,6 +163,12 @@ export function validateInsert(body) {
   if (body.contact_email != null) data.contact_email = String(body.contact_email).trim() || null;
   if (body.website       != null) data.website       = String(body.website).trim()       || null;
   if (body.notes         != null) data.notes         = String(body.notes).trim()         || null;
+
+  if (body.contacts != null) {
+    const c = sanitizeContacts(body.contacts, 5);
+    if (c && c.error) return { error: c.error };
+    data.contacts = c;
+  }
 
   return { data };
 }

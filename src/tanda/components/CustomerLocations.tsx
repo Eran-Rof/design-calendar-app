@@ -87,7 +87,7 @@ function emptyDraft(location_type: LocationType = "store"): LocationDraft {
 
 function addrSummary(addr: Address): string {
   if (!addr) return "—";
-  const parts = [addr.line1, addr.city, addr.state, addr.postal_code, addr.country].filter(Boolean);
+  const parts = [addr.line1, addr.city, addr.state, addr.postal ?? addr.postal_code, addr.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "—";
 }
 
@@ -378,7 +378,7 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
               line1: cell(row, "address_line1") || undefined,
               city: cell(row, "city") || undefined,
               state: cell(row, "state") || undefined,
-              postal_code: cell(row, "postal") || undefined,
+              postal: cell(row, "postal") || undefined,
               country: cell(row, "country") || undefined,
             };
             return {

@@ -37,6 +37,7 @@ import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
 import InternalMfgReports         from "./tanda/InternalMfgReports";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
+import InternalDatePresetMaster from "./tanda/InternalDatePresetMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
@@ -478,6 +479,7 @@ export default function Tangerine() {
         {activeModule === "mfg_reports"           && <InternalMfgReports />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
+        {activeModule === "date_preset_master" && <InternalDatePresetMaster />}
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}

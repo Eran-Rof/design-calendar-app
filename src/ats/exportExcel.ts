@@ -456,11 +456,12 @@ export function buildExportPayload(
     fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" },
   });
   // Total column body cells now zebra-stripe like the text + period
-  // cols — same row's zebra fill applied to col R per planner.
+  // cols — same row's zebra fill applied to col R per planner. Numbers
+  // RIGHT-aligned (operator standard for total columns across all reports).
   const bodyTotalStyle = (fill: string): any => ({
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   });
   // Spacer cell — always #2C69B2 top to bottom, no value. NO borders —
@@ -809,7 +810,7 @@ export function buildExportPayload(
   // Subtotal row factory. Sums the given qty / period totals across a
   // style group; styled blue + bold + 12.1pt (= 11pt qty × 1.1, the
   // planner's "+10%" request).
-  function buildSubtotalRow(styleLabel: string, group: ATSRow[]): any[] {
+  function buildSubtotalRow(styleLabel: string, group: ATSRow[], excelRow: number): any[] {
     const subtotalFontSize = 12.1;
     const SUB_FILL = FILL_QTY_COL;  // sit on the qty band so the row
                                     // anchors visually against the qty cols
@@ -878,6 +879,8 @@ export function buildExportPayload(
       r2[ci - 1] = subCell(perPeriod[i]);
     }
     r2[COL.total - 1] = subCell(grand);
+    // Total column right-aligned to match the body Total column.
+    if (r2[COL.total - 1]?.s) r2[COL.total - 1].s = { ...r2[COL.total - 1].s, alignment: { horizontal: "right", vertical: "center" } };
 
     // Optional extra columns at subtotal level.
     const subCurr = (v: number) => v === 0
@@ -947,15 +950,30 @@ export function buildExportPayload(
         const subMrgn = (weightedAvgCost > 0 && slsPrcW > 0)
           ? (slsPrcW - weightedAvgCost) / slsPrcW
           : 0;
-        r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+        if (slsPrcFormulaMode && COL_SLS_PRC && COL_AVG_COST) {
+          // Buyer worksheet: live formula off this subtotal row's own Sls Prc +
+          // Avg Cost cells, so editing the subtotal price updates its margin.
+          const slsRef = `${colLetter(COL_SLS_PRC)}${excelRow}`;
+          const costRef = `${colLetter(COL_AVG_COST)}${excelRow}`;
+          r2[COL_SLS_MRGN_PCT - 1] = (slsPrcW > 0 && weightedAvgCost > 0)
+            ? { v: subMrgn, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: { ...subNumStyle, numFmt: "0.0%" } }
+            : subPct(subMrgn);
+        } else {
+          r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+        }
       }
-      // Subtotal Total $ = weighted Sls Prc × the group's total qty. A static
-      // snapshot (the live, edit-tracking Total $ is per-row); kept so the
-      // column reads sensibly at the subtotal line.
+      // Subtotal Total $ (Buyer worksheet only — COL_SLS_TTL exists only then):
+      // a live formula = this subtotal's Sls Prc × its Total qty, so editing the
+      // subtotal price updates it.
       if (COL_SLS_TTL) {
         let groupQty = 0;
         for (const x of group) for (let i = 0; i < numPeriods; i++) groupQty += periodValueOf(x, i);
-        r2[COL_SLS_TTL - 1] = subCurr(slsPrcW > 0 ? slsPrcW * groupQty : 0);
+        const ttl = slsPrcW > 0 ? slsPrcW * groupQty : 0;
+        const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${excelRow}` : "";
+        const totRef = `${colLetter(COL.total)}${excelRow}`;
+        r2[COL_SLS_TTL - 1] = (slsRef && slsPrcW > 0 && groupQty > 0)
+          ? { v: ttl, f: `IF(${slsRef}="",0,${slsRef}*${totRef})`, t: "n", s: { ...subNumStyle, numFmt: "$#,##0.00" } }
+          : subCurr(ttl);
       }
     }
 
@@ -1042,7 +1060,7 @@ export function buildExportPayload(
     // Skip single-row style groups — the lone qty row already shows the
     // totals, so a subtotal would just repeat the same numbers.
     if (currentGroup.length === 1) { currentGroup = []; return; }
-    dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup));
+    dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup, nextExcelRow));
     nextExcelRow++;
     currentGroup = [];
   }
@@ -1470,6 +1488,8 @@ export function buildExportPayload(
       cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
     }
     cells[COL.total - 1] = cellFor(getRowTotal());
+    // Right-align the grand-total Total cell to match the body Total column.
+    if (cells[COL.total - 1]?.s) cells[COL.total - 1].s = { ...cells[COL.total - 1].s, alignment: { horizontal: "right", vertical: "center" } };
     // Fill any optional extra columns with blank styled cells so the
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
@@ -1558,7 +1578,7 @@ export function buildExportPayload(
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
   // for the toggle-OFF Total row and the toggle-ON "TOTAL Qty" row.
-  function patchOptColAggregates(cells: any[], agg: ReturnType<typeof computeOptColAggregates>) {
+  function patchOptColAggregates(cells: any[], agg: ReturnType<typeof computeOptColAggregates>, excelRow?: number) {
     const setCurr = (ci: number | undefined, v: number) => {
       if (!ci) return;
       cells[ci - 1] = v === 0
@@ -1583,6 +1603,20 @@ export function buildExportPayload(
     setCurr(COL_SLS_PRC,     agg.slsPrcW);
     setPct (COL_SLS_MRGN_PCT, agg.slsMrgnW);
     setCurr(COL_SLS_TTL,     agg.slsTtl);
+    // Buyer worksheet: make the grand-total Mrgn % + Total $ LIVE formulas off
+    // this row's own Sls Prc + Avg Cost + Total cells, so editing the grand
+    // total's Sls Prc recomputes them (matches the per-row + subtotal rows).
+    if (slsPrcFormulaMode && excelRow && COL_SLS_PRC && COL_AVG_COST) {
+      const slsRef = `${colLetter(COL_SLS_PRC)}${excelRow}`;
+      const costRef = `${colLetter(COL_AVG_COST)}${excelRow}`;
+      const totRef = `${colLetter(COL.total)}${excelRow}`;
+      if (COL_SLS_MRGN_PCT && agg.slsPrcW > 0 && agg.avgCostW > 0) {
+        cells[COL_SLS_MRGN_PCT - 1] = { v: agg.slsMrgnW, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: { ...totalNumStyle, numFmt: "0.0%" } };
+      }
+      if (COL_SLS_TTL && agg.slsTtl > 0) {
+        cells[COL_SLS_TTL - 1] = { v: agg.slsTtl, f: `IF(${slsRef}="",0,${slsRef}*${totRef})`, t: "n", s: { ...totalNumStyle, numFmt: "$#,##0.00" } };
+      }
+    }
     setQty (COL_T3_QTY,      agg.t3Qty);
     setCurr(COL_T3_PRICE,    agg.t3Price);
     setCurr(COL_T3_TTL_SLS,  agg.t3Tot);
@@ -1639,7 +1673,7 @@ export function buildExportPayload(
       (key) => t.periodQty[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
     );
-    patchOptColAggregates(totalQtyRow, computeOptColAggregates());
+    patchOptColAggregates(totalQtyRow, computeOptColAggregates(), nextExcelRow);
     dataRows.push(totalQtyRow);
     // Customer-facing mode drops Cost / Mrgn rows from the stack
     // (operator doesn't want our cost or margin visible to the
@@ -1688,7 +1722,7 @@ export function buildExportPayload(
       (key) => periodSumByKey[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
     );
-    patchOptColAggregates(totalRow, computeOptColAggregates());
+    patchOptColAggregates(totalRow, computeOptColAggregates(), nextExcelRow);
     dataRows.push(totalRow);
   }
 

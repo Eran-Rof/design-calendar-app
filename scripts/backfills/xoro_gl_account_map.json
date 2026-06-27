@@ -1,0 +1,25 @@
+{
+  "_comment": "Normalizes the Xoro item-level GL account NAMES (from the CurrentProducts GL export, keyed by BasePartNumber) onto the Tangerine ROF chart-of-accounts CODES. All target accounts already exist in gl_accounts. Match is by Xoro account NAME -> Tangerine code. NOTE: Xoro 'AdjAccountName' = '5006 General and Administrative:Inventory Adjustments Expense' is a XORO code; it maps by NAME to Tangerine code 6343 (Tangerine 5006 is a different account = Disassemble Offset).",
+  "revenue": {
+    "Sales Revenue ROF Brands": "4005",
+    "Sales Revenue - Boys": "4006",
+    "Sales Revenue - PT": "4009",
+    "Sales Revenue Private Label": "4012"
+  },
+  "cogs": {
+    "Cost of Goods Sold ROF Brands": "5010",
+    "Cost of Goods Sold Boys": "5011",
+    "Cost of Goods Sold PT": "5012",
+    "Cost of Goods Sold - Ecom PT": "5013",
+    "Cost of Goods Sold Private Label": "5015"
+  },
+  "returns": {
+    "Sales Returns ROF Brands": "4236",
+    "Sales Returns Boys": "4234",
+    "Sales Returns - PT": "4235",
+    "Sales Returns Private Label": "4201"
+  },
+  "adjustment": {
+    "5006 General and Administrative:Inventory Adjustments Expense": "6343"
+  }
+}

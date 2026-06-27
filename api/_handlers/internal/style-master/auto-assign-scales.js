@@ -30,6 +30,10 @@ export default async function handler(req, res) {
 
   const overwrite = String(req.query?.overwrite || "") === "1" || req.body?.overwrite === true;
   const apply = req.method === "POST";
+  // source=sales backfills from what was actually SOLD (v_style_sold_sizes);
+  // default 'skus' uses the full SKU catalog (v_style_scale_candidates).
+  const source = String(req.query?.source || req.body?.source || "skus");
+  const CANDIDATE_VIEW = source === "sales" ? "v_style_sold_sizes" : "v_style_scale_candidates";
 
   // 1. Active size scales.
   const { data: scales, error: se } = await admin
@@ -46,7 +50,7 @@ export default async function handler(req, res) {
   const skip_reasons = {};
   let considered = 0, from = 0;
   for (;;) {
-    let q = admin.from("v_style_scale_candidates")
+    let q = admin.from(CANDIDATE_VIEW)
       .select("style_code, gender_code, size_scale_id, variants")
       .not("variants", "is", null)
       .range(from, from + PAGE - 1);

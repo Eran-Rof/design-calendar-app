@@ -137,6 +137,7 @@ function buildPostingEventData(invoice, lines, accounts) {
       inventory_item_id: l.inventory_item_id || null,
       quantity: l.quantity,
       revenue_account_id: l.revenue_account_id || null,
+      cogs_account_id: l.cogs_account_id || null,
       unit_price_cents: l.unit_price_cents,
       line_total_cents: String(l.line_total_cents),
     })),
