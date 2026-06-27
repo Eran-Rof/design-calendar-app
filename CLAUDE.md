@@ -155,10 +155,20 @@ palette, never a light/OS-default control:
   `select option{background:#FFFFFF}` in `App.tsx` once leaked white option
   popups into every dark app). Only add inline color to a select when it must
   *differ* from the dark default, and never to make it lighter.
-- New custom dropdowns: reuse the shared `SearchableSelect`, or copy its dark
-  palette — don't hand-roll a light menu.
-- The PLM launcher (`App.tsx` / `PLM.tsx`) is the one intentionally light
-  surface; everything else is dark.
+- **Never add a native `<select>`.** A native `<select>`'s OPEN option popup
+  renders in the OS/generic (light) theme on Windows and cannot be reliably
+  CSS-themed. The whole suite was swept to `SearchableSelect`
+  (`src/tanda/components/SearchableSelect.tsx`) — the only remaining native
+  control is the intentional `<select multiple>` in `StyleImageGallery`. Always
+  use `SearchableSelect` for new dropdowns.
+- `SearchableSelect` takes `theme?: "dark" | "light"` (default `"dark"`). Use the
+  default in dark apps (Tangerine, inventory-planning, vendor portal, costing,
+  AI, ATS, tech packs). Pass **`theme="light"`** in the light-surfaced apps
+  (Design Calendar/PLM components, GS1, B2B, the PLM launcher) — otherwise the
+  popover renders dark on a white page. (`inventory-planning/components/SearchableSelect.tsx`
+  is unused dead code — don't use it.)
+- The PLM launcher (`App.tsx` / `PLM.tsx`) and the Design Calendar/GS1/B2B apps
+  are the intentionally light surfaces; Tangerine and the other ERP apps are dark.
 
 When you add or touch any dropdown, verify the **closed control and the open
 popup** both match the app palette.
