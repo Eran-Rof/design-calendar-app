@@ -16,6 +16,7 @@ import {
 import type {
   CatalogItem, CatalogSourceRow, PriceListOption, CompanySettings, CatalogStatus,
 } from "../types";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const FIELD_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", letterSpacing: "0.04em",
@@ -207,18 +208,19 @@ export default function CatalogPanel() {
         <div style={{ display: "flex", alignItems: "flex-end", gap: 14, flexWrap: "wrap" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 320 }}>
             <label style={FIELD_LABEL}>Price list (sales price source for import)</label>
-            <select
-              value={selectedListId}
-              onChange={(e) => setSelectedListId(e.target.value)}
-              style={{ ...INPUT, minWidth: 320 }}
-            >
-              {lists.length === 0 && <option value="">No price lists found</option>}
-              {lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.code} — {l.name}{l.is_default ? " (default)" : ""} · {l.item_count} styles · {l.currency}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              theme="light"
+              value={selectedListId || null}
+              onChange={(v) => setSelectedListId(v)}
+              inputStyle={{ ...INPUT, minWidth: 320 }}
+              options={[
+                ...(lists.length === 0 ? [{ value: "", label: "No price lists found" }] : []),
+                ...lists.map((l) => ({
+                  value: l.id,
+                  label: `${l.code} — ${l.name}${l.is_default ? " (default)" : ""} · ${l.item_count} styles · ${l.currency}`,
+                })),
+              ]}
+            />
           </div>
           <button onClick={() => { setErr(null); setPickerOpen(true); }} disabled={!selectedListId} style={BTN_PRIMARY}>
             ＋ Add styles &amp; colors
@@ -249,12 +251,18 @@ export default function CatalogPanel() {
           placeholder="Search style, color, brand, GTIN…"
           style={{ ...INPUT, width: 280 }}
         />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "" | CatalogStatus)} style={{ ...INPUT, width: 150 }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="ready">Ready</option>
-          <option value="published">Published</option>
-        </select>
+        <SearchableSelect
+          theme="light"
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as "" | CatalogStatus)}
+          inputStyle={{ ...INPUT, width: 150 }}
+          options={[
+            { value: "", label: "All statuses" },
+            { value: "draft", label: "Draft" },
+            { value: "ready", label: "Ready" },
+            { value: "published", label: "Published" },
+          ]}
+        />
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button onClick={exportCsv} style={BTN}>⬇ Export CSV</button>
           <button onClick={exportGdsn} style={BTN}>⬇ Export GDSN (XML)</button>
@@ -311,15 +319,17 @@ export default function CatalogPanel() {
                     />
                   </td>
                   <td style={TD_STYLE}>
-                    <select
+                    <SearchableSelect
+                      theme="light"
                       value={r.status}
-                      onChange={(e) => void setStatus(r, e.target.value as CatalogStatus)}
-                      style={{ ...INPUT, padding: "3px 6px", fontSize: 11, fontWeight: 600, ...STATUS_STYLE[r.status] }}
-                    >
-                      <option value="draft">Draft</option>
-                      <option value="ready">Ready</option>
-                      <option value="published">Published</option>
-                    </select>
+                      onChange={(v) => void setStatus(r, v as CatalogStatus)}
+                      inputStyle={{ ...INPUT, padding: "3px 6px", fontSize: 11, fontWeight: 600, ...STATUS_STYLE[r.status] }}
+                      options={[
+                        { value: "draft", label: "Draft" },
+                        { value: "ready", label: "Ready" },
+                        { value: "published", label: "Published" },
+                      ]}
+                    />
                   </td>
                   <td style={TD_STYLE}>
                     <button onClick={() => void removeRow(r)} title="Remove" style={{ ...BTN, padding: "3px 8px", color: "#B91C1C" }}>✕</button>

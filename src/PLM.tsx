@@ -7,6 +7,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import SearchableSelect from "./tanda/components/SearchableSelect";
 import { registerLoginPresence, SIGNED_OUT_PARAM } from "./utils/plmSessionTabs";
 import {
   ATS_REPORT_KEYS,
@@ -1033,10 +1034,16 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 </div>
                 <div>
                   <label style={S.label}>Role</label>
-                  <select style={S.select} value={editing.role} onChange={e => setEditing(p => p ? { ...p, role: e.target.value as "admin" | "user" } : p)}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <SearchableSelect
+                    theme="light"
+                    value={editing.role}
+                    onChange={v => setEditing(p => p ? { ...p, role: v as "admin" | "user" } : p)}
+                    options={[
+                      { value: "user", label: "User" },
+                      { value: "admin", label: "Admin" },
+                    ]}
+                    inputStyle={S.select}
+                  />
                 </div>
                 <div>
                   <label style={S.label}>Color</label>

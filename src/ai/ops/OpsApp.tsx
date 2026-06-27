@@ -9,6 +9,7 @@
 // pattern (installInternalApiAuth injects the header).
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const PAL = {
   bg: "#0F172A",
@@ -110,13 +111,18 @@ export default function OpsApp() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <label style={{ fontSize: 12, color: PAL.textDim }}>Window:</label>
-          <select value={days} onChange={e => setDays(Number(e.target.value))} style={select}>
-            <option value={7}>Last 7 days</option>
-            <option value={14}>Last 14 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={60}>Last 60 days</option>
-            <option value={90}>Last 90 days</option>
-          </select>
+          <SearchableSelect
+            value={String(days)}
+            onChange={v => setDays(Number(v))}
+            options={[
+              { value: "7", label: "Last 7 days" },
+              { value: "14", label: "Last 14 days" },
+              { value: "30", label: "Last 30 days" },
+              { value: "60", label: "Last 60 days" },
+              { value: "90", label: "Last 90 days" },
+            ]}
+            inputStyle={select}
+          />
           <button onClick={load} style={btnSecondary}>Refresh</button>
         </div>
       </header>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney, fmtMoney2, todayLocalIso } from "../utils";
@@ -406,19 +407,17 @@ export default function InvoiceSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Purchase Order</label>
-            <select
-              value={selectedPoId}
-              onChange={(e) => setSelectedPoId(e.target.value)}
-              style={inputStyle}
+            <SearchableSelect
+              value={selectedPoId || null}
+              onChange={(v) => setSelectedPoId(v)}
+              placeholder="— Select PO —"
               required
-            >
-              <option value="">— Select PO —</option>
-              {pos.map((p) => (
-                <option key={p.uuid_id} value={p.uuid_id}>
-                  {p.po_number} {p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""} {p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}
-                </option>
-              ))}
-            </select>
+              options={pos.map((p) => ({
+                value: p.uuid_id,
+                label: `${p.po_number} ${p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""} ${p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}`,
+              }))}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Invoice number</label>
@@ -443,21 +442,29 @@ export default function InvoiceSubmit() {
           </div>
           <div>
             <label style={labelStyle}>Currency</label>
-            <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={inputStyle}>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="CNY">CNY</option>
-              <option value="HKD">HKD</option>
-              <option value="INR">INR</option>
-            </select>
+            <SearchableSelect
+              value={currency}
+              onChange={(v) => setCurrency(v)}
+              options={[
+                { value: "USD", label: "USD" },
+                { value: "EUR", label: "EUR" },
+                { value: "GBP", label: "GBP" },
+                { value: "CNY", label: "CNY" },
+                { value: "HKD", label: "HKD" },
+                { value: "INR", label: "INR" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Payment terms</label>
-            <select value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} style={inputStyle}>
-              <option value="">— Select —</option>
-              {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <SearchableSelect
+              value={paymentTerms || null}
+              onChange={(v) => setPaymentTerms(v)}
+              placeholder="— Select —"
+              options={PAYMENT_TERMS.map((t) => ({ value: t, label: t }))}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 

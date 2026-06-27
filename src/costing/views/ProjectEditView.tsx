@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { navigate, getEditId } from "../helpers";
 import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
@@ -293,19 +294,25 @@ export default function ProjectEditView() {
         </Field>
         <Field label="Brand" required>
           {brands.length > 0 ? (
-            <select value={form.brand || ""} onChange={(e) => setField("brand", e.target.value || null)} style={{ ...inp, ...reqBorder(!!form.brand) }}>
-              <option value="">— select —</option>
-              {brands.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.brand || null}
+              onChange={(v) => setField("brand", v || null)}
+              options={[{ value: "", label: "— select —" }, ...brands.map((b) => ({ value: b.name, label: b.name }))]}
+              placeholder="— select —"
+              inputStyle={{ ...inp, ...reqBorder(!!form.brand) }}
+            />
           ) : (
             <input value={form.brand || ""} onChange={(e) => setField("brand", e.target.value)} style={{ ...inp, ...reqBorder(!!form.brand) }} placeholder="(brands loading)" />
           )}
         </Field>
         <Field label="Gender" required>
-          <select value={form.gender_code || ""} onChange={(e) => setField("gender_code", e.target.value || null)} style={{ ...inp, ...reqBorder(!!form.gender_code) }}>
-            <option value="">— select —</option>
-            {GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.gender_code || null}
+            onChange={(v) => setField("gender_code", v || null)}
+            options={[{ value: "", label: "— select —" }, ...GENDER_OPTIONS.map((g) => ({ value: g, label: g }))]}
+            placeholder="— select —"
+            inputStyle={{ ...inp, ...reqBorder(!!form.gender_code) }}
+          />
         </Field>
 
         <Field label="Customer" required>
@@ -325,10 +332,10 @@ export default function ProjectEditView() {
           />
         </Field>
         <Field label="Payment terms" required>
-          <select
-            value={form.payment_terms_id || ""}
-            onChange={(e) => {
-              const ptId = e.target.value || null;
+          <SearchableSelect
+            value={form.payment_terms_id || null}
+            onChange={(v) => {
+              const ptId = v || null;
               const pt = paymentTerms.find((p) => p.id === ptId) || null;
               setForm((f) => ({
                 ...f,
@@ -336,13 +343,10 @@ export default function ProjectEditView() {
                 payment_terms_name: pt ? pt.name : null,
               }));
             }}
-            style={{ ...inp, ...reqBorder(!!form.payment_terms_id) }}
-          >
-            <option value="">(select)</option>
-            {paymentTerms.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            options={[{ value: "", label: "(select)" }, ...paymentTerms.map((p) => ({ value: p.id, label: p.name }))]}
+            placeholder="(select)"
+            inputStyle={{ ...inp, ...reqBorder(!!form.payment_terms_id) }}
+          />
         </Field>
 
         <Field label="Request date" required>

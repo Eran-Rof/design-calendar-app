@@ -12,6 +12,7 @@ import ImageUploader from "./ImageUploader";
 import SkuManager from "./SkuManager";
 import { DateInput } from "./DateInput";
 import { useAppStore } from "../store";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function TaskEditModal({
   onSkuChange,
@@ -581,11 +582,16 @@ function TaskEditModal({
             <div>
               <label style={S.lbl}>Assign To</label>
               <div style={{ marginBottom: 14 }}>
-                <select
+                <SearchableSelect
+                  theme="light"
                   disabled={!canEdit}
-                  value={f.assigneeId || ""}
-                  onChange={e => handleAssign(e.target.value || null)}
-                  style={{
+                  value={f.assigneeId || null}
+                  onChange={v => handleAssign(v || null)}
+                  options={[
+                    { value: "", label: "— Unassigned —" },
+                    ...team.map(m => ({ value: m.id, label: `${m.name} · ${m.role}` })),
+                  ]}
+                  inputStyle={{
                     ...S.inp,
                     marginBottom: 0,
                     borderColor: f.assigneeId
@@ -597,12 +603,7 @@ function TaskEditModal({
                     fontWeight: f.assigneeId ? 600 : 400,
                     opacity: canEdit ? 1 : 0.6,
                   }}
-                >
-                  <option value="">— Unassigned —</option>
-                  {team.map(m => (
-                    <option key={m.id} value={m.id}>{m.name} · {m.role}</option>
-                  ))}
-                </select>
+                />
               </div>
               {(pd || designer || graphic) && (
                 <div>

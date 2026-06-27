@@ -11,6 +11,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export type PhaseFilter = "all" | "overdue" | "this_week" | "next_30";
 
@@ -612,20 +613,18 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#F87171" : r.daysFromToday <= 7 ? "#FBBF24" : TH.textSub2, fontWeight: 600 }}>
                   {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
                 </div>
-                <div>
-                  <select
+                <div title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}>
+                  <SearchableSelect
                     value={r.effectiveStatus}
                     disabled={!editable}
-                    onChange={(e) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, e.target.value)}
-                    title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}
-                    style={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
+                    onChange={(v) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, v)}
+                    options={STATUSES.map((s) => ({ value: s, label: s }))}
+                    inputStyle={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
                       border: `2px solid ${masterCellBorder}`,
                       background: sc.bg, color: sc.fg, cursor: editable ? "pointer" : "not-allowed",
                       fontWeight: 600, fontFamily: "inherit",
                     }}
-                  >
-                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  />
                 </div>
                 {/* Status date — when this phase's status field was most
                     recently changed. Approved request → reviewed_at;
@@ -750,18 +749,17 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                             <div></div>{/* Expected date placeholder */}
                             <div></div>{/* Days placeholder */}
                             <div>
-                              <select
+                              <SearchableSelect
                                 value={lineStatus}
                                 disabled={!editable}
-                                onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
-                                style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
+                                onChange={(v) => void proposeChange(r.po, r.phase.name, "status", lineStatus, v, l.id)}
+                                options={STATUSES.map((s) => ({ value: s, label: s }))}
+                                inputStyle={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
                                   border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : TH.border}`,
                                   background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
                                   fontWeight: 600, fontFamily: "inherit",
                                 }}
-                              >
-                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              />
                               {differs && (
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}

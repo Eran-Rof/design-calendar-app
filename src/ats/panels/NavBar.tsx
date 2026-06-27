@@ -24,6 +24,7 @@ import { onAskAIRequest } from "../../ai/askAIBridge";
 import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import FavoritesMenu from "../../components/FavoritesMenu";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 // Build "STYLE|COLOR" → base64 data URL for the export's Image column. Resolves
 // each row's color-matched thumbnail (byColor[color] → style default) from the
@@ -1390,13 +1391,12 @@ export const NavBar: React.FC<NavBarProps> = ({
             style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 16 }}
           />
           <label style={{ fontSize: 12, color: "#94A3B8", display: "block", marginBottom: 6 }}>Category</label>
-          <select
-            value={agedCategory}
-            onChange={e => setAgedCategory(e.target.value)}
-            style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 14, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20, cursor: "pointer" }}
-          >
-            {categories.map(c => <option key={c} value={c}>{c === "All" ? "All Categories" : c}</option>)}
-          </select>
+          <SearchableSelect
+            value={agedCategory || null}
+            onChange={v => setAgedCategory(v)}
+            options={categories.map(c => ({ value: c, label: c === "All" ? "All Categories" : c }))}
+            inputStyle={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 14, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20, cursor: "pointer" }}
+          />
           {agedEmpty && (
             <div style={{ color: "#F87171", fontSize: 12, marginBottom: 14, padding: "8px 12px", background: "rgba(248,113,113,0.08)", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)" }}>
               No aged inventory found for {agedCategory !== "All" ? `${agedCategory} – ` : ""}{agedDays}+ days.

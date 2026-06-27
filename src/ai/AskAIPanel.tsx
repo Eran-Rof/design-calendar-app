@@ -23,6 +23,7 @@ import {
   downloadMemoryFile,
 } from "./memoryFile";
 import { MentionAutocomplete, expandMentionsForServer } from "./MentionAutocomplete";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 import {
   fileToAttachment,
   imagesFromDataTransferItems,
@@ -1327,21 +1328,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                         }}
                       />
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <select
+                        <SearchableSelect
                           value={m.captureScope || "self"}
-                          onChange={e => {
-                            const v = e.target.value as "self" | "global";
-                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureScope: v } : x));
+                          onChange={v => {
+                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureScope: v as "self" | "global" } : x));
                           }}
-                          style={{
+                          options={[
+                            { value: "self", label: "Just me" },
+                            { value: "global", label: "Everyone" },
+                          ]}
+                          inputStyle={{
                             background: "#0F172A", color: "#F1F5F9",
                             border: "1px solid #334155", borderRadius: 4,
                             padding: "4px 8px", fontSize: 11, fontFamily: "inherit",
                           }}
-                        >
-                          <option value="self">Just me</option>
-                          <option value="global">Everyone</option>
-                        </select>
+                        />
                         <button
                           type="button"
                           onClick={() => captureMessageAsFact(m.id)}

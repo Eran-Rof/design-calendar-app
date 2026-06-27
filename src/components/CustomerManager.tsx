@@ -3,6 +3,7 @@ import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
 import { CHANNEL_TYPES } from "../utils/constants";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function CustomerManager({ customers, setCustomers, isAdmin = false }: {
   customers: any[];
@@ -42,10 +43,16 @@ function CustomerManager({ customers, setCustomers, isAdmin = false }: {
         <label style={S.lbl}>Customer Name</label>
         <input style={S.inp} value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && save()} placeholder="e.g. Macy's" autoFocus />
         <label style={S.lbl}>Channel Type</label>
-        <select style={S.inp} value={form.channel} onChange={(e) => setForm(f => ({ ...f, channel: e.target.value }))}>
-          <option value="">-- Select --</option>
-          {CHANNEL_TYPES.map(c => <option key={c}>{c}</option>)}
-        </select>
+        <SearchableSelect
+          theme="light"
+          value={form.channel || null}
+          onChange={(v) => setForm(f => ({ ...f, channel: v }))}
+          options={[
+            { value: "", label: "-- Select --" },
+            ...CHANNEL_TYPES.map(c => ({ value: c, label: c })),
+          ]}
+          inputStyle={S.inp}
+        />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={() => { setEditing(null); setForm({ name: "", channel: "" }); }} style={{ padding: "9px 18px", borderRadius: 8, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
           <button disabled={!form.name.trim()} onClick={save} style={{ ...S.btn, opacity: form.name.trim() ? 1 : 0.5 }}>Save Customer</button>

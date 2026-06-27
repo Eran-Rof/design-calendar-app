@@ -10,6 +10,7 @@ import React from "react";
 import { useCostingStore } from "../store/costingStore";
 import type { CostingLineCompliance } from "../types";
 import { promptDialog } from "../../shared/ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Props {
   lineId: string;
@@ -79,22 +80,23 @@ export default function ComplianceChipCell({ lineId }: Props) {
           >×</button>
         </span>
       ))}
-      <select
-        value=""
-        onChange={(e) => { onPick(e.target.value); e.target.value = ""; }}
-        style={{
-          background: "transparent", color: "#94A3B8",
-          border: "1px dashed #475569", borderRadius: 3,
-          padding: "0 2px", fontSize: 10, cursor: "pointer",
-          colorScheme: "dark", maxWidth: 90,
-        }}
-        title="Add compliance requirement"
-      >
-        <option value="">+ add</option>
-        {available.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
-        <option disabled>──────────</option>
-        <option value="__add__">+ Add new…</option>
-      </select>
+      <div title="Add compliance requirement" style={{ maxWidth: 90 }}>
+        <SearchableSelect
+          value={null}
+          onChange={(v) => { onPick(v); }}
+          options={[
+            ...available.map((m) => ({ value: m.name, label: m.name })),
+            { value: "──────────", label: "──────────", disabled: true },
+            { value: "__add__", label: "+ Add new…" },
+          ]}
+          placeholder="+ add"
+          inputStyle={{
+            background: "transparent", color: "#94A3B8",
+            border: "1px dashed #475569", borderRadius: 3,
+            padding: "0 2px", fontSize: 10, cursor: "pointer",
+          }}
+        />
+      </div>
     </div>
   );
 }

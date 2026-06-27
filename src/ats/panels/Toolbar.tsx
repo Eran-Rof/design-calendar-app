@@ -4,6 +4,7 @@ import type { ExcelData } from "../types";
 // Shared app-wide dark calendar widget (same one every other app uses) so
 // ATS date fields don't pop the browser's light native calendar.
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 // Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
 // the planning grid's MultiSelectDropdown so a brief cursor flicker
@@ -466,12 +467,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
-      <select style={S.select} value={collapseLevel} onChange={e => setCollapseLevel(e.target.value as typeof collapseLevel)}>
-        <option value="none">None</option>
-        <option value="category">Category</option>
-        <option value="subCategory">Sub Cat</option>
-        <option value="style">Style</option>
-      </select>
+      <SearchableSelect
+        value={collapseLevel}
+        onChange={v => setCollapseLevel(v as typeof collapseLevel)}
+        options={[
+          { value: "none", label: "None" },
+          { value: "category", label: "Category" },
+          { value: "subCategory", label: "Sub Cat" },
+          { value: "style", label: "Style" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
     {/* Store filter */}
     <div ref={poDropRef} style={{ position: "relative" }} onMouseEnter={storeClose.cancel} onMouseLeave={storeClose.schedule}>
@@ -562,18 +568,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         value={rangeValue}
         onChange={e => { const v = Math.max(1, Number(e.target.value)); if (v) setRangeValue(v); }}
       />
-      <select
-        style={{ ...S.select, minWidth: 96 }}
+      <SearchableSelect
         value={rangeUnit}
-        onChange={e => {
-          setRangeUnit(e.target.value as "days" | "weeks" | "months");
-          setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1);
+        onChange={v => {
+          setRangeUnit(v as "days" | "weeks" | "months");
+          setRangeValue(v === "days" ? 14 : v === "weeks" ? 2 : 1);
         }}
-      >
-        <option value="days">Days</option>
-        <option value="weeks">Weeks</option>
-        <option value="months">Months</option>
-      </select>
+        options={[
+          { value: "days", label: "Days" },
+          { value: "weeks", label: "Weeks" },
+          { value: "months", label: "Months" },
+        ]}
+        inputStyle={{ ...S.select, minWidth: 96 }}
+      />
     </div>
 
     {/* Customer / vendor dropdown */}
@@ -638,15 +645,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
        PO   → sum of PO qty whose receipt date falls in the cell's period */}
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>View:</span>
-      <select
-        style={S.select}
+      <SearchableSelect
         value={viewMode}
-        onChange={e => setViewMode(e.target.value as "ats" | "so" | "po")}
-      >
-        <option value="ats">ATS</option>
-        <option value="so">On SO</option>
-        <option value="po">On PO Receipt</option>
-      </select>
+        onChange={v => setViewMode(v as "ats" | "so" | "po")}
+        options={[
+          { value: "ats", label: "ATS" },
+          { value: "so", label: "On SO" },
+          { value: "po", label: "On PO Receipt" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
 
     {/* TOTALS row toggle */}
@@ -682,22 +690,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     {/* Freeze-through dropdown — pin leftmost columns when scrolling.
         Default "On PO" matches the historical all-8-sticky behavior;
         the planner can scale freeze back to fewer columns or off. */}
-    <select
-      value={freezeKey ?? ""}
-      onChange={e => setFreezeKey((e.target.value || null) as typeof freezeKey)}
-      title="Pin leftmost columns through the chosen one when scrolling horizontally"
-      style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-    >
-      <option value="">No freeze</option>
-      <option value="category">Freeze through Category</option>
-      <option value="subCategory">Freeze through Sub Cat</option>
-      <option value="style">Freeze through Style</option>
-      <option value="description">Freeze through Description</option>
-      <option value="color">Freeze through Color</option>
-      <option value="onHand">Freeze through On Hand</option>
-      <option value="onOrder">Freeze through On Order</option>
-      <option value="onPO">Freeze through On PO</option>
-    </select>
+    <div title="Pin leftmost columns through the chosen one when scrolling horizontally">
+      <SearchableSelect
+        value={freezeKey ?? ""}
+        onChange={v => setFreezeKey((v || null) as typeof freezeKey)}
+        options={[
+          { value: "", label: "No freeze" },
+          { value: "category", label: "Freeze through Category" },
+          { value: "subCategory", label: "Freeze through Sub Cat" },
+          { value: "style", label: "Freeze through Style" },
+          { value: "description", label: "Freeze through Description" },
+          { value: "color", label: "Freeze through Color" },
+          { value: "onHand", label: "Freeze through On Hand" },
+          { value: "onOrder", label: "Freeze through On Order" },
+          { value: "onPO", label: "Freeze through On PO" },
+        ]}
+        inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+      />
+    </div>
 
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears

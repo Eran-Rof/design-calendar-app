@@ -6,35 +6,27 @@
 // subtle "translating…" pulse while a batch is in flight.
 
 import { useLanguage } from "./LanguageContext";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export default function LanguageSelector() {
   const { lang, setLang, busy, languages } = useLanguage();
   return (
     <div data-no-i18n style={{ display: "flex", alignItems: "center", gap: 6 }} title="Language / 语言 / Idioma">
       <span aria-hidden style={{ fontSize: 15, opacity: busy ? 0.5 : 0.9, transition: "opacity .2s" }}>🌐</span>
-      <select
-        aria-label="Select language"
-        value={lang}
-        onChange={(e) => setLang(e.target.value)}
-        style={{
-          background: "rgba(255,255,255,0.12)",
-          color: "#FFFFFF",
-          border: "1px solid rgba(255,255,255,0.4)",
-          borderRadius: 6,
-          padding: "6px 8px",
-          fontSize: 13,
-          fontFamily: "inherit",
-          cursor: "pointer",
-          colorScheme: "dark",
-          maxWidth: 160,
-        }}
-      >
-        {languages.map((l) => (
-          <option key={l.code} value={l.code} style={{ background: "#0b1220", color: "#F1F5F9" }}>
-            {l.native}
-          </option>
-        ))}
-      </select>
+      <div style={{ width: 160 }}>
+        <SearchableSelect
+          value={lang}
+          onChange={(v) => setLang(v)}
+          options={languages.map((l) => ({ value: l.code, label: l.native }))}
+          inputStyle={{
+            borderRadius: 6,
+            padding: "6px 8px",
+            fontSize: 13,
+            fontFamily: "inherit",
+            cursor: "pointer",
+          }}
+        />
+      </div>
     </div>
   );
 }
