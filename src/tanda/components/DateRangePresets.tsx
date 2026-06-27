@@ -107,37 +107,77 @@ export default function DateRangePresets({
   const merged = React.useMemo(() => mergePresets(presets, customPresets), [presets, customPresets]);
   presets = merged;
 
-  // Dropdown variant — one compact <select> instead of the chip row. The
-  // option whose computed range matches (from, to) is shown as selected.
+  // Custom-dropdown open state + click-outside close (hooks always run).
+  const [open, setOpen] = React.useState(false);
+  const ddRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ddRef.current && !ddRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  // Dropdown variant — a CUSTOM (div-based) dropdown, not a native <select>:
+  // native select option popups render in the OS/generic theme on Windows and
+  // can't be reliably dark-themed, so we render our own app-coloured menu.
   if (variant === "dropdown") {
-    const activeKey =
-      presets.find((p) => {
-        if (p.key === "custom") return false;
-        const c = p.compute(today);
-        return c.from !== "" && c.to !== "" && c.from === from && c.to === to;
-      })?.key ?? "";
+    const active = presets.find((p) => {
+      if (p.key === "custom") return false;
+      const c = p.compute(today);
+      return c.from !== "" && c.to !== "" && c.from === from && c.to === to;
+    });
     return (
-      <select
-        value={activeKey}
-        onChange={(e) => {
-          const p = presets.find((pp) => pp.key === e.target.value);
-          if (!p) return;
-          const c = p.compute(today);
-          // "custom" returns empty strings — same contract as the chips.
-          onChange(c.from, c.to, p);
-        }}
-        style={{ ...dropdownStyle, ...buttonStyle }}
-        aria-label="Date range presets"
-        title="Quick date-range presets"
-        data-testid="date-range-presets-dropdown"
-      >
-        <option value="">Presets…</option>
-        {presets.map((p) => (
-          <option key={p.key} value={p.key}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+      <div ref={ddRef} style={{ position: "relative", display: "inline-block" }}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          style={{ ...dropdownStyle, display: "inline-flex", alignItems: "center", gap: 6, ...buttonStyle }}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          title="Quick date-range presets"
+          data-testid="date-range-presets-dropdown"
+        >
+          <span>{active?.label ?? "Presets…"}</span>
+          <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+        </button>
+        {open && (
+          <div
+            role="listbox"
+            style={{
+              position: "absolute", top: "calc(100% + 4px)", left: 0, minWidth: "100%",
+              background: "#0b1220", border: "1px solid #334155", borderRadius: 8,
+              boxShadow: "0 8px 28px rgba(0,0,0,0.45)", zIndex: 1000, maxHeight: 320,
+              overflowY: "auto", padding: 4,
+            }}
+          >
+            {presets.map((p) => {
+              const c = p.compute(today);
+              const isActive = p.key !== "custom" && c.from !== "" && c.to !== "" && c.from === from && c.to === to;
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  role="option"
+                  aria-selected={isActive}
+                  data-preset-key={p.key}
+                  onClick={() => { onChange(c.from, c.to, p); setOpen(false); }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = isActive ? "#3B82F6" : "#1E293B"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isActive ? "#3B82F6" : "transparent"; }}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left",
+                    background: isActive ? "#3B82F6" : "transparent",
+                    color: isActive ? "white" : "#E2E8F0",
+                    border: 0, borderRadius: 6, padding: "6px 10px",
+                    fontSize: 12, cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     );
   }
 
