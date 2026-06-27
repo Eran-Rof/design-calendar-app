@@ -961,6 +961,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.color_ids;
     return Array.isArray(fromAttr) ? fromAttr.filter((x): x is string => typeof x === "string" && !!x) : [];
   });
+  // Show/hide toggle for the declared-colors editor (a style can carry many
+  // colors — collapsing keeps the modal compact).
+  const [colorsShown, setColorsShown] = useState(true);
   // Declared INSEAMS — the inseam lengths this (bottoms) style is offered in,
   // stored as a string array in attributes.inseams. Drive the matrix inseam rows
   // the same way colors do. Optional — only bottoms set these.
@@ -1194,6 +1197,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const removeColorFromStyle = useCallback((id: string) => {
     setColorIds((prev) => prev.filter((x) => x !== id));
   }, []);
+  // Declared colors sorted alphabetically by name for the columnar display.
+  const sortedColorIds = useMemo(() => {
+    return [...colorIds].sort((a, b) =>
+      (colorNameById.get(a)?.name || a).toLowerCase().localeCompare((colorNameById.get(b)?.name || b).toLowerCase()),
+    );
+  }, [colorIds, colorNameById]);
   // Admin "+ Add new color" — POST to the color master, then select the new
   // (or pre-existing, case-insensitive) color. The endpoint is idempotent and
   // returns the row's id either way so we can attach it to this style.
@@ -1751,35 +1760,56 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               add a brand-new color inline (everyone can pick existing ones). */}
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="Colors">
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                {colorIds.length === 0 && (
-                  <span style={{ fontSize: 12, color: C.textMuted }}>No colors yet — add the colors this style comes in.</span>
+              {/* Show/hide toggle — colors can be numerous; collapse to keep the modal compact. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {colorIds.length} color{colorIds.length === 1 ? "" : "s"}
+                </span>
+                {colorIds.length > 0 && (
+                  <button type="button" onClick={() => setColorsShown((s) => !s)}
+                    style={{ ...btnSecondary, padding: "2px 10px", fontSize: 12 }}>
+                    {colorsShown ? "Hide" : "Show"}
+                  </button>
                 )}
-                {colorIds.map((id) => {
-                  const c = colorNameById.get(id);
-                  return (
-                    <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px 3px 8px" }}>
-                      {c && <ColorSwatch name={c.name} hex={c.hex} size={13} />}
-                      {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
-                      <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
-                    </span>
-                  );
-                })}
               </div>
-              <div style={{ maxWidth: 360 }}>
-                <SearchableSelect
-                  value={null}
-                  onChange={(v) => { if (v) addColorToStyle(v); }}
-                  options={colorPickOptions}
-                  placeholder="Search colors to add…"
-                  onAddNew={isAdmin ? addNewColor : undefined}
-                  addNewLabel={isAdmin ? (q) => `+ Add new color “${q.trim()}” to master` : undefined}
-                />
-              </div>
-              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                These become the color rows in the Sales Order / Purchase Order size matrix.
-                {isAdmin ? " You can add a new color to the master." : " Only admins can add a brand-new color to the master."}
-              </div>
+              {colorsShown && (
+                <>
+                  {colorIds.length === 0 && (
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>No colors yet — add the colors this style comes in.</div>
+                  )}
+                  {/* Alphabetical, flowed top-to-bottom into auto-fit columns. */}
+                  {colorIds.length > 0 && (
+                    <div style={{ columnWidth: 180, columnGap: 16, marginBottom: 8 }}>
+                      {sortedColorIds.map((id) => {
+                        const c = colorNameById.get(id);
+                        return (
+                          <div key={id} style={{ breakInside: "avoid", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, padding: "2px 0" }}>
+                            {c && <ColorSwatch name={c.name} hex={c.hex} size={13} />}
+                            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
+                            </span>
+                            <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ maxWidth: 360 }}>
+                    <SearchableSelect
+                      value={null}
+                      onChange={(v) => { if (v) addColorToStyle(v); }}
+                      options={colorPickOptions}
+                      placeholder="Search colors to add…"
+                      onAddNew={isAdmin ? addNewColor : undefined}
+                      addNewLabel={isAdmin ? (q) => `+ Add new color “${q.trim()}” to master` : undefined}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                    These become the color rows in the Sales Order / Purchase Order size matrix.
+                    {isAdmin ? " You can add a new color to the master." : " Only admins can add a brand-new color to the master."}
+                  </div>
+                </>
+              )}
             </Field>
           </div>
 
