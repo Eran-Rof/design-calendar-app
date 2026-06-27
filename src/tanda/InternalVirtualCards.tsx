@@ -79,16 +79,18 @@ export default function InternalVirtualCards() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>PAN + CVV are AES-256-GCM encrypted; only last4 is ever shown here. Vendors see the full details for 24 hours via a one-time reveal link.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="spent">Spent</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="expired">Expired</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "active", label: "Active" }, { value: "spent", label: "Spent" }, { value: "cancelled", label: "Cancelled" }, { value: "expired", label: "Expired" }, { value: "", label: "All" }]}
+            inputStyle={selectSt}
+          />
           <button onClick={() => setIssueOpen(true)} style={btnPrimary}>+ Issue card</button>
           <ExportButton
             rows={rows.map((c) => ({
@@ -227,11 +229,12 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
               />
             </Row>
             <Row label="Provider">
-              <select value={provider} onChange={(e) => setProvider(e.target.value as "stripe")} style={inp}>
-                <option value="stripe">Stripe</option>
-                <option value="marqeta">Marqeta</option>
-                <option value="railsbank">Railsbank</option>
-              </select>
+              <SearchableSelect
+                value={provider}
+                onChange={(v) => setProvider(v as "stripe")}
+                options={[{ value: "stripe", label: "Stripe" }, { value: "marqeta", label: "Marqeta" }, { value: "railsbank", label: "Railsbank" }]}
+                inputStyle={inp}
+              />
             </Row>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={onClose} style={btnSecondary}>Cancel</button>

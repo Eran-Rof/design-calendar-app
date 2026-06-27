@@ -166,17 +166,20 @@ export default function InternalApprovalRequests() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <select
-          style={{ ...inputStyle, width: 160 }}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as Request["status"])}
-        >
-          <option value="pending">🟡 Pending</option>
-          <option value="approved">🟢 Approved</option>
-          <option value="rejected">🔴 Rejected</option>
-          <option value="cancelled">⚪ Cancelled</option>
-          <option value="expired">⚪ Expired</option>
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as Request["status"])}
+            options={[
+              { value: "pending", label: "🟡 Pending" },
+              { value: "approved", label: "🟢 Approved" },
+              { value: "rejected", label: "🔴 Rejected" },
+              { value: "cancelled", label: "⚪ Cancelled" },
+              { value: "expired", label: "⚪ Expired" },
+            ]}
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           style={{ ...inputStyle, width: 200 }}
           placeholder="Filter by kind"
@@ -343,11 +346,16 @@ function DecideModal({ request, onCancel, onSaved }: {
         </div>
 
         <Field label="Decision">
-          <select style={inputStyle} value={decision} onChange={(e) => setDecision(e.target.value as typeof decision)}>
-            <option value="approve">✓ Approve</option>
-            <option value="reject">✗ Reject (terminal)</option>
-            <option value="request_changes">↻ Request changes (logged, no status change)</option>
-          </select>
+          <SearchableSelect
+            value={decision}
+            onChange={(v) => setDecision(v as typeof decision)}
+            options={[
+              { value: "approve", label: "✓ Approve" },
+              { value: "reject", label: "✗ Reject (terminal)" },
+              { value: "request_changes", label: "↻ Request changes (logged, no status change)" },
+            ]}
+            inputStyle={inputStyle}
+          />
         </Field>
 
         <Field label="Notes (optional)">

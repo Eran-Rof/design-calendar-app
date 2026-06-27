@@ -647,10 +647,12 @@ export default function InternalAllocations() {
                   <input type="text" inputMode="decimal" value={capPct} onChange={(e) => setCapPct(e.target.value)}
                     style={{ ...numCell, width: "5ch" }} title="Cap each order to this % of its open qty" />
                   <span style={{ fontSize: 12, color: C.textMuted }}>% of</span>
-                  <select value={capBasis} onChange={(e) => setCapBasis(e.target.value as "sku" | "style_color")} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
-                    <option value="sku">each SKU line</option>
-                    <option value="style_color">each style/color</option>
-                  </select>
+                  <SearchableSelect value={capBasis} onChange={(v) => setCapBasis(v as "sku" | "style_color")}
+                    options={[
+                      { value: "sku", label: "each SKU line" },
+                      { value: "style_color", label: "each style/color" },
+                    ]}
+                    inputStyle={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }} />
                 </span>
               )}
             </div>
@@ -713,10 +715,12 @@ export default function InternalAllocations() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
               <span style={{ fontSize: 12, color: C.textMuted }}>Within the same tier, prefer the</span>
-              <select value={rulesDraft.tie_break} onChange={(e) => setRulesDraft((p) => ({ ...p, tie_break: e.target.value }))} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }}>
-                <option value="order_date">earliest order date</option>
-                <option value="ship_date">earliest requested ship date</option>
-              </select>
+              <SearchableSelect value={rulesDraft.tie_break} onChange={(v) => setRulesDraft((p) => ({ ...p, tie_break: v }))}
+                options={[
+                  { value: "order_date", label: "earliest order date" },
+                  { value: "ship_date", label: "earliest requested ship date" },
+                ]}
+                inputStyle={{ ...inputStyle, padding: "5px 8px", fontSize: 12 }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
               <button style={{ ...btnSecondary, fontSize: 12 }} disabled={rulesSaving} onClick={() => setRulesDraft({ priority_order: ["factor_approved", "credit_card", "oldest"], tie_break: "order_date" })}>Reset to default</button>

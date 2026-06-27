@@ -1,6 +1,7 @@
 import React from "react";
 import { type XoroPO, STATUS_COLORS, fmtDateDisplay } from "../../utils/tandaTypes";
 import S from "../styles";
+import SearchableSelect from "../components/SearchableSelect";
 
 export interface ArchiveViewProps {
   archivedPos: XoroPO[];
@@ -73,12 +74,18 @@ export function ArchiveView({
       </div>
       <div style={S.filters}>
         <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)} placeholder="🔍 Search PO#, vendor…" style={{ ...S.input, width: 240, marginBottom: 0 }} />
-        <select value={archiveFilterVendor} onChange={e => setArchiveFilterVendor(e.target.value)} style={S.select}>
-          {vendors.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={archiveFilterStatus} onChange={e => setArchiveFilterStatus(e.target.value)} style={S.select}>
-          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <SearchableSelect
+          value={archiveFilterVendor}
+          onChange={v => setArchiveFilterVendor(v)}
+          options={vendors.map(v => ({ value: v, label: v }))}
+          inputStyle={S.select}
+        />
+        <SearchableSelect
+          value={archiveFilterStatus}
+          onChange={v => setArchiveFilterStatus(v)}
+          options={statuses.map(s => ({ value: s, label: s }))}
+          inputStyle={S.select}
+        />
         {filtered.length > 0 && (
           <button onClick={() => {
             setConfirmModal({

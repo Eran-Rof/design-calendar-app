@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
 type Payout = {
@@ -179,25 +180,35 @@ export default function InternalCommissionPayouts() {
       <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Sales rep</label>
-          <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)} style={inputStyle}>
-            <option value="">All reps</option>
-            {reps.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.display_name}{!r.is_active ? " (inactive)" : ""}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={repFilter || null}
+            onChange={(v) => setRepFilter(v)}
+            options={[
+              { value: "", label: "All reps" },
+              ...reps.map((r) => ({
+                value: r.id,
+                label: `${r.display_name}${!r.is_active ? " (inactive)" : ""}`,
+              })),
+            ]}
+            placeholder="All reps"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 280 }}>
           <label style={labelStyle}>Period</label>
-          <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} style={inputStyle}>
-            <option value="">All periods</option>
-            {periods.map((p) => (
-              <option key={p.id} value={p.id}>
-                FY{p.fiscal_year} P{String(p.period_number).padStart(2, "0")} ({p.starts_on} → {p.ends_on})
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={periodFilter || null}
+            onChange={(v) => setPeriodFilter(v)}
+            options={[
+              { value: "", label: "All periods" },
+              ...periods.map((p) => ({
+                value: p.id,
+                label: `FY${p.fiscal_year} P${String(p.period_number).padStart(2, "0")} (${p.starts_on} → ${p.ends_on})`,
+              })),
+            ]}
+            placeholder="All periods"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ display: "flex", alignItems: "flex-end" }}>
           <DateRangePresets variant="dropdown" from={paidFrom} to={paidTo} onChange={(f, t) => { setPaidFrom(f); setPaidTo(t); }} />

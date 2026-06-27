@@ -14,6 +14,7 @@ import { PoMatrixTab } from "./detail/poMatrixTab";
 import { AttachmentsTab } from "./detail/attachmentsTab";
 import { NotesTab } from "./detail/notesTab";
 import { HistoryTab } from "./detail/historyTab";
+import SearchableSelect from "./components/SearchableSelect";
 
 // ── DetailPanelCtx ──────────────────────────────────────────────────────────
 // Strict prop bag passed by TandA.tsx into the detail panel. Replaces the
@@ -252,6 +253,26 @@ const OUTLOOK_BLUE = "#0078D4";
 export { daysUntil, computeMatrixRows, computeCascadeInfo, sortCategoryMilestones } from "./detailHelpers";
 import { daysUntil, computeMatrixRows } from "./detailHelpers";
 
+// Self-contained "Copy from" template picker for the Create-Template modal.
+// Owns its own selection state (the host `detailPanel` is a plain function, not
+// a hook-using component, so it can't hold state itself) and mirrors the choice
+// into the caller-supplied ref so the Create button can read it on click.
+function CopyFromSelect({ vendorList, valueRef }: { vendorList: string[]; valueRef: React.MutableRefObject<string> }) {
+  const [val, setVal] = useState("__default__");
+  valueRef.current = val;
+  return (
+    <SearchableSelect
+      value={val}
+      onChange={v => setVal(v)}
+      options={[
+        { value: "__default__", label: "Default Template" },
+        ...vendorList.map(v => ({ value: v, label: v })),
+      ]}
+      inputStyle={{ ...S.select, width: "100%" }}
+    />
+  );
+}
+
 function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={S.infoCell}>
@@ -280,9 +301,12 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
         </div>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Category</label>
-          <select style={{ ...S.select, width: "100%" }} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-            {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.category}
+            onChange={v => setForm(f => ({ ...f, category: v }))}
+            options={WIP_CATEGORIES.map(c => ({ value: c, label: c }))}
+            inputStyle={{ ...S.select, width: "100%" }}
+          />
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -292,9 +316,12 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
         </div>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Default Status</label>
-          <select style={{ ...S.select, width: "100%" }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-            {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.status}
+            onChange={v => setForm(f => ({ ...f, status: v }))}
+            options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+            inputStyle={{ ...S.select, width: "100%" }}
+          />
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -349,6 +376,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
     // Block detail panel — show create-template modal first
     if (showCreateTpl) {
       const vendorN = showCreateTpl;
+      const copyFromRef: React.MutableRefObject<string> = { current: "__default__" };
       return (
         <div style={S.modalOverlay} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
           <div style={{ ...S.modal, width: 500 }} onClick={e => e.stopPropagation()}>
@@ -362,18 +390,14 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
               </p>
               <div style={{ marginBottom: 16 }}>
                 <label style={S.label}>Copy from</label>
-                <select style={{ ...S.select, width: "100%" }} id="modalCopyFrom">
-                  <option value="__default__">Default Template</option>
-                  {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <CopyFromSelect vendorList={templateVendorList()} valueRef={copyFromRef} />
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
                   Cancel
                 </button>
                 <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
-                  const copyEl = document.getElementById("modalCopyFrom") as HTMLSelectElement;
-                  const copyFrom = copyEl?.value || "__default__";
+                  const copyFrom = copyFromRef.current || "__default__";
                   const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                   const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
                   await saveVendorTemplates(vendorN, newTpls);

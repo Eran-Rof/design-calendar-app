@@ -19,7 +19,8 @@
 //   • SearchableSelect     — payment_terms picker in the modal (list grows
 //                            past the 7-option adoption threshold once finance
 //                            wires the full term catalog).
-//   The status select stays a native <select> (3 fixed options).
+//   The status picker is now a themed SearchableSelect too (3 fixed options)
+//   so its open popup matches the app dark theme on Windows.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -722,9 +723,12 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.status || null}
+              onChange={(v) => setForm({ ...form, status: v })}
+              options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="1099 vendor?">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>

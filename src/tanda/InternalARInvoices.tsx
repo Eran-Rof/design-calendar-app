@@ -392,12 +392,19 @@ export default function InternalARInvoices() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
-          <option value={50}>Limit 50</option>
-          <option value={100}>Limit 100</option>
-          <option value={200}>Limit 200</option>
-          <option value={500}>Limit 500</option>
-        </select>
+        <div style={{ width: 110 }}>
+          <SearchableSelect
+            value={String(limit)}
+            onChange={(v) => setLimit(Number(v))}
+            options={[
+              { value: "50", label: "Limit 50" },
+              { value: "100", label: "Limit 100" },
+              { value: "200", label: "Limit 200" },
+              { value: "500", label: "Limit 500" },
+            ]}
+            inputStyle={inputStyle}
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />
           Include void
@@ -892,10 +899,16 @@ function ARInvoiceModal({
             {/* Row 2: Type (standalone) */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Type">
-                <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="customer_invoice">Invoice</option>
-                  <option value="customer_credit_memo">Credit memo</option>
-                </select>
+                <SearchableSelect
+                  value={kind || null}
+                  onChange={(v) => setKind(v)}
+                  options={[
+                    { value: "customer_invoice", label: "Invoice" },
+                    { value: "customer_credit_memo", label: "Credit memo" },
+                  ]}
+                  disabled={!editable}
+                  inputStyle={inputStyle}
+                />
               </Field>
             </div>
 

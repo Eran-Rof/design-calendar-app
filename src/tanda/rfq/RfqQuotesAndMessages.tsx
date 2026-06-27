@@ -14,6 +14,7 @@
 //   POST /api/internal/rfqs/:id/messages          { body, sender_name }
 
 import { useEffect, useRef, useState } from "react";
+import SearchableSelect from "../components/SearchableSelect";
 
 export interface RfqTheme {
   bg: string;        // page / recessed background
@@ -178,11 +179,18 @@ export function RfqQuotesPanel({
         {showSort && (
           <>
             <div style={{ color: C.textMuted, fontSize: 12 }}>Sort:</div>
-            <select value={effSort} onChange={(e) => onSortChange!(e.target.value as QuoteSortKey)} style={{ padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12 }}>
-              <option value="price">Lowest price</option>
-              <option value="lead_time">Fastest lead time</option>
-              <option value="health">Highest health</option>
-            </select>
+            <div style={{ width: 170 }}>
+              <SearchableSelect
+                value={effSort}
+                onChange={(v) => onSortChange!(v as QuoteSortKey)}
+                options={[
+                  { value: "price", label: "Lowest price" },
+                  { value: "lead_time", label: "Fastest lead time" },
+                  { value: "health", label: "Highest health" },
+                ]}
+                inputStyle={{ padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12 }}
+              />
+            </div>
           </>
         )}
       </div>
@@ -560,15 +568,14 @@ export function RfqVendorThreadPanel({
     <div style={{ marginTop: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>Conversation with:</span>
-        <select
-          value={vendorId}
-          onChange={(e) => setVendorId(e.target.value)}
-          style={{ padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12, fontFamily: "inherit" }}
-        >
-          {vendors.map((v) => (
-            <option key={v.vendor_id} value={v.vendor_id}>{v.vendor_name}</option>
-          ))}
-        </select>
+        <div style={{ minWidth: 220 }}>
+          <SearchableSelect
+            value={vendorId || null}
+            onChange={(v) => setVendorId(v)}
+            options={vendors.map((v) => ({ value: v.vendor_id, label: v.vendor_name }))}
+            inputStyle={{ padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12, fontFamily: "inherit" }}
+          />
+        </div>
       </div>
       {vendorId && (
         <RfqMessageThread key={vendorId} rfqId={rfqId} vendorId={vendorId} theme={C} onPosted={onPosted} />

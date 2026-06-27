@@ -113,9 +113,17 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
           <input style={{ ...input, minWidth: 200 }} placeholder="Provider name *" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           {/* Code is auto-generated (TPL-NNNNN) + immutable — assigned on save. */}
           <span style={{ ...input, width: "12ch", opacity: 0.55, fontFamily: "monospace", display: "flex", alignItems: "center", fontStyle: "italic" }} title="Code is auto-generated (TPL-NNNNN)">auto</span>
-          <select style={input} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
-            <option value="contract_3pl">Contract 3PL</option><option value="fba">FBA</option><option value="wfs">WFS</option><option value="other">Other</option>
-          </select>
+          <SearchableSelect
+            value={f.kind}
+            onChange={(v) => setF({ ...f, kind: v })}
+            inputStyle={input}
+            options={[
+              { value: "contract_3pl", label: "Contract 3PL" },
+              { value: "fba", label: "FBA" },
+              { value: "wfs", label: "WFS" },
+              { value: "other", label: "Other" },
+            ]}
+          />
           <input style={{ ...input, minWidth: 160 }} placeholder="Contact" value={f.contact_name} onChange={(e) => setF({ ...f, contact_name: e.target.value })} />
           <input style={{ ...input, minWidth: 160 }} placeholder="Email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
           <input style={{ ...input, width: "14ch" }} placeholder="Acct #" value={f.account_ref} onChange={(e) => setF({ ...f, account_ref: e.target.value })} />
@@ -192,9 +200,16 @@ function Shipments({ shipments, providers, provName, busy, setBusy, reload }: { 
         <div style={{ background: C.card, border: `1px solid ${C.primary}`, borderRadius: 8, padding: 14, marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
             <div style={{ minWidth: 220 }}><SearchableSelect options={providers.map((p) => ({ value: p.id, label: p.name, searchHaystack: `${p.name} ${p.code || ""}` }))} value={provId} onChange={setProvId} placeholder="3PL provider…" /></div>
-            <select style={input} value={dir} onChange={(e) => setDir(e.target.value)}>
-              <option value="inbound">Inbound (to 3PL)</option><option value="outbound">Outbound (from 3PL)</option><option value="return">Return (back to us)</option>
-            </select>
+            <SearchableSelect
+              value={dir}
+              onChange={(v) => setDir(v)}
+              inputStyle={input}
+              options={[
+                { value: "inbound", label: "Inbound (to 3PL)" },
+                { value: "outbound", label: "Outbound (from 3PL)" },
+                { value: "return", label: "Return (back to us)" },
+              ]}
+            />
             <input style={{ ...input, minWidth: 180 }} placeholder="Reference / ASN" value={ref} onChange={(e) => setRef(e.target.value)} />
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

@@ -2,6 +2,7 @@ import React from "react";
 import { type XoroPO, type Milestone, type View, STATUS_OPTIONS } from "../../utils/tandaTypes";
 import S from "../styles";
 import { PORow } from "../components/PORow";
+import SearchableSelect from "../components/SearchableSelect";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -65,23 +66,34 @@ export function ListView({
       <div style={S.filters}>
         <input style={{ ...S.input, flex: 1, marginBottom: 0 }} placeholder="🔍 Search PO#, vendor, brand, style #, memo…"
           value={search} onChange={e => setSearch(e.target.value)} />
-        <select style={{ ...S.select, width: 160 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-          <option value="All">All PO Statuses</option>
-          {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select style={{ ...S.select, width: 180 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-          {vendors.map(v => <option key={v} value={v}>{v === "All" ? "All Vendors" : v}</option>)}
-        </select>
-        <select
-          style={{ ...S.select, width: 150 }}
-          value={sortBy}
-          onChange={e => setSortBy(e.target.value as "ddp" | "po_date" | "status")}
-          title="Sort by"
-        >
-          <option value="ddp">Sort by DDP date</option>
-          <option value="po_date">Sort by PO date</option>
-          <option value="status">Sort by Status</option>
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={filterStatus}
+            onChange={v => setFilterStatus(v)}
+            options={[{ value: "All", label: "All PO Statuses" }, ...STATUS_OPTIONS.map(s => ({ value: s, label: s }))]}
+            inputStyle={{ ...S.select, width: 160 }}
+          />
+        </div>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={filterVendor}
+            onChange={v => setFilterVendor(v)}
+            options={vendors.map(v => ({ value: v, label: v === "All" ? "All Vendors" : v }))}
+            inputStyle={{ ...S.select, width: 180 }}
+          />
+        </div>
+        <div style={{ width: 150 }} title="Sort by">
+          <SearchableSelect
+            value={sortBy}
+            onChange={v => setSortBy(v as "ddp" | "po_date" | "status")}
+            options={[
+              { value: "ddp", label: "Sort by DDP date" },
+              { value: "po_date", label: "Sort by PO date" },
+              { value: "status", label: "Sort by Status" },
+            ]}
+            inputStyle={{ ...S.select, width: 150 }}
+          />
+        </div>
         <button
           style={{ ...S.btnSecondary, minWidth: 130 }}
           onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}

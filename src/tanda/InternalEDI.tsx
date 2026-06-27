@@ -104,9 +104,12 @@ export default function InternalEDI() {
             <div style={{ background: C.card, border: `1px solid ${C.primary}`, borderRadius: 8, padding: 14, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ minWidth: 220 }}><SearchableSelect options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))} value={vendId} onChange={setVendId} placeholder="Vendor…" /></div>
               <input style={{ ...input, minWidth: 180 }} placeholder="Partner / ISA sender ID *" value={partnerId} onChange={(e) => setPartnerId(e.target.value)} />
-              <select style={input} value={transport} onChange={(e) => setTransport(e.target.value)}>
-                <option value="">Transport…</option><option value="as2">AS2</option><option value="sftp">SFTP</option><option value="van">VAN</option>
-              </select>
+              <SearchableSelect
+                value={transport || null}
+                onChange={(v) => setTransport(v)}
+                options={[{ value: "", label: "Transport…" }, { value: "as2", label: "AS2" }, { value: "sftp", label: "SFTP" }, { value: "van", label: "VAN" }]}
+                inputStyle={input}
+              />
               <button style={btnP} disabled={busy} onClick={enable}>Enable</button>
               <span style={{ color: C.textMuted, fontSize: 12 }}>The engine resolves inbound X12 by matching GS02 to this partner ID.</span>
             </div>
@@ -132,8 +135,8 @@ export default function InternalEDI() {
       ) : (
         <div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
-            <select style={input} value={dir} onChange={(e) => setDir(e.target.value)}><option value="">All directions</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
-            <select style={input} value={txn} onChange={(e) => setTxn(e.target.value)}><option value="">All documents</option>{Object.entries(TXN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            <SearchableSelect value={dir || null} onChange={(v) => setDir(v)} options={[{ value: "", label: "All directions" }, { value: "inbound", label: "Inbound" }, { value: "outbound", label: "Outbound" }]} inputStyle={input} />
+            <SearchableSelect value={txn || null} onChange={(v) => setTxn(v)} options={[{ value: "", label: "All documents" }, ...Object.entries(TXN_LABEL).map(([k, v]) => ({ value: k, label: v }))]} inputStyle={input} />
             <span style={{ color: C.textMuted, fontSize: 12, marginLeft: "auto" }}>{messages.length} message{messages.length === 1 ? "" : "s"}</span>
           </div>
           <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
