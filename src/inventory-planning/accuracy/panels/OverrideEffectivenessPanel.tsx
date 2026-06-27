@@ -7,6 +7,7 @@ import type { IpOverrideEffectiveness } from "../types/accuracy";
 import { aggregateOverrideEffectiveness } from "../compute/accuracyMetrics";
 import { S, PAL, formatQty } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.override_effectiveness";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -40,11 +41,16 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
   return (
     <div>
       <div style={S.toolbar}>
-        <select style={S.select} value={lane} onChange={(e) => setLane(e.target.value as "all" | "wholesale" | "ecom")}>
-          <option value="all">Both lanes</option>
-          <option value="wholesale">Wholesale</option>
-          <option value="ecom">Ecom</option>
-        </select>
+        <SearchableSelect
+          value={lane}
+          onChange={(v) => setLane(v as "all" | "wholesale" | "ecom")}
+          options={[
+            { value: "all", label: "Both lanes" },
+            { value: "wholesale", label: "Wholesale" },
+            { value: "ecom", label: "Ecom" },
+          ]}
+          inputStyle={S.select}
+        />
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           {filtered.length} override rows scored.
         </span>

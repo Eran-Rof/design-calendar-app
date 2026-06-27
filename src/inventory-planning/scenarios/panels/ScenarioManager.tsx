@@ -48,6 +48,7 @@ import ScenarioAssumptionsPanel from "./ScenarioAssumptionsPanel";
 import ScenarioComparisonView from "./ScenarioComparisonView";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const SCENARIO_LIST_TABLE_KEY = "ip.scenario_manager";
 const SCENARIO_LIST_COLUMNS: ColumnDef[] = [
@@ -332,12 +333,13 @@ export default function ScenarioManager() {
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Scenario</strong>
-            <select style={S.select} value={selectedId ?? ""} onChange={(e) => setSelectedId(e.target.value)}>
-              <option value="">— pick —</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>{s.scenario_name} · {s.scenario_type} · {s.status}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              inputStyle={S.select}
+              value={selectedId}
+              onChange={(v) => setSelectedId(v)}
+              placeholder="— pick —"
+              options={scenarios.map((s) => ({ value: s.id, label: `${s.scenario_name} · ${s.scenario_type} · ${s.status}` }))}
+            />
             <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New scenario</button>
             {selected && (
               <>
@@ -619,12 +621,13 @@ function NewScenarioModal({
           <div style={{ display: "grid", gap: 10 }}>
             <div>
               <label style={S.label}>Base planning run</label>
-              <select style={{ ...S.select, width: "100%" }} value={baseRunId} onChange={(e) => setBaseRunId(e.target.value)}>
-                <option value="">— pick —</option>
-                {runs.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                inputStyle={{ ...S.select, width: "100%" }}
+                value={baseRunId || null}
+                onChange={(v) => setBaseRunId(v)}
+                placeholder="— pick —"
+                options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))}
+              />
             </div>
             <div>
               <label style={S.label}>Scenario name</label>
@@ -632,11 +635,12 @@ function NewScenarioModal({
             </div>
             <div>
               <label style={S.label}>Type</label>
-              <select style={{ ...S.select, width: "100%" }} value={type} onChange={(e) => setType(e.target.value as IpScenarioType)}>
-                {(["what_if", "stretch", "conservative", "promo", "supply_delay", "override_review"] as const).map((t) => (
-                  <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                inputStyle={{ ...S.select, width: "100%" }}
+                value={type}
+                onChange={(v) => setType(v as IpScenarioType)}
+                options={(["what_if", "stretch", "conservative", "promo", "supply_delay", "override_review"] as const).map((t) => ({ value: t, label: t.replace(/_/g, " ") }))}
+              />
             </div>
             <div>
               <label style={S.label}>Note</label>

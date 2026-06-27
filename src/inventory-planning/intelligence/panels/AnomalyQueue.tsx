@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { IpPlanningAnomaly } from "../types/intelligence";
 import { S, PAL, formatPeriodCode } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.anomaly_queue";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -90,10 +91,15 @@ export default function AnomalyQueue({ anomalies, skuCodeById }: AnomalyQueuePro
         </div>
       </div>
       <div style={S.toolbar}>
-        <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => <option key={t} value={t}>{ANOMALY_LABEL[t] ?? t}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterType}
+          onChange={(v) => setFilterType(v)}
+          options={[
+            { value: "all", label: "All types" },
+            ...types.map((t) => ({ value: t, label: ANOMALY_LABEL[t] ?? t })),
+          ]}
+          inputStyle={S.select}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, color: PAL.textDim, fontSize: 13 }}>
           <input type="checkbox" checked={criticalOnly} onChange={(e) => setCriticalOnly(e.target.checked)} />
           Critical only

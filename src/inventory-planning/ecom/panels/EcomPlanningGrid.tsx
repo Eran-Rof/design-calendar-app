@@ -7,6 +7,7 @@ import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.ecom_planning_grid";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -112,29 +113,25 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 220 }} placeholder="Search channel or SKU"
                value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)}>
-          <option value="all">All channels</option>
-          {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterActive} onChange={(e) => setFilterActive(e.target.value as "all" | "active" | "inactive")}>
-          <option value="active">Active only</option>
-          <option value="all">Active + inactive</option>
-          <option value="inactive">Inactive only</option>
-        </select>
-        <select style={S.select} value={filterLaunch} onChange={(e) => setFilterLaunch(e.target.value as "all" | "launch" | "not")}>
-          <option value="all">Launch: any</option>
-          <option value="launch">Launching</option>
-          <option value="not">Not launching</option>
-        </select>
-        <select style={S.select} value={filterPromo} onChange={(e) => setFilterPromo(e.target.value as "all" | "promo" | "not")}>
-          <option value="all">Promo: any</option>
-          <option value="promo">Promo weeks</option>
-          <option value="not">No promo</option>
-        </select>
+        <SearchableSelect value={filterChannel} onChange={(v) => setFilterChannel(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All channels" }, ...channels.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterCategory} onChange={(v) => setFilterCategory(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterActive} onChange={(v) => setFilterActive(v as "all" | "active" | "inactive")} inputStyle={S.select} options={[
+          { value: "active", label: "Active only" },
+          { value: "all", label: "Active + inactive" },
+          { value: "inactive", label: "Inactive only" },
+        ]} />
+        <SearchableSelect value={filterLaunch} onChange={(v) => setFilterLaunch(v as "all" | "launch" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Launch: any" },
+          { value: "launch", label: "Launching" },
+          { value: "not", label: "Not launching" },
+        ]} />
+        <SearchableSelect value={filterPromo} onChange={(v) => setFilterPromo(v as "all" | "promo" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Promo: any" },
+          { value: "promo", label: "Promo weeks" },
+          { value: "not", label: "No promo" },
+        ]} />
         <button style={S.btnSecondary} onClick={() => {
           setSearch(""); setFilterChannel("all"); setFilterCategory("all");
           setFilterActive("active"); setFilterLaunch("all"); setFilterPromo("all");

@@ -7,6 +7,7 @@ import type { IpDataQualityIssue, IpDataQualityReport, IpDqSeverity } from "../t
 import { scanDataQuality } from "../services/dataQuality";
 import { loadPlanningSnapshot } from "../services/planningClient";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.data_quality";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -104,13 +105,20 @@ export default function DataQualityReport() {
                 onClick={() => setFilterSeverity(filterSeverity === sev ? "all" : sev)}
               />
             ))}
-            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
-                    style={{ padding: 6 }}>
-              <option value="all">All categories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>{c} ({report.issue_count_by_category[c as keyof typeof report.issue_count_by_category] ?? 0})</option>
-              ))}
-            </select>
+            <div style={{ minWidth: 200 }}>
+              <SearchableSelect
+                value={filterCategory}
+                onChange={(v) => setFilterCategory(v)}
+                inputStyle={{ padding: 6 }}
+                options={[
+                  { value: "all", label: "All categories" },
+                  ...categories.map((c) => ({
+                    value: c,
+                    label: `${c} (${report.issue_count_by_category[c as keyof typeof report.issue_count_by_category] ?? 0})`,
+                  })),
+                ]}
+              />
+            </div>
             <div style={{ marginLeft: "auto" }}>
               <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
                                 onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />

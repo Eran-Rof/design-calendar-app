@@ -5,6 +5,7 @@ import type { ScenarioComparisonRow, ScenarioComparisonTotals } from "../types/s
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.scenario_comparison";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -90,10 +91,12 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 240 }} placeholder="Search SKU"
                value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterCategory}
+          onChange={(v) => setFilterCategory(v)}
+          options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, color: PAL.textDim, fontSize: 13 }}>
           <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
           Changed only

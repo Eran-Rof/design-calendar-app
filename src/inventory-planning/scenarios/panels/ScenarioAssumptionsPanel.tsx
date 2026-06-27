@@ -14,6 +14,7 @@ import { S, PAL } from "../../components/styles";
 import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.scenario_assumptions";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -145,9 +146,8 @@ export default function ScenarioAssumptionsPanel({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
             <div>
               <label style={S.label}>Type</label>
-              <select style={{ ...S.select, width: "100%" }} value={type} onChange={(e) => setType(e.target.value as IpAssumptionType)}>
-                {TYPES.map((t) => <option key={t.key} value={t.key}>{t.key.replace(/_/g, " ")}</option>)}
-              </select>
+              <SearchableSelect value={type} onChange={(v) => setType(v as IpAssumptionType)} inputStyle={{ ...S.select, width: "100%" }}
+                options={TYPES.map((t) => ({ value: t.key, label: t.key.replace(/_/g, " ") }))} />
             </div>
             <div>
               <label style={S.label}>Value ({selectedUnit})</label>
@@ -158,31 +158,23 @@ export default function ScenarioAssumptionsPanel({
             </div>
             <div>
               <label style={S.label}>SKU scope (optional)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeSku} onChange={(e) => setScopeSku(e.target.value)}>
-                <option value="">— all —</option>
-                {items.slice(0, 500).map((i) => <option key={i.id} value={i.id}>{i.sku_code}</option>)}
-              </select>
+              <SearchableSelect value={scopeSku || null} onChange={(v) => setScopeSku(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...items.slice(0, 500).map((i) => ({ value: i.id, label: i.sku_code }))]} />
             </div>
             <div>
               <label style={S.label}>Category scope (optional)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeCategory} onChange={(e) => setScopeCategory(e.target.value)}>
-                <option value="">— all —</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeCategory || null} onChange={(v) => setScopeCategory(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div>
               <label style={S.label}>Customer (wholesale)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeCustomer} onChange={(e) => setScopeCustomer(e.target.value)}>
-                <option value="">— all —</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeCustomer || null} onChange={(v) => setScopeCustomer(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...customers.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div>
               <label style={S.label}>Channel (ecom)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeChannel} onChange={(e) => setScopeChannel(e.target.value)}>
-                <option value="">— all —</option>
-                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeChannel || null} onChange={(v) => setScopeChannel(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...channels.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div style={{ gridColumn: "1 / 3" }}>
               <label style={S.label}>Note</label>
