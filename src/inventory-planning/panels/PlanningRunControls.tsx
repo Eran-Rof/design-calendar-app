@@ -14,6 +14,7 @@ import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } fro
 import type { IpScenario } from "../scenarios/types/scenarios";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { confirmDialog } from "../../shared/ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -324,21 +325,26 @@ export default function PlanningRunControls({
           </span>
         )}
         {!collapsed && (<>
-        <select style={S.select}
-                value={selectedRunId ?? ""}
-                onChange={(e) => onSelect(e.target.value)}>
-          <option value="">— pick —</option>
-          {/* Filter out saved-build runs from the main dropdown — they
-              live in their own selector below so the working-run list
-              stays focused on live planning runs. */}
-          {runs
-            .filter((r) => !savedBuilds.some((s) => s.planning_run_id === r.id))
-            .map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
-              </option>
-            ))}
-        </select>
+        {/* Filter out saved-build runs from the main dropdown — they
+            live in their own selector below so the working-run list
+            stays focused on live planning runs. */}
+        <div style={{ minWidth: 260 }}>
+          <SearchableSelect
+            value={selectedRunId ?? ""}
+            onChange={(v) => onSelect(v)}
+            inputStyle={S.select}
+            placeholder="— pick —"
+            options={[
+              { value: "", label: "— pick —" },
+              ...runs
+                .filter((r) => !savedBuilds.some((s) => s.planning_run_id === r.id))
+                .map((r) => ({
+                  value: r.id,
+                  label: `${r.name} · ${r.status} · ${formatDate(r.horizon_start)}–${formatDate(r.horizon_end)}`,
+                })),
+            ]}
+          />
+        </div>
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
         {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
           <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
@@ -416,19 +422,19 @@ export default function PlanningRunControls({
             through a separate page. Selecting a saved build switches
             the active run to its underlying planning_run_id. */}
         <span style={{ color: PAL.textDim, fontSize: 12, marginLeft: 8 }}>Saved builds:</span>
-        <select
-          style={{ ...S.select, minWidth: 220 }}
+        <SearchableSelect
           value={selectedSavedBuild?.planning_run_id ?? ""}
-          onChange={(e) => onLoadSavedBuild(e.target.value)}
+          onChange={(v) => onLoadSavedBuild(v)}
           disabled={savedBuildsLoading}
-        >
-          <option value="">{savedBuildsLoading ? "Loading…" : (savedBuilds.length === 0 ? "— none yet —" : "— pick —")}</option>
-          {savedBuilds.map((s) => (
-            <option key={s.id} value={s.planning_run_id}>
-              {s.scenario_name} · {formatDate(s.created_at.slice(0, 10))}
-            </option>
-          ))}
-        </select>
+          inputStyle={{ ...S.select, minWidth: 220 }}
+          options={[
+            { value: "", label: savedBuildsLoading ? "Loading…" : (savedBuilds.length === 0 ? "— none yet —" : "— pick —") },
+            ...savedBuilds.map((s) => ({
+              value: s.planning_run_id,
+              label: `${s.scenario_name} · ${formatDate(s.created_at.slice(0, 10))}`,
+            })),
+          ]}
+        />
         {selectedSavedBuild && (
           <button
             style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}

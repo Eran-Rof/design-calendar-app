@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import type { IpSupplyException } from "../types/supply";
 import { S, PAL, formatPeriodCode } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.supply_exception";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -87,10 +88,12 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
         </div>
       </div>
       <div style={S.toolbar}>
-        <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => <option key={t} value={t}>{EXCEPTION_LABEL[t] ?? t}</option>)}
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterType}
+          onChange={(v) => setFilterType(v)}
+          options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: EXCEPTION_LABEL[t] ?? t }))]}
+        />
         <div style={{ marginLeft: "auto" }}>
           <TablePrefsButton
             tableKey={TABLE_KEY}

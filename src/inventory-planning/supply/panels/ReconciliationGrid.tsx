@@ -12,6 +12,7 @@ import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { MultiSelectDropdown } from "../../components/MultiSelectDropdown";
 import { ColumnsButton } from "../../components/cells/ColumnsButton";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 export interface ReconciliationGridProps {
   rows: IpReconciliationGridRow[];
@@ -336,11 +337,16 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
           placeholder="Search priorities…"
           options={priorities.map((p) => ({ value: p, label: p }))}
         />
-        <select style={S.select} value={filterStockout} onChange={(e) => setFilterStockout(e.target.value as "all" | "stockout" | "ok")}>
-          <option value="all">Stockout: any</option>
-          <option value="stockout">Projected stockouts</option>
-          <option value="ok">Covered</option>
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterStockout}
+          onChange={(v) => setFilterStockout(v as "all" | "stockout" | "ok")}
+          options={[
+            { value: "all", label: "Stockout: any" },
+            { value: "stockout", label: "Projected stockouts" },
+            { value: "ok", label: "Covered" },
+          ]}
+        />
         <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
           setSearch("");
           setFilterCategory([]); setFilterSubCat([]); setFilterStyle([]); setFilterGender([]);
@@ -489,9 +495,12 @@ export default function ReconciliationGrid({ rows, loading, onSelectRow }: Recon
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span>Rows per page:</span>
-              <select style={S.select} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-                {[100, 250, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
+              <SearchableSelect
+                inputStyle={S.select}
+                value={String(pageSize)}
+                onChange={(v) => setPageSize(Number(v))}
+                options={[100, 250, 500, 1000, 2000].map((n) => ({ value: String(n), label: String(n) }))}
+              />
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage(0)}>« First</button>
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</button>
               <span>Page {page + 1} / {Math.max(1, Math.ceil(displayRows.length / pageSize))}</span>

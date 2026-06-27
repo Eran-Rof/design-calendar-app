@@ -10,6 +10,7 @@ import type {
 } from "../types/wholesale";
 import { S, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, PAL, formatQty, formatDate, formatDateTime, formatPeriodCode } from "./styles";
 import { MiniCell } from "./MiniCell";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { accuracyRepo } from "../accuracy/services/accuracyRepo";
 import type { IpForecastAccuracy, IpForecastActual } from "../accuracy/types/accuracy";
 import type { IpAiSuggestion, IpPlanningAnomaly } from "../intelligence/types/intelligence";
@@ -279,11 +280,12 @@ export default function ForecastDetailDrawer({
             </div>
             <div>
               <label style={S.label}>Reason</label>
-              <select style={{ ...S.select, width: "100%" }}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value as IpOverrideReasonCode)}>
-                {REASON_CODES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <SearchableSelect
+                value={reason}
+                onChange={(v) => setReason(v as IpOverrideReasonCode)}
+                inputStyle={{ ...S.select, width: "100%" }}
+                options={REASON_CODES.map((r) => ({ value: r, label: r }))}
+              />
             </div>
             <div style={{ gridColumn: "1 / 3" }}>
               <label style={S.label}>Note (optional)</label>

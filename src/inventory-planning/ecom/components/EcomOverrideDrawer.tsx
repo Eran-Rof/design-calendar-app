@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { IpEcomGridRow, IpEcomOverrideEvent, IpEcomOverrideReason } from "../types/ecom";
 import { S, PAL, formatDate, formatDateTime, formatQty } from "../../components/styles";
 import { MiniCell } from "../../components/MiniCell";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const REASON_CODES: IpEcomOverrideReason[] = [
   "promotion", "campaign", "content_push", "influencer",
@@ -178,10 +179,12 @@ export default function EcomOverrideDrawer({ row, overrides, onClose, onSaveOver
             </div>
             <div>
               <label style={S.label}>Reason</label>
-              <select style={{ ...S.select, width: "100%" }} value={reason}
-                      onChange={(e) => setReason(e.target.value as IpEcomOverrideReason)}>
-                {REASON_CODES.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
-              </select>
+              <SearchableSelect
+                value={reason}
+                onChange={(v) => setReason(v as IpEcomOverrideReason)}
+                options={REASON_CODES.map((r) => ({ value: r, label: r.replace(/_/g, " ") }))}
+                inputStyle={{ ...S.select, width: "100%" }}
+              />
             </div>
             <div style={{ gridColumn: "1 / 3" }}>
               <label style={S.label}>Note (optional)</label>

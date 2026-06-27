@@ -46,6 +46,7 @@ import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { can } from "../../governance/services/permissionService";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const STATUS_COLOR: Record<string, string> = {
   pending:   "#94A3B8",
@@ -497,15 +498,17 @@ export default function ExecutionBatchDetail({
                       {a.approved_qty == null ? "click to set" : formatQty(a.approved_qty)}
                     </td>
                     <td style={S.td}>
-                      <select disabled={locked} style={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
-                              value={a.execution_method}
-                              onChange={(e) => changeMethod(a, e.target.value as IpExecutionMethod)}>
-                        <option value="export_only">export_only</option>
-                        <option value="manual_erp_entry">manual_erp_entry</option>
-                        <option value="api_writeback" disabled={!apiAllowed}>
-                          api_writeback {apiAllowed ? "" : "(disabled)"}
-                        </option>
-                      </select>
+                      <SearchableSelect
+                        disabled={locked}
+                        value={a.execution_method}
+                        onChange={(v) => changeMethod(a, v as IpExecutionMethod)}
+                        options={[
+                          { value: "export_only", label: "export_only" },
+                          { value: "manual_erp_entry", label: "manual_erp_entry" },
+                          { value: "api_writeback", label: `api_writeback ${apiAllowed ? "" : "(disabled)"}`, disabled: !apiAllowed },
+                        ]}
+                        inputStyle={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
+                      />
                     </td>
                     <td style={S.td}>
                       <span style={{ ...S.chip, background: (STATUS_COLOR[a.execution_status] ?? PAL.textMuted) + "33", color: STATUS_COLOR[a.execution_status] ?? PAL.textMuted }}>
