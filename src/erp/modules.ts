@@ -31,6 +31,7 @@ export type ModuleKey =
   | "adjustment_type_master"
   | "adjustment_reason_master"
   | "transfer_reason_master"
+  | "date_preset_master"
   | "warehouse_master"
   | "carrier_master"
   | "buyer_scope_master"
@@ -246,6 +247,7 @@ export const MODULES: ModuleDef[] = [
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
+  { key: "date_preset_master",   label: "Date Presets Master",       emoji: "📅", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
   { key: "carrier_master",      label: "Carrier Master",            emoji: "🚚", group: "Master Data" },
   { key: "buyer_scope_master",  label: "Buyer Scope Master",        emoji: "🛒", group: "Master Data" },

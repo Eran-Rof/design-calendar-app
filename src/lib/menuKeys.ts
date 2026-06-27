@@ -180,6 +180,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/master/adjustment-types", label: "Adjustment Types Master", app: "tanda", route: "/tangerine?m=adjustment_type_master", group: "Master Data", icon: "⚙️" },
   { key: "tanda/master/adjustment-reasons", label: "Adjustment Reason Master", app: "tanda", route: "/tangerine?m=adjustment_reason_master", group: "Master Data", icon: "📋" },
   { key: "tanda/master/transfer-reasons", label: "Transfer Reasons Master", app: "tanda", route: "/tangerine?m=transfer_reason_master", group: "Master Data", icon: "🔁" },
+  { key: "tanda/master/date-presets", label: "Date Presets Master", app: "tanda", route: "/tangerine?m=date_preset_master", group: "Master Data", icon: "📅" },
   { key: "tanda/master/warehouses",    label: "Warehouses Master",         app: "tanda", route: "/tangerine?m=warehouse_master",  group: "Master Data", icon: "🏬" },
   { key: "tanda/master/hts-master",   label: "HTS Master",                app: "tanda", route: "/tangerine?m=hts_master",        group: "Master Data", icon: "🛃" },
   { key: "tanda/master/fabric-mills", label: "Fabric Mill Master",        app: "tanda", route: "/tangerine?m=fabric_mill_master", group: "Master Data", icon: "🏭" },

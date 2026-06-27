@@ -148,6 +148,26 @@ Match the existing project structure exactly. If the project uses:
 
 ---
 
+## Date pickers
+
+**NON-NEGOTIABLE — every date-RANGE picker offers quick presets.** When you add
+or touch a from/to date-range filter anywhere in any app, add the drop-in
+`<DateRangePresets from={..} to={..} onChange={(f,t)=>...} variant="dropdown" />`
+(`src/tanda/components/DateRangePresets.tsx`) if it doesn't already have one.
+
+- Built-in presets (MTD, YTD, Last 30/60/90d, This/Last month/quarter/year, …)
+  live in `src/tanda/components/dateRangeMath.ts` (`DEFAULT_PRESETS`). Add new
+  built-ins there.
+- The selector auto-loads the operator's **additional** presets from the
+  **Date Presets master** (`/api/internal/date-presets`, Tangerine module
+  `date_preset_master`) and merges them in — so existing pickers pick up custom
+  presets automatically. Master presets are relative expressions (`kind` + `n`),
+  recomputed against "today" via `computeForKind()` — never stored absolute ranges.
+- Single-date FORM fields (invoice date, due date, ship date) are exempt —
+  presets apply to date-range FILTERS only.
+
+---
+
 ## Notifications
 
 Notification events and their channels (add new ones following this pattern):

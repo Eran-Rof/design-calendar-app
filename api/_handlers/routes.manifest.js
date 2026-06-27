@@ -390,6 +390,8 @@ export default [
   ["/api/internal/adjustment-reasons"                        , "./internal/adjustment-reasons/index.js"],
   ["/api/internal/adjustment-types/:id"                      , "./internal/adjustment-types/[id].js"],
   ["/api/internal/adjustment-types"                          , "./internal/adjustment-types/index.js"],
+  ["/api/internal/date-presets/:id"                          , "./internal/date-presets/[id].js"],
+  ["/api/internal/date-presets"                              , "./internal/date-presets/index.js"],
   ["/api/internal/transfer-reasons/:id"                      , "./internal/transfer-reasons/[id].js"],
   ["/api/internal/transfer-reasons"                          , "./internal/transfer-reasons/index.js"],
   ["/api/internal/warehouses/:id"                            , "./internal/warehouses/[id].js"],
