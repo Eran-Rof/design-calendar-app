@@ -230,8 +230,11 @@ describe("<InternalShopifyRefunds /> — filters + query construction", () => {
 
     await waitFor(() => expect(state.refundCalls.length).toBeGreaterThan(0));
 
-    const select = screen.getAllByRole("combobox")[0]; // first select = type filter
-    fireEvent.change(select, { target: { value: "partial" } });
+    // Themed SearchableSelect (combobox): open it and click the "Partial" option.
+    const combo = screen.getAllByRole("combobox")[0]; // first combobox = type filter
+    fireEvent.focus(combo.querySelector("input")!);
+    // SearchableSelect commits on mousedown (beats the input's blur/close).
+    fireEvent.mouseDown(within(screen.getByRole("listbox")).getByRole("option", { name: "Partial" }));
 
     await waitFor(() => {
       const last = state.refundCalls[state.refundCalls.length - 1];

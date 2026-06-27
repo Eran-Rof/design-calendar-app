@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -111,9 +112,12 @@ export default function InternalScf() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Programs, utilization, and vendor finance requests.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            inputStyle={selectSt}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New program</button>
         </div>
       </div>
@@ -150,14 +154,19 @@ export default function InternalScf() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Requests</h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="requested">Pending approval</option>
-            <option value="approved">Approved (needs funding)</option>
-            <option value="funded">Funded</option>
-            <option value="repaid">Repaid</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v)}
+            inputStyle={selectSt}
+            options={[
+              { value: "requested", label: "Pending approval" },
+              { value: "approved", label: "Approved (needs funding)" },
+              { value: "funded", label: "Funded" },
+              { value: "repaid", label: "Repaid" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+          />
           <ExportButton
             rows={requests as unknown as Array<Record<string, unknown>>}
             filename="scf-requests"

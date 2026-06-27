@@ -5,6 +5,7 @@ import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
 import { S } from "../utils/styles";
 import { showFileViewer } from "../utils/fileViewer";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 // Internal-only compliance document review tab. Reads all documents via
 // the anon key (RLS anon-permissive), approves/rejects with notes.
@@ -135,20 +136,36 @@ export default function ComplianceReview() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}>
-            <option value="">All statuses</option>
-            <option value="pending_review">Pending review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="expired">Expired</option>
-            <option value="superseded">Superseded</option>
-          </select>
-          <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}>
-            <option value="">All vendors</option>
-            {Object.entries(vendors).sort(([, a], [, b]) => a.localeCompare(b)).map(([id, name]) => (
-              <option key={id} value={id}>{name}</option>
-            ))}
-          </select>
+          <div style={{ flex: "0 1 180px", minWidth: 140 }}>
+            <SearchableSelect
+              value={statusFilter || null}
+              onChange={(v) => setStatusFilter(v)}
+              options={[
+                { value: "", label: "All statuses" },
+                { value: "pending_review", label: "Pending review" },
+                { value: "approved", label: "Approved" },
+                { value: "rejected", label: "Rejected" },
+                { value: "expired", label: "Expired" },
+                { value: "superseded", label: "Superseded" },
+              ]}
+              placeholder="All statuses"
+              inputStyle={{ ...S.inp, marginBottom: 0 }}
+            />
+          </div>
+          <div style={{ flex: "0 1 220px", minWidth: 160 }}>
+            <SearchableSelect
+              value={vendorFilter || null}
+              onChange={(v) => setVendorFilter(v)}
+              options={[
+                { value: "", label: "All vendors" },
+                ...Object.entries(vendors)
+                  .sort(([, a], [, b]) => a.localeCompare(b))
+                  .map(([id, name]) => ({ value: id, label: name })),
+              ]}
+              placeholder="All vendors"
+              inputStyle={{ ...S.inp, marginBottom: 0 }}
+            />
+          </div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginLeft: "auto" }}>{visible.length} of {docs.length}</div>
         </div>
       </div>

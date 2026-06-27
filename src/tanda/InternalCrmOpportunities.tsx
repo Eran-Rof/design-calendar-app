@@ -435,14 +435,16 @@ function Select({ label, value, onChange, options, placeholder }: {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        <option value="">{placeholder || "All"}</option>
-        {options.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
-      </select>
+      <SearchableSelect
+        value={value || null}
+        onChange={(v) => onChange(v)}
+        options={[
+          { value: "", label: placeholder || "All" },
+          ...options.map((o) => ({ value: o, label: o.replace("_", " ") })),
+        ]}
+        placeholder={placeholder || "All"}
+        inputStyle={inputStyle}
+      />
     </div>
   );
 }
@@ -735,16 +737,16 @@ function OpportunityDetailModal({ id, onClose, customers }: {
           </h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 12, alignItems: "end" }}>
             <Field label="New stage">
-              <select
+              <SearchableSelect
                 value={pendingStage}
-                onChange={(e) => setPendingStage(e.target.value as Stage | "")}
-                style={inputStyle}
-              >
-                <option value="">— select —</option>
-                {STAGE_VALUES.filter((s) => s !== data.stage).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+                onChange={(v) => setPendingStage(v as Stage | "")}
+                options={[
+                  { value: "", label: "— select —" },
+                  ...STAGE_VALUES.filter((s) => s !== data.stage).map((s) => ({ value: s, label: s })),
+                ]}
+                placeholder="— select —"
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Reason (optional)">
               <input
@@ -915,9 +917,12 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
           />
         </Field>
         <Field label="Stage">
-          <select value={stage} onChange={(e) => setStage(e.target.value as Stage)} style={inputStyle}>
-            {STAGE_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={stage}
+            onChange={(v) => setStage(v as Stage)}
+            options={STAGE_VALUES.map((s) => ({ value: s, label: s }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Owner">
           <SearchableSelect

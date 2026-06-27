@@ -11,6 +11,7 @@
 // panel is for admin troubleshooting only.
 
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -162,20 +163,30 @@ export default function InternalScannerSessions() {
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
         <label style={{ color: C.textSub, fontSize: 12 }}>Status</label>
-        <select style={inputStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">(any)</option>
-          <option value="open">open</option>
-          <option value="submitted">submitted</option>
-          <option value="cancelled">cancelled</option>
-        </select>
+        <SearchableSelect
+          inputStyle={inputStyle}
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v)}
+          options={[
+            { value: "", label: "(any)" },
+            { value: "open", label: "open" },
+            { value: "submitted", label: "submitted" },
+            { value: "cancelled", label: "cancelled" },
+          ]}
+        />
         <label style={{ color: C.textSub, fontSize: 12 }}>Mode</label>
-        <select style={inputStyle} value={modeFilter} onChange={(e) => setModeFilter(e.target.value)}>
-          <option value="">(any)</option>
-          <option value="receive">receive</option>
-          <option value="pick">pick</option>
-          <option value="transfer">transfer</option>
-          <option value="count">count</option>
-        </select>
+        <SearchableSelect
+          inputStyle={inputStyle}
+          value={modeFilter}
+          onChange={(v) => setModeFilter(v)}
+          options={[
+            { value: "", label: "(any)" },
+            { value: "receive", label: "receive" },
+            { value: "pick", label: "pick" },
+            { value: "transfer", label: "transfer" },
+            { value: "count", label: "count" },
+          ]}
+        />
         <button style={{ ...btnSecondary, marginLeft: "auto" }} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SCANNER_SESSIONS_TABLE_KEY}

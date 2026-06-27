@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -97,9 +98,12 @@ export default function InternalComplianceAutomation() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Auto-request renewals and escalate stalled docs. Runs daily at 13:00 UTC.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
           <button onClick={() => void runNow()} style={btnSecondary}>Run now</button>
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
@@ -203,16 +207,24 @@ function CreateRuleModal({ entityId, types, onClose, onCreated }: { entityId: st
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: "min(520px, 95vw)" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New automation rule</h3>
         <Row label="Document type">
-          <select value={docTypeId} onChange={(e) => setDocTypeId(e.target.value)} style={inp}>
-            {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={docTypeId || null}
+            onChange={(v) => setDocTypeId(v)}
+            options={types.map((t) => ({ value: t.id, label: t.name }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Trigger type">
-          <select value={trigger} onChange={(e) => setTrigger(e.target.value as "expiry_approaching")} style={inp}>
-            <option value="expiry_approaching">Expiry approaching</option>
-            <option value="status_change">Status change</option>
-            <option value="periodic_review">Periodic review</option>
-          </select>
+          <SearchableSelect
+            value={trigger}
+            onChange={(v) => setTrigger(v as "expiry_approaching")}
+            options={[
+              { value: "expiry_approaching", label: "Expiry approaching" },
+              { value: "status_change", label: "Status change" },
+              { value: "periodic_review", label: "Periodic review" },
+            ]}
+            inputStyle={inp}
+          />
         </Row>
         {trigger === "expiry_approaching" && (
           <Row label="Days before expiry"><input type="number" value={daysBefore} onChange={(e) => setDaysBefore(e.target.value)} style={inp} /></Row>

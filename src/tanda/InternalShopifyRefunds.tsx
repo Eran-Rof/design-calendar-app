@@ -19,6 +19,7 @@
 //   - <ExportButton> (T3/T8) — xlsx-only export of the visible rows
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -188,15 +189,16 @@ export default function InternalShopifyRefunds() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <select
+        <SearchableSelect
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as RefundType | "")}
-          style={{ ...inputStyle, width: 150 }}
-        >
-          <option value="">All types</option>
-          <option value="full">Full</option>
-          <option value="partial">Partial</option>
-        </select>
+          onChange={(v) => setTypeFilter(v as RefundType | "")}
+          inputStyle={{ ...inputStyle, width: 150 }}
+          options={[
+            { value: "", label: "All types" },
+            { value: "full", label: "Full" },
+            { value: "partial", label: "Partial" },
+          ]}
+        />
         <input
           type="date" placeholder="From" value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
@@ -212,12 +214,17 @@ export default function InternalShopifyRefunds() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
-          <option value={50}>Limit 50</option>
-          <option value={100}>Limit 100</option>
-          <option value={200}>Limit 200</option>
-          <option value={500}>Limit 500</option>
-        </select>
+        <SearchableSelect
+          value={String(limit)}
+          onChange={(v) => setLimit(Number(v))}
+          inputStyle={{ ...inputStyle, width: 110 }}
+          options={[
+            { value: "50", label: "Limit 50" },
+            { value: "100", label: "Limit 100" },
+            { value: "200", label: "Limit 200" },
+            { value: "500", label: "Limit 500" },
+          ]}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <TablePrefsButton
           tableKey={SHOPIFY_REFUNDS_TABLE_KEY}

@@ -12,6 +12,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
 
 const TABLE_KEY = "tanda.approval_rules";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -133,10 +134,18 @@ export default function InternalApprovalRules() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <select style={{ ...inputStyle, width: 200 }} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
-          <option value="">All kinds</option>
-          {KNOWN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={kindFilter || null}
+            onChange={(v) => setKindFilter(v)}
+            options={[
+              { value: "", label: "All kinds" },
+              ...KNOWN_KINDS.map((k) => ({ value: k, label: k })),
+            ]}
+            placeholder="All kinds"
+            inputStyle={inputStyle}
+          />
+        </div>
         <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Include inactive
@@ -302,9 +311,12 @@ function RuleModal({ mode, rule, onCancel, onSaved }: {
           {mode === "edit" ? (
             <input style={{ ...inputStyle, color: C.textMuted }} value={kind} disabled />
           ) : (
-            <select style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)}>
-              {KNOWN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+            <SearchableSelect
+              value={kind || null}
+              onChange={(v) => setKind(v)}
+              options={KNOWN_KINDS.map((k) => ({ value: k, label: k }))}
+              inputStyle={inputStyle}
+            />
           )}
         </Field>
 

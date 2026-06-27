@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Internal-only (TandA) cross-vendor shipments view. Uses the anon key
@@ -97,28 +98,28 @@ export default function ShipmentsView() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
-          <select
-            value={vendorFilter}
-            onChange={(e) => setVendorFilter(e.target.value)}
-            style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}
-          >
-            <option value="">All vendors</option>
-            {Object.entries(vendors)
-              .sort(([, a], [, b]) => a.localeCompare(b))
-              .map(([id, name]) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}
-          >
-            <option value="">All statuses</option>
-            {statusOptions.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={vendorFilter || null}
+            onChange={(v) => setVendorFilter(v)}
+            options={[
+              { value: "", label: "All vendors" },
+              ...Object.entries(vendors)
+                .sort(([, a], [, b]) => a.localeCompare(b))
+                .map(([id, name]) => ({ value: id, label: name })),
+            ]}
+            placeholder="All vendors"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              ...statusOptions.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All statuses"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}
+          />
           <div style={{ fontSize: 12, color: TH.textMuted, marginLeft: "auto" }}>
             {visible.length} of {rows.length}
           </div>

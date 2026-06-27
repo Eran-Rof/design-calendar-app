@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import InternalRfqDetail from "./InternalRfqDetail";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
@@ -60,13 +61,18 @@ export default function InternalRfqs() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>RFQs</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectSt}>
-            <option value="">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="published">Published</option>
-            <option value="closed">Closed</option>
-            <option value="awarded">Awarded</option>
-          </select>
+          <SearchableSelect
+            value={filter}
+            onChange={(v) => setFilter(v)}
+            inputStyle={selectSt}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "draft", label: "Draft" },
+              { value: "published", label: "Published" },
+              { value: "closed", label: "Closed" },
+              { value: "awarded", label: "Awarded" },
+            ]}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="rfqs"
@@ -191,9 +197,12 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           <>
             <Row label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} style={inp} /></Row>
             <Row label="Entity">
-              <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={inp}>
-                {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
+              <SearchableSelect
+                value={entityId || null}
+                onChange={(v) => setEntityId(v)}
+                inputStyle={inp}
+                options={entities.map((e) => ({ value: e.id, label: e.name }))}
+              />
             </Row>
             <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} /></Row>
             <Row label="Category"><input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Apparel" style={inp} /></Row>

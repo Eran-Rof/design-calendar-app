@@ -4,6 +4,7 @@ import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Offer {
   id: string;
@@ -98,17 +99,26 @@ export default function InternalDiscountOffers() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Offer vendors early payment in exchange for a discount. Generated daily at 11:00 UTC.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="">All statuses</option>
-            <option value="offered">Offered</option>
-            <option value="accepted">Accepted</option>
-            <option value="rejected">Rejected</option>
-            <option value="expired">Expired</option>
-            <option value="paid">Paid</option>
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={status || null}
+            onChange={(v) => setStatus(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "offered", label: "Offered" },
+              { value: "accepted", label: "Accepted" },
+              { value: "rejected", label: "Rejected" },
+              { value: "expired", label: "Expired" },
+              { value: "paid", label: "Paid" },
+            ]}
+            placeholder="All statuses"
+            inputStyle={selectSt}
+          />
           <button onClick={() => void runJob()} style={btnPrimary}>Generate now</button>
           <ExportButton
             rows={offers.map((o) => ({

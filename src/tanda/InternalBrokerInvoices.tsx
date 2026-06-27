@@ -212,12 +212,16 @@ function PostLandedCostModal({ invoice, onClose, onPosted }: { invoice: BrokerIn
           in-stock units have their FIFO layer cost revalued up; the share on units already sold is expensed to Landed Cost Variance (5150). Books the broker AP bill. This cannot be undone here.
         </div>
         <Field label="Posted receipt to allocate onto">
-          <select value={receiptId} onChange={(e) => setReceiptId(e.target.value)} style={inputStyle}>
-            <option value="">— pick a posted receipt —</option>
-            {receipts.map((rc) => (
-              <option key={rc.id} value={rc.id}>{rc.receipt_date} · landed {fmtCents(rc.landed_cost_cents)}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={receiptId || null}
+            onChange={(v) => setReceiptId(v)}
+            options={[
+              { value: "", label: "— pick a posted receipt —" },
+              ...receipts.map((rc) => ({ value: rc.id, label: `${rc.receipt_date} · landed ${fmtCents(rc.landed_cost_cents)}` })),
+            ]}
+            placeholder="— pick a posted receipt —"
+            inputStyle={inputStyle}
+          />
         </Field>
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "12px 0", fontSize: 13 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
@@ -347,9 +351,12 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "end" }}>
           <Field label="Allocation method">
-            <select value={allocationMethod} onChange={(e) => setAllocationMethod(e.target.value)} style={inputStyle}>
-              {ALLOCATION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <SearchableSelect
+              value={allocationMethod || null}
+              onChange={(v) => setAllocationMethod(v)}
+              options={ALLOCATION_METHODS.map((m) => ({ value: m, label: m }))}
+              inputStyle={inputStyle}
+            />
           </Field>
           <div style={{ textAlign: "right", fontSize: 13, color: C.textSub }}>
             Total (computed): <b style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCents(componentSum)}</b>

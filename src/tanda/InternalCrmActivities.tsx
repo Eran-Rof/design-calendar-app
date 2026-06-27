@@ -304,10 +304,16 @@ export default function InternalCrmActivities() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 160 }}>
           <label style={labelStyle}>Type</label>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {ALL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...ALL_TYPES.map((t) => ({ value: t, label: t })),
+            ]}
+            placeholder="All"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Customer</label>
@@ -515,9 +521,12 @@ function CreateActivityModal({ customers, opportunities, onClose, onCreated }: {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label="Type">
-          <select value={activityType} onChange={(e) => setActivityType(e.target.value)} style={inputStyle}>
-            {MANUAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={activityType || null}
+            onChange={(v) => setActivityType(v)}
+            options={MANUAL_TYPES.map((t) => ({ value: t, label: t }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Occurred at">
           <input
