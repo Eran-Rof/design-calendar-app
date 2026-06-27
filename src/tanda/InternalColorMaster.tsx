@@ -37,6 +37,7 @@ type Color = {
   name: string;
   code: string | null;
   hex: string | null;
+  hex_b: string | null;
   sort_order: number;
   is_active: boolean;
   nrf_code: string | null;
@@ -245,7 +246,7 @@ export default function InternalColorMaster() {
                   {...getRowProps(c)}
                   style={!c.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><ColorSwatch name={c.name} hex={c.hex} /></td>
+                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><ColorSwatch name={c.name} hexA={c.hex} hexB={c.hex_b} /></td>
                   <td style={td} hidden={!isVisible("name")}>{c.name}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("code")}>{c.code || "—"}</td>
                   <td style={{ ...td, color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("hex")}>{c.hex || "—"}</td>
@@ -287,6 +288,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
     name:       color?.name ?? "",
     code:       color?.code ?? "",
     hex:        color?.hex ?? "",
+    hex_b:      color?.hex_b ?? "",
     sort_order: color?.sort_order != null ? String(color.sort_order) : "0",
     is_active:  color?.is_active ?? true,
     nrf_code:   color?.nrf_code ?? "",
@@ -303,9 +305,12 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
     if (!name) { setErr("Enter a color name first."); return; }
     setNrfBusy(true); setErr(null);
     try {
+      // NRF maps to Color A only: for a two-tone "A/B" name send just the first
+      // token (e.g. "Black/Grey" → "Black") + hex A (form.hex).
+      const colorAName = name.split("/")[0].trim() || name;
       const r = await fetch("/api/internal/colors/nrf-suggest", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, hex: form.hex.trim() || undefined }),
+        body: JSON.stringify({ name: colorAName, hex: form.hex.trim() || undefined }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -330,6 +335,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
         name:       form.name.trim(),
         code:       form.code.trim() === "" ? null : form.code.trim(),
         hex:        form.hex.trim() === "" ? null : form.hex.trim(),
+        hex_b:      form.hex_b.trim() === "" ? null : form.hex_b.trim(),
         sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
         is_active:  form.is_active,
         nrf_code:   form.nrf_code.trim() === "" ? null : form.nrf_code.trim(),
@@ -350,6 +356,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
   }
 
   const hexValid = form.hex.trim() === "" || /^#?[0-9a-fA-F]{6}$/.test(form.hex.trim());
+  const hexBValid = form.hex_b.trim() === "" || /^#?[0-9a-fA-F]{6}$/.test(form.hex_b.trim());
 
   return (
     <div
@@ -375,10 +382,10 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
                 placeholder="e.g. Charcoal Heather, or Grey/Black"
                 autoFocus
               />
-              <ColorSwatch name={form.name} hex={form.hex} size={26} />
+              <ColorSwatch name={form.name} hexA={form.hex} hexB={form.hex_b} size={26} />
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              Two-tone colourway? Use <strong>A/B</strong> (e.g. <em>Grey/Black</em>) — the square auto-splits half-and-half.
+              Two-tone colourway? Name it <strong>A/B</strong> (e.g. <em>Grey/Black</em>) and/or pick <strong>Color A</strong> + <strong>Color B</strong> below — the square splits half-and-half.
             </div>
           </Field>
           <Field label="Code">
@@ -390,14 +397,14 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               placeholder="optional"
             />
           </Field>
-          <Field label="Swatch (hex)">
+          <Field label="Color A (hex)">
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input
                 type="color"
                 value={/^#?[0-9a-fA-F]{6}$/.test(form.hex.trim()) ? (form.hex.trim().startsWith("#") ? form.hex.trim() : `#${form.hex.trim()}`) : "#000000"}
                 onChange={(e) => setForm({ ...form, hex: e.target.value })}
                 style={{ width: 34, height: 32, padding: 0, border: `1px solid ${C.cardBdr}`, borderRadius: 4, background: "#0b1220", cursor: "pointer" }}
-                title="Pick a swatch"
+                title="Pick Color A"
               />
               <input
                 type="text"
@@ -408,6 +415,31 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               />
             </div>
             {!hexValid && <div style={{ fontSize: 11, color: C.danger, marginTop: 4 }}>Use a 6-digit hex, e.g. #1A2B3C.</div>}
+          </Field>
+          <Field label="Color B (hex)">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="color"
+                value={/^#?[0-9a-fA-F]{6}$/.test(form.hex_b.trim()) ? (form.hex_b.trim().startsWith("#") ? form.hex_b.trim() : `#${form.hex_b.trim()}`) : "#ffffff"}
+                onChange={(e) => setForm({ ...form, hex_b: e.target.value })}
+                style={{ width: 34, height: 32, padding: 0, border: `1px solid ${C.cardBdr}`, borderRadius: 4, background: "#0b1220", cursor: "pointer" }}
+                title="Pick Color B (the second half of a two-tone swatch)"
+              />
+              <input
+                type="text"
+                value={form.hex_b}
+                onChange={(e) => setForm({ ...form, hex_b: e.target.value })}
+                style={{ ...inputStyle, borderColor: hexBValid ? C.cardBdr : C.danger }}
+                placeholder="#RRGGBB (optional — two-tone)"
+              />
+              {form.hex_b.trim() !== "" && (
+                <button type="button" onClick={() => setForm({ ...form, hex_b: "" })} style={{ ...btnSecondary, padding: "4px 8px" }} title="Clear Color B">✕</button>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              Optional. Set this to compose a half-and-half two-tone swatch (Color A / Color B).
+            </div>
+            {!hexBValid && <div style={{ fontSize: 11, color: C.danger, marginTop: 4 }}>Use a 6-digit hex, e.g. #1A2B3C.</div>}
           </Field>
           <Field label="Sort order">
             <input
@@ -466,7 +498,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !form.name.trim() || !hexValid}>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !form.name.trim() || !hexValid || !hexBValid}>
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>
