@@ -11,6 +11,7 @@ import { fmtCurrency } from "../utils";
 import { filterMaterials } from "../listLogic";
 import { MATERIAL_TYPES } from "../constants";
 import { EMPTY_MATERIAL_FORM, type MaterialFormValues } from "../factories";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 export interface MaterialsViewProps {
@@ -85,10 +86,13 @@ export function MaterialsView({
           value={matSearch}
           onChange={e => setMatSearch(e.target.value)}
         />
-        <select style={S.select} value={matTypeFilter} onChange={e => setMatTypeFilter(e.target.value)}>
-          <option value="">All Types</option>
-          {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <SearchableSelect
+          value={matTypeFilter || null}
+          onChange={v => setMatTypeFilter(v)}
+          options={[{ value: "", label: "All Types" }, ...MATERIAL_TYPES.map(t => ({ value: t, label: t }))]}
+          placeholder="All Types"
+          inputStyle={S.select}
+        />
         <span style={{ color: "#6B7280", fontSize: 13 }}>{filteredMats.length} materials</span>
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge, { disputeTone } from "../StatusBadge";
@@ -179,14 +180,20 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
       <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: "min(560px, 95vw)", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }}>
         <h3 style={{ margin: "0 0 14px", color: TH.text, fontSize: 16 }}>Open a new dispute</h3>
         <Row label="Type">
-          <select value={type} onChange={(e) => setType(e.target.value)} style={inp}>
-            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={type}
+            onChange={(v) => setType(v)}
+            options={TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Priority">
-          <select value={priority} onChange={(e) => setPriority(e.target.value)} style={inp}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
-          </select>
+          <SearchableSelect
+            value={priority}
+            onChange={(v) => setPriority(v)}
+            options={PRIORITIES.map((p) => ({ value: p, label: p[0].toUpperCase() + p.slice(1) }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Subject">
           <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Brief summary" style={inp} />
@@ -195,10 +202,10 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} style={{ ...inp, resize: "vertical" }} />
         </Row>
         <Row label="Related PO (optional)">
-          <select
-            value={poId}
-            onChange={(e) => {
-              const newPo = e.target.value;
+          <SearchableSelect
+            value={poId || null}
+            onChange={(v) => {
+              const newPo = v;
               setPoId(newPo);
               if (!newPo) return; // cleared — leave invoice alone
               const currentInv = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
@@ -215,30 +222,30 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
                 setInvoiceId(firstOnPo ? firstOnPo.id : "");
               }
             }}
-            style={inp}
-          >
-            <option value="">— None —</option>
-            {pos.map((p) => <option key={p.uuid_id} value={p.uuid_id}>{p.po_number}</option>)}
-          </select>
+            options={[
+              { value: "", label: "— None —" },
+              ...pos.map((p) => ({ value: p.uuid_id, label: p.po_number })),
+            ]}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Related invoice (optional)">
-          <select
-            value={invoiceId}
-            onChange={(e) => {
-              const newInv = e.target.value;
+          <SearchableSelect
+            value={invoiceId || null}
+            onChange={(v) => {
+              const newInv = v;
               setInvoiceId(newInv);
               if (!newInv) return;
               // Auto-fill the PO to match the invoice's po_id.
               const inv = invoices.find((i) => i.id === newInv);
               if (inv?.po_id && inv.po_id !== poId) setPoId(inv.po_id);
             }}
-            style={inp}
-          >
-            <option value="">— None —</option>
-            {invoiceOptions.map((i) => (
-              <option key={i.id} value={i.id}>{i.invoice_number}</option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "— None —" },
+              ...invoiceOptions.map((i) => ({ value: i.id, label: i.invoice_number })),
+            ]}
+            inputStyle={inp}
+          />
           {poId && invoiceOptions.length === 0 && (
             <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>No invoices on that PO yet.</div>
           )}

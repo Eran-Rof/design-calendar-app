@@ -3,6 +3,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Integration {
   id: string;
@@ -235,9 +236,12 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
       <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 520, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
         <h3 style={{ margin: "0 0 14px", color: TH.text, fontSize: 16 }}>{existing ? "Update ERP connection" : "Connect ERP"}</h3>
         <Field label="System">
-          <select value={type} onChange={(e) => setType(e.target.value)} style={inp}>
-            {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <SearchableSelect
+            value={type || null}
+            onChange={(v) => setType(v)}
+            options={Object.entries(TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+            inputStyle={inp}
+          />
         </Field>
         <Field label="Partner / EDI ID (GS02)"><input value={partnerId} onChange={(e) => setPartnerId(e.target.value)} placeholder="e.g. ACME01" style={inp} /></Field>
         <Field label="Webhook URL (optional)"><input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://your-erp.example.com/webhook" style={inp} /></Field>

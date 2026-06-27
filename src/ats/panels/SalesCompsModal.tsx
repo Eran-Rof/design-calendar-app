@@ -18,6 +18,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
@@ -213,10 +214,15 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
         {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-        <select value={single} onChange={e => onChange(e.target.value ? [e.target.value as T] : [])} style={inputStyle}>
-          <option value="">All</option>
-          {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
-        </select>
+        <SearchableSelect
+          value={single}
+          onChange={v => onChange(v ? [v as T] : [])}
+          options={[
+            { value: "", label: "All" },
+            ...options.map(o => ({ value: o, label: fmt(o) })),
+          ]}
+          inputStyle={inputStyle}
+        />
       </div>
     );
   }

@@ -3,6 +3,7 @@ import { B } from "./theme";
 import { apiB2B } from "./apiB2B";
 import { formatMoney } from "./useCart";
 import type { CatalogItem, CartLine } from "./types";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // P18-C / M41 — Catalog + per-customer wholesale pricing. Prices are resolved
 // server-side for the logged-in buyer; the client never sends a customer_id or
@@ -92,24 +93,48 @@ export default function B2BCatalog({
           placeholder="Search styles…"
           style={{ ...input, flex: 1, minWidth: 180 }}
         />
-        <select value={brand} onChange={(e) => setBrand(e.target.value)} style={input}>
-          <option value="">All brands</option>
-          {brandOpts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        <select value={gender} onChange={(e) => setGender(e.target.value)} style={input}>
-          <option value="">All genders</option>
-          {genderOpts.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-        </select>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={input}>
-          <option value="">All categories</option>
-          {categoryOpts.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={input} aria-label="Sort">
-          <option value="code">Sort: Style code</option>
-          <option value="name">Sort: Name</option>
-          <option value="price_asc">Sort: Price ↑</option>
-          <option value="price_desc">Sort: Price ↓</option>
-        </select>
+        <SearchableSelect
+          theme="light"
+          value={brand || null}
+          onChange={(v) => setBrand(v)}
+          options={[
+            { value: "", label: "All brands" },
+            ...brandOpts.map(([id, name]) => ({ value: id, label: name })),
+          ]}
+          inputStyle={input}
+        />
+        <SearchableSelect
+          theme="light"
+          value={gender || null}
+          onChange={(v) => setGender(v)}
+          options={[
+            { value: "", label: "All genders" },
+            ...genderOpts.map(([code, label]) => ({ value: code, label })),
+          ]}
+          inputStyle={input}
+        />
+        <SearchableSelect
+          theme="light"
+          value={category || null}
+          onChange={(v) => setCategory(v)}
+          options={[
+            { value: "", label: "All categories" },
+            ...categoryOpts.map((c) => ({ value: c, label: c })),
+          ]}
+          inputStyle={input}
+        />
+        <SearchableSelect
+          theme="light"
+          value={sort}
+          onChange={(v) => setSort(v as SortKey)}
+          options={[
+            { value: "code", label: "Sort: Style code" },
+            { value: "name", label: "Sort: Name" },
+            { value: "price_asc", label: "Sort: Price ↑" },
+            { value: "price_desc", label: "Sort: Price ↓" },
+          ]}
+          inputStyle={input}
+        />
       </div>
 
       {err && <div style={errBox}>{err}</div>}

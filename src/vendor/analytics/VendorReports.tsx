@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate, fmtMoney, fmtMoney2, todayLocalIso, dateToLocalIso } from "../utils";
@@ -288,48 +289,39 @@ export default function VendorReports() {
       <h2 style={{ margin: "0 0 16px", color: "#FFFFFF", fontSize: 22 }}>Dashboard</h2>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ fontSize: 13, color: TH.textSub, fontWeight: 600 }}>Period</div>
-        <select
-          onChange={(e) => {
-            const v = e.target.value;
-            if (!v) return;
-            const r = resolvePreset(v as Preset);
-            setFromDate(r.from);
-            setToDate(r.to);
-            e.target.value = ""; // reset so the same preset can be re-picked
-          }}
-          defaultValue=""
-          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
-        >
-          <option value="" disabled>Quick range…</option>
-          <optgroup label="Short">
-            <option value="Today">Today</option>
-            <option value="Yesterday">Yesterday</option>
-            <option value="This week">This week</option>
-            <option value="Last week">Last week</option>
-          </optgroup>
-          <optgroup label="Rolling">
-            <option value="Last 7 days">Last 7 days</option>
-            <option value="Last 30 days">Last 30 days</option>
-            <option value="Last 90 days">Last 90 days</option>
-            <option value="Last 12 months">Last 12 months</option>
-          </optgroup>
-          <optgroup label="Month">
-            <option value="This month">This month</option>
-            <option value="Month to date">Month to date</option>
-            <option value="Last month">Last month</option>
-          </optgroup>
-          <optgroup label="Quarter">
-            <option value="This quarter">This quarter</option>
-            <option value="Quarter to date">Quarter to date</option>
-            <option value="Last quarter">Last quarter</option>
-          </optgroup>
-          <optgroup label="Year">
-            <option value="This year">This year</option>
-            <option value="Year to date">Year to date</option>
-            <option value="Last year">Last year</option>
-          </optgroup>
-          <option value="All time">All time</option>
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={null}
+            onChange={(v) => {
+              if (!v) return;
+              const r = resolvePreset(v as Preset);
+              setFromDate(r.from);
+              setToDate(r.to);
+            }}
+            placeholder="Quick range…"
+            options={[
+              { value: "Today", label: "Today", group: "Short" },
+              { value: "Yesterday", label: "Yesterday", group: "Short" },
+              { value: "This week", label: "This week", group: "Short" },
+              { value: "Last week", label: "Last week", group: "Short" },
+              { value: "Last 7 days", label: "Last 7 days", group: "Rolling" },
+              { value: "Last 30 days", label: "Last 30 days", group: "Rolling" },
+              { value: "Last 90 days", label: "Last 90 days", group: "Rolling" },
+              { value: "Last 12 months", label: "Last 12 months", group: "Rolling" },
+              { value: "This month", label: "This month", group: "Month" },
+              { value: "Month to date", label: "Month to date", group: "Month" },
+              { value: "Last month", label: "Last month", group: "Month" },
+              { value: "This quarter", label: "This quarter", group: "Quarter" },
+              { value: "Quarter to date", label: "Quarter to date", group: "Quarter" },
+              { value: "Last quarter", label: "Last quarter", group: "Quarter" },
+              { value: "This year", label: "This year", group: "Year" },
+              { value: "Year to date", label: "Year to date", group: "Year" },
+              { value: "Last year", label: "Last year", group: "Year" },
+              { value: "All time", label: "All time" },
+            ]}
+            inputStyle={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
+          />
+        </div>
         <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
         <span style={{ color: TH.textMuted }}>→</span>
         <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }} />
@@ -405,15 +397,22 @@ export default function VendorReports() {
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>PO history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={poStatus} onChange={(e) => setPoStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
-          <option value="">All statuses</option>
-          <option value="issued">Issued</option>
-          <option value="acknowledged">Acknowledged</option>
-          <option value="partially_received">Partially received</option>
-          <option value="fulfilled">Fulfilled</option>
-          <option value="shipped_invoiced">Shipped/Invoiced</option>
-          <option value="closed">Closed</option>
-        </select>
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={poStatus || null}
+            onChange={(v) => setPoStatus(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "issued", label: "Issued" },
+              { value: "acknowledged", label: "Acknowledged" },
+              { value: "partially_received", label: "Partially received" },
+              { value: "fulfilled", label: "Fulfilled" },
+              { value: "shipped_invoiced", label: "Shipped/Invoiced" },
+              { value: "closed", label: "Closed" },
+            ]}
+            inputStyle={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
+          />
+        </div>
       </div>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "140px 110px 110px 110px 110px 110px 140px 90px 80px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
@@ -458,14 +457,21 @@ export default function VendorReports() {
 
       <div style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, margin: "8px 0 10px", letterSpacing: 0.3 }}>Invoice history</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <select value={invStatus} onChange={(e) => setInvStatus(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}>
-          <option value="">All statuses</option>
-          <option value="submitted">Submitted</option>
-          <option value="under_review">Under review</option>
-          <option value="approved">Approved</option>
-          <option value="paid">Paid</option>
-          <option value="rejected">Rejected</option>
-        </select>
+        <div style={{ width: 220 }}>
+          <SearchableSelect
+            value={invStatus || null}
+            onChange={(v) => setInvStatus(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "submitted", label: "Submitted" },
+              { value: "under_review", label: "Under review" },
+              { value: "approved", label: "Approved" },
+              { value: "paid", label: "Paid" },
+              { value: "rejected", label: "Rejected" },
+            ]}
+            inputStyle={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13 }}
+          />
+        </div>
       </div>
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div style={{ display: "grid", gridTemplateColumns: "170px 130px 110px 110px 110px 120px 130px 100px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>

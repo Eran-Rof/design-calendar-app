@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Profile {
   id: string;
@@ -133,10 +134,16 @@ export default function VendorDiversity() {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Row label="Certifying body">
-            <select value={body} onChange={(e) => setBody(e.target.value)} style={inp}>
-              <option value="">Select…</option>
-              {CERTIFYING_BODIES.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <SearchableSelect
+              value={body || null}
+              onChange={(v) => setBody(v)}
+              placeholder="Select…"
+              options={[
+                { value: "", label: "Select…" },
+                ...CERTIFYING_BODIES.map((b) => ({ value: b, label: b })),
+              ]}
+              inputStyle={inp}
+            />
           </Row>
           <Row label="Certification number"><input value={number} onChange={(e) => setNumber(e.target.value)} style={inp} /></Row>
           <Row label="Certification expiry"><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} style={inp} /></Row>

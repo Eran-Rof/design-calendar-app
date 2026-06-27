@@ -14,6 +14,7 @@
 
 import type React from "react";
 import { useBrandContext } from "../hooks/useBrandContext";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 const C = {
   panel: "#1E293B", border: "#334155", text: "#F1F5F9",
@@ -52,35 +53,31 @@ export default function BrandChannelSwitcher({ inline = false }: BrandChannelSwi
         boxShadow: "0 4px 12px rgba(0,0,0,0.3)", borderRadius: 8,
       }}
     >
-      <label title="Filter by brand">
-        <select
-          data-testid="brand-select"
-          aria-label="Brand filter"
-          value={currentBrandId ?? ""}
-          onChange={(e) => selectBrand(e.target.value || null)}
-          style={selStyle}
-        >
-          <option value="">All brands</option>
-          {brands.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
-          ))}
-        </select>
-      </label>
+      <div title="Filter by brand" style={{ maxWidth: 150 }}>
+        <SearchableSelect
+          theme="light"
+          value={currentBrandId ?? null}
+          onChange={(v) => selectBrand(v || null)}
+          options={[
+            { value: "", label: "All brands" },
+            ...brands.map((b) => ({ value: b.id, label: b.name })),
+          ]}
+          inputStyle={selStyle}
+        />
+      </div>
 
-      <label title="Filter by channel">
-        <select
-          data-testid="channel-select"
-          aria-label="Channel filter"
-          value={currentChannelId ?? ""}
-          onChange={(e) => selectChannel(e.target.value || null)}
-          style={selStyle}
-        >
-          <option value="">All channels</option>
-          {channels.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </label>
+      <div title="Filter by channel" style={{ maxWidth: 150 }}>
+        <SearchableSelect
+          theme="light"
+          value={currentChannelId ?? null}
+          onChange={(v) => selectChannel(v || null)}
+          options={[
+            { value: "", label: "All channels" },
+            ...channels.map((c) => ({ value: c.id, label: c.name })),
+          ]}
+          inputStyle={selStyle}
+        />
+      </div>
     </div>
   );
 }

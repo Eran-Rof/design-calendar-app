@@ -3,6 +3,7 @@ import { TH } from "../utils/theme";
 import { appConfirm } from "../utils/theme";
 import { S } from "../utils/styles";
 import { DEFAULT_SIZES } from "../utils/constants";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // ─── SIZE LIBRARY ─────────────────────────────────────────────────────────────
 function SizeLibrary({ sizes, setSizes, isAdmin = false, genders = [], genderSizes = {}, setGenderSizes = null }) {
@@ -172,10 +173,18 @@ function SizeLibrary({ sizes, setSizes, isAdmin = false, genders = [], genderSiz
           <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, marginBottom: 10 }}>Assign Sizes by Gender</div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
             <span style={{ fontSize: 12, color: TH.textMuted, whiteSpace: "nowrap" }}>Gender:</span>
-            <select value={selGender} onChange={e => setSelGender(e.target.value)}
-              style={{ ...S.inp, marginBottom: 0, flex: 1 }}>
-              {genders.map((g: string) => <option key={g}>{typeof g === "string" ? g : (g as any).label}</option>)}
-            </select>
+            <div style={{ flex: 1 }}>
+              <SearchableSelect
+                theme="light"
+                value={selGender || null}
+                onChange={v => setSelGender(v)}
+                options={genders.map((g: string) => {
+                  const label = typeof g === "string" ? g : (g as any).label;
+                  return { value: label, label };
+                })}
+                inputStyle={{ ...S.inp, marginBottom: 0 }}
+              />
+            </div>
           </div>
           {selGender && (
             <div>

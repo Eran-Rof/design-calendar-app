@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
 import type { LabelTemplate, LabelTemplateInput, HumanReadableFields, PrinterType, LabelTemplateType } from "../types";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const SECTION: React.CSSProperties = {
@@ -192,12 +193,17 @@ export default function LabelTemplatesPanel() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div style={FIELD}>
                 <label style={LABEL}>Label Type</label>
-                <select style={SELECT} value={form.label_type}
-                  onChange={e => { const v = e.target.value as LabelTemplateType; setField("label_type", v); setField("barcode_format", v === "sscc" ? "sscc18" : "gtin14"); }}
-                  disabled={!!editing}>
-                  <option value="pack_gtin">Pack GTIN</option>
-                  <option value="sscc">SSCC Carton</option>
-                </select>
+                <SearchableSelect
+                  theme="light"
+                  inputStyle={SELECT}
+                  value={form.label_type}
+                  onChange={value => { const v = value as LabelTemplateType; setField("label_type", v); setField("barcode_format", v === "sscc" ? "sscc18" : "gtin14"); }}
+                  disabled={!!editing}
+                  options={[
+                    { value: "pack_gtin", label: "Pack GTIN" },
+                    { value: "sscc", label: "SSCC Carton" },
+                  ]}
+                />
               </div>
               <div style={FIELD}>
                 <label style={LABEL}>Template Name</label>
@@ -213,17 +219,23 @@ export default function LabelTemplatesPanel() {
               </div>
               <div style={FIELD}>
                 <label style={LABEL}>Output Type</label>
-                <select style={SELECT} value={form.printer_type} onChange={e => setField("printer_type", e.target.value as PrinterType)}>
-                  {(Object.entries(PRINTER_LABELS) as [PrinterType, string][]).map(([v, l]) =>
-                    <option key={v} value={v}>{l}</option>
-                  )}
-                </select>
+                <SearchableSelect
+                  theme="light"
+                  inputStyle={SELECT}
+                  value={form.printer_type}
+                  onChange={v => setField("printer_type", v as PrinterType)}
+                  options={(Object.entries(PRINTER_LABELS) as [PrinterType, string][]).map(([v, l]) => ({ value: v, label: l }))}
+                />
               </div>
               <div style={FIELD}>
                 <label style={LABEL}>Barcode Format</label>
-                <select style={SELECT} value={form.barcode_format} onChange={e => setField("barcode_format", e.target.value)}>
-                  {Object.entries(BARCODE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+                <SearchableSelect
+                  theme="light"
+                  inputStyle={SELECT}
+                  value={form.barcode_format}
+                  onChange={v => setField("barcode_format", v)}
+                  options={Object.entries(BARCODE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                />
               </div>
             </div>
 

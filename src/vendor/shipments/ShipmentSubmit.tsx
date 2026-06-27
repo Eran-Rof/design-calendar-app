@@ -4,6 +4,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney, todayLocalIso } from "../utils";
 import { isValidContainerNumber } from "./shipmentUtils";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 type SubmitMode = "asn_only" | "asn_and_invoice";
 
@@ -308,14 +309,20 @@ export default function ShipmentSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Purchase Order</label>
-            <select value={selectedPoId} onChange={(e) => setSelectedPoId(e.target.value)} style={inputStyle} required>
-              <option value="">— Select PO —</option>
-              {pos.map((p) => (
-                <option key={p.uuid_id} value={p.uuid_id}>
-                  {p.po_number}{p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""}{p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={selectedPoId || null}
+              onChange={(v) => setSelectedPoId(v)}
+              required
+              placeholder="— Select PO —"
+              options={[
+                { value: "", label: "— Select PO —" },
+                ...pos.map((p) => ({
+                  value: p.uuid_id,
+                  label: `${p.po_number}${p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""}${p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}`,
+                })),
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>ASN reference number</label>
@@ -332,24 +339,28 @@ export default function ShipmentSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Carrier</label>
-            <select value={carrier} onChange={(e) => setCarrier(e.target.value)} style={inputStyle}>
-              {CARRIER_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
-                </optgroup>
-              ))}
-            </select>
+            <SearchableSelect
+              value={carrier || null}
+              onChange={(v) => setCarrier(v)}
+              options={CARRIER_GROUPS.flatMap((g) => g.carriers.map((c) => ({ value: c, label: c, group: g.label })))}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Ship via</label>
-            <select value={shipVia} onChange={(e) => setShipVia(e.target.value)} style={inputStyle}>
-              <option value="Ocean">Ocean</option>
-              <option value="Air">Air</option>
-              <option value="Truck">Truck</option>
-              <option value="Rail">Rail</option>
-              <option value="Ocean/Rail">Ocean/Rail</option>
-              <option value="Ocean/Air">Ocean/Air</option>
-            </select>
+            <SearchableSelect
+              value={shipVia || null}
+              onChange={(v) => setShipVia(v)}
+              options={[
+                { value: "Ocean", label: "Ocean" },
+                { value: "Air", label: "Air" },
+                { value: "Truck", label: "Truck" },
+                { value: "Rail", label: "Rail" },
+                { value: "Ocean/Rail", label: "Ocean/Rail" },
+                { value: "Ocean/Air", label: "Ocean/Air" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 
@@ -373,12 +384,18 @@ export default function ShipmentSubmit() {
             Tracking (optional — add later if not known yet)
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 12 }}>
-            <select value={trackingType} onChange={(e) => setTrackingType(e.target.value as TrackingType)} style={inputStyle}>
-              <option value="">— Type —</option>
-              <option value="CT">Container (ISO 6346)</option>
-              <option value="BL">Bill of Lading</option>
-              <option value="BK">Booking</option>
-            </select>
+            <SearchableSelect
+              value={trackingType}
+              onChange={(v) => setTrackingType(v as TrackingType)}
+              placeholder="— Type —"
+              options={[
+                { value: "", label: "— Type —" },
+                { value: "CT", label: "Container (ISO 6346)" },
+                { value: "BL", label: "Bill of Lading" },
+                { value: "BK", label: "Booking" },
+              ]}
+              inputStyle={inputStyle}
+            />
             <input
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}

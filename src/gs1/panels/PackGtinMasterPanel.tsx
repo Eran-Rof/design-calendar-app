@@ -9,6 +9,7 @@ import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/com
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "gs1.pack_gtin_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -273,11 +274,19 @@ export default function PackGtinMasterPanel() {
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Scale Code</label>
             <div style={{ display: "flex", gap: 6 }}>
-              <select value={manualScale} onChange={e => setManualScale(e.target.value)}
-                style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-                <option value="">— select —</option>
-                {Array.from(KNOWN_SCALE_CODES).sort().map(c => <option key={c}>{c}</option>)}
-              </select>
+              <div style={{ width: 140 }}>
+                <SearchableSelect
+                  theme="light"
+                  value={manualScale || null}
+                  onChange={v => setManualScale(v)}
+                  inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+                  placeholder="— select —"
+                  options={[
+                    { value: "", label: "— select —" },
+                    ...Array.from(KNOWN_SCALE_CODES).sort().map(c => ({ value: c, label: c })),
+                  ]}
+                />
+              </div>
               <input value={manualScale} onChange={e => setManualScale(e.target.value.toUpperCase())} placeholder="custom"
                 style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 80 }} />
             </div>

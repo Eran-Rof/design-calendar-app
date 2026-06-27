@@ -5,6 +5,7 @@ import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate } from "../utils";
 import { showAlert, showConfirm, showFileViewer } from "../ui/AppDialog";
 import AttachmentsManager from "../ui/AttachmentsManager";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
   { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
@@ -355,28 +356,39 @@ export default function ShipmentDetail() {
                 <input value={editSave.asn_number} onChange={(e) => setEditSave((s) => ({ ...s, asn_number: e.target.value }))} style={editInp} />
               </Labelled>
               <Labelled label="Carrier">
-                <select value={editSave.carrier} onChange={(e) => setEditSave((s) => ({ ...s, carrier: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  {CARRIER_GROUPS.map((g) => (
-                    <optgroup key={g.label} label={g.label}>
-                      {g.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={editSave.carrier || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, carrier: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    ...CARRIER_GROUPS.flatMap((g) => g.carriers.map((c) => ({ value: c, label: c, group: g.label }))),
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Ship via">
-                <select value={editSave.ship_via} onChange={(e) => setEditSave((s) => ({ ...s, ship_via: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  {SHIP_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <SearchableSelect
+                  value={editSave.ship_via || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, ship_via: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    ...SHIP_VIA_OPTIONS.map((v) => ({ value: v, label: v })),
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Tracking type">
-                <select value={editSave.number_type} onChange={(e) => setEditSave((s) => ({ ...s, number_type: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  <option value="CT">Container</option>
-                  <option value="BL">Bill of Lading</option>
-                  <option value="BK">Booking</option>
-                </select>
+                <SearchableSelect
+                  value={editSave.number_type || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, number_type: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "CT", label: "Container" },
+                    { value: "BL", label: "Bill of Lading" },
+                    { value: "BK", label: "Booking" },
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Tracking number">
                 <input value={editSave.number} onChange={(e) => setEditSave((s) => ({ ...s, number: e.target.value }))} style={{ ...editInp, fontFamily: "Menlo, monospace", textTransform: "uppercase" }} />

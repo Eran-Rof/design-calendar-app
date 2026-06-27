@@ -12,6 +12,7 @@ import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
 // Shared left navigation drawer (de-iconed, collapsible) — mirrors GS1.
 import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import SearchableSelect from "./tanda/components/SearchableSelect";
 import { TECHPACK_MODULES, TECHPACK_SECTIONS } from "./techpackModules";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
@@ -1642,18 +1643,27 @@ export default function TechPackApp() {
                 {/* Filters */}
                 <div style={S.filters}>
                   <input style={{ ...S.input, maxWidth: 260 }} placeholder="Search style name, number, brand..." value={search} onChange={e => setSearch(e.target.value)} />
-                  <select style={S.select} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="">All Statuses</option>
-                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <select style={S.select} value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
-                    <option value="">All Brands</option>
-                    {brands.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                  <select style={S.select} value={filterSeason} onChange={e => setFilterSeason(e.target.value)}>
-                    <option value="">All Seasons</option>
-                    {seasons.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={filterStatus || null}
+                    onChange={v => setFilterStatus(v)}
+                    options={[{ value: "", label: "All Statuses" }, ...STATUSES.map(s => ({ value: s, label: s }))]}
+                    placeholder="All Statuses"
+                    inputStyle={S.select}
+                  />
+                  <SearchableSelect
+                    value={filterBrand || null}
+                    onChange={v => setFilterBrand(v)}
+                    options={[{ value: "", label: "All Brands" }, ...brands.map(b => ({ value: b, label: b }))]}
+                    placeholder="All Brands"
+                    inputStyle={S.select}
+                  />
+                  <SearchableSelect
+                    value={filterSeason || null}
+                    onChange={v => setFilterSeason(v)}
+                    options={[{ value: "", label: "All Seasons" }, ...seasons.map(s => ({ value: s, label: s }))]}
+                    placeholder="All Seasons"
+                    inputStyle={S.select}
+                  />
                   <span style={{ color: "#6B7280", fontSize: 13 }}>{filtered.length} packs</span>
                 </div>
 
@@ -1959,9 +1969,12 @@ export default function TechPackApp() {
               <div style={{ color: "#6B7280", fontSize: 13, marginTop: 4 }}>{tp.brand}{tp.season ? ` · ${tp.season}` : ""}{tp.category ? ` · ${tp.category}` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <select style={{ ...S.select, fontSize: 12 }} value={tp.status} onChange={e => updateSelected({ status: e.target.value as TechPack["status"] })}>
-                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={tp.status}
+                onChange={v => updateSelected({ status: v as TechPack["status"] })}
+                options={STATUSES.map(s => ({ value: s, label: s }))}
+                inputStyle={{ ...S.select, fontSize: 12 }}
+              />
               <button style={{ ...S.iconBtn, color: "#EF4444", fontSize: 14 }} onClick={() => setConfirmDialog({ title: "Delete Tech Pack", message: `Delete "${tp.styleName || tp.styleNumber}"? All specs, BOM, samples, and approvals will be permanently removed.`, onConfirm: () => deleteTechPack(tp.id) })}>🗑️</button>
               <button style={S.closeBtn} onClick={() => { setSelected(null); setView("list"); }}>✕</button>
             </div>
