@@ -237,6 +237,9 @@ export default function InternalStyleMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
   const [assigningScales, setAssigningScales] = useState(false);
+  const [htsBackfill, setHtsBackfill] = useState<{ running: boolean; updated: number; processed: number }>(
+    { running: false, updated: 0, processed: 0 },
+  );
   // Universal row-click primitive (operator ask #4) — click anywhere on a
   // row (except Edit/Delete buttons) to open the edit modal. Soft-deleted
   // rows are non-interactive.
@@ -395,10 +398,12 @@ export default function InternalStyleMaster() {
   // per-scale breakdown, then applies on confirm. Only styles WITHOUT a scale
   // are touched (nothing is overwritten). Per-style manual override stays in the
   // edit modal's "Size Scale" field.
-  async function autoAssignScales() {
+  async function autoAssignScales(source: "skus" | "sales" = "skus") {
+    const qs = source === "sales" ? "?source=sales" : "";
+    const basis = source === "sales" ? "sizes actually sold (orders + invoices)" : "their SKU size variants";
     setAssigningScales(true);
     try {
-      const pr = await fetch("/api/internal/style-master/auto-assign-scales");
+      const pr = await fetch(`/api/internal/style-master/auto-assign-scales${qs}`);
       const prev = await pr.json();
       if (!pr.ok) throw new Error(prev.error || `HTTP ${pr.status}`);
       if (!prev.matched) { notify(prev.error || "No unscaled styles could be matched to a size scale.", "info"); return; }
@@ -406,12 +411,12 @@ export default function InternalStyleMaster() {
         .sort((a, b) => Number(b[1]) - Number(a[1]))
         .map(([k, v]) => `${k}: ${v}`).join(" · ");
       const ok = await confirmDialog(
-        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on their size variants)?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
-        { title: "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
+        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on ${basis})?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
+        { title: source === "sales" ? "Assign size scales from sales" : "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
       );
       if (!ok) return;
-      const ar = await fetch("/api/internal/style-master/auto-assign-scales", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      const ar = await fetch(`/api/internal/style-master/auto-assign-scales${qs}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }),
       });
       const applied = await ar.json();
       if (!ar.ok) throw new Error(applied.error || `HTTP ${ar.status}`);
@@ -464,6 +469,43 @@ export default function InternalStyleMaster() {
     }
   }
 
+  // Bulk AI HTS backfill for Bangladesh / China / Madagascar across every apparel
+  // style (operator #4). Loops the keyset-cursor endpoint until done, classifying
+  // each style for its OWN gender and stamping the flat +10% additional tariff.
+  async function backfillHts() {
+    const ok = await confirmDialog(
+      "Auto-fill HTS codes for Bangladesh, China & Madagascar on every apparel style?\n\nUses AI (per style, gender-aware) to classify a single HS code and the duty rate for each country, and applies the flat +10% additional tariff. Styles that already have all 3 countries are skipped. This runs in the background and may take a few minutes.",
+      { title: "Auto-fill HTS (BD / CN / MG)", icon: "🤖", confirmText: "Start" },
+    );
+    if (!ok) return;
+    setHtsBackfill({ running: true, updated: 0, processed: 0 });
+    let after = "";
+    let totalUpdated = 0;
+    let totalProcessed = 0;
+    try {
+      for (let guard = 0; guard < 1000; guard++) {
+        const r = await fetch("/api/internal/hts/backfill", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ after, limit: 8 }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (j.note) { notify(j.note, "info"); break; }
+        totalUpdated += j.updated || 0;
+        totalProcessed += j.processed || 0;
+        after = j.lastId || after;
+        setHtsBackfill({ running: true, updated: totalUpdated, processed: totalProcessed });
+        if (j.done) break;
+      }
+      notify(`HTS backfill complete — classified ${totalUpdated} styles across BD/CN/MG (${totalProcessed} scanned).`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`HTS backfill failed: ${e instanceof Error ? e.message : String(e)} (updated ${totalUpdated} so far)`, "error");
+    } finally {
+      setHtsBackfill({ running: false, updated: totalUpdated, processed: totalProcessed });
+    }
+  }
+
   // Refresh hook handed to the modal so a successful save can repaint both
   // the row list AND the dim-value cache (in case a brand-new classifier
   // was added).
@@ -486,12 +528,28 @@ export default function InternalStyleMaster() {
             {assigningScales ? "Assigning…" : "🎯 Auto-assign size scales"}
           </button>
           <button
+            onClick={() => void autoAssignScales("sales")}
+            style={btnSecondary}
+            disabled={assigningScales}
+            title="Assign each unscaled style the best-fitting size scale based on the sizes ACTUALLY SOLD (sales orders + invoices), not the full SKU catalog"
+          >
+            {assigningScales ? "Assigning…" : "🎯 From sales history"}
+          </button>
+          <button
             onClick={() => void downloadSkippedScales()}
             style={btnSecondary}
             disabled={assigningScales}
             title="Download the styles the auto-assign skips (single/pair sizes or no good match), with the reason, to assign a scale by hand"
           >
             ⬇ Skipped styles
+          </button>
+          <button
+            onClick={() => void backfillHts()}
+            style={btnSecondary}
+            disabled={htsBackfill.running}
+            title="Use AI to fill HTS codes + duty rates for Bangladesh, China & Madagascar on every apparel style (gender-aware), with the flat +10% additional tariff"
+          >
+            {htsBackfill.running ? `🤖 HTS… ${htsBackfill.updated}` : "🤖 Auto-fill HTS (BD/CN/MG)"}
           </button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
         </div>
@@ -766,7 +824,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // duty rate. Persisted in style attributes.coo_hts; row 0 stays synced to the
   // legacy hts_code / duty_rate_pct columns (which costing / customs / PO read).
   const [countries, setCountries] = useState<{ iso2: string; name: string }[]>([]);
-  const [coo, setCoo] = useState<{ country: string; hts_code: string; duty_rate_pct: string }[]>(() => {
+  const [coo, setCoo] = useState<{ country: string; hts_code: string; duty_rate_pct: string; additional_tariff_pct: string }[]>(() => {
     const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.coo_hts;
     if (Array.isArray(fromAttr) && fromAttr.length > 0) {
       return fromAttr.slice(0, 3).map((c) => {
@@ -775,11 +833,14 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           country: o.country != null ? String(o.country) : "",
           hts_code: o.hts_code != null ? String(o.hts_code) : "",
           duty_rate_pct: o.duty_rate_pct != null ? String(o.duty_rate_pct) : "",
+          // Trump-administration additional tariff (flat +10%, all countries) —
+          // default 10 for legacy rows that predate the field (operator #4).
+          additional_tariff_pct: o.additional_tariff_pct != null ? String(o.additional_tariff_pct) : "10",
         };
       });
     }
     // Seed one primary row from the legacy single hts_code / duty_rate.
-    return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "" }];
+    return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "", additional_tariff_pct: "10" }];
   });
   // Per-style size-scale PACK ratio (size → representative qty), e.g. { S:2, M:3,
   // L:3, XL:2 }. Defines how a single total typed into the SO / PO matrix Qty
@@ -813,9 +874,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
 
   // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
   const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
-  const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct", val: string) =>
+  const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct" | "additional_tariff_pct", val: string) =>
     setCoo((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "" }]));
+  const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "", additional_tariff_pct: "10" }]));
   const removeCoo = (idx: number) => setCoo((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
   const countryOptions = useMemo(() => countries.map((c) => ({ value: c.name, label: c.name, searchHaystack: `${c.name} ${c.iso2}` })), [countries]);
 
@@ -1096,8 +1157,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       { value: "", label: "(select)" },
       ...fabrics.map((f) => ({
         value: f.id,
-        label: `${f.code} — ${f.name}`,
-        searchHaystack: `${f.code} ${f.name} ${f.composition_text}`,
+        label: f.name,                                       // name only (operator: hide the code)
+        searchHaystack: `${f.code} ${f.name} ${f.composition_text}`, // still searchable by code
       })),
     ];
     // Defensive: if the style's current FK points at a fabric that didn't
@@ -1110,7 +1171,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     ) {
       opts.push({
         value: style.base_fabric_code_id,
-        label: `${style.base_fabric.code} — ${style.base_fabric.name}`,
+        label: style.base_fabric.name,
       });
     }
     return opts;
@@ -1149,7 +1210,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       // COO × HTS rows → persisted array (attributes.coo_hts) + the primary (row 0)
       // mirrored onto the legacy hts_code / duty_rate_pct columns. Drop blank rows.
       const cooRows = coo
-        .map((r) => ({ country: r.country.trim(), hts_code: r.hts_code.trim(), duty_rate_pct: r.duty_rate_pct.trim() === "" ? null : Number(r.duty_rate_pct) }))
+        .map((r) => ({
+          country: r.country.trim(),
+          hts_code: r.hts_code.trim(),
+          duty_rate_pct: r.duty_rate_pct.trim() === "" ? null : Number(r.duty_rate_pct),
+          additional_tariff_pct: r.additional_tariff_pct.trim() === "" ? null : Number(r.additional_tariff_pct),
+        }))
         .filter((r) => r.country || r.hts_code || r.duty_rate_pct != null);
       const body: Record<string, unknown> = {
         style_name:           form.style_name.trim() || null,
@@ -1169,6 +1235,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         rise:                 form.rise.trim() || null,
         hts_code:             cooRows[0]?.hts_code || null,
         duty_rate_pct:        cooRows[0]?.duty_rate_pct ?? null,
+        additional_tariff_pct: cooRows[0]?.additional_tariff_pct ?? null,
         unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
         units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
         carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
@@ -1480,7 +1547,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code · Duty rate · COO">
+          <Field label="HTS code · Duty % · +Tariff % · COO">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {coo.map((row, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1498,11 +1565,21 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       min="0"
                       value={row.duty_rate_pct}
                       onChange={(e) => setCooField(idx, "duty_rate_pct", e.target.value)}
-                      style={{ ...inputStyle, flex: "0 0 11ch", minWidth: 0 }}
+                      style={{ ...inputStyle, flex: "0 0 9ch", minWidth: 0 }}
                       placeholder="Duty %"
                       title="HTS duty rate % for this country of origin"
                     />
-                    <div style={{ flex: "0 0 24ch", minWidth: 0 }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={row.additional_tariff_pct}
+                      onChange={(e) => setCooField(idx, "additional_tariff_pct", e.target.value)}
+                      style={{ ...inputStyle, flex: "0 0 9ch", minWidth: 0, color: C.warn }}
+                      placeholder="+Tariff %"
+                      title="Additional tariff % (Trump-administration flat +10%, all countries) — on top of the duty rate"
+                    />
+                    <div style={{ flex: "0 0 22ch", minWidth: 0 }}>
                       <SearchableSelect
                         value={row.country || null}
                         onChange={(v) => setCooField(idx, "country", v || "")}
@@ -1552,7 +1629,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               )}
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition; the COO drives the country-specific duty rate (AGOA / USMCA / GSP, etc.). Row 1 is the primary HTS used across costing &amp; customs.
+              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition; the COO drives the country-specific duty rate (AGOA / USMCA / GSP, etc.). The <span style={{ color: C.warn }}>+Tariff %</span> is the Trump-administration additional tariff (flat +10%, all countries) charged on top of the duty rate. Row 1 is the primary HTS used across costing &amp; customs.
             </div>
           </Field>
           <Field label="Apparel?">
