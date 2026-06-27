@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -232,14 +233,19 @@ export default function InternalBankReconReport() {
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Period</div>
-          <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} style={inputStyle}>
-            <option value="">— pick a period —</option>
-            {periods.map((p) => (
-              <option key={p.id} value={p.id}>
-                FY{p.fiscal_year} P{String(p.period_number).padStart(2, "0")} · {p.starts_on} → {p.ends_on} · {p.status}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={periodId || null}
+            onChange={(v) => setPeriodId(v)}
+            options={[
+              { value: "", label: "— pick a period —" },
+              ...periods.map((p) => ({
+                value: p.id,
+                label: `FY${p.fiscal_year} P${String(p.period_number).padStart(2, "0")} · ${p.starts_on} → ${p.ends_on} · ${p.status}`,
+              })),
+            ]}
+            placeholder="— pick a period —"
+            inputStyle={inputStyle}
+          />
         </div>
         {periodId && (
           <div style={{ fontSize: 13, color: C.textSub }}>

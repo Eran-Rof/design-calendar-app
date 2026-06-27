@@ -112,10 +112,13 @@ export default function InternalThreeWayMatch() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All statuses</option>
-          {["pending", "matched", "variance", "exception", "posted", "rejected"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 200 }}
+          placeholder="All statuses"
+          options={[
+            { value: "", label: "All statuses" },
+            ...["pending", "matched", "variance", "exception", "posted", "rejected"].map((s) => ({ value: s, label: s })),
+          ]}
+        />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <ExportButton rows={exportRows} columns={EXPORT_COLUMNS} filename="three-way-match" sheetName="3-Way Match" />
       </div>

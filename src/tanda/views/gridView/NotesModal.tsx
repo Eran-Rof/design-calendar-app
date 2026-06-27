@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import type { XoroPO, Milestone } from "../../../utils/tandaTypes";
 import { fmtDateDisplay } from "../../../utils/tandaTypes";
+import SearchableSelect from "../../components/SearchableSelect";
 
 export interface NotesModalProps {
   po: XoroPO;
@@ -199,13 +200,14 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
         {/* Add note footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #1E293B", flexShrink: 0, background: "#080F1A", borderRadius: "0 0 10px 10px" }}>
           {!filterPhase && availableMs.length > 1 && (
-            <select
-              value={addPhase}
-              onChange={e => setAddPhase(e.target.value)}
-              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", marginBottom: 8, boxSizing: "border-box", outline: "none" }}
-            >
-              {availableMs.map(m => <option key={m.id} value={m.phase}>{m.phase}</option>)}
-            </select>
+            <div style={{ marginBottom: 8 }}>
+              <SearchableSelect
+                value={addPhase || null}
+                onChange={v => setAddPhase(v)}
+                options={availableMs.map(m => ({ value: m.phase, label: m.phase }))}
+                inputStyle={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", boxSizing: "border-box", outline: "none" }}
+              />
+            </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <textarea

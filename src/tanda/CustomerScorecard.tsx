@@ -349,10 +349,13 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
           </div>
           <div>
             <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 2 }}>INVOICE STATUS</div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}>
-              <option value="">(all)</option>
-              {invStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={statusFilter || null}
+              onChange={setStatusFilter}
+              options={[{ value: "", label: "(all)" }, ...invStatuses.map((s) => ({ value: s, label: s }))]}
+              placeholder="(all)"
+              inputStyle={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}
+            />
           </div>
         </div>
 

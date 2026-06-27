@@ -179,7 +179,7 @@ function PromoModal({ promo, customers, styles, brands, onClose, onSaved }: { pr
           <Field label="Code (optional)"><input value={code} onChange={(e) => setCode(e.target.value)} style={inputStyle} placeholder="(auto if blank)" /></Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value as "percent" | "amount")} style={inputStyle}><option value="percent">Percent %</option><option value="amount">Amount $</option></select></Field>
+          <Field label="Type"><SearchableSelect value={type} onChange={(v) => setType(v as "percent" | "amount")} inputStyle={inputStyle} options={[{ value: "percent", label: "Percent %" }, { value: "amount", label: "Amount $" }]} /></Field>
           <Field label={type === "percent" ? "Percent (0–100)" : "Amount ($ off)"}><input type="text" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} style={inputStyle} placeholder={type === "percent" ? "10" : "5.00"} /></Field>
           <Field label="Min qty"><input type="text" inputMode="decimal" value={minQty} onChange={(e) => setMinQty(e.target.value)} style={inputStyle} placeholder="0" /></Field>
         </div>

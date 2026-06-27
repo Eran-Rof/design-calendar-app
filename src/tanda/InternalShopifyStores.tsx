@@ -13,6 +13,7 @@
 // encryption key.
 
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
@@ -254,10 +255,11 @@ export default function InternalShopifyStores() {
             {eligible.length > 1 && (
               <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 12, color: C.textMuted }}>Store:</span>
-                <select value={activeId} onChange={(e) => { setBulkStoreId(e.target.value); setBulkLog([]); }} disabled={bulkBusy != null}
-                  style={{ background: C.bg, color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 10px", fontSize: 13, colorScheme: "dark" }}>
-                  {eligible.map((e) => <option key={e.id} value={e.id}>{e.store_name} ({e.shopify_domain})</option>)}
-                </select>
+                <div style={{ minWidth: 280 }}>
+                  <SearchableSelect value={activeId} onChange={(v) => { setBulkStoreId(v); setBulkLog([]); }} disabled={bulkBusy != null}
+                    options={eligible.map((e) => ({ value: e.id, label: `${e.store_name} (${e.shopify_domain})` }))}
+                    inputStyle={{ background: C.bg, color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 10px", fontSize: 13 }} />
+                </div>
               </div>
             )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

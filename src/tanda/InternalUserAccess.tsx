@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 const ACTIONS = ["read", "write", "post", "void", "export"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -322,16 +323,15 @@ export default function InternalUserAccess() {
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{selected.email || selected.user_id}</div>
                   <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
                     Role
-                    <select
-                      style={{ ...inputStyle, padding: "5px 8px" }}
+                    <SearchableSelect
+                      inputStyle={{ ...inputStyle, padding: "5px 8px" }}
                       value={selected.role_id || ""}
-                      onChange={(e) => void changeRole(e.target.value)}
-                    >
-                      {!selected.role_id && <option value="">(select)</option>}
-                      {data.roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => void changeRole(v)}
+                      options={[
+                        ...(!selected.role_id ? [{ value: "", label: "(select)" }] : []),
+                        ...data.roles.map((r) => ({ value: r.id, label: r.name })),
+                      ]}
+                    />
                   </label>
                   <Legend />
                 </div>

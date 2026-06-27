@@ -174,12 +174,15 @@ export default function InternalCrmPipelineReport() {
         </div>
         <div style={{ minWidth: 260 }}>
           <label style={labelStyle}>Customer</label>
-          <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            inputStyle={inputStyle}
+          />
         </div>
       </div>
 

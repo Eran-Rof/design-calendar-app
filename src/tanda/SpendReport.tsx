@@ -3,6 +3,7 @@ import { BarChart, Bar, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, L
 import { TH } from "../utils/theme";
 import { S } from "../utils/styles";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface SpendMonth { month: string; total: number; }
 interface SpendVendor { vendor_id: string; vendor_name: string | null; total: number; }
@@ -84,10 +85,13 @@ export default function SpendReport() {
           <AppDatePicker value={fromDate} onCommit={setFromDate} style={{ ...S.inp, marginBottom: 0, minWidth: 140 }} />
           <span style={{ color: TH.textMuted }}>→</span>
           <AppDatePicker value={toDate} onCommit={setToDate} style={{ ...S.inp, marginBottom: 0, minWidth: 140 }} />
-          <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px" }}>
-            <option value="">All vendors</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={vendorFilter || null}
+            onChange={(v) => setVendorFilter(v)}
+            options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+            placeholder="All vendors"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 220px" }}
+          />
           <button onClick={() => void load()} style={{ ...S.btn, padding: "7px 14px", fontSize: 13 }}>Refresh</button>
           {data && (
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>

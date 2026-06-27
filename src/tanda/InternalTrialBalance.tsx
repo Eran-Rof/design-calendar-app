@@ -16,6 +16,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Row = {
   entity_id: string;
@@ -196,10 +197,12 @@ export default function InternalTrialBalance() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Basis
-          <select value={basis} onChange={(e) => setBasis(e.target.value as Basis)} style={selectStyle}>
-            <option value="ACCRUAL">ACCRUAL</option>
-            <option value="CASH">CASH</option>
-          </select>
+          <SearchableSelect value={basis} onChange={(v) => setBasis(v as Basis)} inputStyle={selectStyle}
+            options={[
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+          />
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           From

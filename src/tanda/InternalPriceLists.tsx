@@ -223,12 +223,13 @@ function ListModal({ list, customers, brands, styles, onClose, onSaved }: { list
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
           <Field label="Scope">
-            <select value={scope} onChange={(e) => setScope(e.target.value as "default" | "brand" | "tier" | "customer")} style={inputStyle}>
-              <option value="default">Default — all brands (fallback)</option>
-              <option value="brand">Per-brand default</option>
-              <option value="tier">Customer tier</option>
-              <option value="customer">Specific customer</option>
-            </select>
+            <SearchableSelect value={scope} onChange={(v) => setScope(v as "default" | "brand" | "tier" | "customer")} inputStyle={inputStyle}
+              options={[
+                { value: "default", label: "Default — all brands (fallback)" },
+                { value: "brand", label: "Per-brand default" },
+                { value: "tier", label: "Customer tier" },
+                { value: "customer", label: "Specific customer" },
+              ]} />
           </Field>
           {scope === "brand" && <Field label="Brand"><SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)} options={[{ value: "", label: "(pick brand)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.name} ${b.code || ""}` }))]} placeholder="(pick brand)" /></Field>}
           {scope === "tier" && <Field label="Customer tier"><input value={tier} onChange={(e) => setTier(e.target.value)} style={inputStyle} placeholder="distributor" /></Field>}

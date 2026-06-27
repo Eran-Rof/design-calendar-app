@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 
 // Deep-link a single transaction into its Tangerine module in a NEW TAB.
 // The target panels filter to a single record via their ?q= (doc-number ilike /
@@ -237,10 +238,13 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
               {tab === "pos" && (
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, paddingBottom: 6 }}>
                   <span style={{ fontSize: 10, color: C.textMuted }}>STATUS</span>
-                  <select value={poStatus} onChange={(e) => setPoStatus(e.target.value)} style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 12 }}>
-                    <option value="">(all)</option>
-                    {poStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={poStatus || null}
+                    onChange={setPoStatus}
+                    options={[{ value: "", label: "(all)" }, ...poStatuses.map((s) => ({ value: s, label: s }))]}
+                    placeholder="(all)"
+                    inputStyle={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 12 }}
+                  />
                 </div>
               )}
             </div>

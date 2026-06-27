@@ -537,15 +537,14 @@ export default function InternalPimProductCatalog() {
           />
         </div>
 
-        <select
-          value={publishFilter}
-          onChange={(e) => setPublishFilter(e.target.value)}
-          style={{ ...inputStyle, maxWidth: 280 } as React.CSSProperties}
-        >
-          {PUBLISH_FILTER_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <div style={{ width: 280, maxWidth: 280 }}>
+          <SearchableSelect
+            value={publishFilter || null}
+            onChange={(v) => setPublishFilter(v)}
+            options={PUBLISH_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            inputStyle={{ ...inputStyle, maxWidth: 280 } as React.CSSProperties}
+          />
+        </div>
 
         <ExportButton
           rows={filteredRows as unknown as Array<Record<string, unknown>>}
