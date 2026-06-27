@@ -13,6 +13,7 @@
 //               unit_price, date, kind }] }
 
 import { createClient } from "@supabase/supabase-js";
+import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
 
 export const config = { maxDuration: 30 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,15 +45,32 @@ export default async function handler(req, res) {
   if (!UUID_RE.test(styleId)) return res.status(400).json({ error: "style_id (uuid) required" });
   const from = DATE_RE.test(String(url.searchParams.get("from") || "")) ? String(url.searchParams.get("from")) : null;
   const to = DATE_RE.test(String(url.searchParams.get("to") || "")) ? String(url.searchParams.get("to")) : null;
+  // Explode PPK: when on AND this style is a PPK, sold quantities (recorded at
+  // pack grain) are multiplied by the style's units-per-pack so the drill totals
+  // match the exploded snapshot. Each unit_price is divided by units-per-pack so
+  // the line amount (price × qty) stays correct after the qty is exploded.
+  const explodePpk = String(url.searchParams.get("explode_ppk") || "") === "true";
 
   try {
     const eid = await entityId(admin);
-    // SKUs of this style → item_id → color.
+    // SKUs of this style → item_id → color. style_code drives the PPK gate.
     const items = await fetchChunked([styleId], (ids) =>
-      admin.from("ip_item_master").select("id, color").in("style_id", ids));
+      admin.from("ip_item_master").select("id, color, style_code").in("style_id", ids));
     const colorByItem = new Map(items.map((i) => [i.id, i.color ?? null]));
     const itemIds = items.map((i) => i.id);
     if (itemIds.length === 0) return res.status(200).json({ color_totals: [], grand_total: 0, rows: [] });
+
+    // Pack ratio for this style (1 = no explosion). PPK styles with no active
+    // matrix stay at 1 (un-exploded), mirroring the matrix's unmatched rule.
+    let packRatio = 1;
+    if (explodePpk) {
+      const ppkCode = (items.map((i) => i.style_code).find((c) => c && isPpkStyle(c)));
+      if (ppkCode) {
+        const u = await ppkUnitsPerPackByStyle(admin, eid, [ppkCode]);
+        const r = u.get(String(ppkCode).toLowerCase());
+        if (r && r > 0) packRatio = r;
+      }
+    }
 
     // Wholesale invoiced lines (the rows the popup lists).
     // NB: ip_sales_history_wholesale has NO `store` column — selecting it 400s
@@ -100,8 +118,8 @@ export default async function handler(req, res) {
     };
     for (const r of whRows) {
       const color = colorByItem.get(r.sku_id) ?? null;
-      const qty = Number(r.qty) || 0;
-      const price = r.unit_price != null ? Number(r.unit_price) : null;
+      const qty = (Number(r.qty) || 0) * packRatio;
+      const price = r.unit_price != null ? Number(r.unit_price) / packRatio : null;
       addRow(`w|${r.invoice_number ?? ""}|${color ?? ""}`, {
         color, store: r.store ?? null, invoice_number: r.invoice_number ?? null,
         ar_invoice_id: arIdByNum.get(r.invoice_number) || null,
@@ -113,7 +131,7 @@ export default async function handler(req, res) {
       addRow(`e|${r.order_number ?? ""}|${color ?? ""}`, {
         color, store: "Ecom", invoice_number: r.order_number ?? null, ar_invoice_id: null,
         customer: null, date: r.order_date ?? null, kind: "ecom",
-      }, Number(r.net_qty) || 0, null);
+      }, (Number(r.net_qty) || 0) * packRatio, null);
     }
     const rows = [...rowMap.values()].map(({ _amt, _pq, ...r }) => ({ ...r, unit_price: _pq > 0 ? +(_amt / _pq).toFixed(4) : null }))
       .sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? "")));

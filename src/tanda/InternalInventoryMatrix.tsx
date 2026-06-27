@@ -411,7 +411,7 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
 
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -422,18 +422,14 @@ function SnapshotView({
   thumbs: Map<string, StyleThumbInfo>;
   onOpenSold: (r: SnapshotRow) => void;
   onOpenPurchased: (r: SnapshotRow) => void;
+  // Column visibility lifted to the parent (control lives in the header row).
+  show: (k: string) => boolean;
+  explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
 }) {
-  // Column show/hide — persisted per browser. "image" is a pseudo-column.
-  const [hidden, setHidden] = useState<Set<string>>(() => {
-    try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
-  });
-  const [colsOpen, setColsOpen] = useState(false);
-  const toggleCol = (k: string) => setHidden((prev) => {
-    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k);
-    try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
-    return next;
-  });
-  const show = (k: string) => !hidden.has(k);
+  // Zebra striping tint by row index — alternate rows get a faint background so
+  // long lists stay readable; mirrors the drill modals' zebra() helper.
+  const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
+  const HOVER_BG = "rgba(59,130,246,0.16)"; // distinct from BOTH zebra tints
 
   const sorted = useMemo(() => {
     const r = [...rows];
@@ -471,21 +467,6 @@ function SnapshotView({
 
   return (
     <div>
-      {/* Column show/hide */}
-      <div style={{ position: "relative", display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button onClick={() => setColsOpen((o) => !o)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>⚙ Columns</button>
-        {colsOpen && (
-          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
-            {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
-              <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
-                <input type="checkbox" checked={show(col.key as string)} onChange={() => toggleCol(col.key as string)} />
-                {col.label}
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
@@ -502,18 +483,19 @@ function SnapshotView({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => {
+            {sorted.map((r, i) => {
               const thumbUrl = thumbs.get(r.style_id)?.byColor[(r.color || "").toLowerCase().trim()] ?? thumbs.get(r.style_id)?.default ?? null;
+              const exp = explodePpk ? "&explode_ppk=true" : ""; // carry explode into matrix drill
               return (
                 <tr key={`${r.style_id}|${r.color ?? ""}`}
-                    style={{ borderBottom: `1px solid ${C.rowBdr}` }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                    style={{ borderBottom: `1px solid ${C.rowBdr}`, ...zebra(i) }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = HOVER_BG; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = zebra(i).background as string; }}>
                   {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
                   {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>}
                   {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
                   {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
-                  {show("on_hand") && <td style={tdNum}><QtyLink v={r.on_hand} url={lnkMatrix(r.style_id)} /></td>}
+                  {show("on_hand") && <td style={tdNum}><QtyLink v={r.on_hand} url={`${lnkMatrix(r.style_id)}${exp}`} /></td>}
                   {show("allocated") && <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>}
                   {show("on_so") && <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>}
                   {show("ats") && <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>}
@@ -564,8 +546,8 @@ function DateRange({ from, to, onChange }: { from: string; to: string; onChange:
   );
 }
 
-function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: {
-  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpenInvoice }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; explodePpk: boolean; onClose: () => void;
   onOpenInvoice: (arId: string, num: string, customer: string | null) => void;
 }) {
   const [from, setFrom] = useState(headerFrom);
@@ -576,11 +558,12 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    if (explodePpk) qs.set("explode_ppk", "true"); // explode the drilled detail too
     fetch(`/api/internal/inventory-sold-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [row.style_id, from, to]);
+  }, [row.style_id, from, to, explodePpk]);
   const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
@@ -630,8 +613,8 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
   );
 }
 
-function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }: {
-  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpenBill }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; explodePpk: boolean; onClose: () => void;
   onOpenBill: (billId: string, ref: string, vendor: string | null) => void;
 }) {
   const [from, setFrom] = useState(headerFrom);
@@ -645,11 +628,12 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    if (explodePpk) qs.set("explode_ppk", "true"); // explode the drilled detail too
     fetch(`/api/internal/inventory-purchased-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((j) => { if (!cancelled) { setData(j); setPickedColor(null); } }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [row.style_id, from, to]);
+  }, [row.style_id, from, to, explodePpk]);
   const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
@@ -834,8 +818,24 @@ export default function InternalInventoryMatrix() {
   // multi-style view where no single-style payload (with its own list) exists.
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
+  // Snapshot column show/hide — lifted up from SnapshotView so the control can
+  // live in the filter header row (next to Store). Persisted per browser.
+  const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
+    try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
+  });
+  const [snapColsOpen, setSnapColsOpen] = useState(false);
+  const toggleSnapCol = (k: string) => setSnapHidden((prev) => {
+    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k);
+    try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
+    return next;
+  });
+  const snapShow = (k: string) => !snapHidden.has(k);
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
-  const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
+  // off by default; folds PPK packs → sized eaches. Honors ?explode_ppk in the
+  // URL so the Snapshot's On-Hand drill (which appends it) opens already exploded.
+  const [explodePpk, setExplodePpk] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("explode_ppk") === "true"; } catch { return false; }
+  });
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -1076,14 +1076,14 @@ export default function InternalInventoryMatrix() {
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined }),
+      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: explodePpk || undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo]);
+  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo, explodePpk]);
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1439,11 +1439,35 @@ export default function InternalInventoryMatrix() {
     { key: "status", header: "Status" },
   ], []);
 
+  // Snapshot rows after the Hide-Zeros toggle (drops on-hand-0 rows, matching the
+  // matrices' behavior). The fetched set is already scoped to the active filters
+  // (brand/search/gender/group/category/sub-category) via pageStyleIds, so this
+  // is the same set shown — both the table AND the export read it.
+  const snapVisibleRows = useMemo<SnapshotRow[]>(
+    () => (hideZeros ? snapRows.filter((r) => num(r.on_hand) !== 0) : snapRows),
+    [snapRows, hideZeros],
+  );
+
+  // Snapshot export — every visible (filtered) row, honoring the column show/hide
+  // selection so the sheet matches the on-screen table.
+  const snapExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(
+    () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
+      key: c.key as string,
+      header: c.label,
+      format: c.key === "avg_cost_cents" ? "currency_cents" : (c.numeric ? "number" : undefined),
+    })),
+    [snapHidden],
+  );
+  const snapExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => snapVisibleRows.map((r) => ({ ...r })),
+    [snapVisibleRows],
+  );
+
   return (
-    <div style={{ color: C.text }}>
+    <div style={{ color: C.text, marginTop: 18 }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Inventory Matrix</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Inventory Matrix</h2>
         {payload && (
           <div style={{ fontSize: 11, color: C.textMuted }}>
             {payload.skus.length} SKU{payload.skus.length === 1 ? "" : "s"}
@@ -1482,7 +1506,7 @@ export default function InternalInventoryMatrix() {
           </label>
 
           {genderDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
               Gender
               <SearchableSelect
                 value={genderFilter || ALL_GENDER_SENTINEL}
@@ -1543,10 +1567,35 @@ export default function InternalInventoryMatrix() {
               inputStyle={inputStyle}
             />
           </label>
+
+          {/* Columns show/hide — lives here (next to Store) and applies to the
+              Snapshot table. Only meaningful on the all-styles Snapshot view. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setSnapColsOpen((o) => !o)}
+                style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+              >
+                Columns {snapColsOpen ? "▴" : "▾"}
+              </button>
+              {snapColsOpen && (
+                <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
+                  {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
+                    <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Row 2 — display controls */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Row 2 — display controls. Same left origin + gap as Row 1 so the
+            control "bubbles" line up; button font unified with the inputs (13px). */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           {/* Hide Zeros toggle — blue = active (zeros hidden) */}
           <button
             type="button"
@@ -1556,7 +1605,7 @@ export default function InternalInventoryMatrix() {
               color: hideZeros ? "#fff" : C.textMuted,
               border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`,
               padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+              fontSize: 13, fontWeight: 600, transition: "all 0.15s",
             }}
             onClick={() => setHideZeros((v) => !v)}
           >
@@ -1572,7 +1621,7 @@ export default function InternalInventoryMatrix() {
               color: explodePpk ? "#fff" : C.textMuted,
               border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`,
               padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+              fontSize: 13, fontWeight: 600, transition: "all 0.15s",
             }}
             onClick={() => setExplodePpk((v) => !v)}
           >
@@ -1592,7 +1641,7 @@ export default function InternalInventoryMatrix() {
                 color: inseamMode ? "#fff" : C.textMuted,
                 border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`,
                 padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                fontSize: 13, fontWeight: 600, transition: "all 0.15s",
               }}
               onClick={() => setInseamMode((v) => !v)}
             >
@@ -1642,10 +1691,10 @@ export default function InternalInventoryMatrix() {
             ← All styles
           </button>
           {([
-            ["matrix", "🧮 Matrix"],
-            ["so", "🛒 SO"],
-            ["po", "📦 PO"],
-            ["invoices", "🧾 Invoices"],
+            ["matrix", "Matrix"],
+            ["so", "SO"],
+            ["po", "PO"],
+            ["invoices", "Invoices"],
           ] as Array<[ViewMode, string]>).map(([mode, label]) => (
             <button key={mode} type="button" style={btnToggle(viewMode === mode)} onClick={() => setViewMode(mode)}>
               {label}
@@ -1684,13 +1733,13 @@ export default function InternalInventoryMatrix() {
           marginBottom: 12, padding: "8px 12px", borderRadius: 6, fontSize: 12,
           background: "rgba(245,158,11,0.12)", border: `1px solid ${C.warn}`, color: "#FCD34D",
         }}>
-          <strong>📦 Exploded packs included.</strong>{" "}
+          <strong>Exploded packs included.</strong>{" "}
           {payload.explode.packs_exploded > 0
             ? `${payload.explode.packs_exploded} prepack SKU${payload.explode.packs_exploded === 1 ? "" : "s"} converted to sized eaches via the Prepack Matrix master.`
             : `No prepack SKUs on-hand were exploded.`}
           {payload.explode.packs_unmatched.length > 0 && (
             <div style={{ marginTop: 6, color: "#FECACA" }}>
-              ⚠ {payload.explode.packs_unmatched.length} pack SKU{payload.explode.packs_unmatched.length === 1 ? "" : "s"} have on-hand but no matrix defined — NOT exploded:{" "}
+              {payload.explode.packs_unmatched.length} pack SKU{payload.explode.packs_unmatched.length === 1 ? "" : "s"} have on-hand but no matrix defined — NOT exploded:{" "}
               {payload.explode.packs_unmatched.slice(0, 6).map((u, i) => (
                 <span key={`${u.ppk_style_code}-${u.color}-${i}`} style={{ fontFamily: "monospace" }}>
                   {u.ppk_style_code}{u.color ? `/${u.color}` : ""} ({u.qty}){i < Math.min(6, payload!.explode!.packs_unmatched.length) - 1 ? ", " : ""}
@@ -1714,7 +1763,7 @@ export default function InternalInventoryMatrix() {
           per-style size grids. Only when no single style is picked. */}
       {!styleId && (
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {([["snapshot", "📋 Inventory Snapshot"], ["matrix", "▦ Size matrices"]] as const).map(([v, label]) => (
+          {([["snapshot", "Inventory Snapshot"], ["matrix", "OH matrices"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setNoStyleView(v)}
               style={{
                 background: noStyleView === v ? C.primary : "transparent",
@@ -1741,6 +1790,14 @@ export default function InternalInventoryMatrix() {
               <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
               {/* Header date range — filters the Sold/Purchased columns and seeds each drill. */}
               <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
+              {/* Export — the visible (filtered) snapshot rows. Count badge tracks
+                  the same set shown (hide-zeros + column selection applied). */}
+              <ExportButton
+                rows={snapExportRows}
+                filename={`inventory-snapshot-${brandId ? "brand" : "all-styles"}`}
+                sheetName="Inventory Snapshot"
+                columns={snapExportColumns}
+              />
               {totalPages > 1 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
@@ -1749,19 +1806,19 @@ export default function InternalInventoryMatrix() {
                 </div>
               )}
             </div>
-            <SnapshotView rows={snapRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-              thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} />
+            <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+              thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
           </div>
         );
       })()}
 
       {/* Drill modals */}
       {soldFor && (
-        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setSoldFor(null)}
+        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={explodePpk} onClose={() => setSoldFor(null)}
           onOpenInvoice={(arId, num, customer) => setDocModal({ kind: "ar", id: arId, number: num, party: customer })} />
       )}
       {purchasedFor && (
-        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setPurchasedFor(null)}
+        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={explodePpk} onClose={() => setPurchasedFor(null)}
           onOpenBill={(billId, ref, vendor) => setDocModal({ kind: "ap", id: billId, number: ref, party: vendor })} />
       )}
       {docModal && (
