@@ -274,10 +274,11 @@ export default function InternalSalesOrders() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          {["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "", label: "All statuses" }, ...["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => ({ value: s, label: s }))]}
+            placeholder="All statuses" inputStyle={inputStyle} />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect value={customerFilter || null} onChange={(v) => setCustomerFilter(v)}
             options={[{ value: "", label: "All customers" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]}
@@ -285,10 +286,11 @@ export default function InternalSalesOrders() {
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SO #, customer, style…" style={{ ...inputStyle, width: 240 }} />
         {/* Date-range filter (client-side). Field picker + From/To + presets. */}
-        <select value={dateField} onChange={(e) => setDateField(e.target.value as "order_date" | "requested_ship_date")} style={{ ...inputStyle, width: 160 }} title="Which date the range filters on">
-          <option value="order_date">Order date</option>
-          <option value="requested_ship_date">Start ship date</option>
-        </select>
+        <div style={{ width: 160 }} title="Which date the range filters on">
+          <SearchableSelect value={dateField} onChange={(v) => setDateField((v as "order_date" | "requested_ship_date") || "order_date")}
+            options={[{ value: "order_date", label: "Order date" }, { value: "requested_ship_date", label: "Start ship date" }]}
+            placeholder="Date field" inputStyle={inputStyle} />
+        </div>
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="From date" title="From" />
         <span style={{ color: C.textMuted, fontSize: 13 }}>→</span>
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...inputStyle, width: 150 }} aria-label="To date" title="To" />
@@ -1404,20 +1406,24 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             the field for the operator to confirm. */}
         <div style={{ marginTop: 16, marginBottom: 4, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source *</span>
-          <select
-            value={fulfillmentSource}
-            onChange={(e) => { setFulfillmentSource(e.target.value); setFulfillmentReview(false); }}
-            disabled={!editable}
-            style={{
-              ...inputStyle, width: 280,
-              borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
-              boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
-            }}
-          >
-            <option value="">(select — required)</option>
-            <option value="production">Production — make it (notifies Production Mgr)</option>
-            <option value="ats">ATS — ship from available stock</option>
-          </select>
+          <div style={{ width: 280 }}>
+            <SearchableSelect
+              value={fulfillmentSource || null}
+              onChange={(v) => { setFulfillmentSource(v); setFulfillmentReview(false); }}
+              disabled={!editable}
+              options={[
+                { value: "", label: "(select — required)" },
+                { value: "production", label: "Production — make it (notifies Production Mgr)" },
+                { value: "ats", label: "ATS — ship from available stock" },
+              ]}
+              placeholder="(select — required)"
+              inputStyle={{
+                ...inputStyle, width: 280,
+                borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
+                boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
+              }}
+            />
+          </div>
           {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
           {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
           {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>⚠️ Pick ATS or Production to start adding styles.</span>}
@@ -1787,9 +1793,9 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Amount $"><input type="text" inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} onBlur={() => setPayAmount((v) => fmtMoneyComma(v))} style={inputStyle} placeholder="0.00" /></Field>
               <Field label="Method">
-                <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} style={inputStyle}>
-                  {["credit_card", "ach", "wire", "check", "cash", "paypal", "stripe", "other"].map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <SearchableSelect value={payMethod || null} onChange={(v) => setPayMethod(v)}
+                  options={["credit_card", "ach", "wire", "check", "cash", "paypal", "stripe", "other"].map((m) => ({ value: m, label: m }))}
+                  placeholder="Method" inputStyle={inputStyle} />
               </Field>
             </div>
             <Field label="Reference #"><input type="text" value={payReference} onChange={(e) => setPayReference(e.target.value)} style={inputStyle} placeholder="auth code / txn id (optional)" /></Field>
