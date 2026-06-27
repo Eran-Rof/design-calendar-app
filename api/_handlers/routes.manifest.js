@@ -262,6 +262,7 @@ export default [
   ["/api/internal/sales-orders/:id/wave"                     , "./internal/sales-orders/wave.js"],
   ["/api/internal/sales-orders/:id/record-payment"           , "./internal/sales-orders/[id]/record-payment.js"],
   ["/api/internal/sales-orders/parse-customer-po"            , "./internal/sales-orders/parse-customer-po.js"],
+  ["/api/internal/sales-orders/bulk-match"                   , "./internal/sales-orders/bulk-match.js"],
   ["/api/internal/sales-orders/placeholder-po"               , "./internal/sales-orders/placeholder-po.js"],
   ["/api/internal/sales-orders/allocate-by-lot"              , "./internal/sales-orders/allocate-by-lot.js"],
   ["/api/internal/sales-orders/match-customer"               , "./internal/sales-orders/match-customer.js"],

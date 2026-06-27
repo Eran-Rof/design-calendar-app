@@ -131,6 +131,7 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
     if ("customer_po" in body) patch.customer_po = body.customer_po ? String(body.customer_po).trim() : null;
+    if ("is_bulk_order" in body) patch.is_bulk_order = body.is_bulk_order === true;
     // Scenario 2 — placeholder flag. Explicit value wins; otherwise replacing the
     // customer PO on a placeholder SO clears the flag (it's now a real buyer PO).
     if ("customer_po_is_placeholder" in body) patch.customer_po_is_placeholder = body.customer_po_is_placeholder === true;
