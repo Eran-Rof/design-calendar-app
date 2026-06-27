@@ -405,6 +405,7 @@ import r_internal_procurement_vendor_invoice_drafts_id from "./internal/procurem
 import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procurement/vendor-invoice-drafts/index.js";
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
+import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/split-by-lot.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
 import r_internal_recon_cutovers from "./internal/recon/cutovers.js";
 import r_internal_recon_run_ap from "./internal/recon/run-ap.js";
@@ -430,6 +431,7 @@ import r_internal_sales_by_customer_index from "./internal/sales-by-customer/ind
 import r_internal_sales_by_rep_index from "./internal/sales-by-rep/index.js";
 import r_internal_sales_orders_id from "./internal/sales-orders/[id].js";
 import r_internal_sales_orders_id_record_payment from "./internal/sales-orders/[id]/record-payment.js";
+import r_internal_sales_orders_allocate_by_lot from "./internal/sales-orders/allocate-by-lot.js";
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
@@ -770,6 +772,7 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: r_internal_gl_accounts_id_brand_allocation },
   { pattern: "/api/internal/phase-change-requests/:id/reject", handler: r_internal_phase_change_requests_id_reject },
   { pattern: "/api/internal/procurement/bookkeeper-queue/:id", handler: r_internal_procurement_bookkeeper_queue_id },
+  { pattern: "/api/internal/purchase-orders/:id/split-by-lot", handler: r_internal_purchase_orders_split_by_lot },
   { pattern: "/api/internal/bank-transactions/:id/create-je", handler: r_internal_bank_transactions_create_je },
   { pattern: "/api/internal/compliance/automation-rules/:id", handler: r_internal_compliance_automation_rules_id },
   { pattern: "/api/internal/procurement/broker-invoices/:id", handler: r_internal_procurement_broker_invoices_id },
@@ -881,6 +884,7 @@ export const ROUTES = [
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
+  { pattern: "/api/internal/sales-orders/allocate-by-lot", handler: r_internal_sales_orders_allocate_by_lot },
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },
   { pattern: "/api/internal/procurement/customs-entries", handler: r_internal_procurement_customs_entries_index },

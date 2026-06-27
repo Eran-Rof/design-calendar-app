@@ -12,7 +12,7 @@ Four new global / entity-scoped reference masters landed under **📚 Master Dat
 
 | Panel | Route | Scope | What it holds |
 |---|---|---|---|
-| **Countries** | `/tangerine?m=countries` | Global (entity-agnostic) | `country_master`: `iso2` (2-letter, uppercased), `name`, `sort_order`, `is_active`. Search matches iso2 OR name. |
+| **Countries** | `/tangerine?m=countries` | Global (entity-agnostic) | `country_master`: `iso2` (2-letter, uppercased), `name`, `phone_code` (E.164 calling code, e.g. `1`, `86`, `880` — the source of the Vendor master's phone dial-code dropdown), `sort_order`, `is_active`. Search matches iso2 OR name. |
 | **Genders** | `/tangerine?m=genders` | Global | `gender_master`: `code`, `label`, `sort_order`, `is_active`. Seeded M/W/B/G/C/T/U. Search matches code OR label. |
 | **Group / Category / Sub** | `/tangerine?m=style_classifications` | Entity-scoped (ROF) | `style_classifications`: one table, three `kind`s — `group`, `category`, `sub_category`. Filter by kind; search on name. |
 | **Factors / Insurance** | `/tangerine?m=factors` | Entity-scoped (ROF) | `factor_master`: a receivables financier / insurer with a full contact profile (`name`, `contact_name`, `phone`, `email`, `website`, `address` jsonb, up to **3 additional contacts** `contacts` jsonb {name·phone·email·title}, `api_enabled`, `notes`). The address Country/State are searchable dropdowns (the old standalone Country picker was removed — it duplicated the address one); email shows a ✉ click-to-send link and phones auto-mask to (XXX) XXX-XXXX. |

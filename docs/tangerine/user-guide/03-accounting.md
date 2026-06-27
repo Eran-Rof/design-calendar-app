@@ -330,6 +330,10 @@ The footer below the three sections shows the standard P&L roll-up:
 | **Operating Income** | Gross Margin − OPEX |
 | **NET INCOME** | Operating Income (until M22 Fixed Assets adds depreciation) |
 
+### Per-style revenue / COGS / returns routing
+
+The revenue and COGS that land here are routed **per AR-invoice line**, not at one company-wide bucket. Each style on the **Style Master** can override its **Revenue**, **COGS** and **Returns** GL accounts; at posting time each invoice line resolves **style account → customer default (Customer Master → GL Accounts tab) → entity default**. Credit-memo (RMA) return lines route the same way to the style's **Returns** account (falling back to the customer default, then the entity-level Sales Returns account 4100). The practical effect is that a multi-brand invoice books each line to that brand's revenue / COGS / contra-revenue accounts, so the Income Statement and Trial Balance break out cleanly by brand. A line whose style has no override posts to the customer/entity default exactly as before. See [Chapter 26 §26.4a](26-brand-master-gl-allocation.md) for the full account map.
+
 ### The COGS heuristic (code starts with '5')
 
 The system identifies COGS rows by checking whether the gl_accounts code begins with `5`. This is a convention, not a hard schema rule. If your COA uses a different numbering scheme (e.g., 50000-series instead of 5xxx, or you have non-COGS accounts that happen to start with 5), you'll see misclassifications — talk to engineering about adding an explicit `gl_accounts.is_cogs boolean` flag. Per arch §13, the heuristic is the MVP default; the flag ships only if range-based detection turns out wrong for your COA.

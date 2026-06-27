@@ -130,6 +130,38 @@ AR/AP **aging** reports were also made brand-aware (`p_brand_id` RPC arg + a gat
 
 ---
 
+## 26.4a Per-style revenue / COGS / returns routing (always on)
+
+Separate from the gated brand-allocation engine above, **each style can carry its own revenue, COGS and returns GL accounts** so a multi-brand AR invoice books each line to the right brand's accounts. Unlike the rest of this chapter, this routing is **always active** — it is not gated by `BRAND_SCOPE_MODE`.
+
+### Where the accounts live
+
+On the **Style Master**, a style may override three GL accounts:
+
+- **Revenue account** (`style_master.revenue_account_id`)
+- **COGS account** (`style_master.cogs_account_id`)
+- **Returns account** (`style_master.returns_account_id`)
+
+Each is optional; a blank account just falls back to the customer/entity default (below). The historical set was backfilled from the Xoro item GL export — 1,961 of 2,100 styles were mapped to the matching brand bucket (ROF → 4005 revenue / 5010 COGS / 4236 returns, Boys → 4006 / 5011 / 4234, PT → 4009 / 5012 / 4235, Private Label → 4012 / 5015 / 4201). The ~139 unmapped styles fall back to the defaults.
+
+### How posting picks the account
+
+For each **AR invoice line**, the account resolves in priority order:
+
+1. **Style** account (`style_master.revenue_/cogs_/returns_account_id`), then
+2. **Customer** default (`customers.default_revenue_/cogs_/returns_account_id`, set on the Customer Master **GL Accounts** tab), then
+3. **Entity** default.
+
+So on a multi-brand invoice, line 1 (a ROF style) books revenue + COGS to ROF's accounts while line 2 (a different brand) books to its own — each line is independent. A line whose style has no override behaves exactly as before. Both revenue and COGS are stored per line on `ar_invoice_lines`, and the resolved account is written at invoice-creation time, then honored by the `arInvoiceSent` posting rule.
+
+### Returns / credit memos
+
+Customer **credit memos** (M23 RMA) route each return line to its **style's returns account** the same way: style returns account → customer `default_returns_account_id` → the entity-level Sales Returns fallback (4100). Previously every return reversed into the single 4100 bucket; now contra-revenue lands against the correct brand (4236 ROF / 4234 Boys / 4235 PT / 4201 Private Label).
+
+> This is the per-line, real-account routing path — it routes to accounts that already exist in the COA, and does **not** percentage-split anything. The gated `glAllocation.js` split (§26.4) is a separate mechanism for sharing one cost across brands by percentage.
+
+---
+
 ## 26.5 What is NOT split — AR revenue
 
 **AR revenue is never run through the allocation engine.** This is a deliberate operator decision, stated in the engine itself: an AR invoice already *knows* its brand (`ar_invoices.brand_id`), so revenue posts to that brand directly rather than being percentage-split. The `glAllocation.js` split applies only to **manual JEs** and **AP-invoice expense lines**. Inventory lines on an AP invoice (anything with an `inventory_item_id`) are also never split — inventory capitalizes to the inventory asset account, not a P&L expense.

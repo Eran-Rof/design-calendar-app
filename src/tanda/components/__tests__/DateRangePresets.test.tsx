@@ -147,23 +147,25 @@ describe("<DateRangePresets /> — props", () => {
   });
 });
 
-describe("<DateRangePresets /> — dropdown variant", () => {
-  it("renders a single select with one option per preset (+ placeholder), no chips", () => {
+describe("<DateRangePresets /> — dropdown variant (custom, themed)", () => {
+  it("renders a trigger button; opening shows one themed option per preset", () => {
     render(<DateRangePresets from="" to="" onChange={vi.fn()} variant="dropdown" />);
-    const select = screen.getByTestId("date-range-presets-dropdown") as HTMLSelectElement;
-    expect(select.tagName).toBe("SELECT");
-    expect(select.querySelectorAll("option")).toHaveLength(DEFAULT_PRESETS.length + 1);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    const trigger = screen.getByTestId("date-range-presets-dropdown");
+    expect(trigger.tagName).toBe("BUTTON");
+    // Closed by default — no native <select>, no listbox.
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(DEFAULT_PRESETS.length);
   });
 
-  it("selecting a preset fires onChange with its computed range", () => {
+  it("clicking a preset option fires onChange with its computed range", () => {
     const onChange = vi.fn();
     render(<DateRangePresets from="" to="" onChange={onChange} variant="dropdown" />);
     const mtd = DEFAULT_PRESETS.find((p) => p.key === "mtd")!;
     const computed = mtd.compute(new Date());
-    fireEvent.change(screen.getByTestId("date-range-presets-dropdown"), {
-      target: { value: "mtd" },
-    });
+    fireEvent.click(screen.getByTestId("date-range-presets-dropdown"));
+    fireEvent.click(screen.getByRole("option", { name: mtd.label }));
     expect(onChange).toHaveBeenCalledWith(
       computed.from,
       computed.to,
@@ -171,11 +173,10 @@ describe("<DateRangePresets /> — dropdown variant", () => {
     );
   });
 
-  it("reflects the active preset as the selected value", () => {
+  it("reflects the active preset on the trigger label", () => {
     const mtd = DEFAULT_PRESETS.find((p) => p.key === "mtd")!;
     const c = mtd.compute(new Date());
     render(<DateRangePresets from={c.from} to={c.to} onChange={vi.fn()} variant="dropdown" />);
-    const select = screen.getByTestId("date-range-presets-dropdown") as HTMLSelectElement;
-    expect(select.value).toBe("mtd");
+    expect(screen.getByTestId("date-range-presets-dropdown")).toHaveTextContent(mtd.label);
   });
 });

@@ -1,4 +1,4 @@
--- 20260911000000_so_placeholder_customer_po.sql (renumbered up from 20260901000000
+-- 20260915000000_so_placeholder_customer_po.sql (renumbered up to clear dup-version collisions with main migrations)
 -- to clear dup-version collisions with main's so_credit_gates + date_preset_master)
 --
 -- Lot numbers — Scenario 2 (upfront customer PO from a buy sheet, before the

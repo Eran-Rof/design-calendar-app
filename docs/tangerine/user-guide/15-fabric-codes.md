@@ -101,7 +101,9 @@ The **HTS code** field in the Style Master add/edit modal includes a **🤖 Sugg
 
 ### Up to three Countries of Origin (COO)
 
-The HTS section is a **per-country repeater** — add up to **three COO rows**, each with its own **HTS code**, **Duty %**, **Country of origin** picker, and its own **🤖 Suggest HTS** button. Because the HTS *code* is product-based it's normally the same across countries, but the **duty rate varies by country**: the AI applies any US trade-preference program the country qualifies for (e.g. **AGOA** for eligible sub-Saharan African countries like Madagascar, **USMCA** for Mexico/Canada, **CAFTA-DR**, **GSP**), which often drops the rate to 0%; otherwise it uses the Column 1 General (MFN) rate, and states the basis in its reasoning. **Row 1 is the primary** — its HTS code + duty rate are what costing and customs read. Rows 2–3 are stored alongside on the style (`attributes.coo_hts`).
+The HTS section is a **per-country repeater** — add up to **three COO rows**, each with its own **HTS code**, **Duty %**, **Tariff %**, **Country of origin** picker, and its own **🤖 Suggest HTS** button.
+
+> **Tariff % (the additional Trump-administration tariff).** Next to each row's Duty % is a **Tariff %** field for the additional tariff that currently applies **flat at +10%, all countries and categories** — it defaults to `10`. It is stored per COO row and mirrored on the style, separate from the country-specific Duty %, so costing and customs can read the base duty and the additional tariff independently. Adjust it if policy changes. Because the HTS *code* is product-based it's normally the same across countries, but the **duty rate varies by country**: the AI applies any US trade-preference program the country qualifies for (e.g. **AGOA** for eligible sub-Saharan African countries like Madagascar, **USMCA** for Mexico/Canada, **CAFTA-DR**, **GSP**), which often drops the rate to 0%; otherwise it uses the Column 1 General (MFN) rate, and states the basis in its reasoning. **Row 1 is the primary** — its HTS code + duty rate are what costing and customs read. Rows 2–3 are stored alongside on the style (`attributes.coo_hts`).
 
 ### How to use
 
@@ -118,6 +120,12 @@ The HTS section is a **per-country repeater** — add up to **three COO rows**, 
 > **Always verify AI suggestions against the official HTSUS schedule** (hts.usitc.gov) before using them in customs filings. AI classification is a starting point, not a legal ruling. Misclassification can result in underpayment of duties or CBP penalties.
 
 The button is disabled if `ANTHROPIC_API_KEY` is not configured in the Vercel environment; it returns an empty list with a note instead of an error.
+
+> **Gender-correct suggestions.** The HTS suggestion now classifies for the **style's own gender only** — it no longer returns a code that spans multiple genders.
+
+### 🤖 Auto-fill HTS (BD / CN / MG) — bulk backfill
+
+For a one-shot pass over the whole catalog, the Style Master toolbar has an **🤖 Auto-fill HTS (BD/CN/MG)** button. It walks every apparel style and makes one gender-aware AI call per style, returning a single HS code plus the duty rate for the three main sourcing countries — **Bangladesh** and **China** (Column-1 MFN rates) and **Madagascar** (AGOA duty-free) — and stamps the **+10% additional tariff** on each. It's **idempotent**: styles that already carry all three countries are skipped, so it's safe to re-run. As always, treat the AI codes as suggestions to verify before customs use. Needs the AI key on the deployment.
 
 ## HTS Master panel
 

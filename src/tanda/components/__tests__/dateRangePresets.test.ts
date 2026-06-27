@@ -13,6 +13,8 @@ import {
   startOfQuarter,
   endOfQuarter,
   DEFAULT_PRESETS,
+  mergePresets,
+  type DatePresetMasterRow,
 } from "../dateRangeMath";
 
 // Anchor for most tests — Thu 2026-05-28 (Q2).
@@ -187,5 +189,42 @@ describe("DEFAULT_PRESETS — edge cases", () => {
     expect(DEFAULT_PRESETS).toHaveLength(11);
     const keys = DEFAULT_PRESETS.map((p) => p.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("mergePresets()", () => {
+  const row = (o: Partial<DatePresetMasterRow>): DatePresetMasterRow => ({
+    id: o.id ?? "id1",
+    label: o.label ?? "Custom",
+    kind: o.kind ?? "mtd",
+    n: o.n ?? null,
+    is_active: o.is_active,
+    source_key: o.source_key ?? null,
+    sort_order: o.sort_order,
+  });
+
+  it("appends an operator-added preset before the Custom sentinel", () => {
+    const out = mergePresets(DEFAULT_PRESETS, [row({ id: "a", label: "Last 7d", kind: "last_n_days", n: 7 })]);
+    expect(out[out.length - 1].key).toBe("custom"); // sentinel stays last
+    expect(out.find((p) => p.label === "Last 7d")).toBeTruthy();
+    // No built-in dropped — net +1 vs DEFAULT_PRESETS.
+    expect(out).toHaveLength(DEFAULT_PRESETS.length + 1);
+  });
+
+  it("suppresses a built-in mirrored by a backfilled master row (source_key), shown once", () => {
+    const backfill = row({ id: "b", label: "MTD", kind: "mtd", source_key: "mtd" });
+    const out = mergePresets(DEFAULT_PRESETS, [backfill]);
+    // The code built-in keyed 'mtd' is gone; the master mirror provides MTD.
+    expect(out.find((p) => p.key === "mtd")).toBeUndefined();
+    const mtdLabelled = out.filter((p) => p.label === "MTD");
+    expect(mtdLabelled).toHaveLength(1);
+    expect(mtdLabelled[0].key).toBe("custom:b");
+    // Net count unchanged: one built-in dropped, one mirror added.
+    expect(out).toHaveLength(DEFAULT_PRESETS.length);
+  });
+
+  it("an inactive backfilled row does NOT suppress its built-in (built-in reappears)", () => {
+    const out = mergePresets(DEFAULT_PRESETS, [row({ id: "c", label: "MTD", kind: "mtd", source_key: "mtd", is_active: false })]);
+    expect(out.find((p) => p.key === "mtd")).toBeTruthy();
   });
 });
