@@ -131,6 +131,10 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
     if ("customer_po" in body) patch.customer_po = body.customer_po ? String(body.customer_po).trim() : null;
+    // Scenario 2 — placeholder flag. Explicit value wins; otherwise replacing the
+    // customer PO on a placeholder SO clears the flag (it's now a real buyer PO).
+    if ("customer_po_is_placeholder" in body) patch.customer_po_is_placeholder = body.customer_po_is_placeholder === true;
+    else if ("customer_po" in body && so.customer_po_is_placeholder) patch.customer_po_is_placeholder = false;
     if ("fulfillment_source" in body) patch.fulfillment_source = ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null;
     if ("is_closeout" in body) patch.is_closeout = body.is_closeout === true || body.is_closeout === "true";
 
@@ -319,6 +323,26 @@ export default async function handler(req, res, params) {
     const { data, error } = await admin.from("sales_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
 
+    // Scenario 2 — replacing the SO's customer PO (e.g. a placeholder → the real
+    // buyer PO) re-lots every NOT-YET-RECEIVED PO linked to this SO: lines that
+    // carried the OLD customer PO as their lot switch to the new one. Received /
+    // cancelled POs are left as-is (their stock is already lot-stamped on layers).
+    let relotted = null;
+    const oldPo = (so.customer_po || "").trim();
+    const newPo = ("customer_po" in patch) ? (patch.customer_po || "").trim() : oldPo;
+    if ("customer_po" in body && oldPo && newPo && newPo !== oldPo) {
+      const { data: pos } = await admin.from("purchase_orders")
+        .select("id").eq("sales_order_id", id).not("status", "in", "(received,cancelled)");
+      const poIds = (pos || []).map((p) => p.id);
+      let lines = 0;
+      if (poIds.length) {
+        const { data: upd } = await admin.from("purchase_order_lines")
+          .update({ lot_number: newPo }).in("purchase_order_id", poIds).eq("lot_number", oldPo).select("id");
+        lines = (upd || []).length;
+      }
+      relotted = { pos: poIds.length, lines, from: oldPo, to: newPo };
+    }
+
     // Production fulfillment alert — when this PATCH confirms the order and the
     // effective fulfillment source is Production, notify the Production team
     // (email + in-app) via the "production" notification category. Best-effort:
@@ -351,7 +375,7 @@ export default async function handler(req, res, params) {
         }
       } catch { /* non-blocking */ }
     }
-    return res.status(200).json(productionNotice ? { ...data, production_notice: productionNotice } : data);
+    return res.status(200).json({ ...data, ...(productionNotice ? { production_notice: productionNotice } : {}), ...(relotted ? { relotted } : {}) });
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");
