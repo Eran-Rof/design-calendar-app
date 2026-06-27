@@ -1,4 +1,5 @@
--- 20260901000000_so_placeholder_customer_po.sql
+-- 20260910000000_so_placeholder_customer_po.sql (renumbered from 20260901000000 to
+-- avoid a duplicate-version collision with 20260901000000_so_credit_gates on main)
 --
 -- Lot numbers — Scenario 2 (upfront customer PO from a buy sheet, before the
 -- real PO exists). Fulfillment opens a "placeholder" SO with an auto-generated
