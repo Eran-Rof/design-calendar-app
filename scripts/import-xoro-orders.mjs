@@ -276,12 +276,13 @@ async function loadVendors() {
   return { byName, byCode };
 }
 async function loadCustomers() {
-  const data = await pgGet("customers", `select=id,name,customer_code,code,default_revenue_account_id`);
+  const data = await pgGet("customers", `select=id,name,customer_code,code,aliases,default_revenue_account_id`);
   const byName = new Map(), byCode = new Map(), revByCust = new Map();
   for (const c of data || []) {
     if (c.name) byName.set(norm(c.name), c.id);
     if (c.customer_code) byCode.set(norm(c.customer_code), c.id);
     if (c.code) byCode.set(norm(c.code), c.id);
+    for (const a of c.aliases || []) byName.set(norm(a), c.id); // alias names resolve to this customer
     if (c.default_revenue_account_id) revByCust.set(c.id, c.default_revenue_account_id);
   }
   return { byName, byCode, revByCust };
