@@ -356,7 +356,7 @@ async function importPOs(refs) {
   const pos = all.filter((r) => INCLUDE_ARCHIVED || r.data?._archived !== true);
   console.log(`tanda_pos rows: ${all.length}  (importing ${pos.length}; archived-excluded ${all.length - pos.length})`);
 
-  const existing = await pgGet("purchase_orders", `entity_id=eq.${refs.entity.id}&select=id,po_number,notes`);
+  const existing = await pgGetPaged("purchase_orders", `entity_id=eq.${refs.entity.id}&select=id,po_number,notes`);
   const existingByNum = new Map((existing || []).map((r) => [r.po_number, r]));
 
   const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_vendor: 0, lines: 0, sku_created: 0, status: {}, lineStatus: {} };
@@ -511,7 +511,7 @@ async function importSOsNative(refs) {
     return;
   }
 
-  const existing = await pgGet("sales_orders", `entity_id=eq.${refs.entity.id}&select=id,so_number,notes`);
+  const existing = await pgGetPaged("sales_orders", `entity_id=eq.${refs.entity.id}&select=id,so_number,notes`);
   const existingByNum = new Map((existing || []).map((r) => [r.so_number, r]));
 
   const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_customer: 0, lines: 0, sku_created: 0, status: {}, lineStatus: {} };
