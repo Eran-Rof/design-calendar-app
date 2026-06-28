@@ -144,17 +144,30 @@ export default async function handler(req, res) {
     let packMult = null; // Map<item_id, ratio> | null when explode off
     if (explodePpk) {
       packMult = new Map();
-      const ppkStyleCodes = [...new Set(
-        itemRows.map((r) => r.style_code).filter((c) => c && isPpkStyle(c)),
-      )];
-      if (ppkStyleCodes.length) {
-        const unitsByStyle = await ppkUnitsPerPackByStyle(admin, eid, ppkStyleCodes);
-        for (const it of itemRows) {
-          if (it.style_code && isPpkStyle(it.style_code)) {
-            const u = unitsByStyle.get(String(it.style_code).toLowerCase());
-            if (u && u > 0) packMult.set(it.id, u);
-          }
-        }
+      // Units-per-pack per PPK style. PRIMARY signal = the SKU size token
+      // ("PPK24" → 24), which is reliable: the prepack_matrices master keys on
+      // inseam-specific codes (e.g. RYB059430PPK) that do NOT match the
+      // style-grain ip_item_master code (RYB0594PPK), and some PPK styles have
+      // no matrix row at all (RYB0412PPK). Matrix master is only a fallback.
+      const unitsByStyle = new Map(); // lower(style_code) → units
+      for (const it of itemRows) {
+        if (!it.style_code || !isPpkStyle(it.style_code)) continue;
+        const key = String(it.style_code).toLowerCase();
+        if (unitsByStyle.has(key)) continue;
+        const m = /PPK\s*(\d+)/i.exec(String(it.size || "")) || /PPK\s*(\d+)/i.exec(String(it.sku_code || ""));
+        const n = m ? parseInt(m[1], 10) : 0;
+        if (n > 0) unitsByStyle.set(key, n);
+      }
+      const missing = [...new Set(itemRows
+        .filter((it) => it.style_code && isPpkStyle(it.style_code) && !unitsByStyle.has(String(it.style_code).toLowerCase()))
+        .map((it) => it.style_code))];
+      if (missing.length) {
+        const fromMatrix = await ppkUnitsPerPackByStyle(admin, eid, missing);
+        for (const [k, u] of fromMatrix) if (!unitsByStyle.has(k)) unitsByStyle.set(k, u);
+      }
+      for (const it of itemRows) {
+        const key = String(it.style_code || "").toLowerCase();
+        if (it.style_code && isPpkStyle(it.style_code) && unitsByStyle.has(key)) packMult.set(it.id, unitsByStyle.get(key));
       }
     }
     const mult = (itemId) => (packMult ? (packMult.get(itemId) || 1) : 1);
