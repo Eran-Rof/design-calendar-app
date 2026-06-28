@@ -27,6 +27,8 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 **Display toggles.** **Hide Zeros** (default on) drops zero-total color rows within each style; **Explode** folds PPK packs on-hand into sized eaches via the Prepack Matrix master; **By Inseam** splits each color into per-inseam rows with subtotals (shown only when the scale carries inseams). The **Store** dropdown narrows on-hand to one warehouse.
 
+> **The default view is the Inventory Snapshot** (one row per style + color across all metrics — On Hand, Allocated, On SO, ATS, On PO, Sold, Purchased, …), not the per-style grids. The grids are the **OH matrices** toggle. The Snapshot adds **Merge PPK** (collapse base + PPK sibling into one `BASE/PPK` row), a **Collapse** control (roll up on any text column), a **Columns** show/hide, click-to-drill quantities, and a determinate load bar. See **chapter 28 → Inventory Snapshot** for the full details.
+
 ---
 
 ## 11.1 Inventory Transfers
