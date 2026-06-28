@@ -11,7 +11,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
-import { useItemResolver } from "./hooks/useItemResolver";
+import { useItemResolver, type ResolvedItem } from "./hooks/useItemResolver";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -69,7 +69,7 @@ export default function InternalThreePL() {
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> :
         tab === "providers"
           ? <Providers providers={providers} busy={busy} setBusy={setBusy} reload={load} />
-          : <Shipments shipments={shipments} providers={providers} provName={provName} busy={busy} setBusy={setBusy} reload={load} />}
+          : <Shipments shipments={shipments} providers={providers} provName={provName} itemMap={itemMap} busy={busy} setBusy={setBusy} reload={load} />}
     </div>
   );
 }
@@ -154,7 +154,7 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
   );
 }
 
-function Shipments({ shipments, providers, provName, busy, setBusy, reload }: { shipments: Shipment[]; providers: Provider[]; provName: Map<string, string>; busy: boolean; setBusy: (b: boolean) => void; reload: () => Promise<void> }) {
+function Shipments({ shipments, providers, provName, itemMap, busy, setBusy, reload }: { shipments: Shipment[]; providers: Provider[]; provName: Map<string, string>; itemMap: Map<string, ResolvedItem>; busy: boolean; setBusy: (b: boolean) => void; reload: () => Promise<void> }) {
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [provId, setProvId] = useState("");
