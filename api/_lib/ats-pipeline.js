@@ -17,7 +17,7 @@
 
 export function normalizeSku(sku) {
   let s = String(sku ?? "").replace(/\s+/g, " ").trim();
-  s = s.replace(/\s*-\s*/g, " - ");
+  s = s.replace(/\s+-\s*|\s*-\s+/g, " - ");
   const firstDash = s.indexOf(" - ");
   if (firstDash >= 0) {
     const base = s.slice(0, firstDash);
