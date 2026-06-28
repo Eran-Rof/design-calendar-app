@@ -444,7 +444,7 @@ function SnapshotProgressBar({ active }: { active: boolean }) {
 }
 
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
