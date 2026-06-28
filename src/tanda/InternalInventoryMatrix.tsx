@@ -454,61 +454,91 @@ const SNAP_SUM_COLS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_inc
 function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Set<string>): MergedRow[] {
   const DIMS = ["style_code", "color", "description", "category"] as const;
   const SUMS = SNAP_SUM_COLS;
+  const hasData = (r: SnapshotRow) => SUMS.some((k) => num(r[k] as number) !== 0); // any quantity column non-zero
+  const isPpk = (code: string) => /ppk/i.test(code);
+  const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" -> "RYB0594"
 
-  // 1. Merge PPK.
+  // 1. Merge PPK — combine a base style with its PPK sibling, but ONLY for the
+  //    colours that carry data (any quantity column non-zero) in BOTH the base
+  //    AND the PPK style. Colours present (with data) in only one side stay as
+  //    their own rows; styles with no PPK sibling are untouched.
   let src: MergedRow[] = rows;
   if (mergePpk) {
-    const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" -> "RYB0594"
-    const ppkBases = new Set<string>();
-    for (const r of rows) if (/ppk/i.test(r.style_code)) ppkBases.add(stemOf(r.style_code).toLowerCase());
-    const mMap = new Map<string, MergedRow & { _cost: number[] }>();
-    const pass: MergedRow[] = [];
+    const byStem = new Map<string, { rows: SnapshotRow[]; hasPpk: boolean }>();
     for (const r of rows) {
-      const stem = stemOf(r.style_code);
-      if (!ppkBases.has(stem.toLowerCase())) { pass.push(r); continue; }
-      const ckey = `${stem.toLowerCase()}|${String(r.color ?? "").toLowerCase().trim()}`;
-      let g = mMap.get(ckey);
-      if (!g) {
-        g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: r.color, category: r.category,
+      const sl = stemOf(r.style_code).toLowerCase();
+      let e = byStem.get(sl);
+      if (!e) { e = { rows: [], hasPpk: false }; byStem.set(sl, e); }
+      e.rows.push(r);
+      if (isPpk(r.style_code)) e.hasPpk = true;
+    }
+    const out: MergedRow[] = [];
+    for (const e of byStem.values()) {
+      if (!e.hasPpk) { out.push(...e.rows); continue; } // no PPK sibling -> pass through
+      const byColor = new Map<string, { base: SnapshotRow[]; ppk: SnapshotRow[] }>();
+      for (const r of e.rows) {
+        const ck = String(r.color ?? "").toLowerCase().trim();
+        let c = byColor.get(ck);
+        if (!c) { c = { base: [], ppk: [] }; byColor.set(ck, c); }
+        (isPpk(r.style_code) ? c.ppk : c.base).push(r);
+      }
+      for (const c of byColor.values()) {
+        const both = c.base.some(hasData) && c.ppk.some(hasData);
+        if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
+        const all = [...c.base, ...c.ppk];
+        const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
+        const g: MergedRow & { _cost: number[] } = {
+          style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
           sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
-        mMap.set(ckey, g);
+        for (const r of all) {
+          if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
+          if (r.color && !g.color) g.color = r.color;
+          for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+          if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+        }
+        const { _cost, ...row } = g;
+        out.push({ ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c2) => s + c2, 0) / _cost.length) : null } as MergedRow);
       }
-      if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; if (r.color) g.color = r.color; }
-      for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
-      if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
     }
-    const merged = [...mMap.values()].map(({ _cost, ...row }) => ({
-      ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
-    } as MergedRow));
-    src = [...merged, ...pass];
+    src = out;
   }
 
-  // 2. Collapse ONTO the checked column(s).
+  // 2. Collapse ONTO the checked column(s): those become the group-by key and
+  //    every other text column folds away (numerics summed, Avg Cost averaged).
+  //    A non-key text column is still SHOWN when it is constant across the group
+  //    (so collapse onto Style keeps the one Style number + its Name/Category;
+  //    collapse onto Item Category shows just the category, the rest blank).
   if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
-  const keyDims = DIMS.filter((k) => collapseCols.has(k)); // collapse ONTO these
-  type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
+  const keyDims = DIMS.filter((k) => collapseCols.has(k));
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[] };
   const map = new Map<string, G>();
   for (const r of src) {
-    const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // ctrl-char sep avoids value collisions
+    const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
     let g = map.get(key);
     if (!g) {
       g = { style_id: "", style_code: "", description: "", color: null, category: null,
         on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-        sold: 0, purchased: 0, avg_cost_cents: null, _sids: new Set(), _codes: new Set(), _cost: [] };
-      for (const k of keyDims) (g as Record<string, unknown>)[k] = r[k];
+        sold: 0, purchased: 0, avg_cost_cents: null,
+        _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
+        _sids: new Set(), _cost: [] };
       map.set(key, g);
     }
+    for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
     for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
     if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
     if (r._merged) g._merged = true;
-    g._sids.add(r.style_id); g._codes.add(r.style_code);
+    g._sids.add(r.style_id);
   }
   return [...map.values()].map((g) => {
-    const { _sids, _codes, _cost, ...row } = g;
+    const { _vals, _sids, _cost, ...row } = g;
+    const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
     return { ...row,
       style_id: _sids.size === 1 ? [..._sids][0] : "",
-      style_code: row.style_code || (_codes.size === 1 ? [..._codes][0] : ""),
+      style_code: one("style_code") ?? "",
+      color: one("color"),
+      description: one("description") ?? "",
+      category: one("category"),
       avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
     } as MergedRow;
   });
@@ -541,9 +571,11 @@ function SnapshotView({
   // ── Collapse / roll-up ────────────────────────────────────────────────────
   // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
   // other text column is dropped so its rows merge, and numerics are summed
-  // (Avg Cost averaged). Collapse onto Item Category -> one row per category
-  // (regardless of style/color/name), showing just the category name. The
-  // control offers Color + Item Category (Style/Name aren't useful group-bys).
+  // (Avg Cost averaged); a non-key text column is still shown when constant
+  // across the group. Collapse onto Style -> one row per style (all colours
+  // summed) showing the style number + its Name; Collapse onto Item Category ->
+  // one row per category showing just the category name. The control offers
+  // Style + Item Category.
   const collapseKey = [...collapseCols].sort().join(",");
   const grouped = useMemo<MergedRow[]>(() => rollupSnapshot(rows, mergePpk, collapseCols), [rows, collapseKey, mergePpk]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1808,7 +1840,7 @@ export default function InternalInventoryMatrix() {
               {snapCollapseOpen && (
                 <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 180 }}>
                   <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Collapse onto:</div>
-                  {[{ key: "color", label: "Color" }, { key: "category", label: "Item Category" }].map((c) => (
+                  {[{ key: "style_code", label: "Style" }, { key: "category", label: "Item Category" }].map((c) => (
                     <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
                       <input type="checkbox" checked={snapCollapse.has(c.key)} onChange={() => toggleSnapCollapse(c.key)} />
                       {c.label}
