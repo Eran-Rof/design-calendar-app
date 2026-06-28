@@ -63,9 +63,10 @@ async function entityId(admin) {
   return data?.id || null;
 }
 async function fetchChunked(ids, chunkFn) {
+  // Chunks are independent → fetch them in parallel (was sequential).
+  const results = await Promise.all(chunks(ids, CHUNK).map((slice) => chunkFn(slice)));
   const rows = [];
-  for (const slice of chunks(ids, CHUNK)) {
-    const { data, error } = await chunkFn(slice);
+  for (const { data, error } of results) {
     if (error) throw new Error(error.message);
     if (data) rows.push(...data);
   }
@@ -127,14 +128,14 @@ export default async function handler(req, res) {
   try {
     const eid = await entityId(admin);
 
-    // ── Styles (header fields) ────────────────────────────────────────────────
-    const styleRows = await fetchChunked(styleIds, (ids) =>
-      admin.from("style_master").select("id, style_code, description, style_name, category_name, group_name").in("id", ids));
+    // ── Styles (header fields) + SKUs — fetched in parallel. ──────────────────
+    const [styleRows, itemRows] = await Promise.all([
+      fetchChunked(styleIds, (ids) =>
+        admin.from("style_master").select("id, style_code, description, style_name, category_name, group_name").in("id", ids)),
+      fetchChunked(styleIds, (ids) =>
+        admin.from("ip_item_master").select("id, style_id, style_code, color, size, sku_code").in("style_id", ids)),
+    ]);
     const styleById = new Map(styleRows.map((s) => [s.id, s]));
-
-    // ── SKUs for these styles → item_id → {style_id, color, sku_code, …} ───────
-    const itemRows = await fetchChunked(styleIds, (ids) =>
-      admin.from("ip_item_master").select("id, style_id, style_code, color, size, sku_code").in("style_id", ids));
     const itemById = new Map(itemRows.map((r) => [r.id, r]));
     const itemIds = itemRows.map((r) => r.id);
 
@@ -196,29 +197,79 @@ export default async function handler(req, res) {
 
     if (itemIds.length === 0) return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow) });
 
-    // ── On hand (inventory_layers — matches the matrix) ───────────────────────
-    const layerRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids));
+    // ── Tuple index (built up-front; needed to merge the Xoro PO lines). ──────
+    const idByTuple = new Map();   // tupleKey → item_id
+    const styleSet = new Set();
+    for (const m of itemRows) {
+      if (m.style_code && m.color != null && m.size != null) idByTuple.set(tupleKey(m.style_code, m.color, m.size), m.id);
+      if (m.style_code) styleSet.add(String(m.style_code));
+    }
+
+    // ── Fetch EVERY aggregate IN PARALLEL — they're all independent once the
+    //    SKU set is known. (Previously these ran sequentially → ~10+ serial
+    //    round-trips → 8-10s load. Parallel ≈ the slowest single query.) ───────
+    const fetchBills = async () => {
+      const billLines = await fetchChunked(itemIds, (ids) =>
+        admin.from("invoice_line_items").select("inventory_item_id, quantity, invoice_id").in("inventory_item_id", ids));
+      const billInvIds = [...new Set(billLines.map((l) => l.invoice_id).filter(Boolean))];
+      const billDateOk = new Map(); // invoice_id → included?
+      if (billInvIds.length) {
+        const invs = await fetchChunked(billInvIds, (ids) => {
+          let q = admin.from("invoices").select("id").in("id", ids).in("invoice_kind", ["vendor_bill", "vendor_credit_memo"]);
+          if (from) q = q.gte("invoice_date", from);
+          if (to) q = q.lte("invoice_date", to);
+          return q;
+        });
+        for (const v of invs) billDateOk.set(v.id, true);
+      }
+      return { billLines, billDateOk };
+    };
+    const fetchAvg = async () => {
+      const stems = [...new Set(itemRows.map((r) => String(r.sku_code ?? "").split("-")[0].trim()).filter(Boolean))];
+      const costBySku = new Map(), costByLoose = new Map();
+      const results = await Promise.all([...chunks(stems, STYLE_CHUNK)].map((stemSlice) => {
+        const orFilter = stemSlice.map((s) => `sku_code.like.${s}-%`).join(",");
+        if (!orFilter) return Promise.resolve({ data: [] });
+        return admin.from("ip_item_avg_cost").select("sku_code, avg_cost").or(orFilter);
+      }));
+      for (const { data: avgRows } of results) {
+        for (const r of avgRows || []) {
+          if (r.avg_cost == null) continue;
+          const cents = Math.round(Number(r.avg_cost) * 100);
+          costBySku.set(r.sku_code, cents);
+          const lk = looseKey(r.sku_code); if (!costByLoose.has(lk)) costByLoose.set(lk, cents);
+        }
+      }
+      return { costBySku, costByLoose };
+    };
+
+    const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
+      fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand").in("item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, sales_orders!inner(status)").in("inventory_item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
+      styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("received_date", from); if (to) q = q.lte("received_date", to); return q; }),
+      fetchBills(),
+      fetchAvg(),
+    ]);
+
+    // ── Merge (in-memory; order doesn't matter). ──────────────────────────────
+    // On hand (inventory_layers — matches the matrix).
     for (const r of layerRows) {
       const q = (Number(r.remaining_qty) || 0) * mult(r.item_id);
       if (q > 0) { const b = bucketOfItem(r.item_id); if (b) b.on_hand += q; }
     }
-
-    // ── On hand (ATS source — tangerine_size_onhand latest snapshot) ──────────
-    const ohRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand").in("item_id", ids));
+    // On hand (ATS source — latest snapshot per item).
     const latestByItem = new Map();
     for (const r of ohRows) { const c = latestByItem.get(r.item_id); if (!c || String(r.snapshot_date) > c) latestByItem.set(r.item_id, String(r.snapshot_date)); }
     for (const r of ohRows) {
       if (String(r.snapshot_date) !== latestByItem.get(r.item_id)) continue;
       const b = bucketOfItem(r.item_id); if (b) b.on_hand_ats += (Number(r.qty_on_hand) || 0) * mult(r.item_id);
     }
-
-    // ── Allocated + On SO (sales_order_lines + open SO status) ─────────────────
-    const solRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("sales_order_lines")
-        .select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, sales_orders!inner(status)")
-        .in("inventory_item_id", ids));
+    // Allocated + On SO.
     for (const r of solRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
       const m = mult(r.inventory_item_id);
@@ -230,13 +281,7 @@ export default async function handler(req, res) {
         if (open > 0) b.on_so += open;
       }
     }
-
-    // ── On PO + In transit (native purchase_order_lines) ──────────────────────
-    const polRows = await fetchChunked(itemIds, (ids) =>
-      admin.from("purchase_order_lines")
-        .select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)")
-        .in("inventory_item_id", ids)
-        .in("purchase_orders.status", NATIVE_INBOUND_STATUSES));
+    // On PO + In transit (native purchase_order_lines).
     for (const r of polRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
       const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0) * mult(r.inventory_item_id);
@@ -244,92 +289,33 @@ export default async function handler(req, res) {
       b.on_po += open;
       if (NATIVE_TRANSIT_STATUSES.includes(r.purchase_orders?.status)) b.in_transit += open;
     }
-
-    // ── On PO + In transit (Xoro mirror tanda_pos / po_line_items) ────────────
-    const idByTuple = new Map();   // tupleKey → item_id
-    const styleSet = new Set();
-    for (const m of itemRows) {
-      if (m.style_code && m.color != null && m.size != null) idByTuple.set(tupleKey(m.style_code, m.color, m.size), m.id);
-      if (m.style_code) styleSet.add(String(m.style_code));
+    // On PO + In transit (Xoro mirror tanda_pos / po_line_items).
+    for (const r of tandaLines) {
+      const p = parseItemNumber(r.item_number);
+      if (!p) continue;
+      const itemId = idByTuple.get(tupleKey(p.style, p.color, p.size));
+      if (!itemId) continue;
+      const b = bucketOfItem(itemId); if (!b) continue;
+      const open = Math.max(Number(r.qty_remaining) || 0, 0) * mult(itemId);
+      if (open <= 0) continue;
+      b.on_po += open;
+      if (TANDA_TRANSIT_STATUSES.includes(r.tanda_pos?.status)) b.in_transit += open;
     }
-    if (styleSet.size > 0) {
-      const tandaLines = await fetchTandaOpenLines(admin, [...styleSet]);
-      for (const r of tandaLines) {
-        const p = parseItemNumber(r.item_number);
-        if (!p) continue;
-        const itemId = idByTuple.get(tupleKey(p.style, p.color, p.size));
-        if (!itemId) continue;
-        const b = bucketOfItem(itemId); if (!b) continue;
-        const open = Math.max(Number(r.qty_remaining) || 0, 0) * mult(itemId);
-        if (open <= 0) continue;
-        b.on_po += open;
-        if (TANDA_TRANSIT_STATUSES.includes(r.tanda_pos?.status)) b.in_transit += open;
-      }
-    }
-
-    // ── Sold — wholesale qty + ecom net_qty, keyed by sku_id (date-ranged) ────
-    const whRows = await fetchChunked(itemIds, (ids) => {
-      let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids);
-      if (from) q = q.gte("txn_date", from);
-      if (to) q = q.lte("txn_date", to);
-      return q;
-    });
+    // Sold — wholesale qty + ecom net_qty.
     for (const r of whRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.qty) || 0) * mult(r.sku_id); }
-    const ecRows = await fetchChunked(itemIds, (ids) => {
-      let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids);
-      if (from) q = q.gte("order_date", from);
-      if (to) q = q.lte("order_date", to);
-      return q;
-    });
     for (const r of ecRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.net_qty) || 0) * mult(r.sku_id); }
-
-    // ── Purchased — Xoro receipts (date-ranged on received_date) + Tangerine AP
-    //     vendor-bill line qty (date-ranged on invoice_date). Mirrors the
-    //     purchased-detail drill so the column total matches the popup. ──────────
-    const rcRows = await fetchChunked(itemIds, (ids) => {
-      let q = admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids);
-      if (from) q = q.gte("received_date", from);
-      if (to) q = q.lte("received_date", to);
-      return q;
-    });
+    // Purchased — Xoro receipts + Tangerine AP vendor-bill lines (date-ranged).
     for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += (Number(r.qty) || 0) * mult(r.sku_id); }
-    const billLines = await fetchChunked(itemIds, (ids) =>
-      admin.from("invoice_line_items").select("inventory_item_id, quantity, invoice_id").in("inventory_item_id", ids));
-    const billInvIds = [...new Set(billLines.map((l) => l.invoice_id).filter(Boolean))];
-    const billDateOk = new Map(); // invoice_id → included?
-    if (billInvIds.length) {
-      const invs = await fetchChunked(billInvIds, (ids) => {
-        let q = admin.from("invoices").select("id").in("id", ids).in("invoice_kind", ["vendor_bill", "vendor_credit_memo"]);
-        if (from) q = q.gte("invoice_date", from);
-        if (to) q = q.lte("invoice_date", to);
-        return q;
-      });
-      for (const v of invs) billDateOk.set(v.id, true);
-    }
-    for (const l of billLines) {
-      if (!billDateOk.get(l.invoice_id)) continue;
+    for (const l of billBundle.billLines) {
+      if (!billBundle.billDateOk.get(l.invoice_id)) continue;
       const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += (Number(l.quantity) || 0) * mult(l.inventory_item_id);
     }
-
-    // ── Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour ────
-    const stems = [...new Set(itemRows.map((r) => String(r.sku_code ?? "").split("-")[0].trim()).filter(Boolean))];
-    const costBySku = new Map(), costByLoose = new Map();
-    for (const stemSlice of chunks(stems, STYLE_CHUNK)) {
-      const orFilter = stemSlice.map((s) => `sku_code.like.${s}-%`).join(",");
-      if (!orFilter) continue;
-      const { data: avgRows } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").or(orFilter);
-      for (const r of avgRows || []) {
-        if (r.avg_cost == null) continue;
-        const cents = Math.round(Number(r.avg_cost) * 100);
-        costBySku.set(r.sku_code, cents);
-        const lk = looseKey(r.sku_code); if (!costByLoose.has(lk)) costByLoose.set(lk, cents);
-      }
-    }
+    // Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour.
     for (const it of itemRows) {
       let cents = null;
       if (it.sku_code) {
-        if (costBySku.has(it.sku_code)) cents = costBySku.get(it.sku_code);
-        else { const lk = looseKey(it.sku_code); if (costByLoose.has(lk)) cents = costByLoose.get(lk); }
+        if (avgBundle.costBySku.has(it.sku_code)) cents = avgBundle.costBySku.get(it.sku_code);
+        else { const lk = looseKey(it.sku_code); if (avgBundle.costByLoose.has(lk)) cents = avgBundle.costByLoose.get(lk); }
       }
       if (cents != null) { const b = bucketFor(it.style_id, it.color); b._costCents.push(cents); }
     }
