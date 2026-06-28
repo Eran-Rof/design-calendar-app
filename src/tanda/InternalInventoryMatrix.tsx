@@ -1443,8 +1443,18 @@ export default function InternalInventoryMatrix() {
   // matrices' behavior). The fetched set is already scoped to the active filters
   // (brand/search/gender/group/category/sub-category) via pageStyleIds, so this
   // is the same set shown — both the table AND the export read it.
+  // Hide-Zeros for the Snapshot: a row is hidden ONLY when it is zero across
+  // EVERY quantity column. If any column is populated (e.g. a PPK style with
+  // 0 on-hand but sales/PO/ATS activity — on-hand lives on the BASE style) the
+  // row stays. (Earlier this filtered on on_hand alone, which wrongly dropped
+  // all PPK styles.)
   const snapVisibleRows = useMemo<SnapshotRow[]>(
-    () => (hideZeros ? snapRows.filter((r) => num(r.on_hand) !== 0) : snapRows),
+    () => (hideZeros
+      ? snapRows.filter((r) =>
+          num(r.on_hand) !== 0 || num(r.allocated) !== 0 || num(r.on_so) !== 0 ||
+          num(r.ats) !== 0 || num(r.on_po) !== 0 || num(r.ats_incl_po) !== 0 ||
+          num(r.sold) !== 0 || num(r.purchased) !== 0 || num(r.in_transit) !== 0)
+      : snapRows),
     [snapRows, hideZeros],
   );
 
@@ -1463,6 +1473,15 @@ export default function InternalInventoryMatrix() {
     [snapVisibleRows],
   );
 
+  // Multi-style pagination (shared by both no-style views) — computed here so the
+  // single consolidated controls row can render the "Styles X–Y of N" count and
+  // the Prev/Next pager inline (instead of a separate bar above the table).
+  const hdrTotalStyles = brandStyles.length;
+  const hdrTotalPages = Math.max(1, Math.ceil(hdrTotalStyles / MULTI_PAGE_SIZE));
+  const hdrPageStart = hdrTotalStyles === 0 ? 0 : multiPage * MULTI_PAGE_SIZE + 1;
+  const hdrPageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, hdrTotalStyles);
+  const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 12px", fontSize: 13, color: C.text };
+
   return (
     <div style={{ color: C.text, marginTop: 18 }}>
       {/* Header */}
@@ -1478,9 +1497,10 @@ export default function InternalInventoryMatrix() {
       {/* Controls */}
       <div style={{ marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Row 1 — filter dropdowns */}
+        {/* Row 1 — filter dropdowns + the Columns control (right of Store).
+            Fields are kept compact so the whole row fits on one line. */}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 180 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
             Brand
             <SearchableSelect
               value={brandId ? brandId : ALL_BRANDS_SENTINEL}
@@ -1494,19 +1514,19 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 280 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
             Search styles
             <input
               type="text"
               value={styleSearch}
               onChange={(e) => { setStyleSearch(e.target.value); if (styleId) setStyleId(""); }}
               placeholder="Type to filter — e.g. PPK, code, name…"
-              style={{ ...inputStyle, minWidth: 280 }}
+              style={{ ...inputStyle, minWidth: 200 }}
             />
           </label>
 
           {genderDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 90 }}>
               Gender
               <SearchableSelect
                 value={genderFilter || ALL_GENDER_SENTINEL}
@@ -1519,7 +1539,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {groupDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 110 }}>
               Group
               <SearchableSelect
                 value={groupFilter || ALL_GROUP_SENTINEL}
@@ -1532,7 +1552,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {categoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 115 }}>
               Category
               <SearchableSelect
                 value={categoryFilter || ALL_CATEGORY_SENTINEL}
@@ -1545,7 +1565,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {subCategoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 125 }}>
               Sub-Category
               <SearchableSelect
                 value={subCategoryFilter || ALL_SUBCATEGORY_SENTINEL}
@@ -1557,7 +1577,7 @@ export default function InternalInventoryMatrix() {
             </label>
           )}
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 160 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
             Store
             <SearchableSelect
               value={warehouse}
@@ -1568,19 +1588,16 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
-          {/* Columns show/hide — lives here (next to Store) and applies to the
-              Snapshot table. Only meaningful on the all-styles Snapshot view. */}
+          {/* Column show/hide — sits at the end of Row 1, right of Store.
+              Only meaningful on the all-styles Snapshot view. */}
           {!styleId && noStyleView === "snapshot" && (
             <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => setSnapColsOpen((o) => !o)}
-                style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-              >
+              <button type="button" onClick={() => setSnapColsOpen((o) => !o)}
+                style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                 Columns {snapColsOpen ? "▴" : "▾"}
               </button>
               {snapColsOpen && (
-                <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
                   {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
                     <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
                       <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
@@ -1593,85 +1610,69 @@ export default function InternalInventoryMatrix() {
           )}
         </div>
 
-        {/* Row 2 — display controls. Same left origin + gap as Row 1 so the
-            control "bubbles" line up; button font unified with the inputs (13px). */}
+        {/* Row 2 — ONE control row: view switch · presets+dates · Hide Zeros ·
+            Explode · Export · count + pager. Same left origin + gap as Row 1 so
+            the two rows read as aligned "bubble" rows. */}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Hide Zeros toggle — blue = active (zeros hidden) */}
-          <button
-            type="button"
-            title="Toggle zero-qty rows"
-            style={{
-              background: hideZeros ? C.primary : C.card,
-              color: hideZeros ? "#fff" : C.textMuted,
-              border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`,
-              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 13, fontWeight: 600, transition: "all 0.15s",
-            }}
-            onClick={() => setHideZeros((v) => !v)}
-          >
-            Hide Zeros
-          </button>
+          {/* All-styles view switch (no single style picked). */}
+          {!styleId && (
+            <div style={{ display: "inline-flex", gap: 6 }}>
+              {([["snapshot", "Inventory Snapshot"], ["matrix", "OH matrices"]] as const).map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setNoStyleView(v)}
+                  style={{ background: noStyleView === v ? C.primary : C.card, color: noStyleView === v ? "#fff" : C.textMuted,
+                    border: `1px solid ${noStyleView === v ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* Explode PPK toggle — blue = active */}
-          <button
-            type="button"
-            title="Convert PPK packs on-hand into sized eaches using the Prepack Matrix master"
-            style={{
-              background: explodePpk ? C.primary : C.card,
-              color: explodePpk ? "#fff" : C.textMuted,
-              border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`,
-              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 13, fontWeight: 600, transition: "all 0.15s",
-            }}
-            onClick={() => setExplodePpk((v) => !v)}
-          >
-            Explode
-          </button>
+          {/* Presets + From/To date range — Snapshot view (filters Sold/Purchased + seeds drills). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
+          )}
 
-          {/* Inseam toggle — shows when the picked style's scale carries inseams
-              (single-style view) OR any loaded style does (brand/all-styles view).
-              ON splits each color into one row per inseam, with a per-color
-              subtotal row. Blue = active. */}
+          {/* Hide Zeros toggle — blue = active (zeros hidden). */}
+          <button type="button" title="Hide rows that are zero across every column"
+            style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => setHideZeros((v) => !v)}>Hide Zeros</button>
+
+          {/* Explode PPK toggle — blue = active. */}
+          <button type="button" title="Convert PPK packs into sized eaches using the Prepack Matrix master"
+            style={{ background: explodePpk ? C.primary : C.card, color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => setExplodePpk((v) => !v)}>Explode</button>
+
+          {/* By Inseam (matrix view, when the scale carries inseams). */}
           {viewMode === "matrix" && ((styleId && styleHasInseams) || anyBrandInseams) && (
-            <button
-              type="button"
-              title="Split each color into one row per inseam, with a per-color subtotal"
-              style={{
-                background: inseamMode ? C.primary : C.card,
-                color: inseamMode ? "#fff" : C.textMuted,
-                border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`,
-                padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                fontSize: 13, fontWeight: 600, transition: "all 0.15s",
-              }}
-              onClick={() => setInseamMode((v) => !v)}
-            >
-              By Inseam
-            </button>
+            <button type="button" title="Split each color into one row per inseam, with a per-color subtotal"
+              style={{ background: inseamMode ? C.primary : C.card, color: inseamMode ? "#fff" : C.textMuted, border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setInseamMode((v) => !v)}>By Inseam</button>
           )}
 
+          {/* Export — Snapshot view. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <ExportButton rows={snapExportRows} filename={`inventory-snapshot-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Snapshot" columns={snapExportColumns} />
+          )}
+          {/* Export — single-style matrix. */}
           {payload && viewMode === "matrix" && (
-            <>
-              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
-              <ExportButton
-                rows={exportRows}
-                filename={`inventory-matrix-${payload.style.style_code}`}
-                sheetName="Inventory Matrix"
-                columns={exportColumns}
-              />
-            </>
+            <ExportButton rows={exportRows} filename={`inventory-matrix-${payload.style.style_code}`} sheetName="Inventory Matrix" columns={exportColumns} />
+          )}
+          {/* Export — all/brand matrix. */}
+          {!styleId && viewMode === "matrix" && brandPayloads.length > 0 && (
+            <ExportButton rows={brandExportRows} filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Matrix" columns={brandExportColumns} />
           )}
 
-          {/* All-styles / brand view (no single style picked) — export every
-              loaded style's matrix in one flat sheet (union of size columns). */}
-          {!styleId && viewMode === "matrix" && brandPayloads.length > 0 && (
+          {/* Style count + Prev/Next pager — Snapshot view (matrix view keeps its own bar). */}
+          {!styleId && noStyleView === "snapshot" && (
             <>
-              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
-              <ExportButton
-                rows={brandExportRows}
-                filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`}
-                sheetName="Inventory Matrix"
-                columns={brandExportColumns}
-              />
+              <span style={{ color: C.textMuted, fontSize: 13 }}>Styles {hdrPageStart}–{hdrPageEnd} of {hdrTotalStyles}</span>
+              {hdrTotalPages > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {hdrTotalPages}</span>
+                  <button onClick={() => setMultiPage((p) => Math.min(hdrTotalPages - 1, p + 1))} disabled={multiPage >= hdrTotalPages - 1} style={{ ...pagBtn, opacity: multiPage >= hdrTotalPages - 1 ? 0.4 : 1, cursor: multiPage >= hdrTotalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1759,58 +1760,15 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* All-styles view switch — Snapshot summary (default) vs the stacked
-          per-style size grids. Only when no single style is picked. */}
-      {!styleId && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {([["snapshot", "Inventory Snapshot"], ["matrix", "OH matrices"]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setNoStyleView(v)}
-              style={{
-                background: noStyleView === v ? C.primary : "transparent",
-                color: noStyleView === v ? "#fff" : C.textSub,
-                border: `1px solid ${noStyleView === v ? C.primary : C.cardBdr}`,
-                padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
-              }}>{label}</button>
-          ))}
-        </div>
-      )}
-
       {/* Inventory Snapshot — one row per (style, color) with clickable
-          quantities that drill into the matching app in a new tab. Paginated
-          over the same style page as the matrices view. */}
-      {!styleId && noStyleView === "snapshot" && (() => {
-        const totalStyles = brandStyles.length;
-        const totalPages = Math.max(1, Math.ceil(totalStyles / MULTI_PAGE_SIZE));
-        const pageStart = totalStyles === 0 ? 0 : multiPage * MULTI_PAGE_SIZE + 1;
-        const pageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, totalStyles);
-        const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 14px", fontSize: 13, color: C.text };
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13, gap: 12, flexWrap: "wrap" }}>
-              <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
-              {/* Header date range — filters the Sold/Purchased columns and seeds each drill. */}
-              <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
-              {/* Export — the visible (filtered) snapshot rows. Count badge tracks
-                  the same set shown (hide-zeros + column selection applied). */}
-              <ExportButton
-                rows={snapExportRows}
-                filename={`inventory-snapshot-${brandId ? "brand" : "all-styles"}`}
-                sheetName="Inventory Snapshot"
-                columns={snapExportColumns}
-              />
-              {totalPages > 1 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {totalPages}</span>
-                  <button onClick={() => setMultiPage((p) => Math.min(totalPages - 1, p + 1))} disabled={multiPage >= totalPages - 1} style={{ ...pagBtn, opacity: multiPage >= totalPages - 1 ? 0.4 : 1, cursor: multiPage >= totalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
-                </div>
-              )}
-            </div>
-            <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-              thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
-          </div>
-        );
-      })()}
+          quantities that drill into the matching app in a new tab. The view
+          switch, presets/dates, export and pager all live in the single
+          controls row above; here we render just the column show/hide control
+          and the table. */}
+      {!styleId && noStyleView === "snapshot" && (
+        <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+          thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
+      )}
 
       {/* Drill modals */}
       {soldFor && (
