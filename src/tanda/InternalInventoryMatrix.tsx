@@ -443,8 +443,79 @@ function SnapshotProgressBar({ active }: { active: boolean }) {
   );
 }
 
+// Quantity columns summed on roll-up AND in the Totals row (avg_cost is a
+// per-unit cost, never summed).
+const SNAP_SUM_COLS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
+
+// Client-side roll-up shared by the table AND the export so both render the
+// exact same rows: (1) Merge PPK (base + its PPK sibling -> one BASE/PPK row
+// per colour), then (2) Collapse ONTO the checked text column(s) (those become
+// the group-by key; every other text column folds away and numerics sum).
+function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Set<string>): MergedRow[] {
+  const DIMS = ["style_code", "color", "description", "category"] as const;
+  const SUMS = SNAP_SUM_COLS;
+
+  // 1. Merge PPK.
+  let src: MergedRow[] = rows;
+  if (mergePpk) {
+    const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" -> "RYB0594"
+    const ppkBases = new Set<string>();
+    for (const r of rows) if (/ppk/i.test(r.style_code)) ppkBases.add(stemOf(r.style_code).toLowerCase());
+    const mMap = new Map<string, MergedRow & { _cost: number[] }>();
+    const pass: MergedRow[] = [];
+    for (const r of rows) {
+      const stem = stemOf(r.style_code);
+      if (!ppkBases.has(stem.toLowerCase())) { pass.push(r); continue; }
+      const ckey = `${stem.toLowerCase()}|${String(r.color ?? "").toLowerCase().trim()}`;
+      let g = mMap.get(ckey);
+      if (!g) {
+        g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: r.color, category: r.category,
+          on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+          sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
+        mMap.set(ckey, g);
+      }
+      if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; if (r.color) g.color = r.color; }
+      for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+      if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+    }
+    const merged = [...mMap.values()].map(({ _cost, ...row }) => ({
+      ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
+    } as MergedRow));
+    src = [...merged, ...pass];
+  }
+
+  // 2. Collapse ONTO the checked column(s).
+  if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
+  const keyDims = DIMS.filter((k) => collapseCols.has(k)); // collapse ONTO these
+  type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
+  const map = new Map<string, G>();
+  for (const r of src) {
+    const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // ctrl-char sep avoids value collisions
+    let g = map.get(key);
+    if (!g) {
+      g = { style_id: "", style_code: "", description: "", color: null, category: null,
+        on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+        sold: 0, purchased: 0, avg_cost_cents: null, _sids: new Set(), _codes: new Set(), _cost: [] };
+      for (const k of keyDims) (g as Record<string, unknown>)[k] = r[k];
+      map.set(key, g);
+    }
+    for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+    if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+    if (r._merged) g._merged = true;
+    g._sids.add(r.style_id); g._codes.add(r.style_code);
+  }
+  return [...map.values()].map((g) => {
+    const { _sids, _codes, _cost, ...row } = g;
+    return { ...row,
+      style_id: _sids.size === 1 ? [..._sids][0] : "",
+      style_code: row.style_code || (_codes.size === 1 ? [..._codes][0] : ""),
+      avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
+    } as MergedRow;
+  });
+}
+
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, totalsMode,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -460,6 +531,7 @@ function SnapshotView({
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
   collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
+  totalsMode: "off" | "qty" | "dollars"; // totals strip above the headers: off / unit qty / dollars (qty × avg cost)
 }) {
   // Zebra striping tint by row index — alternate rows get a faint background so
   // long lists stay readable; mirrors the drill modals' zebra() helper.
@@ -473,73 +545,7 @@ function SnapshotView({
   // (regardless of style/color/name), showing just the category name. The
   // control offers Color + Item Category (Style/Name aren't useful group-bys).
   const collapseKey = [...collapseCols].sort().join(",");
-  const grouped = useMemo<MergedRow[]>(() => {
-    const DIMS = ["style_code", "color", "description", "category"] as const;
-    const SUMS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
-
-    // 1. Merge PPK — collapse each base + its PPK sibling into one "BASE/PPK" row
-    //    (only bases that actually have a PPK row; qty already exploded to eaches).
-    let src: MergedRow[] = rows;
-    if (mergePpk) {
-      const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" → "RYB0594"
-      const ppkBases = new Set<string>();
-      for (const r of rows) if (/ppk/i.test(r.style_code)) ppkBases.add(stemOf(r.style_code).toLowerCase());
-      const mMap = new Map<string, MergedRow & { _cost: number[] }>();
-      const pass: MergedRow[] = [];
-      for (const r of rows) {
-        const stem = stemOf(r.style_code);
-        if (!ppkBases.has(stem.toLowerCase())) { pass.push(r); continue; }
-        const ckey = `${stem.toLowerCase()}|${String(r.color ?? "").toLowerCase().trim()}`;
-        let g = mMap.get(ckey);
-        if (!g) {
-          g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: r.color, category: r.category,
-            on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-            sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
-          mMap.set(ckey, g);
-        }
-        if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; if (r.color) g.color = r.color; }
-        for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
-        if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
-      }
-      const merged = [...mMap.values()].map(({ _cost, ...row }) => ({
-        ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
-      } as MergedRow));
-      src = [...merged, ...pass];
-    }
-
-    // 2. Collapse ONTO the chosen column(s): the checked dims become the
-    //    group-by key and every other text column is dropped (its rows merge),
-    //    summing all numerics. Check "Item Category" -> one row per category
-    //    (style/color/name blanked, only the category name shown); check
-    //    "Color" -> one row per color; check both -> one row per category+color.
-    if (collapseCols.size === 0) return src; // nothing chosen → no roll-up
-    const keyDims = DIMS.filter((k) => collapseCols.has(k)); // collapse ONTO these
-    type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
-    const map = new Map<string, G>();
-    for (const r of src) {
-      const key = keyDims.map((k) => String(r[k] ?? "")).join("");
-      let g = map.get(key);
-      if (!g) {
-        g = { style_id: "", style_code: "", description: "", color: null, category: null,
-          on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-          sold: 0, purchased: 0, avg_cost_cents: null, _sids: new Set(), _codes: new Set(), _cost: [] };
-        for (const k of keyDims) (g as Record<string, unknown>)[k] = r[k];
-        map.set(key, g);
-      }
-      for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
-      if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
-      if (r._merged) g._merged = true;
-      g._sids.add(r.style_id); g._codes.add(r.style_code);
-    }
-    return [...map.values()].map((g) => {
-      const { _sids, _codes, _cost, ...row } = g;
-      return { ...row,
-        style_id: _sids.size === 1 ? [..._sids][0] : "",
-        style_code: row.style_code || (_codes.size === 1 ? [..._codes][0] : ""),
-        avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
-      } as MergedRow;
-    });
-  }, [rows, collapseKey, mergePpk]);
+  const grouped = useMemo<MergedRow[]>(() => rollupSnapshot(rows, mergePpk, collapseCols), [rows, collapseKey, mergePpk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => {
     const r = [...grouped];
@@ -552,6 +558,20 @@ function SnapshotView({
     });
     return r;
   }, [grouped, sortKey, sortDir]);
+
+  // Totals across the displayed rows, per quantity column. qty = unit counts;
+  // dollars = qty × the row's avg unit cost (avg_cost_cents / 100). avg_cost is
+  // never totalled (it is a per-unit cost). Mirrors the ATS totals view.
+  const totals = useMemo(() => {
+    const qty: Record<string, number> = {};
+    const dollars: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; dollars[k] = 0; }
+    for (const r of sorted) {
+      const cost = (r.avg_cost_cents ?? 0) / 100;
+      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; dollars[k] += v * cost; }
+    }
+    return { qty, dollars };
+  }, [sorted]);
 
   // Quantity cell — opens a URL in a new tab.
   const QtyLink = ({ v, url }: { v: number; url: string }) => (
@@ -573,8 +593,15 @@ function SnapshotView({
   const tdNum: React.CSSProperties = { padding: "16px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
   const tdTxt: React.CSSProperties = { padding: "16px 14px", textAlign: "left", color: C.text };
   // Frozen header cell: thBase + sticky to the scroll container's top. Opaque
-  // card background so scrolling rows don't show through the header.
-  const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 2, background: C.card };
+  // card background so scrolling rows don't show through the header. When the
+  // Totals strip is on it occupies the top band, so the column header sticks
+  // just below it (top: TOTALS_H).
+  const TOTALS_H = 40;
+  const headerTop = totalsMode !== "off" ? TOTALS_H : 0;
+  const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
+  // Totals strip cells — sticky at the very top, above the column header.
+  const totalsTh: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 3, height: TOTALS_H, background: C.card, borderBottom: `2px solid ${C.primary}`, fontFamily: "monospace" };
+  const fmtUSD = (v: number) => (v ? `$${Math.round(v).toLocaleString()}` : "—");
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
   if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
@@ -585,6 +612,28 @@ function SnapshotView({
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
+            {/* Totals strip — above the column headers (ATS-modelled). Each
+                quantity column shows its total; Qty = unit counts, $ = qty ×
+                avg cost. Avg Cost itself isn't totalled. */}
+            {totalsMode !== "off" && (() => {
+              const visCols = SNAP_COLS.filter((c) => show(c.key as string));
+              let labelled = false;
+              return (
+                <tr>
+                  {show("image") && <th style={totalsTh} />}
+                  {visCols.map((col) => {
+                    const isSum = (SNAP_SUM_COLS as readonly string[]).includes(col.key as string);
+                    if (isSum) {
+                      const v = totalsMode === "dollars" ? totals.dollars[col.key as string] : totals.qty[col.key as string];
+                      return <th key={col.key as string} style={{ ...totalsTh, textAlign: "right", color: C.amber, fontWeight: 800 }}>{totalsMode === "dollars" ? fmtUSD(v) : fmtQty(v)}</th>;
+                    }
+                    // First non-summed (text/avg-cost) column carries the label.
+                    const label = !labelled ? (labelled = true, totalsMode === "dollars" ? "TOTALS — $" : "TOTALS — Qty") : "";
+                    return <th key={col.key as string} style={{ ...totalsTh, textAlign: "left", color: C.base, fontWeight: 800, whiteSpace: "nowrap" }}>{label}</th>;
+                  })}
+                </tr>
+              );
+            })()}
             <tr>
               {/* Frozen header — sticks to the top while the body scrolls. Opaque
                   background so rows don't bleed through. */}
@@ -967,6 +1016,11 @@ export default function InternalInventoryMatrix() {
   // Merge PPK: collapse each base style + its PPK sibling into one "BASE/PPK"
   // row (snapshot only). Requires exploded eaches, so selecting it forces Explode on.
   const [mergePpk, setMergePpk] = useState(false);
+  // Totals row (snapshot only), modelled on the ATS totals view: a strip above
+  // the column headers summing each quantity column. "qty" = unit counts;
+  // "dollars" = qty x avg unit cost. "off" hides it. The control is a Qty/$
+  // selector — clicking the active mode again turns it off.
+  const [snapTotals, setSnapTotals] = useState<"off" | "qty" | "dollars">("off");
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -1599,9 +1653,11 @@ export default function InternalInventoryMatrix() {
     })),
     [snapHidden],
   );
+  // Export mirrors EXACTLY what's on screen: run the same Merge-PPK + Collapse
+  // roll-up the table uses, so a collapsed/merged view exports collapsed/merged.
   const snapExportRows = useMemo<Array<Record<string, unknown>>>(
-    () => snapVisibleRows.map((r) => ({ ...r })),
-    [snapVisibleRows],
+    () => rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => ({ ...r })),
+    [snapVisibleRows, mergePpk, snapCollapse],
   );
 
   // Multi-style pagination (shared by both no-style views) — computed here so the
@@ -1789,7 +1845,7 @@ export default function InternalInventoryMatrix() {
           {/* Hide Zeros toggle — blue = active (zeros hidden). */}
           <button type="button" title="Hide rows that are zero across every column"
             style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
-            onClick={() => setHideZeros((v) => !v)}>Hide Zeros</button>
+            onClick={() => setHideZeros((v) => !v)}>Hide 0s</button>
 
           {/* Explode PPK toggle — blue = active. */}
           <button type="button" title="Convert PPK packs into sized eaches using the Prepack Matrix master"
@@ -1802,6 +1858,22 @@ export default function InternalInventoryMatrix() {
             <button type="button" title="Merge each base style with its PPK sibling into one BASE/PPK row (auto-enables Explode)"
               style={{ background: mergePpk ? C.primary : C.card, color: mergePpk ? "#fff" : C.textMuted, border: `1px solid ${mergePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
               onClick={() => setMergePpk((v) => { const next = !v; if (next) setExplodePpk(true); return next; })}>Merge PPK</button>
+          )}
+
+          {/* Totals — snapshot only. Segmented Qty / $ selector (ATS-style): a
+              totals strip above the column headers sums every quantity column.
+              Click the active mode again to turn totals off. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div title="Show a totals strip above the headers — Qty sums units, $ sums quantity × avg cost"
+              style={{ display: "inline-flex", alignItems: "stretch", border: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
+              <span style={{ display: "flex", alignItems: "center", padding: "6px 10px", fontSize: 13, fontWeight: 600, background: snapTotals !== "off" ? C.primary : C.card, color: snapTotals !== "off" ? "#fff" : C.textMuted }}>Totals</span>
+              {([["qty", "Qty"], ["dollars", "$"]] as const).map(([m, lbl]) => (
+                <button key={m} type="button" title={m === "qty" ? "Totals as unit quantities" : "Totals as dollars (qty × avg cost)"}
+                  onClick={() => setSnapTotals((prev) => (prev === m ? "off" : m))}
+                  style={{ border: 0, borderLeft: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, padding: "6px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                    background: snapTotals === m ? C.primary : C.card, color: snapTotals === m ? "#fff" : C.textMuted }}>{lbl}</button>
+              ))}
+            </div>
           )}
 
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
@@ -1932,7 +2004,7 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} totalsMode={snapTotals} />
         </>
       )}
 
