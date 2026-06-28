@@ -459,7 +459,7 @@ function SnapshotView({
   show: (k: string) => boolean;
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
-  collapseCols: Set<string>; // text columns to roll up on (sum across them)
+  collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
 }) {
   // Zebra striping tint by row index — alternate rows get a faint background so
   // long lists stay readable; mirrors the drill modals' zebra() helper.
@@ -467,10 +467,11 @@ function SnapshotView({
   const HOVER_BG = "rgba(59,130,246,0.16)"; // distinct from BOTH zebra tints
 
   // ── Collapse / roll-up ────────────────────────────────────────────────────
-  // The VISIBLE text columns (Style, Color, Name, Item Category) form the
-  // group-by key; numeric columns are summed (Avg Cost averaged). Hiding a text
-  // column drops it from the key so its rows merge: hide Color → one row per
-  // style; hide Style + Color + Name (leaving Category) → one row per category.
+  // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
+  // other text column is dropped so its rows merge, and numerics are summed
+  // (Avg Cost averaged). Collapse onto Item Category -> one row per category
+  // (regardless of style/color/name), showing just the category name. The
+  // control offers Color + Item Category (Style/Name aren't useful group-bys).
   const collapseKey = [...collapseCols].sort().join(",");
   const grouped = useMemo<MergedRow[]>(() => {
     const DIMS = ["style_code", "color", "description", "category"] as const;
@@ -506,20 +507,23 @@ function SnapshotView({
       src = [...merged, ...pass];
     }
 
-    // 2. Roll up by the visible text columns (sum numerics).
+    // 2. Collapse ONTO the chosen column(s): the checked dims become the
+    //    group-by key and every other text column is dropped (its rows merge),
+    //    summing all numerics. Check "Item Category" -> one row per category
+    //    (style/color/name blanked, only the category name shown); check
+    //    "Color" -> one row per color; check both -> one row per category+color.
     if (collapseCols.size === 0) return src; // nothing chosen → no roll-up
-    const visDims = DIMS.filter((k) => !collapseCols.has(k));
-    if (visDims.length === DIMS.length) return src; // nothing hidden → no roll-up
+    const keyDims = DIMS.filter((k) => collapseCols.has(k)); // collapse ONTO these
     type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
     const map = new Map<string, G>();
     for (const r of src) {
-      const key = visDims.map((k) => String(r[k] ?? "")).join("");
+      const key = keyDims.map((k) => String(r[k] ?? "")).join("");
       let g = map.get(key);
       if (!g) {
         g = { style_id: "", style_code: "", description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
           sold: 0, purchased: 0, avg_cost_cents: null, _sids: new Set(), _codes: new Set(), _cost: [] };
-        for (const k of visDims) (g as Record<string, unknown>)[k] = r[k];
+        for (const k of keyDims) (g as Record<string, unknown>)[k] = r[k];
         map.set(key, g);
       }
       for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
@@ -946,8 +950,9 @@ export default function InternalInventoryMatrix() {
     return next;
   });
   const snapShow = (k: string) => !snapHidden.has(k);
-  // Collapse: which text columns to roll up on (merge rows that differ only by
-  // these, summing the numbers). Independent of column show/hide.
+  // Collapse: which text column(s) to collapse ONTO — the checked dims become
+  // the group-by key, all other text columns merge away, numerics sum.
+  // Independent of column show/hide.
   const [snapCollapse, setSnapCollapse] = useState<Set<string>>(new Set());
   const [snapCollapseOpen, setSnapCollapseOpen] = useState(false);
   const toggleSnapCollapse = (k: string) => setSnapCollapse((prev) => {
@@ -1736,7 +1741,7 @@ export default function InternalInventoryMatrix() {
             </div>
           )}
 
-          {/* Collapse — choose which text columns to roll up on (sum across). */}
+          {/* Collapse — choose which text column(s) to collapse ONTO (group by; rest summed). */}
           {!styleId && noStyleView === "snapshot" && (
             <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
                  onMouseLeave={() => setSnapCollapseOpen(false)}>
@@ -1746,8 +1751,8 @@ export default function InternalInventoryMatrix() {
               </button>
               {snapCollapseOpen && (
                 <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 180 }}>
-                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Collapse rows on:</div>
-                  {[{ key: "style_code", label: "Style" }, { key: "color", label: "Color" }, { key: "description", label: "Name" }, { key: "category", label: "Item Category" }].map((c) => (
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Collapse onto:</div>
+                  {[{ key: "color", label: "Color" }, { key: "category", label: "Item Category" }].map((c) => (
                     <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
                       <input type="checkbox" checked={snapCollapse.has(c.key)} onChange={() => toggleSnapCollapse(c.key)} />
                       {c.label}
