@@ -520,6 +520,49 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
 }
 
 /**
+ * Pick the prepack matrix for a PPK style, tolerant of the inseam-infix mis-keying
+ * in the master. The matrix can be keyed with an inseam baked into the code
+ * (e.g. `RYB059430PPK`) while the real style — in style_master + ip_item_master —
+ * is the style-grain `RYB0594PPK` (the `30` is an inseam present only on the matrix
+ * code; it exists nowhere in the catalog). Exact match is preferred; the tolerant
+ * fall-back matches when one PPK stem is a prefix of the other and the extra is a
+ * short digit run (the inseam).
+ *
+ * @param {string} styleCode        the PPK style being ordered (e.g. "RYB0594PPK")
+ * @param {string|null} skuPackToken the style's real pack token from its SKUs ("PPK24")
+ * @param {Array<{id,ppk_style_code,pack_token}>} matrices  active matrices
+ * @returns the chosen matrix row or null. Tie-break: same pack token first, then the
+ *   shortest (closest) inseam gap, then ppk_style_code order (deterministic).
+ */
+export function matchPrepackMatrix(styleCode, skuPackToken, matrices) {
+  const all = Array.isArray(matrices) ? matrices.filter((m) => m && m.ppk_style_code) : [];
+  if (all.length === 0) return null;
+  const lc = String(styleCode ?? "").toLowerCase();
+  const exact = all.find((m) => String(m.ppk_style_code).toLowerCase() === lc);
+  if (exact) return exact;
+  const myStem = ppkStem(styleCode); // strips trailing -?PPK\d* → "RYB0594PPK" → "RYB0594"
+  if (!myStem) return null;
+  const tok = skuPackToken ? String(skuPackToken).toLowerCase() : null;
+  const scored = [];
+  for (const m of all) {
+    const ms = ppkStem(m.ppk_style_code); // "RYB059430PPK" → "RYB059430"
+    if (!ms) continue;
+    let extra = null;
+    if (ms === myStem) extra = "";
+    else if (ms.startsWith(myStem)) extra = ms.slice(myStem.length);
+    else if (myStem.startsWith(ms)) extra = myStem.slice(ms.length);
+    if (extra == null || !/^\d{0,3}$/.test(extra)) continue; // only a short numeric (inseam) gap
+    scored.push({ m, extra });
+  }
+  if (scored.length === 0) return null;
+  scored.sort((a, b) =>
+    (Number(String(b.m.pack_token ?? "").toLowerCase() === tok) - Number(String(a.m.pack_token ?? "").toLowerCase() === tok))
+    || (a.extra.length - b.extra.length)
+    || String(a.m.ppk_style_code).localeCompare(String(b.m.ppk_style_code)));
+  return scored[0].m;
+}
+
+/**
  * Build the order-entry PREPACK block for a PPK (pack-grain) style: the single
  * pack token used as the entry column + the per-size composition (from the active
  * prepack_matrices master) so the UI can explode "N packs" into per-size eaches.
@@ -528,16 +571,17 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
  * UI then still lets the operator enter packs but prompts to define a matrix.
  */
 async function computePrepackBlock(admin, entityId, style, skus) {
-  // Active matrix for this exact PPK style_code (case-insensitive on ppk_style_code).
   const { data: matrices } = await admin
     .from("prepack_matrices")
     .select("id, ppk_style_code, pack_token")
     .eq("entity_id", entityId)
     .eq("is_active", true)
     .not("ppk_style_code", "is", null);
-  const mine = (matrices || []).find(
-    (m) => String(m.ppk_style_code).toLowerCase() === String(style.style_code).toLowerCase(),
-  );
+  // The style's real pack token (from its SKUs) — used both to resolve the right
+  // matrix and as the entry column so resolve-sku reuses the existing pack SKU.
+  const skuPackToken = skus.find((s) => /PPK/i.test(String(s.size ?? "")))?.size || null;
+  // Match tolerant of the inseam-infix mis-keying (RYB0594PPK ↔ RYB059430PPK).
+  const mine = matchPrepackMatrix(style.style_code, skuPackToken, matrices || []);
   let composition = [];
   if (mine) {
     const { data: comp } = await admin
@@ -552,7 +596,6 @@ async function computePrepackBlock(admin, entityId, style, skus) {
   // Entry column token: prefer the REAL pack SKU's size (so resolve-sku reuses
   // the existing pack SKU instead of forking a new one), then the matrix token,
   // then a digit-bearing PPK token parsed from the style_code, else "PACK".
-  const skuPackToken = skus.find((s) => /PPK/i.test(String(s.size ?? "")))?.size || null;
   const fromCode = String(style.style_code).match(/PPK\s*\d+/i);
   const pack_token = (skuPackToken && String(skuPackToken).trim())
     || (mine?.pack_token && String(mine.pack_token).trim())
