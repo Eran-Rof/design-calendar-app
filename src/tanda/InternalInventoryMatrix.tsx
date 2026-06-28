@@ -1483,7 +1483,7 @@ export default function InternalInventoryMatrix() {
   const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 12px", fontSize: 13, color: C.text };
 
   return (
-    <div style={{ color: C.text, marginTop: 18 }}>
+    <div style={{ color: C.text, marginTop: 54 }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Inventory Matrix</h2>
@@ -1642,8 +1642,9 @@ export default function InternalInventoryMatrix() {
             style={{ background: explodePpk ? C.primary : C.card, color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
             onClick={() => setExplodePpk((v) => !v)}>Explode</button>
 
-          {/* By Inseam (matrix view, when the scale carries inseams). */}
-          {viewMode === "matrix" && ((styleId && styleHasInseams) || anyBrandInseams) && (
+          {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
+              view (NOT the Snapshot view). */}
+          {((styleId && viewMode === "matrix" && styleHasInseams) || (!styleId && noStyleView === "matrix" && anyBrandInseams)) && (
             <button type="button" title="Split each color into one row per inseam, with a per-color subtotal"
               style={{ background: inseamMode ? C.primary : C.card, color: inseamMode ? "#fff" : C.textMuted, border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
               onClick={() => setInseamMode((v) => !v)}>By Inseam</button>
@@ -1657,8 +1658,8 @@ export default function InternalInventoryMatrix() {
           {payload && viewMode === "matrix" && (
             <ExportButton rows={exportRows} filename={`inventory-matrix-${payload.style.style_code}`} sheetName="Inventory Matrix" columns={exportColumns} />
           )}
-          {/* Export — all/brand matrix. */}
-          {!styleId && viewMode === "matrix" && brandPayloads.length > 0 && (
+          {/* Export — all/brand matrix (OH matrices view only, NOT the Snapshot). */}
+          {!styleId && noStyleView === "matrix" && brandPayloads.length > 0 && (
             <ExportButton rows={brandExportRows} filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Matrix" columns={brandExportColumns} />
           )}
 

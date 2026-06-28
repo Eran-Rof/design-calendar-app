@@ -54,20 +54,28 @@ export default async function handler(req, res) {
   const explodePpk = String(url.searchParams.get("explode_ppk") || "") === "true";
 
   try {
-    const items = await fetchChunked([styleId], (ids) => admin.from("ip_item_master").select("id, color, style_code").in("style_id", ids));
+    const items = await fetchChunked([styleId], (ids) => admin.from("ip_item_master").select("id, color, style_code, size, sku_code").in("style_id", ids));
     const colorByItem = new Map(items.map((i) => [i.id, i.color ?? null]));
     const itemIds = items.map((i) => i.id);
     if (itemIds.length === 0) return res.status(200).json({ color_totals: [], grand_total: 0, rows: [] });
 
-    // Pack ratio for this style (1 = no explosion).
+    // Pack ratio for this style (1 = no explosion). PRIMARY = the SKU size token
+    // ("PPK24" → 24); prepack_matrices master is only a fallback.
     let packRatio = 1;
     if (explodePpk) {
       const ppkCode = items.map((i) => i.style_code).find((c) => c && isPpkStyle(c));
       if (ppkCode) {
-        const { data: ent } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
-        const u = await ppkUnitsPerPackByStyle(admin, ent?.id || null, [ppkCode]);
-        const r = u.get(String(ppkCode).toLowerCase());
-        if (r && r > 0) packRatio = r;
+        let r = 0;
+        for (const it of items) {
+          const m = /PPK\s*(\d+)/i.exec(String(it.size || "")) || /PPK\s*(\d+)/i.exec(String(it.sku_code || ""));
+          if (m) { r = parseInt(m[1], 10); break; }
+        }
+        if (!(r > 0)) {
+          const { data: ent } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
+          const u = await ppkUnitsPerPackByStyle(admin, ent?.id || null, [ppkCode]);
+          r = u.get(String(ppkCode).toLowerCase()) || 0;
+        }
+        if (r > 0) packRatio = r;
       }
     }
 
