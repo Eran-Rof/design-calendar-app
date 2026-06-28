@@ -1483,7 +1483,7 @@ export default function InternalInventoryMatrix() {
   const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 12px", fontSize: 13, color: C.text };
 
   return (
-    <div style={{ color: C.text, marginTop: 54 }}>
+    <div style={{ color: C.text, marginTop: 0 }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Inventory Matrix</h2>
@@ -1495,7 +1495,7 @@ export default function InternalInventoryMatrix() {
       </div>
 
       {/* Controls */}
-      <div style={{ marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ marginBottom: 54, display: "flex", flexDirection: "column", gap: 10 }}>
 
         {/* Row 1 — filter dropdowns + the Columns control (right of Store).
             Fields are kept compact so the whole row fits on one line. */}
