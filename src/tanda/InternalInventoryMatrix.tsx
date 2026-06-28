@@ -404,7 +404,7 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "on_so",       label: "On SO",                  numeric: true },
   { key: "ats",         label: "ATS Qty",                numeric: true },
   { key: "on_po",       label: "On PO",                  numeric: true },
-  { key: "ats_incl_po", label: "ATS Qty (Including PO)", numeric: true },
+  { key: "ats_incl_po", label: "ATS Qty (Incl POs)",    numeric: true },
   { key: "sold",        label: "Sold",                   numeric: true },
   { key: "purchased",   label: "Purchased",              numeric: true },
   { key: "category",    label: "Item Category",          numeric: false },
@@ -552,7 +552,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
 }
 
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, totalsMode,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, showTotals,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -568,12 +568,12 @@ function SnapshotView({
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
   collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
-  totalsMode: "off" | "qty" | "cost" | "retail"; // totals strip: off / unit qty / $ at avg cost / $ at avg SO sale price
+  showTotals: boolean; // totals strip above the headers (Qty + $ Cost + $ Retail stacked per column)
 }) {
-  // Zebra striping tint by row index — alternate rows get a faint background so
-  // long lists stay readable; mirrors the drill modals' zebra() helper.
-  const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
-  const HOVER_BG = "rgba(59,130,246,0.16)"; // distinct from BOTH zebra tints
+  // Zebra striping tint by row index — alternate rows get a clearly visible
+  // background so long lists stay readable; mirrors the drill modals' zebra().
+  const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.16)" : "transparent" });
+  const HOVER_BG = "rgba(59,130,246,0.26)"; // distinct from BOTH zebra tints
 
   // ── Collapse / roll-up ────────────────────────────────────────────────────
   // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
@@ -638,12 +638,15 @@ function SnapshotView({
   // card background so scrolling rows don't show through the header. When the
   // Totals strip is on it occupies the top band, so the column header sticks
   // just below it (top: TOTALS_H).
-  const TOTALS_H = 40;
-  const headerTop = totalsMode !== "off" ? TOTALS_H : 0;
+  const TOTALS_H = 58; // three stacked lines (Qty / $ Cost / $ Retail)
+  const headerTop = showTotals ? TOTALS_H : 0;
   const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
   // Totals strip cells — sticky at the very top, above the column header.
-  const totalsTh: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 3, height: TOTALS_H, background: C.card, borderBottom: `2px solid ${C.primary}`, fontFamily: "monospace" };
+  const totalsTh: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 3, height: TOTALS_H, background: C.card, borderBottom: `2px solid ${C.primary}`, fontFamily: "monospace", padding: "4px 10px" };
   const fmtUSD = (v: number) => (v ? `$${Math.round(v).toLocaleString()}` : "—");
+  // One totals cell stacks all three measures so a single Totals toggle shows
+  // Qty + $ Cost + $ Retail together (no Qty/$ mode choice).
+  const totStack: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3, fontFamily: "monospace", fontSize: 11 };
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
   if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
@@ -655,9 +658,10 @@ function SnapshotView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
             {/* Totals strip — above the column headers (ATS-modelled). Each
-                quantity column shows its total; Qty = unit counts, $ = qty ×
-                avg cost. Avg Cost itself isn't totalled. */}
-            {totalsMode !== "off" && (() => {
+                quantity column stacks all three measures: Qty (unit counts),
+                $ Cost (qty × avg cost) and $ Retail (qty × avg SO sale price).
+                Avg Cost / Avg Sale are per-unit, so they aren't totalled. */}
+            {showTotals && (() => {
               const visCols = SNAP_COLS.filter((c) => show(c.key as string));
               let labelled = false;
               return (
@@ -666,16 +670,30 @@ function SnapshotView({
                   {visCols.map((col) => {
                     const isSum = (SNAP_SUM_COLS as readonly string[]).includes(col.key as string);
                     if (isSum) {
-                      const dollarsMode = totalsMode === "cost" || totalsMode === "retail";
-                      const v = totalsMode === "cost" ? totals.cost[col.key as string]
-                        : totalsMode === "retail" ? totals.retail[col.key as string]
-                        : totals.qty[col.key as string];
-                      return <th key={col.key as string} style={{ ...totalsTh, textAlign: "right", color: C.amber, fontWeight: 800 }}>{dollarsMode ? fmtUSD(v) : fmtQty(v)}</th>;
+                      return (
+                        <th key={col.key as string} style={{ ...totalsTh, textAlign: "right" }}>
+                          <div style={totStack}>
+                            <span style={{ color: C.amber, fontWeight: 800 }}>{fmtQty(totals.qty[col.key as string])}</span>
+                            <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[col.key as string])}</span>
+                            <span style={{ color: C.base }}>{fmtUSD(totals.retail[col.key as string])}</span>
+                          </div>
+                        </th>
+                      );
                     }
-                    // First non-summed (text/avg-cost) column carries the label.
-                    const labelText = totalsMode === "cost" ? "TOTALS — $ Cost" : totalsMode === "retail" ? "TOTALS — $ Retail" : "TOTALS — Qty";
-                    const label = !labelled ? (labelled = true, labelText) : "";
-                    return <th key={col.key as string} style={{ ...totalsTh, textAlign: "left", color: C.base, fontWeight: 800, whiteSpace: "nowrap" }}>{label}</th>;
+                    // First non-summed column carries the row legend (Qty / $ Cost / $ Retail).
+                    if (!labelled) {
+                      labelled = true;
+                      return (
+                        <th key={col.key as string} style={{ ...totalsTh, textAlign: "right" }}>
+                          <div style={{ ...totStack, fontWeight: 700 }}>
+                            <span style={{ color: C.amber }}>Qty</span>
+                            <span style={{ color: C.textSub }}>$ Cost</span>
+                            <span style={{ color: C.base }}>$ Retail</span>
+                          </div>
+                        </th>
+                      );
+                    }
+                    return <th key={col.key as string} style={totalsTh} />;
                   })}
                 </tr>
               );
@@ -1063,12 +1081,11 @@ export default function InternalInventoryMatrix() {
   // Merge PPK: collapse each base style + its PPK sibling into one "BASE/PPK"
   // row (snapshot only). Requires exploded eaches, so selecting it forces Explode on.
   const [mergePpk, setMergePpk] = useState(false);
-  // Totals row (snapshot only), modelled on the ATS totals view: a strip above
-  // the column headers summing each quantity column. "qty" = unit counts;
-  // "cost" = qty x avg unit cost; "retail" = qty x avg SO sale price. "off"
-  // hides it. The control is a Qty / $ Cost / $ Retail selector — clicking the
-  // active mode again turns it off.
-  const [snapTotals, setSnapTotals] = useState<"off" | "qty" | "cost" | "retail">("off");
+  // Totals strip (snapshot only), modelled on the ATS totals view: a single
+  // toggle that shows a strip above the column headers stacking, for each
+  // quantity column, Qty (unit counts) + $ Cost (qty × avg cost) + $ Retail
+  // (qty × avg SO sale price) — all three together, no mode choice.
+  const [snapTotals, setSnapTotals] = useState(false);
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -1908,20 +1925,13 @@ export default function InternalInventoryMatrix() {
               onClick={() => setMergePpk((v) => { const next = !v; if (next) setExplodePpk(true); return next; })}>Merge PPK</button>
           )}
 
-          {/* Totals — snapshot only. Segmented Qty / $ Cost / $ Retail selector
-              (ATS-style): a totals strip above the column headers sums every
-              quantity column. Click the active mode again to turn totals off. */}
+          {/* Totals — snapshot only. Single toggle: a totals strip above the
+              column headers stacks Qty + $ Cost + $ Retail for every quantity
+              column (no Qty/$ mode choice — all shown together). */}
           {!styleId && noStyleView === "snapshot" && (
-            <div title="Totals strip above the headers — Qty sums units, $ Cost = qty × avg cost, $ Retail = qty × avg SO sale price"
-              style={{ display: "inline-flex", alignItems: "stretch", border: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
-              <span style={{ display: "flex", alignItems: "center", padding: "6px 10px", fontSize: 13, fontWeight: 600, background: snapTotals !== "off" ? C.primary : C.card, color: snapTotals !== "off" ? "#fff" : C.textMuted }}>Totals</span>
-              {([["qty", "Qty"], ["cost", "$ Cost"], ["retail", "$ Retail"]] as const).map(([m, lbl]) => (
-                <button key={m} type="button" title={m === "qty" ? "Totals as unit quantities" : m === "cost" ? "Totals as dollars (qty × avg cost)" : "Totals as dollars (qty × avg SO sale price)"}
-                  onClick={() => setSnapTotals((prev) => (prev === m ? "off" : m))}
-                  style={{ border: 0, borderLeft: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, padding: "6px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    background: snapTotals === m ? C.primary : C.card, color: snapTotals === m ? "#fff" : C.textMuted }}>{lbl}</button>
-              ))}
-            </div>
+            <button type="button" title="Totals strip above the headers — Qty + $ Cost (qty × avg cost) + $ Retail (qty × avg SO sale price)"
+              style={{ background: snapTotals ? C.primary : C.card, color: snapTotals ? "#fff" : C.textMuted, border: `1px solid ${snapTotals ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setSnapTotals((v) => !v)}>Totals</button>
           )}
 
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
@@ -2052,7 +2062,7 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} totalsMode={snapTotals} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} />
         </>
       )}
 
