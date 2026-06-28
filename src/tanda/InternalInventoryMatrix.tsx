@@ -379,6 +379,7 @@ type SnapshotRow = {
   on_hand: number; allocated: number; on_so: number;
   on_po: number; in_transit: number; ats: number; ats_incl_po: number;
   sold: number; purchased: number; avg_cost_cents: number | null;
+  sale_price_cents: number | null;
 };
 // A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
 // (base + its PPK sibling combined) so the table can style it distinctly.
@@ -409,6 +410,7 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "category",    label: "Item Category",          numeric: false },
   { key: "in_transit",  label: "In Trnst",               numeric: true },
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
+  { key: "sale_price_cents", label: "Avg Sale",          numeric: true },
 ];
 
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
@@ -487,18 +489,20 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
         const all = [...c.base, ...c.ppk];
         const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
-        const g: MergedRow & { _cost: number[] } = {
+        const g: MergedRow & { _cost: number[]; _sale: number[] } = {
           style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-          sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
+          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [] };
         for (const r of all) {
           if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
           if (r.color && !g.color) g.color = r.color;
-          for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+          for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
           if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+          if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
         }
-        const { _cost, ...row } = g;
-        out.push({ ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c2) => s + c2, 0) / _cost.length) : null } as MergedRow);
+        const { _cost, _sale, ...row } = g;
+        const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale) } as MergedRow);
       }
     }
     src = out;
@@ -511,7 +515,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
   //    collapse onto Item Category shows just the category, the rest blank).
   if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
   const keyDims = DIMS.filter((k) => collapseCols.has(k));
-  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[] };
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[] };
   const map = new Map<string, G>();
   for (const r of src) {
     const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
@@ -519,19 +523,21 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
     if (!g) {
       g = { style_id: "", style_code: "", description: "", color: null, category: null,
         on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-        sold: 0, purchased: 0, avg_cost_cents: null,
+        sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null,
         _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
-        _sids: new Set(), _cost: [] };
+        _sids: new Set(), _cost: [], _sale: [] };
       map.set(key, g);
     }
     for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
-    for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+    for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
     if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+    if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
     if (r._merged) g._merged = true;
     g._sids.add(r.style_id);
   }
+  const avgOf2 = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
   return [...map.values()].map((g) => {
-    const { _vals, _sids, _cost, ...row } = g;
+    const { _vals, _sids, _cost, _sale, ...row } = g;
     const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
     return { ...row,
       style_id: _sids.size === 1 ? [..._sids][0] : "",
@@ -539,7 +545,8 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
       color: one("color"),
       description: one("description") ?? "",
       category: one("category"),
-      avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
+      avg_cost_cents: avgOf2(_cost),
+      sale_price_cents: avgOf2(_sale),
     } as MergedRow;
   });
 }
@@ -561,7 +568,7 @@ function SnapshotView({
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
   collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
-  totalsMode: "off" | "qty" | "dollars"; // totals strip above the headers: off / unit qty / dollars (qty × avg cost)
+  totalsMode: "off" | "qty" | "cost" | "retail"; // totals strip: off / unit qty / $ at avg cost / $ at avg SO sale price
 }) {
   // Zebra striping tint by row index — alternate rows get a faint background so
   // long lists stay readable; mirrors the drill modals' zebra() helper.
@@ -592,17 +599,20 @@ function SnapshotView({
   }, [grouped, sortKey, sortDir]);
 
   // Totals across the displayed rows, per quantity column. qty = unit counts;
-  // dollars = qty × the row's avg unit cost (avg_cost_cents / 100). avg_cost is
-  // never totalled (it is a per-unit cost). Mirrors the ATS totals view.
+  // cost = qty × avg unit cost (avg_cost_cents); retail = qty × avg SO sale
+  // price (sale_price_cents). Avg Cost / Avg Sale are never totalled (per-unit).
+  // Mirrors the ATS totals view.
   const totals = useMemo(() => {
     const qty: Record<string, number> = {};
-    const dollars: Record<string, number> = {};
-    for (const k of SNAP_SUM_COLS) { qty[k] = 0; dollars[k] = 0; }
+    const cost: Record<string, number> = {};
+    const retail: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; retail[k] = 0; }
     for (const r of sorted) {
-      const cost = (r.avg_cost_cents ?? 0) / 100;
-      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; dollars[k] += v * cost; }
+      const c = (r.avg_cost_cents ?? 0) / 100;
+      const p = (r.sale_price_cents ?? 0) / 100;
+      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; cost[k] += v * c; retail[k] += v * p; }
     }
-    return { qty, dollars };
+    return { qty, cost, retail };
   }, [sorted]);
 
   // Quantity cell — opens a URL in a new tab.
@@ -656,11 +666,15 @@ function SnapshotView({
                   {visCols.map((col) => {
                     const isSum = (SNAP_SUM_COLS as readonly string[]).includes(col.key as string);
                     if (isSum) {
-                      const v = totalsMode === "dollars" ? totals.dollars[col.key as string] : totals.qty[col.key as string];
-                      return <th key={col.key as string} style={{ ...totalsTh, textAlign: "right", color: C.amber, fontWeight: 800 }}>{totalsMode === "dollars" ? fmtUSD(v) : fmtQty(v)}</th>;
+                      const dollarsMode = totalsMode === "cost" || totalsMode === "retail";
+                      const v = totalsMode === "cost" ? totals.cost[col.key as string]
+                        : totalsMode === "retail" ? totals.retail[col.key as string]
+                        : totals.qty[col.key as string];
+                      return <th key={col.key as string} style={{ ...totalsTh, textAlign: "right", color: C.amber, fontWeight: 800 }}>{dollarsMode ? fmtUSD(v) : fmtQty(v)}</th>;
                     }
                     // First non-summed (text/avg-cost) column carries the label.
-                    const label = !labelled ? (labelled = true, totalsMode === "dollars" ? "TOTALS — $" : "TOTALS — Qty") : "";
+                    const labelText = totalsMode === "cost" ? "TOTALS — $ Cost" : totalsMode === "retail" ? "TOTALS — $ Retail" : "TOTALS — Qty";
+                    const label = !labelled ? (labelled = true, labelText) : "";
                     return <th key={col.key as string} style={{ ...totalsTh, textAlign: "left", color: C.base, fontWeight: 800, whiteSpace: "nowrap" }}>{label}</th>;
                   })}
                 </tr>
@@ -707,6 +721,7 @@ function SnapshotView({
                   {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                 </tr>
               );
             })}
@@ -1050,9 +1065,10 @@ export default function InternalInventoryMatrix() {
   const [mergePpk, setMergePpk] = useState(false);
   // Totals row (snapshot only), modelled on the ATS totals view: a strip above
   // the column headers summing each quantity column. "qty" = unit counts;
-  // "dollars" = qty x avg unit cost. "off" hides it. The control is a Qty/$
-  // selector — clicking the active mode again turns it off.
-  const [snapTotals, setSnapTotals] = useState<"off" | "qty" | "dollars">("off");
+  // "cost" = qty x avg unit cost; "retail" = qty x avg SO sale price. "off"
+  // hides it. The control is a Qty / $ Cost / $ Retail selector — clicking the
+  // active mode again turns it off.
+  const [snapTotals, setSnapTotals] = useState<"off" | "qty" | "cost" | "retail">("off");
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -1681,7 +1697,7 @@ export default function InternalInventoryMatrix() {
     () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
       key: c.key as string,
       header: c.label,
-      format: c.key === "avg_cost_cents" ? "currency_cents" : (c.numeric ? "number" : undefined),
+      format: (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents" : (c.numeric ? "number" : undefined),
     })),
     [snapHidden],
   );
@@ -1892,15 +1908,15 @@ export default function InternalInventoryMatrix() {
               onClick={() => setMergePpk((v) => { const next = !v; if (next) setExplodePpk(true); return next; })}>Merge PPK</button>
           )}
 
-          {/* Totals — snapshot only. Segmented Qty / $ selector (ATS-style): a
-              totals strip above the column headers sums every quantity column.
-              Click the active mode again to turn totals off. */}
+          {/* Totals — snapshot only. Segmented Qty / $ Cost / $ Retail selector
+              (ATS-style): a totals strip above the column headers sums every
+              quantity column. Click the active mode again to turn totals off. */}
           {!styleId && noStyleView === "snapshot" && (
-            <div title="Show a totals strip above the headers — Qty sums units, $ sums quantity × avg cost"
+            <div title="Totals strip above the headers — Qty sums units, $ Cost = qty × avg cost, $ Retail = qty × avg SO sale price"
               style={{ display: "inline-flex", alignItems: "stretch", border: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
               <span style={{ display: "flex", alignItems: "center", padding: "6px 10px", fontSize: 13, fontWeight: 600, background: snapTotals !== "off" ? C.primary : C.card, color: snapTotals !== "off" ? "#fff" : C.textMuted }}>Totals</span>
-              {([["qty", "Qty"], ["dollars", "$"]] as const).map(([m, lbl]) => (
-                <button key={m} type="button" title={m === "qty" ? "Totals as unit quantities" : "Totals as dollars (qty × avg cost)"}
+              {([["qty", "Qty"], ["cost", "$ Cost"], ["retail", "$ Retail"]] as const).map(([m, lbl]) => (
+                <button key={m} type="button" title={m === "qty" ? "Totals as unit quantities" : m === "cost" ? "Totals as dollars (qty × avg cost)" : "Totals as dollars (qty × avg SO sale price)"}
                   onClick={() => setSnapTotals((prev) => (prev === m ? "off" : m))}
                   style={{ border: 0, borderLeft: `1px solid ${snapTotals !== "off" ? C.primary : C.cardBdr}`, padding: "6px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                     background: snapTotals === m ? C.primary : C.card, color: snapTotals === m ? "#fff" : C.textMuted }}>{lbl}</button>

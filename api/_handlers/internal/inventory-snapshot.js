@@ -19,6 +19,7 @@
 //        sold,               // lifetime Σ wholesale qty + ecom net_qty
 //        purchased,          // lifetime Σ receipts qty
 //        avg_cost_cents,     // representative avg cost for the colour
+//        sale_price_cents,   // qty-weighted avg SO sale price for the colour
 //      }] }
 //
 // Entity scoped (ROF default). Read-only. No migration — reuses existing tables.
@@ -186,7 +187,7 @@ export default async function handler(req, res) {
           color: color ?? null,
           category: st?.category_name || st?.group_name || null,
           on_hand: 0, on_hand_ats: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0,
-          sold: 0, purchased: 0, _costCents: [],
+          sold: 0, purchased: 0, _costCents: [], _salePx: [],
         };
         buckets.set(k, b);
       }
@@ -246,7 +247,7 @@ export default async function handler(req, res) {
     const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
       fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand").in("item_id", ids)),
-      fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, sales_orders!inner(status)").in("inventory_item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status)").in("inventory_item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
@@ -275,6 +276,12 @@ export default async function handler(req, res) {
       const m = mult(r.inventory_item_id);
       const alloc = Math.max((Number(r.qty_allocated) || 0) - (Number(r.qty_shipped) || 0), 0) * m;
       if (alloc > 0) b.allocated += alloc;
+      // Avg sale price — qty-weighted across SO lines. When exploded, the pack
+      // price spreads over m eaches (price/each = unit_price_cents / m, qty×m
+      // eaches), so the line's total value is invariant to explode.
+      const qOrd = Number(r.qty_ordered) || 0;
+      const px = Number(r.unit_price_cents) || 0;
+      if (qOrd > 0 && px > 0) b._salePx.push({ q: qOrd * m, c: px / m });
       const status = r.sales_orders?.status;
       if (OPEN_SO_STATUSES.includes(status)) {
         const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_shipped) || 0), 0) * m;
@@ -334,11 +341,16 @@ function finalizeRow(b) {
   const avg_cost_cents = b._costCents.length
     ? Math.round(b._costCents.reduce((s, c) => s + c, 0) / b._costCents.length)
     : null;
+  // Qty-weighted average SO sale price for the colour (null if no priced SO lines).
+  const spQty = b._salePx.reduce((s, x) => s + x.q, 0);
+  const sale_price_cents = spQty > 0
+    ? Math.round(b._salePx.reduce((s, x) => s + x.q * x.c, 0) / spQty)
+    : null;
   return {
     style_id: b.style_id, style_code: b.style_code, description: b.description,
     color: b.color, category: b.category,
     on_hand: b.on_hand, allocated: b.allocated, on_so: b.on_so,
     on_po: b.on_po, in_transit: b.in_transit, ats, ats_incl_po,
-    sold: b.sold, purchased: b.purchased, avg_cost_cents,
+    sold: b.sold, purchased: b.purchased, avg_cost_cents, sale_price_cents,
   };
 }
