@@ -459,6 +459,7 @@ function SnapshotView({
   show: (k: string) => boolean;
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
+  collapseCols: Set<string>; // text columns to roll up on (sum across them)
 }) {
   // Zebra striping tint by row index — alternate rows get a faint background so
   // long lists stay readable; mirrors the drill modals' zebra() helper.
@@ -470,7 +471,7 @@ function SnapshotView({
   // group-by key; numeric columns are summed (Avg Cost averaged). Hiding a text
   // column drops it from the key so its rows merge: hide Color → one row per
   // style; hide Style + Color + Name (leaving Category) → one row per category.
-  const dimVis = (["style_code", "color", "description", "category"] as const).map((k) => (show(k) ? "1" : "0")).join("");
+  const collapseKey = [...collapseCols].sort().join(",");
   const grouped = useMemo<MergedRow[]>(() => {
     const DIMS = ["style_code", "color", "description", "category"] as const;
     const SUMS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
@@ -487,14 +488,15 @@ function SnapshotView({
       for (const r of rows) {
         const stem = stemOf(r.style_code);
         if (!ppkBases.has(stem.toLowerCase())) { pass.push(r); continue; }
-        let g = mMap.get(stem.toLowerCase());
+        const ckey = `${stem.toLowerCase()}|${String(r.color ?? "").toLowerCase().trim()}`;
+        let g = mMap.get(ckey);
         if (!g) {
-          g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: null, category: r.category,
+          g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: r.color, category: r.category,
             on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
             sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
-          mMap.set(stem.toLowerCase(), g);
+          mMap.set(ckey, g);
         }
-        if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
+        if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; if (r.color) g.color = r.color; }
         for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
         if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
       }
@@ -505,7 +507,8 @@ function SnapshotView({
     }
 
     // 2. Roll up by the visible text columns (sum numerics).
-    const visDims = DIMS.filter((k) => show(k));
+    if (collapseCols.size === 0) return src; // nothing chosen → no roll-up
+    const visDims = DIMS.filter((k) => !collapseCols.has(k));
     if (visDims.length === DIMS.length) return src; // nothing hidden → no roll-up
     type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
     const map = new Map<string, G>();
@@ -532,7 +535,7 @@ function SnapshotView({
         avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
       } as MergedRow;
     });
-  }, [rows, dimVis, mergePpk]);
+  }, [rows, collapseKey, mergePpk]);
 
   const sorted = useMemo(() => {
     const r = [...grouped];
@@ -943,6 +946,13 @@ export default function InternalInventoryMatrix() {
     return next;
   });
   const snapShow = (k: string) => !snapHidden.has(k);
+  // Collapse: which text columns to roll up on (merge rows that differ only by
+  // these, summing the numbers). Independent of column show/hide.
+  const [snapCollapse, setSnapCollapse] = useState<Set<string>>(new Set());
+  const [snapCollapseOpen, setSnapCollapseOpen] = useState(false);
+  const toggleSnapCollapse = (k: string) => setSnapCollapse((prev) => {
+    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next;
+  });
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
   // off by default; folds PPK packs → sized eaches. Honors ?explode_ppk in the
   // URL so the Snapshot's On-Hand drill (which appends it) opens already exploded.
@@ -1655,7 +1665,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {groupDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 110 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 85 }}>
               Group
               <SearchableSelect
                 value={groupFilter || ALL_GROUP_SENTINEL}
@@ -1668,7 +1678,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {categoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 115 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 90 }}>
               Category
               <SearchableSelect
                 value={categoryFilter || ALL_CATEGORY_SENTINEL}
@@ -1693,7 +1703,7 @@ export default function InternalInventoryMatrix() {
             </label>
           )}
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
             Store
             <SearchableSelect
               value={warehouse}
@@ -1719,6 +1729,28 @@ export default function InternalInventoryMatrix() {
                     <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
                       <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
                       {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Collapse — choose which text columns to roll up on (sum across). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+                 onMouseLeave={() => setSnapCollapseOpen(false)}>
+              <button type="button" onClick={() => setSnapCollapseOpen((o) => !o)}
+                style={{ background: snapCollapse.size ? C.primary : C.card, color: snapCollapse.size ? "#fff" : C.textSub, border: `1px solid ${snapCollapse.size ? C.primary : C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                Collapse {snapCollapseOpen ? "▴" : "▾"}
+              </button>
+              {snapCollapseOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 180 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Collapse rows on:</div>
+                  {[{ key: "style_code", label: "Style" }, { key: "color", label: "Color" }, { key: "description", label: "Name" }, { key: "category", label: "Item Category" }].map((c) => (
+                    <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapCollapse.has(c.key)} onChange={() => toggleSnapCollapse(c.key)} />
+                      {c.label}
                     </label>
                   ))}
                 </div>
@@ -1895,7 +1927,7 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} />
         </>
       )}
 
