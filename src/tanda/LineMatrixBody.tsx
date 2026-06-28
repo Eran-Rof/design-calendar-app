@@ -24,6 +24,7 @@ import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
+import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { confirmDialog } from "../shared/ui/warn";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat } from "./orderDocument";
 
@@ -40,8 +41,71 @@ const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid 
 
 type Style = { id: string; style_code: string; style_name?: string | null; description?: string | null; brand_id?: string | null; attributes?: { size_scale_pack?: SizePack | NestedSizePack } | null };
 type MatrixSku = { id: string; color: string | null; size: string | null; inseam: string | null; on_hand_qty?: number; avg_cost_cents?: number | null };
-type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[] };
+type MatrixPayload = { style: { id: string; style_code: string }; sizes: string[]; colors: string[]; inseams: string[]; skus: MatrixSku[]; prepack?: PrepackBlock | null };
 type FlatItem = { id: string; sku_code: string; style_code?: string | null; description?: string | null };
+
+// Read-only per-size explode preview for a PREPACK section: rows = colors with a
+// pack count, columns = the matrix composition sizes, each cell = packs ×
+// qty_per_pack. The order line stores PACKS; this is the size breakdown the rest
+// of the suite (inventory explode, sales reporting) derives from those packs.
+function PrepackExplodePreview({ rows, packsByRow, composition }: {
+  rows: EditableMatrixRow[];
+  packsByRow: Record<string, number>;
+  composition: { size: string; qty_per_pack: number }[];
+}) {
+  const sizes = composition.map((c) => c.size);
+  const active = rows.filter((r) => (packsByRow[r.key] || 0) > 0);
+  const per = packTotal(composition);
+  const PC = { headerBg: "#0F172A", head: "#6B7280", bdr: "#1E293B", sect: "#334155", amber: "#F59E0B", text: "#E5E7EB", muted: "#94A3B8", empty: "#475569" };
+  if (active.length === 0) {
+    return <div style={{ fontSize: 12, color: PC.muted, padding: "6px 2px" }}>Enter pack quantities above to see the per-size breakdown.</div>;
+  }
+  const colTotals: Record<string, number> = {};
+  let grand = 0;
+  for (const r of active) {
+    const ex = explodePacks(packsByRow[r.key] || 0, composition);
+    for (const sz of sizes) colTotals[sz] = (colTotals[sz] || 0) + (ex[sz] || 0);
+    grand += (packsByRow[r.key] || 0) * per;
+  }
+  const cell: React.CSSProperties = { padding: "5px 10px", textAlign: "center", fontFamily: "monospace", fontSize: 12 };
+  const th2: React.CSSProperties = { padding: "6px 10px", color: PC.head, fontSize: 10, textTransform: "uppercase", letterSpacing: 1, borderBottom: `2px solid ${PC.sect}`, textAlign: "center" };
+  return (
+    <div style={{ overflowX: "auto", background: PC.headerBg, borderRadius: 8, border: `1px solid ${PC.sect}`, marginTop: 8 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ ...th2, textAlign: "left" }}>Color</th>
+            <th style={{ ...th2 }}>Packs</th>
+            {sizes.map((sz) => <th key={sz} style={th2}>{sz}</th>)}
+            <th style={th2}>Units</th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((r) => {
+            const packs = packsByRow[r.key] || 0;
+            const ex = explodePacks(packs, composition);
+            return (
+              <tr key={r.key} style={{ borderBottom: `1px solid ${PC.bdr}` }}>
+                <td style={{ ...cell, textAlign: "left", color: "#D1D5DB", fontFamily: "inherit" }}>{r.color || "—"}</td>
+                <td style={{ ...cell, color: PC.text }}>{packs.toLocaleString()}</td>
+                {sizes.map((sz) => <td key={sz} style={{ ...cell, color: ex[sz] ? PC.text : PC.empty }}>{ex[sz] ? ex[sz].toLocaleString() : "—"}</td>)}
+                <td style={{ ...cell, color: PC.amber, fontWeight: 700 }}>{(packs * per).toLocaleString()}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop: `2px solid ${PC.sect}` }}>
+            <td style={{ ...cell, textAlign: "left", color: PC.muted, fontWeight: 700, fontFamily: "inherit" }}>Total</td>
+            <td style={{ ...cell, color: PC.muted }} />
+            {sizes.map((sz) => <td key={sz} style={{ ...cell, color: colTotals[sz] ? PC.amber : PC.empty, fontWeight: 700 }}>{colTotals[sz] ? colTotals[sz].toLocaleString() : "—"}</td>)}
+            <td style={{ ...cell, color: PC.amber, fontWeight: 800 }}>{grand.toLocaleString()}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
 
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
 export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
@@ -58,7 +122,7 @@ export interface LineMatrixBodyHandle {
   getDocumentData: () => OrderDocData;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string> };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -193,6 +257,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function removeSection(id: number) { setSections((p) => p.filter((s) => s.id !== id)); }
   function setSectionDatesOpen(id: number, open: boolean) { setSections((p) => p.map((s) => (s.id === id ? { ...s, datesOpen: open } : s))); }
+  function setExplodeOpen(id: number, open: boolean) { setSections((p) => p.map((s) => (s.id === id ? { ...s, explodeOpen: open } : s))); }
   function setQty(id: number, rowKey: string, size: string, n: number) {
     setSections((p) => p.map((s) => {
       if (s.id !== id) return s;
@@ -483,8 +548,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         }
         if (rowMap.size === 0) continue;
         // Size columns in scale order (from the loaded payload), limited to sizes
-        // actually ordered; fall back to appearance order if no payload yet.
-        const sizes = s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen];
+        // actually ordered; fall back to appearance order if no payload yet. For a
+        // prepack the single column is the pack token (cells are PACK counts).
+        const sizes = s.payload?.prepack
+          ? [s.payload.prepack.pack_token]
+          : (s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen]);
         styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()] });
       }
       const flats: OrderDocFlat[] = [];
@@ -598,13 +666,20 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
 
       {/* Per-style matrix sections. */}
       {sections.map((s) => {
+        // PREPACK (pack-grain) style: order is entered as a number of PACKS per
+        // color (single pack-token column), not per-size eaches. The backend
+        // returns a `prepack` block (pack token + composition) for any PPK style.
+        const pp = s.payload?.prepack || null;
+        // Sizes that drive cell keys / locked-row filtering: the single pack token
+        // for a prepack, else the garment size scale.
+        const entrySizes = pp ? [pp.pack_token] : (s.payload?.sizes || []);
         const allRows = rowsFor(s.payload);
         // When locked (a confirmed order viewed read-only) show ONLY the color
         // rows that carry a quantity — the order, not the whole scale. Editable
         // (draft or "Add styles" mode) shows every color so any can be filled.
-        const rows = editable ? allRows : allRows.filter((r) => (s.payload?.sizes || []).some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
+        const rows = editable ? allRows : allRows.filter((r) => entrySizes.some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
-        if (showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
+        if (!pp && showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
         // Per-style pack ratio (from Style Master → Scale) powers the quick-fill
         // Qty column. Only offered when editable and the style has a usable pack
         // for these sizes.
@@ -615,11 +690,14 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const rawPack = styles.find((st) => st.id === s.styleId)?.attributes?.size_scale_pack;
         const packForRow = (rk: string): SizePack => packForInseam(rawPack, rk.split("|")[1] || null);
         const packUsableFor = (rk: string) => editable && hasUsablePack(sizesList, packForRow(rk));
+        // Per-color pack counts for the prepack explode preview (cell = pack token).
+        const packsByRow: Record<string, number> = {};
+        if (pp) for (const r of rows) packsByRow[r.key] = s.qty[matrixCellKey(r.key, pp.pack_token)] || 0;
         // Carton check (Phase C): a carton is packed per color×size SKU, so flag
-        // each cell whose qty is a positive non-multiple of the carton size.
-        // Collected into ONE banner per style (operator: "one warning, not per size").
+        // each cell whose qty is a positive non-multiple of the carton size. Skipped
+        // for prepacks — those cells are PACK counts, not eaches (no carton rule).
         const partialCells: { label: string; qty: number }[] = [];
-        for (const r of rows) for (const sz of sizesList) {
+        if (!pp) for (const r of rows) for (const sz of sizesList) {
           const q = s.qty[matrixCellKey(r.key, sz)] || 0;
           if (isPartialCarton(q)) partialCells.push({ label: `${r.color || "—"} ${sz}`, qty: q });
         }
@@ -656,8 +734,43 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             ))}
             {s.loading && <div style={{ color: C.textMuted, fontSize: 13, padding: 8 }}>Loading size grid…</div>}
             {s.err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, fontSize: 13 }}>{s.err}</div>}
-            {s.payload && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
-            {s.payload && s.payload.sizes.length > 0 && (
+            {/* PREPACK (pack-grain) entry: a single PACKS column per color, plus a
+                per-size breakdown ("explode") from the Prepack Matrix master. The
+                order line stores PACKS; the explode is for display. */}
+            {s.payload && pp && (
+              <>
+                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5 }}>
+                  Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).{" "}
+                  {pp.has_matrix
+                    ? <>1 pack = <b>{pp.pack_total}</b> units: {pp.composition.map((c) => `${c.size}×${c.qty_per_pack}`).join(", ")}.</>
+                    : <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode. Add one in Masters → Prepack Matrix.</span>}
+                </div>
+                <EditableSizeMatrix
+                  rows={rows} sizes={[pp.pack_token]}
+                  qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
+                  unit={{ label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
+                  lot={mode === "po" && showLots ? {
+                    values: s.lot,
+                    onChange: (rk, v) => setLot(s.id, rk, v),
+                    onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
+                    placeholder: "PO# at issue",
+                  } : undefined}
+                />
+                {pp.has_matrix && (
+                  <div style={{ marginTop: 8 }}>
+                    <button type="button" onClick={() => setExplodeOpen(s.id, s.explodeOpen === false)} style={{ ...btnSecondary, fontSize: 12, padding: "4px 10px" }}>
+                      {s.explodeOpen === false ? "▸ Show size breakdown (explode)" : "▾ Hide size breakdown (explode)"}
+                    </button>
+                    {s.explodeOpen !== false && (
+                      <PrepackExplodePreview rows={rows} packsByRow={packsByRow} composition={pp.composition} />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {/* Normal sized matrix (non-prepack styles). */}
+            {s.payload && !pp && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
+            {s.payload && !pp && s.payload.sizes.length > 0 && (
               <EditableSizeMatrix
                 rows={rows} sizes={s.payload.sizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"

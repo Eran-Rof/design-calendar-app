@@ -366,6 +366,21 @@ Turning the Inventory Matrix's **Explode PPK** toggle on re-fetches with `&explo
 
 The panel shows an amber indicator: how many packs were exploded, and a **⚠ warning listing any PPK SKUs that have on-hand but no matrix defined** — those are **NOT exploded** (reported, never guessed) with a prompt to add them in **Prepack Matrices**. The PPK grain gate is canonical: a style is a pack iff its `style_code` matches `/PPK/i`.
 
+### Ordering prepacks on a PO / SO — pack entry (#1451)
+
+A prepack is **not** entered as a garment size grid — you buy/sell it in **packs**. When you add a PPK style (`style_code` matches `/PPK/i`) to a **Purchase Order or Sales Order** line matrix, Tangerine renders a **pack-entry grid** instead of the S–XL grid:
+
+- **One column = the pack token** (e.g. `PPK24`). Type the **number of packs** per color. The unit money column is **per pack** (`Unit Cost $ / pack` on a PO, `Unit $ / pack` on an SO).
+- A caption states the per-pack composition: *"1 pack = 24 units: 30×2, 32×4, 34×6, …"* sourced from the **Prepack Matrix master**.
+- A **▾ Show / Hide size breakdown (explode)** toggle (default shown) renders a read-only table = `packs × qty_per_pack` per size per color, with column and grand-unit totals — so you can see exactly how many garments of each size the order represents.
+- The order **line stores PACKS** (native pack grain — consistent with [the canonical PPK grain rule]; the pack SKU's `size` = the pack token). The size breakdown is **derived**, not stored on the line; the rest of the suite (Inventory Matrix Explode-PPK, sales reporting) explodes the packs the same way wherever per-size is needed.
+
+This fixes the prior dead-end where a PPK style either fell into *"no size scale — use + Add non-matrix line"* (no scale) **or** rendered a full garment grid with no way to enter packs (an errant size scale). **Pack entry now takes precedence for any PPK style**, regardless of an assigned size scale.
+
+**Prerequisite — define the matrix first.** The size breakdown comes from a **prepack matrix** for that exact PPK `style_code` (§28.7). A PPK style with **no matrix** still lets you enter packs, but shows an amber hint *"No size breakdown is defined — add one in Masters → Prepack Matrix"* and renders no explode. (131 of ~135 active matrices map to a style_master row today; e.g. `RYB0594PPK` exists but has no matrix yet — define one to get the breakdown.)
+
+**Mechanics.** The shared payload `GET /api/internal/style-matrix?style_id=` now returns an additive **`prepack`** block for PPK styles — `{ pack_token, pack_total, composition:[{size, qty_per_pack}], has_matrix }` (`computePrepackBlock` in `styleMatrix.js`). `LineMatrixBody` (shared by SO/PO/AR) branches on it; the pack→eaches math is the pure `explodePacks` / `packTotal` in `src/shared/prepack` (unit-tested). Resolve reuses the existing pack SKU (size = pack token), so no duplicate SKUs are forked.
+
 ---
 
 ## 28.8 Adjustments matrix
@@ -396,7 +411,8 @@ The sign convention and per-cell cost rule mirror the single-row CHECK constrain
 ## 28.10 Code map
 
 - **Matrix primitive:** `src/shared/matrix/` — `MatrixGrid.tsx`, `EditableSizeMatrix.tsx`, `MatrixCell.tsx`, `MatrixHeader.tsx`, `MatrixPivotControl.tsx`, `hooks/useMatrixData.ts`, `hooks/useMatrixPivot.ts`, `types.ts` (the `MATRIX_AXES` list), `index.ts` (barrel).
-- **Shared matrix lib:** `api/_lib/styleMatrix.js` — `enumerateStyleMatrix` + `computePpkExplode` + `resolveOrCreateSku`. Endpoints: `/api/internal/style-matrix`, `/api/internal/style-matrix/resolve-sku`.
+- **Shared matrix lib:** `api/_lib/styleMatrix.js` — `enumerateStyleMatrix` + `computePpkExplode` + `computeSelfPpkExplode` + `computePrepackBlock` (order-entry `prepack` block) + `resolveOrCreateSku`. Endpoints: `/api/internal/style-matrix`, `/api/internal/style-matrix/resolve-sku`.
+- **Prepack pack math:** `src/shared/prepack/index.ts` — `explodePacks` / `packTotal` / `packsToUnits` + `PrepackBlock` type (unit-tested). Consumed by `LineMatrixBody.tsx` pack-entry mode (§28.7).
 - **Size Scale master:** `src/tanda/InternalSizeScales.tsx`; `api/_handlers/internal/size-scales/index.js` + `[id].js` (handlers h568/h569; `SCALE-NNNNN` via `_lib/autoCode.js`).
 - **Native Purchase Orders:** `src/tanda/InternalPurchaseOrders.tsx`; `api/_handlers/internal/purchase-orders/index.js` + `[id].js`; migration `supabase/migrations/20260712230000_p16_m11_purchase_orders.sql`.
 - **Inventory Matrix panel:** `src/tanda/InternalInventoryMatrix.tsx` (no new route — reuses style-matrix).

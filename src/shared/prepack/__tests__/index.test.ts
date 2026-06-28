@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { extractPpk, ppkMultiplier, ppkMultiplierForAts } from "../index";
+import {
+  extractPpk, ppkMultiplier, ppkMultiplierForAts,
+  packTotal, explodePacks, packsToUnits,
+} from "../index";
+
+const PPK24 = [
+  { size: "30", qty_per_pack: 2 },
+  { size: "32", qty_per_pack: 4 },
+  { size: "34", qty_per_pack: 6 },
+  { size: "36", qty_per_pack: 6 },
+  { size: "38", qty_per_pack: 4 },
+  { size: "40", qty_per_pack: 2 },
+];
 
 describe("extractPpk", () => {
   it("parses PPKn forms with no separator", () => {
@@ -133,5 +145,45 @@ describe("ppkMultiplierForAts — SKU + description fallbacks", () => {
 
   it("returns 1 when both inputs are null", () => {
     expect(ppkMultiplierForAts(null, null)).toBe(1);
+  });
+});
+
+describe("packTotal — units in one pack", () => {
+  it("sums the per-size quantities", () => {
+    expect(packTotal(PPK24)).toBe(24);
+  });
+  it("ignores negative / zero ratios and handles empty", () => {
+    expect(packTotal([{ size: "S", qty_per_pack: 3 }, { size: "M", qty_per_pack: -1 }, { size: "L", qty_per_pack: 0 }])).toBe(3);
+    expect(packTotal([])).toBe(0);
+  });
+});
+
+describe("explodePacks — N packs → per-size eaches", () => {
+  it("multiplies every size ratio by the pack count", () => {
+    expect(explodePacks(200, PPK24)).toEqual({
+      "30": 400, "32": 800, "34": 1200, "36": 1200, "38": 800, "40": 400,
+    });
+  });
+  it("one pack returns the raw composition", () => {
+    expect(explodePacks(1, [{ size: "S", qty_per_pack: 2 }, { size: "M", qty_per_pack: 4 }])).toEqual({ S: 2, M: 4 });
+  });
+  it("drops sizes with a non-positive ratio", () => {
+    expect(explodePacks(5, [{ size: "S", qty_per_pack: 2 }, { size: "M", qty_per_pack: 0 }])).toEqual({ S: 10 });
+  });
+  it("non-positive packs or empty composition → {}", () => {
+    expect(explodePacks(0, PPK24)).toEqual({});
+    expect(explodePacks(-3, PPK24)).toEqual({});
+    expect(explodePacks(10, [])).toEqual({});
+  });
+});
+
+describe("packsToUnits", () => {
+  it("packs × pack units", () => {
+    expect(packsToUnits(200, PPK24)).toBe(4800);
+    expect(packsToUnits(1, PPK24)).toBe(24);
+  });
+  it("non-positive → 0", () => {
+    expect(packsToUnits(0, PPK24)).toBe(0);
+    expect(packsToUnits(-1, PPK24)).toBe(0);
   });
 });

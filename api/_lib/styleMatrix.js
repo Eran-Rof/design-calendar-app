@@ -318,6 +318,16 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     explode = await computePpkExplode(admin, entityId, style, whSeenAll);
   }
 
+  // ── Prepack pack-entry block (additive) ─────────────────────────────────────
+  // For a PPK (pack-grain) style, order entry types a single PACK count per
+  // color rather than per-size eaches. We surface the pack token (the entry
+  // column) and the per-size composition from the Prepack Matrix master so the
+  // UI can explode "N packs" into a size breakdown. Computed for every PPK style
+  // independent of explodePpk (that flag drives the inventory on-hand explode).
+  const prepack = isPpkStyle(style.style_code)
+    ? await computePrepackBlock(admin, entityId, style, skus)
+    : null;
+
   const warehouses = [...whSeenAll].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
   if (whSeenAll.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
 
@@ -373,6 +383,9 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
       ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
     } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
+    // Additive: present only for PPK (pack-grain) styles. Order entry renders a
+    // single pack-count column + the per-size breakdown (explode) from this block.
+    prepack: prepack || undefined,
     skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku, avgCostCentsByLoose }),
   };
 }
@@ -504,6 +517,50 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
   const sizes = [];
   for (const { size } of composition) if (!sizes.includes(size)) sizes.push(size);
   return { sizes, colors: colorsSeen, skus, packsExploded, unmatched: [] };
+}
+
+/**
+ * Build the order-entry PREPACK block for a PPK (pack-grain) style: the single
+ * pack token used as the entry column + the per-size composition (from the active
+ * prepack_matrices master) so the UI can explode "N packs" into per-size eaches.
+ * Returns { pack_token, pack_total, composition:[{size, qty_per_pack}], has_matrix }.
+ * `composition` is [] (has_matrix=false) when no active matrix is defined — the
+ * UI then still lets the operator enter packs but prompts to define a matrix.
+ */
+async function computePrepackBlock(admin, entityId, style, skus) {
+  // Active matrix for this exact PPK style_code (case-insensitive on ppk_style_code).
+  const { data: matrices } = await admin
+    .from("prepack_matrices")
+    .select("id, ppk_style_code, pack_token")
+    .eq("entity_id", entityId)
+    .eq("is_active", true)
+    .not("ppk_style_code", "is", null);
+  const mine = (matrices || []).find(
+    (m) => String(m.ppk_style_code).toLowerCase() === String(style.style_code).toLowerCase(),
+  );
+  let composition = [];
+  if (mine) {
+    const { data: comp } = await admin
+      .from("prepack_matrix_sizes")
+      .select("size, qty_per_pack, sort_order")
+      .eq("matrix_id", mine.id)
+      .order("sort_order", { ascending: true });
+    composition = (comp || [])
+      .map((r) => ({ size: normalizeSize(String(r.size)), qty_per_pack: Number(r.qty_per_pack) || 0 }))
+      .filter((r) => r.size && r.qty_per_pack > 0);
+  }
+  // Entry column token: prefer the REAL pack SKU's size (so resolve-sku reuses
+  // the existing pack SKU instead of forking a new one), then the matrix token,
+  // then a digit-bearing PPK token parsed from the style_code, else "PACK".
+  const skuPackToken = skus.find((s) => /PPK/i.test(String(s.size ?? "")))?.size || null;
+  const fromCode = String(style.style_code).match(/PPK\s*\d+/i);
+  const pack_token = (skuPackToken && String(skuPackToken).trim())
+    || (mine?.pack_token && String(mine.pack_token).trim())
+    || (fromCode ? fromCode[0].toUpperCase().replace(/\s+/g, "") : "PACK");
+  const compTotal = composition.reduce((a, r) => a + r.qty_per_pack, 0);
+  const tokDigits = String(pack_token).match(/(\d+)/);
+  const pack_total = compTotal > 0 ? compTotal : (tokDigits ? Number(tokDigits[1]) : null);
+  return { pack_token, pack_total, composition, has_matrix: composition.length > 0 };
 }
 
 /**
