@@ -338,21 +338,13 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     const hit = (data || []).find((r) => looseKey(r.sku_code) === target);
     if (hit) { out = { id: hit.id, created: false, reason: "loose-sku" }; skuCache.set(itemNumber, out); return out; }
   }
-  // 4) create (apply mode only)
-  if (!styleId) { out.reason = "no-style"; skuCache.set(itemNumber, out); return out; }
-  if (!opts.apply) { out.reason = "would-create"; skuCache.set(itemNumber, out); return out; }
-  const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const cs = canonSize(p.size);
-  const base = [SKU_SAFE(p.style_code), SKU_SAFE(p.color), SKU_SAFE(cs)].filter(Boolean).join("-");
-  for (let a = 0; a < 5; a++) {
-    const skuCode = a === 0 ? base : `${base}-${a}`;
-    const { data, error } = await pgInsert("ip_item_master",
-      { entity_id: entityId, sku_code: skuCode, style_code: p.style_code, style_id: styleId, color: p.color, size: cs, is_apparel: false }, "representation");
-    if (!error && data?.[0]) { out = { id: data[0].id, created: true, reason: "created" }; break; }
-    if (error && error.code !== "23505") { out.reason = `err:${error.message}`; break; }
-    const again = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(skuCode)}&select=id&limit=1`);
-    if (again?.[0]?.id) { out = { id: again[0].id, created: false, reason: "raced" }; break; }
-  }
+  // 4) DO NOT auto-create. The line imports null-linked (inventory_item_id=null).
+  //    The previous create path minted ip_item_master rows with is_apparel=false
+  //    hard-coded, which mis-flags denim apparel and corrupts apparel-only logic
+  //    (size matrix, HTS/tariff, duty). The ~784 unresolved SKUs are mostly
+  //    off-master denim styles that need an operator-gated style + sized-SKU
+  //    backfill (correct is_apparel + attributes) — handled separately, not here.
+  out.reason = styleId ? "needs-sku-backfill" : "no-style";
   skuCache.set(itemNumber, out);
   return out;
 }
