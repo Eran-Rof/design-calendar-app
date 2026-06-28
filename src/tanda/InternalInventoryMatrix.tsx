@@ -410,6 +410,36 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
 
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
 
+// Determinate-style progress bar for the snapshot load (app colors). The fetch
+// is a single opaque request, so we ramp toward ~90% while it's in flight and
+// snap to 100% on completion (the NProgress pattern) — it reads as a filling
+// progress bar rather than an indeterminate spinner.
+function SnapshotProgressBar({ active }: { active: boolean }) {
+  const [pct, setPct] = useState(0);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (active) {
+      setVisible(true);
+      setPct(8);
+      const id = setInterval(() => setPct((p) => (p < 90 ? p + Math.max(0.5, (90 - p) * 0.12) : p)), 110);
+      return () => clearInterval(id);
+    }
+    if (visible) {
+      setPct(100);
+      const t = setTimeout(() => { setVisible(false); setPct(0); }, 350);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!visible) return null;
+  return (
+    <div role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}
+         style={{ height: 5, background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
+      <div style={{ height: "100%", width: `${pct}%`, background: C.primary, borderRadius: 3, transition: "width 0.2s ease" }} />
+    </div>
+  );
+}
+
 function SnapshotView({
   rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk,
 }: {
@@ -431,8 +461,45 @@ function SnapshotView({
   const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
   const HOVER_BG = "rgba(59,130,246,0.16)"; // distinct from BOTH zebra tints
 
+  // ── Collapse / roll-up ────────────────────────────────────────────────────
+  // The VISIBLE text columns (Style, Color, Name, Item Category) form the
+  // group-by key; numeric columns are summed (Avg Cost averaged). Hiding a text
+  // column drops it from the key so its rows merge: hide Color → one row per
+  // style; hide Style + Color + Name (leaving Category) → one row per category.
+  const dimVis = (["style_code", "color", "description", "category"] as const).map((k) => (show(k) ? "1" : "0")).join("");
+  const grouped = useMemo<SnapshotRow[]>(() => {
+    const DIMS = ["style_code", "color", "description", "category"] as const;
+    const SUMS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
+    const visDims = DIMS.filter((k) => show(k));
+    if (visDims.length === DIMS.length) return rows; // nothing hidden → no roll-up
+    type G = SnapshotRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
+    const map = new Map<string, G>();
+    for (const r of rows) {
+      const key = visDims.map((k) => String(r[k] ?? "")).join("");
+      let g = map.get(key);
+      if (!g) {
+        g = { style_id: "", style_code: "", description: "", color: null, category: null,
+          on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+          sold: 0, purchased: 0, avg_cost_cents: null, _sids: new Set(), _codes: new Set(), _cost: [] };
+        for (const k of visDims) (g as Record<string, unknown>)[k] = r[k];
+        map.set(key, g);
+      }
+      for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+      if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+      g._sids.add(r.style_id); g._codes.add(r.style_code);
+    }
+    return [...map.values()].map((g) => {
+      const { _sids, _codes, _cost, ...row } = g;
+      return { ...row,
+        style_id: _sids.size === 1 ? [..._sids][0] : "",
+        style_code: row.style_code || (_codes.size === 1 ? [..._codes][0] : ""),
+        avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
+      } as SnapshotRow;
+    });
+  }, [rows, dimVis]);
+
   const sorted = useMemo(() => {
-    const r = [...rows];
+    const r = [...grouped];
     r.sort((a, b) => {
       const av = a[sortKey], bv = b[sortKey];
       let c: number;
@@ -441,7 +508,7 @@ function SnapshotView({
       return sortDir === "asc" ? c : -c;
     });
     return r;
-  }, [rows, sortKey, sortDir]);
+  }, [grouped, sortKey, sortDir]);
 
   // Quantity cell — opens a URL in a new tab.
   const QtyLink = ({ v, url }: { v: number; url: string }) => (
@@ -454,6 +521,11 @@ function SnapshotView({
     <span role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
        style={{ color: C.base, cursor: "pointer", fontFamily: "monospace", textDecoration: "underline dotted" }}>{fmtQty(v)}</span>
   );
+  // Collapsed rows that span >1 style have no single style to drill into → plain.
+  const NumLink = ({ v, url }: { v: number; url: string | null }) =>
+    url ? <QtyLink v={v} url={url} /> : <span style={{ fontFamily: "monospace", color: C.text }}>{fmtQty(v)}</span>;
+  const NumBtn = ({ v, onClick }: { v: number; onClick: (() => void) | null }) =>
+    onClick ? <QtyBtn v={v} onClick={onClick} /> : <span style={{ fontFamily: "monospace", color: C.text }}>{fmtQty(v)}</span>;
   // Double the row spacing and bump the font to 125% (operator request).
   const tdNum: React.CSSProperties = { padding: "16px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
   const tdTxt: React.CSSProperties = { padding: "16px 14px", textAlign: "left", color: C.text };
@@ -486,23 +558,26 @@ function SnapshotView({
             {sorted.map((r, i) => {
               const thumbUrl = thumbs.get(r.style_id)?.byColor[(r.color || "").toLowerCase().trim()] ?? thumbs.get(r.style_id)?.default ?? null;
               const exp = explodePpk ? "&explode_ppk=true" : ""; // carry explode into matrix drill
+              // A collapsed row that rolls up >1 style has no single style to
+              // drill into → render its quantities as plain numbers.
+              const linkable = !!r.style_id && !!r.style_code;
               return (
-                <tr key={`${r.style_id}|${r.color ?? ""}`}
+                <tr key={`${r.style_id}|${r.color ?? ""}|${r.category ?? ""}`}
                     style={{ borderBottom: `1px solid ${C.rowBdr}`, ...zebra(i) }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = HOVER_BG; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = zebra(i).background as string; }}>
                   {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
-                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>}
+                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code || "—"}</td>}
                   {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
                   {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
-                  {show("on_hand") && <td style={tdNum}><QtyLink v={r.on_hand} url={`${lnkMatrix(r.style_id)}${exp}`} /></td>}
-                  {show("allocated") && <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>}
-                  {show("on_so") && <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>}
-                  {show("ats") && <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>}
-                  {show("on_po") && <td style={tdNum}><QtyLink v={r.on_po} url={lnkPO(r.style_code)} /></td>}
-                  {show("ats_incl_po") && <td style={tdNum}><QtyLink v={r.ats_incl_po} url={lnkATS(r.style_code, true)} /></td>}
-                  {show("sold") && <td style={tdNum}><QtyBtn v={r.sold} onClick={() => onOpenSold(r)} /></td>}
-                  {show("purchased") && <td style={tdNum}><QtyBtn v={r.purchased} onClick={() => onOpenPurchased(r)} /></td>}
+                  {show("on_hand") && <td style={tdNum}><NumLink v={r.on_hand} url={linkable ? `${lnkMatrix(r.style_id)}${exp}` : null} /></td>}
+                  {show("allocated") && <td style={tdNum}><NumLink v={r.allocated} url={linkable ? lnkAlloc(r.style_code) : null} /></td>}
+                  {show("on_so") && <td style={tdNum}><NumLink v={r.on_so} url={linkable ? lnkSO(r.style_code) : null} /></td>}
+                  {show("ats") && <td style={tdNum}><NumLink v={r.ats} url={linkable ? lnkATS(r.style_code) : null} /></td>}
+                  {show("on_po") && <td style={tdNum}><NumLink v={r.on_po} url={linkable ? lnkPO(r.style_code) : null} /></td>}
+                  {show("ats_incl_po") && <td style={tdNum}><NumLink v={r.ats_incl_po} url={linkable ? lnkATS(r.style_code, true) : null} /></td>}
+                  {show("sold") && <td style={tdNum}><NumBtn v={r.sold} onClick={linkable ? () => onOpenSold(r) : null} /></td>}
+                  {show("purchased") && <td style={tdNum}><NumBtn v={r.purchased} onClick={linkable ? () => onOpenPurchased(r) : null} /></td>}
                   {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
@@ -1591,7 +1666,8 @@ export default function InternalInventoryMatrix() {
           {/* Column show/hide — sits at the end of Row 1, right of Store.
               Only meaningful on the all-styles Snapshot view. */}
           {!styleId && noStyleView === "snapshot" && (
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+                 onMouseLeave={() => setSnapColsOpen(false)}>
               <button type="button" onClick={() => setSnapColsOpen((o) => !o)}
                 style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                 Columns {snapColsOpen ? "▴" : "▾"}
@@ -1767,8 +1843,11 @@ export default function InternalInventoryMatrix() {
           controls row above; here we render just the column show/hide control
           and the table. */}
       {!styleId && noStyleView === "snapshot" && (
-        <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-          thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
+        <>
+          <SnapshotProgressBar active={snapLoading} />
+          <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
+        </>
       )}
 
       {/* Drill modals */}
