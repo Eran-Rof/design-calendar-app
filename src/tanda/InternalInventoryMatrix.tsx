@@ -380,6 +380,9 @@ type SnapshotRow = {
   on_po: number; in_transit: number; ats: number; ats_incl_po: number;
   sold: number; purchased: number; avg_cost_cents: number | null;
 };
+// A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
+// (base + its PPK sibling combined) so the table can style it distinctly.
+type MergedRow = SnapshotRow & { _merged?: boolean };
 
 function openTab(url: string) { window.open(url, "_blank", "noopener"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
@@ -441,7 +444,7 @@ function SnapshotProgressBar({ active }: { active: boolean }) {
 }
 
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -455,6 +458,7 @@ function SnapshotView({
   // Column visibility lifted to the parent (control lives in the header row).
   show: (k: string) => boolean;
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
+  mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
 }) {
   // Zebra striping tint by row index — alternate rows get a faint background so
   // long lists stay readable; mirrors the drill modals' zebra() helper.
@@ -467,14 +471,45 @@ function SnapshotView({
   // column drops it from the key so its rows merge: hide Color → one row per
   // style; hide Style + Color + Name (leaving Category) → one row per category.
   const dimVis = (["style_code", "color", "description", "category"] as const).map((k) => (show(k) ? "1" : "0")).join("");
-  const grouped = useMemo<SnapshotRow[]>(() => {
+  const grouped = useMemo<MergedRow[]>(() => {
     const DIMS = ["style_code", "color", "description", "category"] as const;
     const SUMS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
+
+    // 1. Merge PPK — collapse each base + its PPK sibling into one "BASE/PPK" row
+    //    (only bases that actually have a PPK row; qty already exploded to eaches).
+    let src: MergedRow[] = rows;
+    if (mergePpk) {
+      const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" → "RYB0594"
+      const ppkBases = new Set<string>();
+      for (const r of rows) if (/ppk/i.test(r.style_code)) ppkBases.add(stemOf(r.style_code).toLowerCase());
+      const mMap = new Map<string, MergedRow & { _cost: number[] }>();
+      const pass: MergedRow[] = [];
+      for (const r of rows) {
+        const stem = stemOf(r.style_code);
+        if (!ppkBases.has(stem.toLowerCase())) { pass.push(r); continue; }
+        let g = mMap.get(stem.toLowerCase());
+        if (!g) {
+          g = { style_id: "", style_code: `${stem}/PPK`, description: r.description, color: null, category: r.category,
+            on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+            sold: 0, purchased: 0, avg_cost_cents: null, _merged: true, _cost: [] };
+          mMap.set(stem.toLowerCase(), g);
+        }
+        if (!/ppk/i.test(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
+        for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
+        if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+      }
+      const merged = [...mMap.values()].map(({ _cost, ...row }) => ({
+        ...row, avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
+      } as MergedRow));
+      src = [...merged, ...pass];
+    }
+
+    // 2. Roll up by the visible text columns (sum numerics).
     const visDims = DIMS.filter((k) => show(k));
-    if (visDims.length === DIMS.length) return rows; // nothing hidden → no roll-up
-    type G = SnapshotRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
+    if (visDims.length === DIMS.length) return src; // nothing hidden → no roll-up
+    type G = MergedRow & { _sids: Set<string>; _codes: Set<string>; _cost: number[] };
     const map = new Map<string, G>();
-    for (const r of rows) {
+    for (const r of src) {
       const key = visDims.map((k) => String(r[k] ?? "")).join("");
       let g = map.get(key);
       if (!g) {
@@ -486,6 +521,7 @@ function SnapshotView({
       }
       for (const nk of SUMS) (g as Record<string, number>)[nk] += num(r[nk] as number);
       if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+      if (r._merged) g._merged = true;
       g._sids.add(r.style_id); g._codes.add(r.style_code);
     }
     return [...map.values()].map((g) => {
@@ -494,9 +530,9 @@ function SnapshotView({
         style_id: _sids.size === 1 ? [..._sids][0] : "",
         style_code: row.style_code || (_codes.size === 1 ? [..._codes][0] : ""),
         avg_cost_cents: _cost.length ? Math.round(_cost.reduce((s, c) => s + c, 0) / _cost.length) : null,
-      } as SnapshotRow;
+      } as MergedRow;
     });
-  }, [rows, dimVis]);
+  }, [rows, dimVis, mergePpk]);
 
   const sorted = useMemo(() => {
     const r = [...grouped];
@@ -560,14 +596,16 @@ function SnapshotView({
               const exp = explodePpk ? "&explode_ppk=true" : ""; // carry explode into matrix drill
               // A collapsed row that rolls up >1 style has no single style to
               // drill into → render its quantities as plain numbers.
-              const linkable = !!r.style_id && !!r.style_code;
+              const merged = !!r._merged; // Merge-PPK row (base + PPK combined)
+              const linkable = !!r.style_id && !!r.style_code && !merged;
+              const rowBg = merged ? "rgba(139,92,246,0.16)" : (zebra(i).background as string);
               return (
-                <tr key={`${r.style_id}|${r.color ?? ""}|${r.category ?? ""}`}
-                    style={{ borderBottom: `1px solid ${C.rowBdr}`, ...zebra(i) }}
+                <tr key={`${r.style_id}|${r.style_code}|${r.color ?? ""}|${r.category ?? ""}`}
+                    style={{ borderBottom: `1px solid ${C.rowBdr}`, background: rowBg }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = HOVER_BG; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = zebra(i).background as string; }}>
+                    onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
                   {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
-                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code || "—"}</td>}
+                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600, color: merged ? "#C4B5FD" : C.text }}>{r.style_code || "—"}</td>}
                   {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
                   {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
                   {show("on_hand") && <td style={tdNum}><NumLink v={r.on_hand} url={linkable ? `${lnkMatrix(r.style_id)}${exp}` : null} /></td>}
@@ -911,6 +949,9 @@ export default function InternalInventoryMatrix() {
   const [explodePpk, setExplodePpk] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("explode_ppk") === "true"; } catch { return false; }
   });
+  // Merge PPK: collapse each base style + its PPK sibling into one "BASE/PPK"
+  // row (snapshot only). Requires exploded eaches, so selecting it forces Explode on.
+  const [mergePpk, setMergePpk] = useState(false);
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -1718,6 +1759,14 @@ export default function InternalInventoryMatrix() {
             style={{ background: explodePpk ? C.primary : C.card, color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
             onClick={() => setExplodePpk((v) => !v)}>Explode</button>
 
+          {/* Merge PPK — snapshot only. Collapse each base style + its PPK
+              sibling into one "BASE/PPK" row; forces Explode on (needs eaches). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <button type="button" title="Merge each base style with its PPK sibling into one BASE/PPK row (auto-enables Explode)"
+              style={{ background: mergePpk ? C.primary : C.card, color: mergePpk ? "#fff" : C.textMuted, border: `1px solid ${mergePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setMergePpk((v) => { const next = !v; if (next) setExplodePpk(true); return next; })}>Merge PPK</button>
+          )}
+
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
               view (NOT the Snapshot view). */}
           {((styleId && viewMode === "matrix" && styleHasInseams) || (!styleId && noStyleView === "matrix" && anyBrandInseams)) && (
@@ -1846,7 +1895,7 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} />
         </>
       )}
 
