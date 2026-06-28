@@ -1497,9 +1497,10 @@ export default function InternalInventoryMatrix() {
       {/* Controls */}
       <div style={{ marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Row 1 — filter dropdowns */}
+        {/* Row 1 — filter dropdowns + the Columns control (right of Store).
+            Fields are kept compact so the whole row fits on one line. */}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 180 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
             Brand
             <SearchableSelect
               value={brandId ? brandId : ALL_BRANDS_SENTINEL}
@@ -1513,19 +1514,19 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 280 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
             Search styles
             <input
               type="text"
               value={styleSearch}
               onChange={(e) => { setStyleSearch(e.target.value); if (styleId) setStyleId(""); }}
               placeholder="Type to filter — e.g. PPK, code, name…"
-              style={{ ...inputStyle, minWidth: 280 }}
+              style={{ ...inputStyle, minWidth: 200 }}
             />
           </label>
 
           {genderDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 90 }}>
               Gender
               <SearchableSelect
                 value={genderFilter || ALL_GENDER_SENTINEL}
@@ -1538,7 +1539,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {groupDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 110 }}>
               Group
               <SearchableSelect
                 value={groupFilter || ALL_GROUP_SENTINEL}
@@ -1551,7 +1552,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {categoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 115 }}>
               Category
               <SearchableSelect
                 value={categoryFilter || ALL_CATEGORY_SENTINEL}
@@ -1564,7 +1565,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {subCategoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 125 }}>
               Sub-Category
               <SearchableSelect
                 value={subCategoryFilter || ALL_SUBCATEGORY_SENTINEL}
@@ -1576,7 +1577,7 @@ export default function InternalInventoryMatrix() {
             </label>
           )}
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 160 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
             Store
             <SearchableSelect
               value={warehouse}
@@ -1586,6 +1587,27 @@ export default function InternalInventoryMatrix() {
               inputStyle={inputStyle}
             />
           </label>
+
+          {/* Column show/hide — sits at the end of Row 1, right of Store.
+              Only meaningful on the all-styles Snapshot view. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setSnapColsOpen((o) => !o)}
+                style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                Columns {snapColsOpen ? "▴" : "▾"}
+              </button>
+              {snapColsOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
+                  {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
+                    <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Row 2 — ONE control row: view switch · presets+dates · Hide Zeros ·
@@ -1744,27 +1766,8 @@ export default function InternalInventoryMatrix() {
           controls row above; here we render just the column show/hide control
           and the table. */}
       {!styleId && noStyleView === "snapshot" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Column show/hide — right-aligned just above the table. */}
-          <div style={{ position: "relative", display: "flex", justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setSnapColsOpen((o) => !o)}
-              style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "5px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Columns {snapColsOpen ? "▴" : "▾"}
-            </button>
-            {snapColsOpen && (
-              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
-                {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
-                  <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
-                    <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
-                    {col.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
-        </div>
+        <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+          thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} />
       )}
 
       {/* Drill modals */}
