@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
-import { readDrillParam } from "./scorecardDrill";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
@@ -27,6 +27,9 @@ import type { ExportColumn } from "./exports/useTableExport";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SO_TABLE_KEY = "tangerine:salesorders:columns";
+// Server-side page size for the list (the endpoint caps at 500). The full set
+// lives server-side; use the search / filters to find older orders beyond this.
+const SO_LIST_LIMIT = 500;
 const SO_COLUMNS: ColumnDef[] = [
   { key: "so_number",   label: "SO #" },
   { key: "customer",    label: "Customer" },
@@ -254,12 +257,20 @@ export default function InternalSalesOrders() {
       }
       const styleDrill = readDrillParam("style_id");
       if (styleDrill) params.set("style_id", styleDrill);
+      params.set("limit", String(SO_LIST_LIMIT));
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as SO[]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
+  const anyFilter = !!(statusFilter || customerFilter || search.trim() || dateFrom || dateTo);
+  function clearFilters() { setStatusFilter(""); setCustomerFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  // Consume the one-shot drill params (?q=/?so=/?customer=/?style_id=) AFTER the
+  // useState initializers above have seeded from them, so leaving and returning to
+  // this panel starts with a clean (unfiltered) list instead of silently re-
+  // applying a stale search that can hide the whole list. Runs once on mount.
+  useEffect(() => { consumeDrillParams(["q", "so", "customer", "style_id"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, customerFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
@@ -300,6 +311,9 @@ export default function InternalSalesOrders() {
         {(dateFrom || dateTo) && (
           <button style={btnSecondary} onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear date range">Clear dates</button>
         )}
+        {anyFilter && (
+          <button style={{ ...btnSecondary, color: C.warn, borderColor: C.warn }} onClick={clearFilters} title="Clear status, customer, search and date filters">Clear filters</button>
+        )}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}
@@ -312,6 +326,19 @@ export default function InternalSalesOrders() {
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      {/* Result count + cap notice. The list shows up to SO_LIST_LIMIT rows; when
+          it's full there are more, reachable via the search / status / customer /
+          date filters (server-side). Prevents mistaking the cap for the total. */}
+      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+        {loading ? "Loading…" : (
+          <>
+            Showing <b style={{ color: C.text }}>{filteredRows.length.toLocaleString()}</b> sales order{filteredRows.length === 1 ? "" : "s"}
+            {rows.length >= SO_LIST_LIMIT && <> — most recent {SO_LIST_LIMIT}; use search or filters to find older orders</>}
+            {anyFilter && <> · <span style={{ color: C.warn }}>filters active</span></>}
+          </>
+        )}
+      </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>

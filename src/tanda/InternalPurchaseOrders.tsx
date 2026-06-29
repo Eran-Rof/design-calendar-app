@@ -16,12 +16,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
-import { readDrillParam } from "./scorecardDrill";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
 import DateRangePresets from "./components/DateRangePresets";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
+// Server-side page size for the list (the endpoint caps at 500). Search / filters
+// reach older orders beyond this window (server-side).
+const PO_LIST_LIMIT = 500;
 const PO_COLUMNS: ColumnDef[] = [
   { key: "po_number",     label: "PO #" },
   { key: "vendor",        label: "Vendor" },
@@ -142,12 +145,20 @@ export default function InternalPurchaseOrders() {
       if (vendorFilter) params.set("vendor_id", vendorFilter);
       if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       if (styleScope) params.set("style", styleScope);
+      params.set("limit", String(PO_LIST_LIMIT));
       const r = await fetch(`/api/internal/purchase-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as PO[]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
+  const anyFilter = !!(statusFilter || vendorFilter || search.trim() || dateFrom || dateTo);
+  function clearFilters() { setStatusFilter(""); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
+  // initializers above seeded from them, so leaving and returning to this panel
+  // starts unfiltered instead of silently re-applying a stale search that can
+  // hide the whole PO list. Runs once on mount.
+  useEffect(() => { consumeDrillParams(["q", "vendor", "style"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
@@ -209,6 +220,7 @@ export default function InternalPurchaseOrders() {
         <label style={dl}>From <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
         <label style={dl}>To <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
         {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Clear dates</button>}
+        {anyFilter && <button onClick={clearFilters} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, color: C.warn, borderColor: C.warn }} title="Clear status, vendor, search and date filters">Clear filters</button>}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
@@ -220,6 +232,17 @@ export default function InternalPurchaseOrders() {
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      {/* Result count + cap notice — prevents mistaking the page cap for the total. */}
+      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
+        {loading ? "Loading…" : (
+          <>
+            Showing <b style={{ color: C.text }}>{filteredRows.length.toLocaleString()}</b> purchase order{filteredRows.length === 1 ? "" : "s"}
+            {rows.length >= PO_LIST_LIMIT && <> — most recent {PO_LIST_LIMIT}; use search or filters to find older orders</>}
+            {anyFilter && <> · <span style={{ color: C.warn }}>filters active</span></>}
+          </>
+        )}
+      </div>
 
       {styleScope && <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Avg cost &amp; Sell price scoped to style <b style={{ color: C.text }}>{styleScope}</b></div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>

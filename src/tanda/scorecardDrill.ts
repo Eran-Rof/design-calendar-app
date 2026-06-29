@@ -55,3 +55,19 @@ export function readDrillParam(name: string): string {
   if (typeof window === "undefined") return "";
   return (new URLSearchParams(window.location.search).get(name) || "").trim();
 }
+
+/**
+ * Strip one-shot drill params from the URL after a panel has SEEDED its filters
+ * from them (call once on mount, in an effect that runs AFTER the useState
+ * initializers read the values). Without this the params linger in the URL, so
+ * when the operator leaves the panel and returns it re-applies the stale filter
+ * — e.g. a `?q=` from one drill silently hid the whole Sales-Orders / Purchase-
+ * Orders list on the next visit. Uses replaceState so it doesn't add history.
+ */
+export function consumeDrillParams(names: string[]): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  let changed = false;
+  for (const n of names) if (url.searchParams.has(n)) { url.searchParams.delete(n); changed = true; }
+  if (changed) window.history.replaceState(window.history.state, "", url.toString());
+}
