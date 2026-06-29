@@ -30,6 +30,12 @@ type Props<T extends Record<string, unknown>> = {
   sheetName?: string;
   buttonStyle?: React.CSSProperties;
   label?: string;
+  /**
+   * Optional totals row appended as the last row of the export (bold in xlsx,
+   * plain final row in csv/pdf). Backward compatible — omit for no totals.
+   * Key it by the same column keys, e.g. { customer: "Total", amount: 12345 }.
+   */
+  totalsRow?: Partial<T>;
 };
 
 const defaultBtn: React.CSSProperties = {
@@ -71,9 +77,9 @@ const menuItemStyle: React.CSSProperties = {
 };
 
 export default function ExportButton<T extends Record<string, unknown>>(props: Props<T>) {
-  const { rows, columns, filename, sheetName, buttonStyle, label } = props;
+  const { rows, columns, filename, sheetName, buttonStyle, label, totalsRow } = props;
   const stampedFilename = `${filename}-${todayStamp()}`;
-  const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx" });
+  const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx", totalsRow });
 
   const disabled = !rows || rows.length === 0;
   const [open, setOpen] = useState(false);
