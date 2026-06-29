@@ -192,6 +192,35 @@ import type { ModuleKey, GroupKey, ModuleDef, AppLink } from "./erp/modules";
 // ─────────────────────────────────────────────────────────────────────────────
 type AuthState = "loading" | "signed_out" | "signed_in";
 
+// ── PLM-session fallback identity ────────────────────────────────────────────
+// The PLM launcher (PLM.tsx) signs the operator in once with username/password
+// and writes the user blob to sessionStorage.plm_user, which is cloned into the
+// app tab on launch. Tangerine's primary identity is a Microsoft-365 token, but
+// when an already-PLM-authenticated user opens Tangerine from the launcher and
+// has no MS token yet, we must NOT prompt them for a SECOND sign-in. Instead we
+// adopt the PLM session identity (default-true access; the /tangerine route
+// guard in main.tsx already blocked anyone with tangerine.access=false). The
+// MS-only features (Graph photo + per-user JWT provisioning) degrade exactly as
+// they already do when provisioning fails — both are best-effort/non-fatal, and
+// the internal API stays fail-open on the static deploy token. See
+// project_two_permission_systems + project_app_no_relogin_g.
+function readPlmSessionIdentity(): { email: string | null; name: string | null } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem("plm_user");
+    if (!raw) return null;
+    const u = JSON.parse(raw) as { email?: string; name?: string; username?: string };
+    if (!u) return null;
+    const email = (u.email || "").trim() || null;
+    const name = (u.name || "").trim() || (u.username || "").trim() || email;
+    // Require at least one human identifier so we don't "sign in" on a junk blob.
+    if (!email && !name) return null;
+    return { email, name: name || null };
+  } catch {
+    return null;
+  }
+}
+
 export default function Tangerine() {
   // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
   // Fires once per tab session at app-shell root. See useAutoLanding.ts.
@@ -287,17 +316,37 @@ export default function Tangerine() {
   // No token → render the branded login screen.
   useEffect(() => {
     let cancelled = false;
+    // Adopt the PLM-launcher session as Tangerine's identity when there is no
+    // usable MS token. Returns true if it signed the user in (so callers can
+    // stop), false if there is no PLM session either (→ show the MS login).
+    function fallbackToPlmSession(): boolean {
+      const plm = readPlmSessionIdentity();
+      if (!plm) {
+        if (!cancelled) setAuthState("signed_out");
+        return false;
+      }
+      if (cancelled) return true;
+      setUserEmail(plm.email);
+      setUserName(plm.name);
+      setCachedAuthUserEmail(plm.email);
+      setCachedAuthUserName(plm.name);
+      setAuthState("signed_in");
+      return true;
+    }
     (async () => {
       const tokens = loadMsTokens();
       if (!tokens) {
-        if (!cancelled) setAuthState("signed_out");
+        // No MS token. A user who already signed into the PLM launcher should
+        // open Tangerine directly — fall back to that session instead of a
+        // redundant second (Microsoft) sign-in prompt.
+        fallbackToPlmSession();
         return;
       }
       try {
         const token = await getMsAccessToken();
         if (cancelled) return;
         if (!token) {
-          setAuthState("signed_out");
+          fallbackToPlmSession();
           return;
         }
         const r = await fetch("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName", {
@@ -364,7 +413,9 @@ export default function Tangerine() {
         }
       } catch (err) {
         console.error("[Tangerine] auth check failed:", err);
-        if (!cancelled) setAuthState("signed_out");
+        // MS token present but Graph/enrichment failed — don't force a re-login
+        // if the operator already holds a PLM session; adopt it instead.
+        fallbackToPlmSession();
       }
     })();
     return () => { cancelled = true; };

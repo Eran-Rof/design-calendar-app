@@ -12,13 +12,14 @@ Both share the same login surface and the same `/tangerine` URL — access is ga
 ## Logging in
 
 1. Open your browser to `https://<your-domain>/tangerine` (or local dev: `http://localhost:5173/tangerine`).
-2. If you don't have a Microsoft sign-in session yet, you'll see the **Tangerine-branded login screen** — orange "T" logo, "Sign in to continue," and a "Sign in with Microsoft" button.
+2. If you signed into the suite through the **PLM launcher** (username + password) and open Tangerine from a launcher card or 🧩 Apps menu, Tangerine opens **directly** — it adopts that session and you are **not** asked to sign in again. The Microsoft login screen below only appears when you reach Tangerine with **no** existing suite session (e.g. opening `/tangerine` cold as the standalone front door).
+3. In that no-session case you'll see the **Tangerine-branded login screen** — orange "T" logo, "Sign in to continue," and a "Sign in with Microsoft" button.
 3. Click the button. A Microsoft popup opens — sign in with your work account (same one you use for Design Calendar / Tanda / etc.).
 4. The popup closes; the page reloads; you land on the Tangerine home dashboard.
 
 Direct URL: `https://<your-domain>/tangerine`
 
-> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in user appears in the top-right of the top nav (avatar + name) with a "Sign out" button next to it.
+> **Note (Chunk T2, 2026-05-26; updated 2026-06-29 — no second login):** Tangerine has its own auth gate, but it no longer forces a **redundant second sign-in** on someone who already authenticated through the PLM launcher. When you open Tangerine and there is no Microsoft token yet, Tangerine adopts your existing **PLM session** (the username/password sign-in cloned into the app tab) and goes straight to the dashboard. The dedicated **Sign in with Microsoft** screen is shown only to direct, no-session entrants (the standalone front-door case). Microsoft sign-in is still what mints the per-user JWT and pulls your Graph profile photo; when Tangerine runs off the PLM session those are best-effort and simply absent until you sign in with Microsoft — nothing is blocked, because the internal API stays gated by its own server token. The signed-in user appears in the top-right of the top nav (avatar + name) with a "Sign out" button next to it.
 
 > **Nav UX refresh (2026-06-05):** the top-right user area now shows a small **circular avatar** before your name — your Microsoft profile photo if you have one set, otherwise your initials on a coloured circle (the redundant "Signed in" label was removed). Hidden **Procurement** and **Pricing** module groups are now visible in the nav (see below), and every group dropdown lists its panels **alphabetically by name**.
 >
