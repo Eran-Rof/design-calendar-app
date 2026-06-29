@@ -155,6 +155,20 @@ const NOTE_TAG = "[xoro-import]";
 
 // ── helpers ──────────────────────────────────────────────────────────────--
 const norm = (s) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ").replace(/[.,]+$/, "");
+
+// Map a Xoro SaleStoreName to the canonical Warehouses-master name (mirrors
+// migration 20260925). Unknown values pass through unchanged.
+const XORO_STORE_TO_WAREHOUSE = {
+  "rof main": "Main Warehouse",
+  "rof - ecom": "ROF Ecom",
+  "psycho tuna": "Psycho Tuna",
+  "prebook - psycho tuna": "Psycho Tuna",
+};
+function warehouseFromXoroStore(raw) {
+  const v = (raw == null ? "" : String(raw)).trim();
+  if (!v) return null;
+  return XORO_STORE_TO_WAREHOUSE[v.toLowerCase()] || v;
+}
 function toIsoDate(raw) {
   if (!raw) return null;
   let s = String(raw).trim();
@@ -693,7 +707,7 @@ async function importSOsNative(refs) {
       currency: d.CurrencyCode || "USD",
       payment_terms_id: refs.terms.get(norm(d.PaymentTermsName)) || null,
       customer_po: d.CustomerPO || null,
-      sale_store: d.SaleStoreName || null, // Item 5 — selling store, drives the SO grid store filter
+      sale_store: warehouseFromXoroStore(d.SaleStoreName), // canonical Warehouses-master name (drives the SO Warehouse filter)
       origin: "internal", // sales_orders_origin_check allows: internal|b2b_portal|edi|marketplace
       notes: `${NOTE_TAG}${d.Memo ? " " + d.Memo : ""}`.trim(),
       subtotal_cents: subtotal,
