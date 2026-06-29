@@ -11,6 +11,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
 import EmailSOConfirmationModal from "./components/EmailSOConfirmationModal";
+import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
@@ -450,6 +451,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false); // item 7 — email confirmation modal
+  // Item 8 — the typed-but-unmatched name to pre-fill the Add-customer popup with.
+  const [quickAddInitialName, setQuickAddInitialName] = useState("");
   const customers = useMemo(
     () => (extraCustomers.length ? [...extraCustomers, ...customersProp] : customersProp),
     [extraCustomers, customersProp],
@@ -1343,18 +1346,14 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
-            {/* Item 1 — pick an existing customer or add one on the fly (+ New). */}
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
-                  options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
-                  placeholder="(pick customer…)" disabled={!headerEditable} />
-              </div>
-              {editable && (
-                <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this order"
-                  style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
-              )}
-            </div>
+            {/* Item 8 — pick an existing customer, or type a new name and click the
+                "+ Add …" row that appears when there's no match to create it on the
+                fly (replaces the old "+ New" button). */}
+            <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
+              options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
+              placeholder="(pick customer…)" disabled={!headerEditable}
+              onAddNew={headerEditable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
+              addNewLabel={(q) => `+ Add customer "${q.trim()}"`} />
           </Field>
           <Field label="Buyer (optional)">
             <SearchableSelect value={buyerId || null} onChange={(v) => setBuyerId(v)}
@@ -1682,20 +1681,27 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         />
       )}
 
-      {/* Item 1 — on-the-fly "+ New customer" popup. Created customer is merged in
-          and selected without leaving this order. */}
+      {/* Item 8 — on-the-fly Add-customer popup, opened from the picker's typeahead
+          "+ Add …" row and pre-filled with the typed name. The new customer is
+          merged in + selected; a "complete the customer info" nudge is sent since
+          this short form omits terms / GL routing / addresses. */}
       {quickAddCustomer && (
         <QuickAddPartyModal
           kind="customer"
-          onClose={() => setQuickAddCustomer(false)}
+          initialName={quickAddInitialName}
+          onClose={() => { setQuickAddCustomer(false); setQuickAddInitialName(""); }}
           onCreated={(row) => {
             const c = row as unknown as Customer;
             setExtraCustomers((prev) => [c, ...prev]);
             setCustomerId(c.id);
             setShipToLocationId("");
             setBuyerId("");
+            // Item 9 — autofill terms from the (newly created) customer if it carries any.
+            if (c.payment_terms_id) setPaymentTermsId((cur) => cur || c.payment_terms_id || "");
             setQuickAddCustomer(false);
-            notify(`Customer "${c.name}" added.`, "success");
+            setQuickAddInitialName("");
+            notify(`Customer "${c.name}" added — finish its full record from the reminder in your notifications.`, "success");
+            void notifyCompleteParty("customer", { id: c.id, name: c.name, customer_code: c.customer_code });
           }}
         />
       )}

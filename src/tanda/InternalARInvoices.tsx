@@ -16,6 +16,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
+import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 // Cross-cutter T11-3 — audit-trail drop-in for the detail modal.
 import RowHistory from "./components/RowHistory";
@@ -600,6 +601,7 @@ function ARInvoiceModal({
   // Item 1 — on-the-fly "+ New customer" rows merged in front of the loaded list.
   const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const [quickAddInitialName, setQuickAddInitialName] = useState(""); // item 8 — typeahead prefill
   const customers = useMemo(
     () => (extraCustomers.length ? [...extraCustomers, ...customersProp] : customersProp),
     [extraCustomers, customersProp],
@@ -867,25 +869,20 @@ function ARInvoiceModal({
             {/* Row 1: Customer + Ship-to + Invoice # */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Customer">
-                {/* Item 1 — pick an existing customer or add one on the fly (+ New). */}
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <SearchableSelect
-                      value={customerId || null}
-                      onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
-                      // Show the clean customer name (matches the costing app's
-                      // customer source), not the source-prefixed import code
-                      // (EXCEL:/ATS:/XORO:). Still searchable by code via haystack.
-                      options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
-                      placeholder="(pick customer…)"
-                      disabled={!editable}
-                    />
-                  </div>
-                  {editable && (
-                    <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this invoice"
-                      style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
-                  )}
-                </div>
+                {/* Item 8 — pick a customer, or type a new name and click the
+                    "+ Add …" typeahead row to create it on the fly. */}
+                <SearchableSelect
+                  value={customerId || null}
+                  onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
+                  // Show the clean customer name (matches the costing app's
+                  // customer source), not the source-prefixed import code
+                  // (EXCEL:/ATS:/XORO:). Still searchable by code via haystack.
+                  options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
+                  placeholder="(pick customer…)"
+                  disabled={!editable}
+                  onAddNew={editable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
+                  addNewLabel={(q) => `+ Add customer "${q.trim()}"`}
+                />
               </Field>
               <Field label="Ship-to location">
                 <SearchableSelect
@@ -1060,18 +1057,21 @@ function ARInvoiceModal({
         )}
       </div>
 
-      {/* Item 1 — on-the-fly "+ New customer" popup. */}
+      {/* Item 8 — on-the-fly Add-customer popup (typeahead-driven, prefilled). */}
       {quickAddCustomer && (
         <QuickAddPartyModal
           kind="customer"
-          onClose={() => setQuickAddCustomer(false)}
+          initialName={quickAddInitialName}
+          onClose={() => { setQuickAddCustomer(false); setQuickAddInitialName(""); }}
           onCreated={(row) => {
             const c = { id: String(row.id), name: String(row.name), customer_code: typeof row.customer_code === "string" ? row.customer_code : undefined };
             setExtraCustomers((prev) => [c, ...prev]);
             setCustomerId(c.id);
             setShipToLocationId("");
             setQuickAddCustomer(false);
-            notify(`Customer "${c.name}" added.`, "success");
+            setQuickAddInitialName("");
+            notify(`Customer "${c.name}" added — finish its full record from the reminder in your notifications.`, "success");
+            void notifyCompleteParty("customer", c);
           }}
         />
       )}

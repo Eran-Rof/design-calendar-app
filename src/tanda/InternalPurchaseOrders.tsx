@@ -11,6 +11,7 @@ import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
+import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
@@ -293,6 +294,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   const [extraVendors, setExtraVendors] = useState<Vendor[]>([]);
   const [quickAddVendor, setQuickAddVendor] = useState(false);
   const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const [quickAddInitialName, setQuickAddInitialName] = useState(""); // item 8 — typeahead prefill
   const vendors = useMemo(
     () => (extraVendors.length ? [...extraVendors, ...vendorsProp] : vendorsProp),
     [extraVendors, vendorsProp],
@@ -751,17 +753,12 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
                 placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Customer">
-              {/* Item 1 — pick an existing customer or add one on the fly (+ New). */}
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
-                    options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
-                </div>
-                {editable && (
-                  <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this PO"
-                    style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
-                )}
-              </div>
+              {/* Item 8 — pick a customer, or type a new name and click the "+ Add …"
+                  typeahead row to create it on the fly (replaces the "+ New" button). */}
+              <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
+                options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable}
+                onAddNew={editable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
+                addNewLabel={(q) => `+ Add customer "${q.trim()}"`} />
             </Field>
             <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
             <Field label="PO number / status">
@@ -966,13 +963,16 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
       {quickAddCustomer && (
         <QuickAddPartyModal
           kind="customer"
-          onClose={() => setQuickAddCustomer(false)}
+          initialName={quickAddInitialName}
+          onClose={() => { setQuickAddCustomer(false); setQuickAddInitialName(""); }}
           onCreated={(row) => {
             const c = { id: String(row.id), name: String(row.name), customer_code: typeof row.customer_code === "string" ? row.customer_code : undefined };
             setCustomers((prev) => [c, ...prev]);
             setCustomerId(c.id);
             setQuickAddCustomer(false);
-            notify(`Customer "${c.name}" added.`, "success");
+            setQuickAddInitialName("");
+            notify(`Customer "${c.name}" added — finish its full record from the reminder in your notifications.`, "success");
+            void notifyCompleteParty("customer", c);
           }}
         />
       )}
