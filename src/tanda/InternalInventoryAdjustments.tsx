@@ -507,9 +507,6 @@ function AdjustmentModal({
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
     existing?.adjustment_type || adjTypes[0]?.name || ""
   );
-  const [qtyDelta, setQtyDelta] = useState<string>(
-    existing != null ? String(existing.qty_delta) : "-1"
-  );
   const [unitCostCents, setUnitCostCents] = useState<string>(
     existing?.unit_cost_cents != null ? String(existing.unit_cost_cents) : ""
   );
@@ -520,9 +517,37 @@ function AdjustmentModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const qtyNum = Number(qtyDelta);
+  // Item 7 — explicit direction (add inventory / reduce inventory) + a positive
+  // magnitude, instead of a raw signed number, with a confirm before saving.
+  const [direction, setDirection] = useState<"add" | "reduce">(
+    existing != null ? (existing.qty_delta >= 0 ? "add" : "reduce") : "reduce",
+  );
+  const [magnitude, setMagnitude] = useState<string>(
+    existing != null ? String(Math.abs(existing.qty_delta)) : "1",
+  );
+  const mag = Math.abs(Number(magnitude));
+  const qtyNum = Number.isFinite(mag) ? (direction === "add" ? mag : -mag) : NaN;
   const isPositive = Number.isFinite(qtyNum) && qtyNum > 0;
   const isNegative = Number.isFinite(qtyNum) && qtyNum < 0;
+
+  // Item 1 — add an adjustment reason on the fly (admins only; others get a warn).
+  const isAdmin = !!getCachedAuthUserId();
+  const [extraReasons, setExtraReasons] = useState<AdjReason[]>([]);
+  const reasonOptions = useMemo(() => [...extraReasons, ...adjustmentReasons], [extraReasons, adjustmentReasons]);
+  async function addReasonOnTheFly(q: string) {
+    const name = q.trim();
+    if (!name) return;
+    if (!isAdmin) { notify("Only admins can add adjustment reasons. Ask an admin, or pick an existing reason.", "error"); return; }
+    try {
+      const r = await fetch("/api/internal/adjustment-reasons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const created = j as AdjReason;
+      setExtraReasons((p) => [created, ...p]);
+      setReason(created.name);
+      notify(`Reason "${created.name}" added.`, "success");
+    } catch (e) { notify(`Could not add reason: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+  }
 
   const itemMatches = useMemo(() => {
     const q = itemQuery.trim().toLowerCase();
@@ -565,9 +590,17 @@ function AdjustmentModal({
           return;
         }
         if (!itemId) throw new Error("Pick an item first");
-        if (!reason.trim()) throw new Error("Reason required");
-        if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("qty_delta must be a non-zero number");
-        if (isPositive && !unitCostCents) throw new Error("unit_cost_cents required for positive qty_delta");
+        // Item 6 — reason required: warn + block (don't silently proceed).
+        if (!reason.trim()) { notify("Pick an adjustment reason before saving.", "error"); setSaving(false); return; }
+        if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("Enter a quantity greater than 0");
+        if (isPositive && !unitCostCents) throw new Error("Unit cost is required when adding inventory");
+
+        // Item 7 — confirm the direction before creating the adjustment. Posting it
+        // later debits/credits Inventory and the Inventory Adjustments account.
+        const ok = await confirmDialog(
+          `This will ${isPositive ? "ADD" : "SUBTRACT"} ${mag} unit(s) ${isPositive ? "to" : "from"} on-hand for ${selectedItem?.sku_code || "this item"}.\n\nWhen you Post it, it books a journal entry — ${isPositive ? "debit Inventory / credit Inventory Adjustments" : "credit Inventory / debit Inventory Adjustments"}.\n\nContinue?`,
+        );
+        if (!ok) { setSaving(false); return; }
 
         url = `/api/internal/inventory-adjustments`;
         method = "POST";
@@ -663,21 +696,33 @@ function AdjustmentModal({
           </>
         )}
 
-        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>
-          Qty delta (signed) - {isPositive ? "increase" : isNegative ? "decrease (FIFO consume)" : "0 rejected"}
-        </label>
+        {/* Item 7 — explicit direction: add (increase on-hand) vs reduce (decrease). */}
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Direction</label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          {([["add", "+ Add inventory (increase on-hand)"], ["reduce", "− Reduce inventory (decrease on-hand)"]] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setDirection(v)}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+                border: `1px solid ${direction === v ? (v === "add" ? C.success : C.warn) : C.cardBdr}`,
+                background: direction === v ? (v === "add" ? "#0b2a1f" : "#3b2f0b") : "transparent",
+                color: direction === v ? (v === "add" ? C.success : C.warn) : C.textSub,
+              }}>{label}</button>
+          ))}
+        </div>
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Quantity (units)</label>
         <input
           style={{ ...inputStyle, marginBottom: 4 }}
           type="number"
           step="any"
-          value={qtyDelta}
-          onChange={(e) => setQtyDelta(e.target.value)}
+          min="0"
+          value={magnitude}
+          onChange={(e) => setMagnitude(e.target.value)}
         />
         {Number.isFinite(qtyNum) && qtyNum !== 0 && (
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: isPositive ? C.success : C.warn, marginBottom: 12 }}>
             {isPositive
-              ? `This will create a new FIFO layer of ${qtyNum} units at the unit cost below.`
-              : `This will consume ${Math.abs(qtyNum)} units via FIFO. Per-unit cost is FIFO-derived at post.`}
+              ? `This will ADD ${mag} unit(s) to on-hand — creates a new FIFO layer at the unit cost below.`
+              : `This will SUBTRACT ${mag} unit(s) from on-hand — consumes via FIFO (cost is FIFO-derived at post).`}
           </div>
         )}
 
@@ -713,19 +758,23 @@ function AdjustmentModal({
           </>
         )}
 
-        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason</label>
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason{!reason.trim() && <span style={{ color: C.warn }}> *</span>}</label>
         <div style={{ marginBottom: 12 }}>
           <SearchableSelect
             value={reason || null}
             onChange={(v) => setReason(v || "")}
-            options={adjustmentReasons.map((r) => ({
+            options={reasonOptions.map((r) => ({
               value: r.name,
-              label: `${r.code} — ${r.name}`,
+              label: r.name, // item 5 — name only (code stays searchable)
               searchHaystack: `${r.code} ${r.name}`,
             }))}
             placeholder="Search adjustment reason…"
             emptyText="No adjustment reasons — add some in the Adjustment Reason Master"
+            onAddNew={(q) => void addReasonOnTheFly(q)}
+            addNewLabel={(q) => `+ Add reason "${q.trim()}"`}
           />
+          {/* Item 6 — a reason is required; warn inline until one is picked. */}
+          {!isEdit && !reason.trim() && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Pick a reason before saving.</div>}
         </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -1066,7 +1115,7 @@ function MatrixAdjustmentModal({
             onChange={(v) => setReason(v || "")}
             options={adjustmentReasons.map((r) => ({
               value: r.name,
-              label: `${r.code} — ${r.name}`,
+              label: r.name, // item 5 — name only (code stays searchable)
               searchHaystack: `${r.code} ${r.name}`,
             }))}
             placeholder="Search adjustment reason…"

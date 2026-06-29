@@ -13,7 +13,12 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 > **#1020 improvements (2026-08-25):**
 > - **GL account auto-selected** — the server always resolves the "Inventory Adjustments Expense" account from Chart of Accounts automatically. Operators no longer pick a GL account when creating an adjustment.
-> - **Reason from master** — the free-text reason field is replaced by a searchable dropdown sourced from the new **Adjustment Reason Master** (`Master Data → 📋 Adjustment Reasons`). Manage reasons there; they appear in both the single-variant and matrix adjustment modals.
+> - **Reason from master** — the free-text reason field is replaced by a searchable dropdown sourced from the new **Adjustment Reason Master** (`Master Data → 📋 Adjustment Reasons`). Manage reasons there; they appear in both the single-variant and matrix adjustment modals. The dropdown shows the reason **name only** (the code stays searchable).
+>
+> **Single-adjustment modal updates (2026):**
+> - **Direction selector** — instead of typing a signed number, pick **+ Add inventory** (increase on-hand) or **− Reduce inventory** (decrease) and enter a positive quantity. Saving shows a confirmation spelling out the direction and the journal entry it will book on Post (**add** → DR Inventory / CR Inventory Adjustments; **reduce** → CR Inventory / DR Inventory Adjustments).
+> - **Reason required** — a reason must be picked before saving (inline `*` warning + a blocking toast otherwise).
+> - **Add a reason on the fly** — type a new reason in the dropdown and click **"+ Add reason '…'"**; it's created in the Adjustment Reason Master and selected. **Admins only** (signed-in users) — a non-admin sees a warning and must pick an existing reason.
 
 ---
 
