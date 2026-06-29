@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
@@ -47,6 +47,13 @@ export default function VendorDisputes() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   async function load() {
     setLoading(true);
@@ -65,6 +72,36 @@ export default function VendorDisputes() {
   }
   useEffect(() => { void load(); }, []);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3 };
+    const scalar = (d: Dispute): string | number | null => {
+      switch (sortKey) {
+        case "subject": return d.subject || null;
+        case "type": return d.type || null;
+        case "priority": return PRIORITY_RANK[d.priority] ?? null;
+        case "opened": return d.created_at || null;
+        case "last_activity": return d.last_message_at || null;
+        case "status": return statusLabel(d.status) || null;
+        default: return null;
+      }
+    };
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+
   if (loading) return <div style={{ color: TH.textMuted }}>Loading…</div>;
   if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
@@ -77,16 +114,16 @@ export default function VendorDisputes() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "1.8fr 150px 100px 130px 130px 60px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
-          <div>Subject</div>
-          <div>Type</div>
-          <div>Priority</div>
-          <div>Opened</div>
-          <div>Last activity</div>
-          <div style={{ textAlign: "center" }}>Status</div>
+          <div onClick={() => toggleSort("subject")} style={{ cursor: "pointer", userSelect: "none" }}>Subject{sortKey === "subject" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("type")} style={{ cursor: "pointer", userSelect: "none" }}>Type{sortKey === "type" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("priority")} style={{ cursor: "pointer", userSelect: "none" }}>Priority{sortKey === "priority" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("opened")} style={{ cursor: "pointer", userSelect: "none" }}>Opened{sortKey === "opened" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("last_activity")} style={{ cursor: "pointer", userSelect: "none" }}>Last activity{sortKey === "last_activity" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ textAlign: "center", cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
         </div>
-        {rows.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No disputes yet.</div>
-        ) : rows.map((d) => (
+        ) : sorted.map((d) => (
           <Link key={d.id} to={`/vendor/disputes/${d.id}`} style={{ display: "grid", gridTemplateColumns: "1.8fr 150px 100px 130px 130px 60px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}>
             <div>
               <div style={{ fontWeight: 600, color: TH.text, display: "flex", alignItems: "center", gap: 8 }}>

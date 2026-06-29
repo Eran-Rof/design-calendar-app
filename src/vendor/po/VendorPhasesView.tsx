@@ -529,6 +529,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           placeholder="Search by PO # or buyer…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           style={{ width: "100%", maxWidth: 360, marginBottom: 10, padding: "7px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13, background: TH.surface, color: TH.text }}
         />
       )}

@@ -24,6 +24,8 @@ import { buildMasterPools } from "../services/masterPickerScope";
 import { readGroupName, readSubCategoryName } from "../types/itemAttributes";
 import type { ToastMessage } from "../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.future_demand_requests";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -145,6 +147,27 @@ export default function FutureDemandRequestsPanel({
       return true;
     });
   }, [requests, filterStatus, filterCustomer, filterCategory, filterSubCat, filterStyle, filterColor, filterDescription, itemById]);
+
+  // Additive per-column sort over the filtered rows. Accessors resolve the
+  // same human-readable display values the cells render (note-marker meta
+  // wins over the pinned sku_id's master row), so the sort matches what the
+  // operator sees. Color cell is an inline editor (JSX) → left inert.
+  const { sorted: sortedVisible, sortKey, sortDir, onHeaderClick } = useSort(visible, {
+    persistKey: "ip:future_demand_requests:sort",
+    accessors: {
+      period: (r) => r.target_period_start ?? "",
+      customer: (r) => customerById.get(r.customer_id)?.name ?? "",
+      category: (r) => parseRequestNote(r.note).meta.cat ?? readGroupName(itemById.get(r.sku_id)) ?? "",
+      sub_cat: (r) => parseRequestNote(r.note).meta.subcat ?? readSubCategoryName(itemById.get(r.sku_id)) ?? "",
+      style: (r) => { const it = itemById.get(r.sku_id); return parseRequestNote(r.note).meta.style ?? it?.style_code ?? it?.sku_code ?? ""; },
+      description: (r) => { const it = itemById.get(r.sku_id); return parseRequestNote(r.note).meta.desc ?? it?.description ?? ""; },
+      qty: (r) => r.requested_qty,
+      type: (r) => r.request_type,
+      confidence: (r) => r.confidence_level,
+      status: (r) => r.request_status,
+      note: (r) => parseRequestNote(r.note).body,
+    },
+  });
 
   async function archive(id: string) {
     setBusyId(id);
@@ -313,23 +336,23 @@ export default function FutureDemandRequestsPanel({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
-              <th style={S.th} hidden={!visibleColumns.has("customer")}>Customer</th>
-              <th style={S.th} hidden={!visibleColumns.has("category")}>Category</th>
-              <th style={S.th} hidden={!visibleColumns.has("sub_cat")}>Sub Cat</th>
-              <th style={S.th} hidden={!visibleColumns.has("style")}>Style</th>
+              <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("period")} />
+              <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("customer")} />
+              <SortableTh label="Category" sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("category")} />
+              <SortableTh label="Sub Cat" sortKey="sub_cat" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("sub_cat")} />
+              <SortableTh label="Style" sortKey="style" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("style")} />
               <th style={S.th} hidden={!visibleColumns.has("color")}>Color</th>
-              <th style={S.th} hidden={!visibleColumns.has("description")}>Description</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("qty")}>Qty</th>
-              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
-              <th style={S.th} hidden={!visibleColumns.has("confidence")}>Confidence</th>
-              <th style={S.th} hidden={!visibleColumns.has("status")}>Status</th>
-              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
+              <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("description")} />
+              <SortableTh label="Qty" sortKey="qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("qty")} />
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+              <SortableTh label="Confidence" sortKey="confidence" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("confidence")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("status")} />
+              <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("note")} />
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((r) => {
+            {sortedVisible.map((r) => {
               const customer = customerById.get(r.customer_id);
               const item = itemById.get(r.sku_id);
               // Prefer planner's structured picks over the resolved

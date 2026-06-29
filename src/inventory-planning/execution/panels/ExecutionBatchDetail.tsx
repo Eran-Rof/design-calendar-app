@@ -47,6 +47,8 @@ import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { can } from "../../governance/services/permissionService";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const STATUS_COLOR: Record<string, string> = {
   pending:   "#94A3B8",
@@ -97,6 +99,23 @@ export default function ExecutionBatchDetail({
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
+
+  // Additive per-column sort over the actions list (rows keyed on a.id, so
+  // re-ordering never disturbs the inline approved-qty editor or row actions).
+  const { sorted: sortedActions, sortKey, sortDir, onHeaderClick } = useSort(actions, {
+    persistKey: "ip:execution_actions:sort",
+    accessors: {
+      type: (a) => a.action_type,
+      sku: (a) => itemById.get(a.sku_id)?.sku_code ?? "",
+      period: (a) => a.period_start ?? "",
+      po: (a) => a.po_number ?? "",
+      suggested: (a) => a.suggested_qty ?? 0,
+      approved: (a) => a.approved_qty ?? 0,
+      method: (a) => a.execution_method ?? "",
+      status: (a) => a.execution_status ?? "",
+      reason: (a) => a.action_reason ?? "",
+    },
+  });
   const actionById = useMemo(() => new Map(actions.map((a) => [a.id, a])), [actions]);
   // Resolve an action id to its SKU code for human-readable log/validation lines (never show a raw UUID).
   const actionLabel = (id: string): string => itemById.get(actionById.get(id)?.sku_id ?? "")?.sku_code ?? "—";
@@ -454,21 +473,21 @@ export default function ExecutionBatchDetail({
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={S.th}>Type</th>
-                <th style={S.th}>SKU</th>
-                <th style={S.th}>Period</th>
-                <th style={S.th}>PO</th>
+                <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="PO" sortKey="po" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <th style={S.th}>Tangerine PO</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Suggested</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Approved</th>
-                <th style={S.th}>Method</th>
-                <th style={S.th}>Status</th>
-                <th style={S.th}>Reason</th>
+                <SortableTh label="Suggested" sortKey="suggested" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Approved" sortKey="approved" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Method" sortKey="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Reason" sortKey="reason" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <th style={S.th}></th>
               </tr>
             </thead>
             <tbody>
-              {actions.map((a) => {
+              {sortedActions.map((a) => {
                 const item = itemById.get(a.sku_id);
                 const cfg = cfgByType.get(a.action_type);
                 const apiAllowed = !!cfg?.enabled;

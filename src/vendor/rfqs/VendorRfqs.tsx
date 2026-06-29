@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
@@ -40,6 +40,13 @@ export default function VendorRfqs() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   async function load() {
     setLoading(true);
@@ -67,14 +74,47 @@ export default function VendorRfqs() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  if (loading) return <div style={{ color: "rgba(255,255,255,0.85)" }}>Loading RFQs…</div>;
-  if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
-
-  const visible = filter === "all" ? rows
+  const visible = useMemo(() => (
+    filter === "all" ? rows
     : filter === "open"   ? rows.filter((r) => r.invitation.status !== "declined" && !["awarded", "rejected"].includes(r.quote?.status || ""))
     : filter === "quoted" ? rows.filter((r) => r.quote?.status === "submitted" || r.quote?.status === "under_review")
     : filter === "won"    ? rows.filter((r) => r.quote?.status === "awarded")
-    : rows;
+    : rows
+  ), [rows, filter]);
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return visible;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const scalar = (r: RfqRow): string | number | null => {
+      const s = r.line_summary;
+      switch (sortKey) {
+        case "title": return r.rfq.title || null;
+        case "style": return s?.style || null;
+        case "style_name": return s?.style_name || null;
+        case "qty": return s?.quantity == null ? null : Number(s.quantity);
+        case "category": return r.rfq.category || null;
+        case "due": return r.rfq.delivery_required_by || null;
+        case "status": return badgeForRow(r).label || null;
+        default: return null;
+      }
+    };
+    const arr = [...visible];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [visible, sortKey, sortDir]);
+
+  if (loading) return <div style={{ color: "rgba(255,255,255,0.85)" }}>Loading RFQs…</div>;
+  if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
   return (
     <div>
@@ -92,18 +132,18 @@ export default function VendorRfqs() {
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflowX: "auto" }}>
         <div style={{ minWidth: GRID_MIN }}>
           <div style={{ display: "grid", gridTemplateColumns: GRID, columnGap: 12, padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-            <div>Title</div>
-            <div>Style</div>
-            <div>Style name</div>
-            <div style={{ textAlign: "right" }}>Qty</div>
-            <div>Category</div>
-            <div>Due</div>
-            <div>Status</div>
+            <div onClick={() => toggleSort("title")} style={{ cursor: "pointer", userSelect: "none" }}>Title{sortKey === "title" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("style")} style={{ cursor: "pointer", userSelect: "none" }}>Style{sortKey === "style" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("style_name")} style={{ cursor: "pointer", userSelect: "none" }}>Style name{sortKey === "style_name" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("qty")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Qty{sortKey === "qty" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("category")} style={{ cursor: "pointer", userSelect: "none" }}>Category{sortKey === "category" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("due")} style={{ cursor: "pointer", userSelect: "none" }}>Due{sortKey === "due" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+            <div onClick={() => toggleSort("status")} style={{ cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
             <div style={{ textAlign: "right" }}></div>
           </div>
-          {visible.length === 0 ? (
+          {sorted.length === 0 ? (
             <div style={{ padding: 30, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No RFQs in this view.</div>
-          ) : visible.map((r) => {
+          ) : sorted.map((r) => {
             const b = badgeForRow(r);
             const s = r.line_summary;
             return (

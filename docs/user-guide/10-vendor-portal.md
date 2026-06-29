@@ -228,6 +228,13 @@ Throughout the portal you can attach files — invoice PDFs, packing lists, tax 
 
 ---
 
+## Working with the lists
+
+The portal's list screens — Purchase Orders, Invoices, Shipments, RFQs, Contracts, and Disputes — share the same conveniences:
+
+- **Sort any column** — click a column header to sort ascending (▲); click again for descending (▼); a third click clears it and restores the default order. Action and status-only columns stay un-sortable.
+- **Search boxes select-all on focus** — clicking into a search box highlights the existing text so you can replace it in one keystroke.
+
 ## How your data is kept separate
 
 You only ever see **your own** vendor's data. Every list and detail screen in the portal is scoped to your linked vendor — your POs, RFQs, shipments, invoices, and documents are filtered to your company and never show another vendor's records. Banking and tax-ID details you enter during onboarding are encrypted and only ever shown back as the last few digits.

@@ -66,6 +66,7 @@ export default function AuditExplorer() {
           <div>
             <label style={S.label}>Search</label>
             <input style={{ ...S.input, width: "100%" }} value={q} onChange={(e) => setQ(e.target.value)}
+                   onFocus={(e) => e.currentTarget.select()}
                    placeholder="message / field / value…" />
           </div>
           <div>

@@ -8,6 +8,8 @@ import { scanDataQuality } from "../services/dataQuality";
 import { loadPlanningSnapshot } from "../services/planningClient";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.data_quality";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -59,6 +61,15 @@ export default function DataQualityReport() {
       return true;
     });
   }, [issues, filterSeverity, filterCategory]);
+
+  // Additive per-column sort over the filtered issues. Entity maps to the
+  // looked-up entity_type the cell renders; the rest are direct scalars.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(visible, {
+    persistKey: "ip:data_quality:sort",
+    accessors: {
+      entity: (i) => i.entity_type ?? "",
+    },
+  });
 
   const categories = useMemo(() => {
     const s = new Set<string>();
@@ -128,17 +139,17 @@ export default function DataQualityReport() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
-                <th hidden={!visibleColumns.has("severity")} style={{ padding: 8 }}>Severity</th>
-                <th hidden={!visibleColumns.has("category")} style={{ padding: 8 }}>Category</th>
-                <th hidden={!visibleColumns.has("message")} style={{ padding: 8 }}>Message</th>
-                <th hidden={!visibleColumns.has("entity")} style={{ padding: 8 }}>Entity</th>
+                <SortableTh label="Severity" sortKey="severity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ padding: 8 }} hidden={!visibleColumns.has("severity")} />
+                <SortableTh label="Category" sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ padding: 8 }} hidden={!visibleColumns.has("category")} />
+                <SortableTh label="Message" sortKey="message" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ padding: 8 }} hidden={!visibleColumns.has("message")} />
+                <SortableTh label="Entity" sortKey="entity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ padding: 8 }} hidden={!visibleColumns.has("entity")} />
               </tr>
             </thead>
             <tbody>
-              {visible.map((i) => (
+              {sorted.map((i) => (
                 <IssueRow key={i.entity_key ?? `${i.category}-${i.message}`} issue={i} visibleColumns={visibleColumns} />
               ))}
-              {visible.length === 0 && (
+              {sorted.length === 0 && (
                 <tr><td colSpan={4} style={{ padding: 16, color: "#718096" }}>No issues match the filter.</td></tr>
               )}
             </tbody>

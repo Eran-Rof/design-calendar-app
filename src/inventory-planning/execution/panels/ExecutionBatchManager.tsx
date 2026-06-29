@@ -21,6 +21,8 @@ import type { IpScenario } from "../../scenarios/types/scenarios";
 import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
@@ -73,6 +75,20 @@ export default function ExecutionBatchManager() {
 
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
+
+  // Additive per-column sort over the batch list (selection is keyed on id, so
+  // re-ordering never disturbs the selected row).
+  const { sorted: sortedBatches, sortKey, sortDir, onHeaderClick } = useSort(batches, {
+    persistKey: "ip:execution_batches:sort",
+    accessors: {
+      name: (b) => b.batch_name,
+      type: (b) => b.batch_type,
+      status: (b) => b.status,
+      created: (b) => b.created_at ?? "",
+      approved: (b) => b.approved_at ?? "",
+      note: (b) => b.note ?? "",
+    },
+  });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -182,16 +198,16 @@ export default function ExecutionBatchManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th hidden={!visibleColumns.has("name")} style={S.th}>Name</th>
-                    <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
-                    <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
-                    <th hidden={!visibleColumns.has("created")} style={S.th}>Created</th>
-                    <th hidden={!visibleColumns.has("approved")} style={S.th}>Approved</th>
-                    <th hidden={!visibleColumns.has("note")} style={S.th}>Note</th>
+                    <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("name")} />
+                    <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+                    <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("status")} />
+                    <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("created")} />
+                    <SortableTh label="Approved" sortKey="approved" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("approved")} />
+                    <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("note")} />
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map((b) => (
+                  {sortedBatches.map((b) => (
                     <tr key={b.id} style={{ cursor: "pointer", background: b.id === selectedId ? PAL.panelAlt : undefined }}
                         onClick={() => { setSelectedId(b.id); setTab("detail"); }}>
                       <td hidden={!visibleColumns.has("name")} style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
