@@ -17,6 +17,7 @@
 // Tangerine P3 Chunk 7.
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveUserLabels } from "../../../_lib/resolveUserNames.js";
 
 export const config = { maxDuration: 15 };
 
@@ -204,5 +205,10 @@ export default async function handler(req, res) {
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json(data || []);
+
+  // Enrich with a "created by" display label (items 3/4 — show + filter by user).
+  const rows = data || [];
+  const labels = await resolveUserLabels(admin, rows.map((r) => r.created_by_user_id));
+  for (const r of rows) r.created_by_name = r.created_by_user_id ? (labels[r.created_by_user_id] || null) : null;
+  return res.status(200).json(rows);
 }
