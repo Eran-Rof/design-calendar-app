@@ -58,6 +58,31 @@ export default function ReportTable({ result, filename, sheetName, busy }: {
     else { setSortKey(key); setSortDir(-1); }
   }
 
+  // Export rows = on-screen rows + a TOTAL row that sums the additive numeric
+  // columns (number / currency). Percent / date / text columns are left blank
+  // (averaging a percent across rows is misleading; "TOTAL" rides the first
+  // text column as the row label). Skipped entirely when there are no rows or
+  // no summable column, so the Excel download never carries an empty footer.
+  const exportRows = useMemo(() => {
+    if (rows.length === 0) return rows;
+    const sumKeys = columns.filter(
+      (c) => c.format === "number" || c.format === "currency_cents" || c.format === "currency_dollars",
+    );
+    if (sumKeys.length === 0) return rows;
+    const totalRow: Record<string, unknown> = {};
+    for (const c of sumKeys) {
+      let sum = 0;
+      for (const r of rows) {
+        const n = Number(r[c.key]);
+        if (Number.isFinite(n)) sum += n;
+      }
+      totalRow[c.key] = sum;
+    }
+    const firstText = columns.find((c) => !c.format || c.format === "text" || c.format === "date");
+    if (firstText) totalRow[firstText.key] = "TOTAL";
+    return [...rows, totalRow];
+  }, [rows, columns]);
+
   return (
     <div>
       {summary.length > 0 && (
@@ -76,7 +101,7 @@ export default function ReportTable({ result, filename, sheetName, busy }: {
           {busy ? "Loading…" : `${rows.length.toLocaleString()} row${rows.length === 1 ? "" : "s"}`}
           {note ? <span style={{ marginLeft: 10 }}>· {note}</span> : null}
         </div>
-        <ExportButton rows={rows} columns={columns} filename={filename} sheetName={sheetName} />
+        <ExportButton rows={exportRows} columns={columns} filename={filename} sheetName={sheetName} />
       </div>
 
       <div style={S.tableWrap}>

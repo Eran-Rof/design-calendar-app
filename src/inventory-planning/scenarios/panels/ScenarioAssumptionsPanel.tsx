@@ -15,6 +15,8 @@ import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.scenario_assumptions";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -69,6 +71,19 @@ export default function ScenarioAssumptionsPanel({
 
   const selectedUnit = TYPES.find((t) => t.key === type)?.unit ?? "qty";
   const selectedHint = TYPES.find((t) => t.key === type)?.hint ?? "";
+
+  // Additive per-column sort over the assumption rows. Type/scope cells render
+  // derived/looked-up values, so supply matching accessors.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(assumptions, {
+    persistKey: "ip:scenario_assumptions:sort",
+    accessors: {
+      type: (a) => a.assumption_type.replace(/_/g, " "),
+      value: (a) => a.assumption_value ?? null,
+      unit: (a) => a.assumption_unit ?? "",
+      scope: (a) => scopeLabel(a, itemById, categoryById, customerById, channelById),
+      note: (a) => a.note ?? "",
+    },
+  });
 
   async function addAssumption() {
     const v = Number(value);
@@ -193,16 +208,16 @@ export default function ScenarioAssumptionsPanel({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("value")}>Value</th>
-              <th style={S.th} hidden={!visibleColumns.has("unit")}>Unit</th>
-              <th style={S.th} hidden={!visibleColumns.has("scope")}>Scope</th>
-              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+              <SortableTh label="Value" sortKey="value" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("value")} />
+              <SortableTh label="Unit" sortKey="unit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("unit")} />
+              <SortableTh label="Scope" sortKey="scope" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("scope")} />
+              <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("note")} />
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
-            {assumptions.map((a) => (
+            {sorted.map((a) => (
               <tr key={a.id}>
                 <td style={S.td} hidden={!visibleColumns.has("type")}>{a.assumption_type.replace(/_/g, " ")}</td>
                 <td style={{ ...S.tdNum, fontFamily: "monospace" }} hidden={!visibleColumns.has("value")}>{a.assumption_value ?? "–"}</td>

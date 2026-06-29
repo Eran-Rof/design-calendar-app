@@ -12,6 +12,8 @@ import {
 } from "../services/dataFreshnessService";
 import { S, PAL, formatDateTime } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.integration_health";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -63,6 +65,30 @@ export default function IntegrationHealthDashboard() {
   }
   useEffect(() => { void refresh(); }, []);
 
+  // Per-column sort over the integration-health rows. Keys map to the
+  // underlying scalar fields each cell renders.
+  const { sorted: sortedRows, sortKey: hKey, sortDir: hDir, onHeaderClick: hClick } = useSort(rows, {
+    persistKey: "ip:integration_health:sort",
+    accessors: {
+      system: (r) => r.system_name ?? "",
+      last_success: (r) => r.last_success_at ?? "",
+      last_attempt: (r) => r.last_attempt_at ?? "",
+      rows: (r) => r.last_rows_synced ?? null,
+      error: (r) => r.last_error_message ?? "",
+    },
+  });
+
+  // Per-column sort over the freshness signals.
+  const { sorted: sortedSignals, sortKey: fKey, sortDir: fDir, onHeaderClick: fClick } = useSort(signals, {
+    persistKey: "ip:data_freshness:sort",
+    accessors: {
+      entity: (s) => s.entity_type ?? "",
+      last_updated: (s) => s.last_updated_at ?? "",
+      age: (s) => s.age_hours ?? null,
+      threshold: (s) => s.threshold_hours ?? null,
+    },
+  });
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={S.card}>
@@ -80,17 +106,17 @@ export default function IntegrationHealthDashboard() {
           <table style={S.table}>
             <thead>
               <tr>
-                <th hidden={!visibleColumns.has("system")} style={S.th}>System</th>
-                <th hidden={!visibleColumns.has("endpoint")} style={S.th}>Endpoint</th>
-                <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
-                <th hidden={!visibleColumns.has("last_success")} style={S.th}>Last success</th>
-                <th hidden={!visibleColumns.has("last_attempt")} style={S.th}>Last attempt</th>
-                <th hidden={!visibleColumns.has("rows")} style={{ ...S.th, textAlign: "right" }}>Rows</th>
-                <th hidden={!visibleColumns.has("error")} style={S.th}>Error</th>
+                <SortableTh label="System" sortKey="system" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("system")} />
+                <SortableTh label="Endpoint" sortKey="endpoint" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("endpoint")} />
+                <SortableTh label="Status" sortKey="status" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("status")} />
+                <SortableTh label="Last success" sortKey="last_success" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("last_success")} />
+                <SortableTh label="Last attempt" sortKey="last_attempt" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("last_attempt")} />
+                <SortableTh label="Rows" sortKey="rows" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("rows")} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Error" sortKey="error" activeKey={hKey} dir={hDir} onSort={hClick} style={S.th} hidden={!visibleColumns.has("error")} />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <tr key={r.id}>
                   <td hidden={!visibleColumns.has("system")} style={S.td}>{r.system_name}</td>
                   <td hidden={!visibleColumns.has("endpoint")} style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.endpoint}</td>
@@ -125,16 +151,16 @@ export default function IntegrationHealthDashboard() {
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={S.th}>Entity</th>
-                <th style={S.th}>Last updated</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Age (h)</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Threshold (h)</th>
-                <th style={S.th}>Severity</th>
-                <th style={S.th}>Note</th>
+                <SortableTh label="Entity" sortKey="entity" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} />
+                <SortableTh label="Last updated" sortKey="last_updated" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} />
+                <SortableTh label="Age (h)" sortKey="age" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Threshold (h)" sortKey="threshold" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Severity" sortKey="severity" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} />
+                <SortableTh label="Note" sortKey="note" activeKey={fKey} dir={fDir} onSort={fClick} style={S.th} />
               </tr>
             </thead>
             <tbody>
-              {signals.map((s) => (
+              {sortedSignals.map((s) => (
                 <tr key={s.entity_type}>
                   <td style={S.td}>{s.entity_type}</td>
                   <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
