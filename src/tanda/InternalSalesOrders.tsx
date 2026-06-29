@@ -10,6 +10,7 @@ import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
+import EmailSOConfirmationModal from "./components/EmailSOConfirmationModal";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
@@ -448,6 +449,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // round-trip to the Customer Master screen.
   const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false); // item 7 — email confirmation modal
   const customers = useMemo(
     () => (extraCustomers.length ? [...extraCustomers, ...customersProp] : customersProp),
     [extraCustomers, customersProp],
@@ -1304,6 +1306,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     <>
       <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
       <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">View</button>
+      {/* Item 7 — email the confirmation to a customer contact (saved orders only). */}
+      {!isNew && so != null && <button onClick={() => setEmailOpen(true)} style={btnSecondary} disabled={submitting} title="Email this order confirmation to a customer contact, optionally with the attached documents">✉ Email confirmation</button>}
       {/* Item 13 — edit the header on a saved order without re-opening the lines. */}
       {!isNew && !editable && !headerEditMode && so?.status !== "cancelled" && (
         <button onClick={() => setHeaderEditMode(true)} style={btnSecondary} disabled={submitting} title="Edit the order header (customer, ship-to, dates, terms, brand, channel, store, PO #, notes) without changing lines">✎ Edit header</button>
@@ -1665,6 +1669,18 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           </div>
         </div>
       </div>
+
+      {/* Item 7 — email this order's confirmation to a customer contact. */}
+      {emailOpen && so != null && (
+        <EmailSOConfirmationModal
+          soId={so.id}
+          soNumber={so.so_number}
+          customerName={customers.find((c) => c.id === customerId)?.name || "Customer"}
+          contacts={customers.find((c) => c.id === customerId)?.contacts || []}
+          onClose={() => setEmailOpen(false)}
+          onSent={() => setEmailOpen(false)}
+        />
+      )}
 
       {/* Item 1 — on-the-fly "+ New customer" popup. Created customer is merged in
           and selected without leaving this order. */}

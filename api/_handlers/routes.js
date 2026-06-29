@@ -435,6 +435,7 @@ import r_internal_sales_orders_allocate_by_lot from "./internal/sales-orders/all
 import r_internal_sales_orders_allocate from "./internal/sales-orders/allocate.js";
 import r_internal_sales_orders_bulk_match from "./internal/sales-orders/bulk-match.js";
 import r_internal_sales_orders_create_invoice from "./internal/sales-orders/create-invoice.js";
+import r_internal_sales_orders_email_confirmation from "./internal/sales-orders/email-confirmation.js";
 import r_internal_sales_orders_index from "./internal/sales-orders/index.js";
 import r_internal_sales_orders_match_customer from "./internal/sales-orders/match-customer.js";
 import r_internal_sales_orders_parse_customer_po from "./internal/sales-orders/parse-customer-po.js";
@@ -768,6 +769,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/vendor-invoice-drafts/:id", handler: r_internal_procurement_vendor_invoice_drafts_id },
   { pattern: "/api/internal/phase-change-requests/:id/set-status", handler: r_internal_phase_change_requests_id_set_status },
   { pattern: "/api/internal/inventory-cycle-counts/:id/finalize", handler: r_internal_inventory_cycle_counts_finalize },
+  { pattern: "/api/internal/sales-orders/:id/email-confirmation", handler: r_internal_sales_orders_email_confirmation },
   { pattern: "/api/internal/bank-transactions/:id/apply-match", handler: r_internal_bank_transactions_apply_match },
   { pattern: "/api/internal/phase-change-requests/:id/approve", handler: r_internal_phase_change_requests_id_approve },
   { pattern: "/api/internal/gl-accounts/:id/brand-allocation", handler: r_internal_gl_accounts_id_brand_allocation },

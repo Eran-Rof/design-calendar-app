@@ -129,6 +129,8 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 > **🖨 View (printable / downloadable).** Next to **Close** is a **🖨 View** button that opens the SO as a **branded document** in a new window — Ring of Fire logo, header fields (customer, PO #, dates, terms, channel…), then a **color × size matrix per style** (one block per style: color/inseam rows × size columns, with a per-row Qty, Unit $ and line total, plus a per-style totals row) and grand totals. The window's **Print / Save as PDF** button prints or downloads it. Works on a draft (number shows `(draft)`), reflecting whatever is currently entered.
 
+> **✉ Email confirmation (item 7).** On a saved order, **✉ Email confirmation** opens a dialog to send the order to the customer: pick a **contact** from the customer's contacts (or type an address), add an optional note, and tick **Also attach the order's documents** — when there's more than one, choose **which** to attach. Send builds a **branded HTML confirmation server-side** (logo, order #, customer, PO #, dates, terms, line table + totals — authoritative, not the browser's copy) and emails it via Resend (`POST /api/internal/sales-orders/:id/email-confirmation`). Selected supporting documents are validated to belong to this order, then attached via short-lived signed URLs. Needs `RESEND_API_KEY`; contact emails come from **Customer Master → Contacts**.
+
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
 ### Fulfillment source — Production vs ATS
