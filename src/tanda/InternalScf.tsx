@@ -4,6 +4,7 @@ import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Program {
   id: string;
@@ -76,6 +77,19 @@ export default function InternalScf() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [entityId, statusFilter]);
+
+  // #5 Sortable columns — div-grid "table" for the Requests list.
+  const { sorted: sortedRequests, sortKey, sortDir, onHeaderClick } = useSort(requests, {
+    persistKey: "tangerine:scf:requests:sort",
+    accessors: {
+      vendor: (r) => r.vendor?.name || "",
+      program: (r) => r.program?.name || "",
+      requested: (r) => Number(r.requested_amount),
+      fee: (r) => (r.fee_amount != null ? Number(r.fee_amount) : null),
+      net: (r) => (r.net_disbursement != null ? Number(r.net_disbursement) : null),
+      status: (r) => r.status,
+    },
+  });
 
   async function act(r: Request, action: "approve" | "fund") {
     if (action === "approve") {
@@ -196,9 +210,15 @@ export default function InternalScf() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Program</div><div>Requested</div><div>Fee</div><div>Net</div><div>Status</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Program" k="program" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Requested" k="requested" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Fee" k="fee" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Net" k="net" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {requests.map((r) => (
+          {sortedRequests.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{r.vendor?.name || "—"}</div>
@@ -259,6 +279,20 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Creating…" : "Create"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Clickable sortable header cell for the div-grid "table".
+function SortHeader({ label, k, activeKey, dir, onSort }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir; onSort: (key: string) => void;
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div onClick={() => onSort(k)} title={`Sort by ${label}`} style={{ cursor: "pointer", userSelect: "none", ...(active ? { color: C.text } : null) }}>
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
     </div>
   );
 }

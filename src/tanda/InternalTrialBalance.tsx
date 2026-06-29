@@ -221,7 +221,21 @@ export default function InternalTrialBalance() {
           {loading ? "Loading…" : "Refresh"}
         </button>
         <ExportButton
-          rows={rows as unknown as Array<Record<string, unknown>>}
+          // #23 Export totals — append a GRAND TOTAL row mirroring the on-screen
+          // tfoot (Debits / Credits / Net) so the spreadsheet ties out.
+          rows={[
+            ...rows,
+            {
+              code: "",
+              name: "GRAND TOTAL",
+              account_type: "",
+              normal_balance: "",
+              debit_cents: grandDebit,
+              credit_cents: grandCredit,
+              net_debit_cents: grandVariance > 0 ? grandVariance : 0,
+              net_credit_cents: grandVariance < 0 ? -grandVariance : 0,
+            },
+          ] as unknown as Array<Record<string, unknown>>}
           filename={`trial-balance-${basis}-${fromDate}-to-${toDate}`}
           sheetName="Trial Balance"
           columns={[
