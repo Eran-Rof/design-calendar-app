@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
 import { notificationMatchesApp, type AppKey } from "./notificationApps";
+import { notificationLink } from "./notificationLink";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -201,7 +202,11 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
 
   function onRowClick(n: NotificationRow) {
     if (!n.read_at) void markRead(n.id);
-    if (n.link) window.location.href = n.link;
+    // Deep-link to the actual task/record. Resolves through the shared resolver
+    // so rows whose producer stored only a weak link (app home / bare list) but
+    // a rich `metadata` reference still navigate to the right record.
+    const target = notificationLink(n, kind);
+    if (target) window.location.href = target;
   }
 
   // ── Selection + bulk delete ──────────────────────────────────────────────
@@ -418,7 +423,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {rows.slice(0, 12).map((n) => {
                       const unread = !n.read_at;
-                      const clickable = !!n.link;
+                      const clickable = !!notificationLink(n, kind);
                       const isSel = selected.has(n.id);
                       const restBg = isSel ? C.primary + "22" : unread ? C.surfaceAlt : "transparent";
                       return (
