@@ -7,6 +7,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import QuickAddStyleModal from "./components/QuickAddStyleModal";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -156,9 +158,13 @@ function ItemPicker({ onChange }: { onChange: (id: string, label: string) => voi
 
 function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [finishedItemId, setFinishedItemId] = useState("");
+  const [pickedLabel, setPickedLabel] = useState(""); // shown after add-on-the-fly (picker is uncontrolled)
   const [targetQty, setTargetQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Item 1 — add a style on the fly (admins only; others get a warning).
+  const isAdmin = !!getCachedAuthUserId();
+  const [addStyleOpen, setAddStyleOpen] = useState(false);
 
   async function submit() {
     setSubmitting(true); setErr(null);
@@ -180,9 +186,24 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>New build order</h3>
         <div style={{ marginBottom: 12 }}>
           <Lbl>Finished style *</Lbl>
-          <ItemPicker onChange={(id) => setFinishedItemId(id)} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ItemPicker onChange={(id, label) => { setFinishedItemId(id); setPickedLabel(label); }} />
+            </div>
+            {/* Item 1 — add a style on the fly (admin only). */}
+            <button type="button" style={{ ...btnSecondary, whiteSpace: "nowrap" }}
+              onClick={() => { if (!isAdmin) { notify("Only admins can add styles. Ask an admin, or pick an existing style.", "error"); return; } setAddStyleOpen(true); }}
+              title="Add a new style + finished SKU without leaving the build">+ New style</button>
+          </div>
+          {pickedLabel && <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>Selected: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{pickedLabel}</span></div>}
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Its active BOM is snapshotted when you Release the build.</div>
         </div>
+        {addStyleOpen && (
+          <QuickAddStyleModal
+            onClose={() => setAddStyleOpen(false)}
+            onCreated={(skuId, label) => { setFinishedItemId(skuId); setPickedLabel(label); setAddStyleOpen(false); notify(`Style added — "${label}" selected. Attach its BOM before releasing.`, "success"); }}
+          />
+        )}
         <div style={{ marginBottom: 12 }}>
           <Lbl>Target quantity *</Lbl>
           <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={inputStyle} placeholder="e.g. 500" autoFocus />
