@@ -20,7 +20,7 @@ Tangerine is the back office for the whole company. Think of it as everything Xo
 
 ## How to reach it — the front door
 
-Open your browser to **`/tangerine`** (for example `https://<your-domain>/tangerine`). Sign in with your work Microsoft account, the same one you use for the other apps. If you are already signed in elsewhere in the suite, Tangerine reuses that session and takes you straight in.
+Open your browser to **`/tangerine`** (for example `https://<your-domain>/tangerine`). If you already signed into the suite through the **PLM launcher** (username + password) and open Tangerine from a launcher card or 🧩 Apps menu, Tangerine takes you **straight in** — it adopts that session and does **not** ask you to sign in again. The **Sign in with Microsoft** screen appears only when you open Tangerine cold with no existing suite session (the standalone front-door case).
 
 > **Tangerine is becoming the front door of the whole suite.** Today you can launch the other apps (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Costing, Vendor Portal) from the **🧩 Apps** menu in the Tangerine top nav. The plan is to make Tangerine the single sign-in and home for everything — sign in once, then launch any app from one place.
 

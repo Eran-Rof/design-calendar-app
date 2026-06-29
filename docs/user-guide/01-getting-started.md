@@ -39,7 +39,7 @@ If you forget your password, click **Forgot password?** below the Sign In button
 3. Click **Sign in with Microsoft**. A Microsoft pop-up opens — sign in with the same work account you use for Outlook, Teams and the rest of Microsoft 365.
 4. The pop-up closes and you're taken into the app.
 
-> **Already signed in?** If your browser already holds a valid Microsoft session, the Tangerine sign-in page recognises it and passes you straight through without asking again. Likewise, if you signed into Tangerine earlier in this browser, the other suite apps reuse that Microsoft session.
+> **Already signed in? You won't be asked twice.** If you reached the suite through the **PLM launcher** (username + password) and then open **Tangerine ERP** from a launcher card or an **🧩 Apps** menu, Tangerine recognises that you are already signed in and opens **directly** — it does **not** put up a second "Sign in with Microsoft" screen. The Microsoft sign-in card only appears for people who open Tangerine as a standalone front door without having signed in elsewhere first. And if your browser already holds a valid Microsoft session, the standalone Tangerine sign-in page recognises it and passes you straight through without asking again.
 
 > **Pop-up blocked?** If the Microsoft pop-up doesn't appear, your browser is blocking pop-ups for this site. Allow pop-ups for the suite address and click **Sign in with Microsoft** again. The sign-in card shows a "Sign-in failed" note if this happens.
 
