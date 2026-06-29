@@ -25,6 +25,7 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
+import QuickAddPrepackMatrix from "./components/QuickAddPrepackMatrix";
 import { confirmDialog } from "../shared/ui/warn";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat } from "./orderDocument";
 
@@ -128,7 +129,15 @@ export interface LineMatrixBodyHandle {
   addFlat: () => void;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
+
+// Parse a free-text money value → number, or null when blank/invalid (item 12).
+function parseMoneyOrNull(v: string): number | null {
+  const t = (v ?? "").trim().replace(/,/g, "");
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
 
 const rowKeyOf = (color: string | null, inseam: string | null) => `${color ?? ""}|${inseam ?? ""}`;
 const skuCellKey = (color: string | null, size: string | null, inseam: string | null) => `${color ?? ""}|${size ?? ""}|${inseam ?? ""}`;
@@ -206,6 +215,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // server-side; shown here so the operator can view/override per line. Hidden on
   // SO/AR (lots populated by later scenarios). Default visible in PO mode.
   const [showLots, setShowLots] = useState(mode === "po");
+  // Item 10 — which section's "Add prepack matrix" popup is open (and the style it
+  // targets), so a missing size breakdown can be created inline + reloaded.
+  const [prepackAddFor, setPrepackAddFor] = useState<{ sectionId: number; styleId: string; styleCode: string; packToken: string } | null>(null);
   const [atsByItem, setAtsByItem] = useState<Record<string, number>>({});
   const [atsAsOf, setAtsAsOf] = useState<string | null>(null);
   const [atsLoading, setAtsLoading] = useState(false);
@@ -338,6 +350,31 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     }));
   }
   function setAllUnit(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
+  // Item 12 — prepack per-each price driver: typing a per-each price stores it and
+  // auto-fills the pack price (= each × pack size). The pack-price column stays
+  // editable (override). Only used when packSize > 0.
+  function packPriceFromEach(v: string, packSize: number): string | null {
+    const each = parseMoneyOrNull(v);
+    return each != null && packSize > 0 ? (each * packSize).toFixed(2) : null;
+  }
+  function setUnitEach(id: number, rowKey: string, v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const pack = packPriceFromEach(v, packSize);
+      return { ...s, unitEach: { ...(s.unitEach || {}), [rowKey]: v }, unit: pack != null ? { ...s.unit, [rowKey]: pack } : s.unit };
+    }));
+  }
+  function setAllUnitEach(id: number, rows: EditableMatrixRow[], v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const pack = packPriceFromEach(v, packSize);
+      return {
+        ...s,
+        unitEach: Object.fromEntries(rows.map((r) => [r.key, v])),
+        unit: pack != null ? Object.fromEntries(rows.map((r) => [r.key, pack])) : s.unit,
+      };
+    }));
+  }
 
   function addFlat() { onRequestEdit?.(); onAddLine?.(); setFlat((p) => [{ key: nextFlatKey.current++, inventory_item_id: "", qty_ordered: "", unit_price_dollars: "" }, ...p]); }
   function updateFlat(idx: number, patch: Partial<FlatLine>) { setFlat((p) => p.map((l, i) => (i === idx ? { ...l, ...patch } : l))); }
@@ -685,6 +722,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // color (single pack-token column), not per-size eaches. The backend
         // returns a `prepack` block (pack token + composition) for any PPK style.
         const pp = s.payload?.prepack || null;
+        // Item 12 — units per pack: the matrix composition total when defined,
+        // else the digits in the pack token (PPK24 → 24). Drives the per-each
+        // price → pack price auto-calc. 0 ⇒ unknown ⇒ no per-each column.
+        const packSize = pp ? (Number(pp.pack_total) || parseInt(pp.pack_token.match(/\d+/)?.[0] || "0", 10) || 0) : 0;
         // Sizes that drive cell keys / locked-row filtering: the single pack token
         // for a prepack, else the garment size scale.
         const entrySizes = pp ? [pp.pack_token] : (s.payload?.sizes || []);
@@ -789,12 +830,31 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).{" "}
                   {pp.has_matrix
                     ? <>1 pack = <b>{pp.pack_total}</b> units: {pp.composition.map((c) => `${c.size}×${c.qty_per_pack}`).join(", ")}.</>
-                    : <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode. Add one in Masters → Prepack Matrix.</span>}
+                    : <>
+                        <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.{" "}</span>
+                        {/* Item 10 — add the matrix inline without leaving the order. */}
+                        <button type="button"
+                          onClick={() => { const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""; if (s.styleId && code) setPrepackAddFor({ sectionId: s.id, styleId: s.styleId, styleCode: code, packToken: pp.pack_token }); }}
+                          style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px", marginLeft: 2 }}>
+                          + Add prepack matrix
+                        </button>
+                      </>}
                 </div>
                 <EditableSizeMatrix
                   rows={rows} sizes={[pp.pack_token]}
                   qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
-                  unit={{ label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit, onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v), showLineTotal: true, forceDecimals: 2 }}
+                  unit={{
+                    label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit,
+                    onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v),
+                    showLineTotal: true, forceDecimals: 2,
+                    // Item 12 — per-each price driver column (preceding the pack price).
+                    // Enter $/each → pack price auto-fills = each × pack size.
+                    ...(packSize > 0 && editable ? { each: {
+                      label: moneyLabel, placeholder: "0.00", values: s.unitEach || {},
+                      onChange: (rk, v) => setUnitEach(s.id, rk, v, packSize),
+                      onSetAll: (v) => setAllUnitEach(s.id, rows, v, packSize),
+                    } } : {}),
+                  }}
                   lot={mode === "po" && showLots ? {
                     values: s.lot,
                     onChange: (rk, v) => setLot(s.id, rk, v),
@@ -850,6 +910,24 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           </div>
         );
       })}
+
+      {/* Item 10 — inline "Add prepack matrix" popup. On save, reload the style so
+          its prepack block now carries the composition (has_matrix → explode). */}
+      {prepackAddFor && (
+        <QuickAddPrepackMatrix
+          ppkStyleCode={prepackAddFor.styleCode}
+          packToken={prepackAddFor.packToken}
+          onClose={() => setPrepackAddFor(null)}
+          onSaved={() => {
+            const { sectionId, styleId } = prepackAddFor;
+            setPrepackAddFor(null);
+            patchSection(sectionId, { loading: true });
+            loadPayload(styleId)
+              .then((p) => patchSection(sectionId, { payload: p, loading: false }))
+              .catch((e) => patchSection(sectionId, { loading: false, err: e instanceof Error ? e.message : String(e) }));
+          }}
+        />
+      )}
 
       {/* SO-from-ATS over-availability warning. The operator can keep the qty
           (back-order beyond stock), clamp it to what's available, or revert. */}
