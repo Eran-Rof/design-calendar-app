@@ -145,9 +145,16 @@ Recent merged work (operator-driven SO / inventory / manufacturing run, PR #s):
 
 ## 6. Outstanding / next _(inferred — confirm)_
 
-- Finish remaining Tangerine phases per `docs/tangerine/BUILD-PROGRESS.md` (P13
-  procurement receiving→GL/3-way match is the big deferred GL-critical epic; then later
-  phases and Xoro decommission).
+- **P13 procurement receiving→GL/3-way match is BUILT, not deferred** — for native
+  `purchase_orders`: `procurement/receipts/[id]/post.js` (FIFO layers + GRNI **DR
+  Inventory / CR GR-IR 2050**, consumes `po_commitments`, rolls PO qty/status),
+  `procurement/vendor-invoice-drafts/[id].js` (3-way match **DR GR-IR / CR AP** + PO
+  Variance 6320), `InternalReceiving.tsx` UI, EDI 944 draft-receipt
+  (`edi/tpl/[provider_id]/receipt-advice.js`). Wired in #1365, EDI in #1372 — do NOT
+  rebuild. **Open gap:** `po_commitments` are not re-derived when a PO **revision**
+  changes lines → committed-amount drift (the one piece still outstanding).
+- Finish remaining Tangerine phases per `docs/tangerine/BUILD-PROGRESS.md` (later phases
+  and Xoro decommission).
 - Go-live config (operator, not code): tag a Production Manager + link PLM login (RFQ
   award notifications); vendor portal logins; prepack matrices; by-size opening-balance
   replacement at cutover.
