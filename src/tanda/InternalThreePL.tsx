@@ -14,6 +14,8 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import { useItemResolver, type ResolvedItem } from "./hooks/useItemResolver";
 import ContactList, { type Contact } from "./components/ContactList";
 import RowHistory from "./components/RowHistory";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -105,6 +107,17 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
     [{ key: "code", header: "Code" }, { key: "name", header: "Name" }, { key: "kind", header: "Kind" }, { key: "location", header: "Location" }, { key: "contact", header: "Contact" }, { key: "active", header: "Active" }];
   const rows = providers.map((p) => ({ code: p.code || "", name: p.name, kind: p.kind, location: p.inventory_locations?.name || "", contact: p.contact_name || "", active: p.is_active ? "yes" : "no" }));
 
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(providers, {
+    persistKey: "tangerine:tpl-providers:sort",
+    accessors: {
+      location: (p) => p.inventory_locations?.name || "",
+      contact: (p) => p.contact_name || "",
+      contacts: (p) => (Array.isArray(p.contacts) ? p.contacts.length : 0),
+      billing: (p) => p.billing_notes || "",
+      active: (p) => (p.is_active ? 1 : 0),
+    },
+  });
+
   return (
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -136,10 +149,19 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
       )}
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr><th style={th}>Code</th><th style={th}>Name</th><th style={th}>Kind</th><th style={th}>Location</th><th style={th}>Contact</th><th style={th}>Contacts</th><th style={th}>Billing</th><th style={th}>Active</th></tr></thead>
+        <thead><tr>
+          <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Kind" sortKey="kind" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Location" sortKey="location" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Contact" sortKey="contact" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Contacts" sortKey="contacts" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Billing" sortKey="billing" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Active" sortKey="active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+        </tr></thead>
         <tbody>
           {providers.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={8}>No 3PL providers yet.</td></tr>}
-          {providers.map((p) => (
+          {sorted.map((p) => (
             <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.5, cursor: "pointer" }} onClick={() => setEditing(p)} title="Open to edit contacts, notes & history">
               <td style={{ ...td, fontFamily: "monospace" }}>{p.code || "—"}</td>
               <td style={td}>{p.name}</td>
@@ -256,7 +278,20 @@ function Shipments({ shipments, providers, provName, itemMap, busy, setBusy, rel
   const cols: ExportColumn<{ num: string; provider: string; direction: string; status: string; units: number }>[] =
     [{ key: "num", header: "Shipment #" }, { key: "provider", header: "Provider" }, { key: "direction", header: "Direction" }, { key: "status", header: "Status" }, { key: "units", header: "Units", format: "number" }];
   const units = (s: Shipment) => s.tpl_shipment_lines.reduce((n, l) => n + Number(l.qty), 0);
-  const rows = shipments.map((s) => ({ num: s.shipment_number || "(draft)", provider: s.tpl_providers?.name || provName.get(s.tpl_provider_id) || "", direction: s.direction, status: s.status, units: units(s) }));
+  const flatRows = shipments.map((s) => ({ num: s.shipment_number || "(draft)", provider: s.tpl_providers?.name || provName.get(s.tpl_provider_id) || "", direction: s.direction, status: s.status, units: units(s) }));
+  const rows = flatRows.length === 0 ? flatRows : [
+    ...flatRows,
+    { num: "TOTAL", provider: "", direction: "", status: "", units: flatRows.reduce((n, r) => n + (Number(r.units) || 0), 0) },
+  ];
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(shipments, {
+    persistKey: "tangerine:tpl-shipments:sort",
+    accessors: {
+      num: (s) => s.shipment_number || "",
+      provider: (s) => s.tpl_providers?.name || provName.get(s.tpl_provider_id) || "",
+      units: (s) => units(s),
+    },
+  });
 
   return (
     <div>
@@ -302,10 +337,17 @@ function Shipments({ shipments, providers, provName, itemMap, busy, setBusy, rel
       )}
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr><th style={th}>Shipment #</th><th style={th}>Provider</th><th style={th}>Direction</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Units</th><th style={th}>Tracking</th><th style={th}>Actions</th></tr></thead>
+        <thead><tr>
+          <SortableTh label="Shipment #" sortKey="num" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Provider" sortKey="provider" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Direction" sortKey="direction" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          <SortableTh label="Units" sortKey="units" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
+          <th style={th}>Tracking</th><th style={th}>Actions</th>
+        </tr></thead>
         <tbody>
           {shipments.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={7}>No shipments yet.</td></tr>}
-          {shipments.map((s) => (
+          {sorted.map((s) => (
             <Fragment key={s.id}>
               <tr style={{ cursor: "pointer" }} onClick={() => setExpanded(expanded === s.id ? null : s.id)}>
                 <td style={{ ...td, fontFamily: "monospace", color: C.primary }}>{s.shipment_number || "(draft)"}</td>

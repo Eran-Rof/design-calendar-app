@@ -95,10 +95,25 @@ export default function InternalWorkspaces() {
           </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New workspace</button>
           <ExportButton
-            rows={rows.map((w) => ({
-              ...w,
-              vendor_name: w.vendor?.name || "—",
-            })) as unknown as Array<Record<string, unknown>>}
+            rows={(() => {
+              const base = rows.map((w) => ({
+                ...w,
+                vendor_name: w.vendor?.name || "—",
+              })) as Array<Record<string, unknown>>;
+              if (base.length === 0) return base as unknown as Array<Record<string, unknown>>;
+              // #23 export totals — append a TOTAL row summing the count columns.
+              const totalRow: Record<string, unknown> = {
+                name: "TOTAL",
+                vendor_name: "",
+                description: "",
+                status: "",
+                pin_count: rows.reduce((s, w) => s + (Number(w.pin_count) || 0), 0),
+                open_task_count: rows.reduce((s, w) => s + (Number(w.open_task_count) || 0), 0),
+                task_count: rows.reduce((s, w) => s + (Number(w.task_count) || 0), 0),
+                created_at: "",
+              };
+              return [...base, totalRow] as unknown as Array<Record<string, unknown>>;
+            })()}
             filename="workspaces"
             sheetName="Workspaces"
             columns={[

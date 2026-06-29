@@ -63,6 +63,14 @@ This is rolling out panel-by-panel. The master-data and operations panels (Gende
 
 The heavily virtualized / sticky-column grids (the main ATS grid, the wholesale/ecom planning grids) are intentionally left out — a row-by-row reorder there would fight the frozen columns and per-cell editors.
 
+**Wave 3 (2026-06-29)** extends the same click-to-sort to the OPS / Inventory panels: **Receiving**, **3PL** (Providers + Shipments), **3PL Recon**, **Drop-ship**, **Sales Returns / RMA**, **Shopify Refunds**, **Reconciliation Dashboard** (cutover-history list), **EDI** (Partners + Messages), **EDI Customers**, **Marketplace Status**, **Size Scales**, and **Three-Way Match**. As always, editable line-entry grids and expanded detail sub-tables are left inert (no ▲/▼). The cross-vendor **Shipments** view and a few card-style lists (Workspaces, Sustainability, Marketplace Inquiries) render rows outside a sortable table and so aren't click-sortable, but their filters and exports got the same treatment.
+
+Two companion sweeps landed alongside wave 3:
+
+- **Export Totals row.** On these panels, when the export carries numeric or money columns, the exported spreadsheet now ends with a **TOTAL** row that sums those columns (text columns are left blank). It honours the same WYSIWYG rule as the rest of export — it totals whatever rows are currently in the table.
+- **Select-on-focus search boxes.** Clicking (or tabbing) into a panel's free-text **search/filter** box now **selects its current contents**, so you can just start typing to replace the previous search instead of clearing it first.
+- **Cascading filters.** On the cross-vendor **Shipments** view, the **Vendor** and **Status** dropdowns (plus the search box) now narrow each other — each dropdown only offers values that still have matching shipments under the other active filters (your current selection always stays available so you can clear it).
+
 ## Code map
 
 - `src/tanda/exports/ExportButton.tsx` — the drop-in button + dropdown.

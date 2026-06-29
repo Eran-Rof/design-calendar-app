@@ -417,13 +417,28 @@ export default function InternalAllocations() {
     } finally { setPreviewBusy(false); }
   }
 
-  const exportRows = useMemo(() => demand.map((d) => ({
-    so_number: d.so_number || "(draft)", customer: d.customer_name || d.customer_id,
-    style: d.description || "", color: d.color || "", size: d.size || "", sku_code: d.sku_code || "",
-    priority: TIER_BADGE[tierOf(d)].label, start_ship: d.requested_ship_date || "", cancel: d.cancel_date || "",
-    ordered: n(d.qty_ordered), allocated: n(d.qty_allocated), open: n(d.open_qty),
-    available: n(avail[d.item_id]?.available_qty),
-  })), [demand, avail]);
+  const exportRows = useMemo(() => {
+    const body = demand.map((d) => ({
+      so_number: d.so_number || "(draft)", customer: d.customer_name || d.customer_id,
+      style: d.description || "", color: d.color || "", size: d.size || "", sku_code: d.sku_code || "",
+      priority: TIER_BADGE[tierOf(d)].label, start_ship: d.requested_ship_date || "", cancel: d.cancel_date || "",
+      ordered: n(d.qty_ordered), allocated: n(d.qty_allocated), open: n(d.open_qty),
+      available: n(avail[d.item_id]?.available_qty),
+    }));
+    // #23 — append a TOTAL footer row summing the numeric qty columns so the
+    // spreadsheet carries the same totals an operator reads off the grid.
+    if (body.length) {
+      body.push({
+        so_number: "TOTAL", customer: "", style: "", color: "", size: "", sku_code: "",
+        priority: "", start_ship: "", cancel: "",
+        ordered: body.reduce((s, r) => s + r.ordered, 0),
+        allocated: body.reduce((s, r) => s + r.allocated, 0),
+        open: body.reduce((s, r) => s + r.open, 0),
+        available: body.reduce((s, r) => s + r.available, 0),
+      });
+    }
+    return body;
+  }, [demand, avail]);
 
   // First column is the SKU·Size descriptor (always shown); the rest follow COLUMNS.
   const colSpan = 1 + ["tier", "ordered", "allocated", "open"].filter(isVisible).length;

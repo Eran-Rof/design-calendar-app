@@ -41,6 +41,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge from "./components/SourceBadge";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const CUTOVER_TABLE_KEY = "tanda.recon_cutover_history";
 const CUTOVER_COLUMNS: ColumnDef[] = [
@@ -375,6 +377,22 @@ export default function InternalReconciliationDashboard() {
   const cutoverPrefs = useTablePrefs(CUTOVER_TABLE_KEY, CUTOVER_COLUMNS);
   const cutoverVisible = cutoverPrefs.visibleColumns;
 
+  // Tri-state column sort for the cutover-history LIST table (#5). Derived
+  // keys: clean_window sorts by window start; signoff_emp by signed/blank.
+  const {
+    sorted: sortedCutovers,
+    sortKey: cutoverSortKey,
+    sortDir: cutoverSortDir,
+    onHeaderClick: onCutoverSort,
+  } = useSort(cutovers, {
+    persistKey: "tangerine:recon-cutover:sort",
+    accessors: {
+      clean_window: (c) => c.clean_window_start,
+      signoff_emp: (c) => (c.signoff_employee_id ? 1 : 0),
+      signoff_at: (c) => c.signoff_at,
+    },
+  });
+
   async function loadRuns() {
     setLoading(true); setErr(null);
     try {
@@ -686,16 +704,16 @@ export default function InternalReconciliationDashboard() {
             <table style={{ width: "100%", borderCollapse: "collapse" }} data-testid="recon-cutover-table">
               <thead>
                 <tr>
-                  <th style={th} hidden={!cutoverVisible.has("domain")}>Domain</th>
-                  <th style={th} hidden={!cutoverVisible.has("source_tag")}>Source tag</th>
-                  <th style={th} hidden={!cutoverVisible.has("clean_window")}>Clean window</th>
-                  <th style={th} hidden={!cutoverVisible.has("total_recons")}>Total recons</th>
-                  <th style={th} hidden={!cutoverVisible.has("signoff_emp")}>Signoff employee</th>
-                  <th style={th} hidden={!cutoverVisible.has("signoff_at")}>Signed off at</th>
+                  <SortableTh label="Domain" sortKey="domain" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("domain")} />
+                  <SortableTh label="Source tag" sortKey="source_tag" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("source_tag")} />
+                  <SortableTh label="Clean window" sortKey="clean_window" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("clean_window")} />
+                  <SortableTh label="Total recons" sortKey="total_recons" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("total_recons")} />
+                  <SortableTh label="Signoff employee" sortKey="signoff_emp" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("signoff_emp")} />
+                  <SortableTh label="Signed off at" sortKey="signoff_at" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("signoff_at")} />
                 </tr>
               </thead>
               <tbody>
-                {cutovers.map((c) => (
+                {sortedCutovers.map((c) => (
                   <tr key={c.id} data-testid={`recon-cutover-row-${c.id}`}>
                     <td style={td} hidden={!cutoverVisible.has("domain")}><strong>{c.domain}</strong></td>
                     <td style={td} hidden={!cutoverVisible.has("source_tag")}>
@@ -760,10 +778,28 @@ function VarianceSidePanel({
   onClose: () => void;
   onClear: (v: ReconVariance) => void;
 }) {
-  const exportRows = useMemo(
-    () => variances.map(flattenVarianceForExport),
-    [variances],
-  );
+  const exportRows = useMemo(() => {
+    const flat = variances.map(flattenVarianceForExport);
+    if (flat.length === 0) return flat;
+    // #23 — append a TOTAL row summing the numeric dollar / percent columns;
+    // all non-numeric columns stay blank except the leading TOTAL marker.
+    const sum = (k: string) =>
+      flat.reduce((acc, r) => acc + (typeof r[k] === "number" ? (r[k] as number) : 0), 0);
+    const totalRow: Record<string, unknown> = {
+      id: "TOTAL",
+      source_table: "",
+      source_id: "",
+      source_tag: "",
+      tangerine_dollars: sum("tangerine_dollars"),
+      xoro_dollars: sum("xoro_dollars"),
+      variance_dollars: sum("variance_dollars"),
+      variance_percent: sum("variance_percent"),
+      status: "",
+      notes: "",
+      created_at: "",
+    };
+    return [...flat, totalRow];
+  }, [variances]);
 
   return (
     <div

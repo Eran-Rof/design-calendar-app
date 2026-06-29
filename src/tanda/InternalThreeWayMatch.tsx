@@ -18,6 +18,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -95,14 +97,38 @@ export default function InternalThreeWayMatch() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter]);
 
-  const exportRows = useMemo(() => rows.map((r) => ({
-    vendor_name: r.vendor_name || "",
-    vendor_invoice_number: r.vendor_invoice_number,
-    invoice_date: r.invoice_date,
-    total_cents: r.total_cents,
-    three_way_match_status: r.three_way_match_status,
-    variance_cents: r.variance_cents,
-  })), [rows]);
+  // #5 sortable columns — total/variance are number|string from the API, so
+  // sort them numerically; vendor sorts on the resolved name.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:threewaymatch:sort",
+    accessors: {
+      vendor_name: (r) => r.vendor_name || "",
+      total_cents: (r) => Number(r.total_cents ?? 0),
+      variance_cents: (r) => Number(r.variance_cents ?? 0),
+    },
+  });
+
+  const exportRows = useMemo(() => {
+    const base = rows.map((r) => ({
+      vendor_name: r.vendor_name || "",
+      vendor_invoice_number: r.vendor_invoice_number,
+      invoice_date: r.invoice_date,
+      total_cents: r.total_cents,
+      three_way_match_status: r.three_way_match_status,
+      variance_cents: r.variance_cents,
+    }));
+    if (base.length === 0) return base;
+    // #23 export totals — append a TOTAL row summing the numeric cents columns.
+    const totalRow = {
+      vendor_name: "TOTAL",
+      vendor_invoice_number: "",
+      invoice_date: "",
+      total_cents: rows.reduce((s, r) => s + Number(r.total_cents ?? 0), 0),
+      three_way_match_status: "",
+      variance_cents: rows.reduce((s, r) => s + Number(r.variance_cents ?? 0), 0),
+    };
+    return [...base, totalRow];
+  }, [rows]);
 
   return (
     <div style={{ color: C.text }}>
@@ -128,13 +154,17 @@ export default function InternalThreeWayMatch() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>Vendor</th><th style={th}>Invoice #</th><th style={th}>Date</th>
-            <th style={{ ...th, textAlign: "right" }}>Total</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Variance</th>
+            <SortableTh label="Vendor" sortKey="vendor_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Invoice #" sortKey="vendor_invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Date" sortKey="invoice_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Total" sortKey="total_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
+            <SortableTh label="Status" sortKey="three_way_match_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Variance" sortKey="variance_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
             {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No vendor invoice drafts.</td></tr>}
-            {rows.map((r) => (
+            {sorted.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setCreating(false); setEditingId(r.id); setModalOpen(true); }}>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>(vendor)</span>}</td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.vendor_invoice_number}</td>

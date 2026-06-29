@@ -49,6 +49,8 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const TABLE_KEY = "tanda.marketplace_status";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -249,18 +251,49 @@ export default function InternalMarketplaceStatus() {
     return out;
   }, [statuses]);
 
+  // #5 — tri-state column sort over the feed-status rows. Accessors resolve
+  // the derived/JSX columns (channel + feed labels, last-sync timestamp); the
+  // numeric columns read same-named scalar fields straight off the row.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(statuses, {
+    persistKey: "tangerine:marketplace_status:sort",
+    accessors: {
+      channel: (s) => CHANNEL_LABEL[s.channel],
+      feed: (s) => FEEDS.find((f) => f.channel === s.channel && f.kind === s.kind)?.label ?? s.kind,
+      last_sync: (s) => (s.last_sync_at ? new Date(s.last_sync_at) : null),
+      unposted: (s) => s.unposted_count,
+      unmatched_dep: (s) => s.unmatched_deposits,
+    },
+  });
+
   // Export rows — WYSIWYG, the full table the operator is staring at.
   const exportRows = useMemo(
-    () => statuses.map((s) => ({
-      channel: CHANNEL_LABEL[s.channel],
-      feed: s.kind,
-      table: s.table,
-      last_sync_at: s.last_sync_at,
-      rows_in_range: s.rows_in_range,
-      unposted_count: s.unposted_count ?? "",
-      unmatched_deposits: s.unmatched_deposits ?? "",
-      errors_24h: s.errors_24h,
-    })),
+    () => {
+      const body = statuses.map((s) => ({
+        channel: CHANNEL_LABEL[s.channel],
+        feed: s.kind as string,
+        table: s.table,
+        last_sync_at: s.last_sync_at,
+        rows_in_range: s.rows_in_range,
+        unposted_count: s.unposted_count ?? "",
+        unmatched_deposits: s.unmatched_deposits ?? "",
+        errors_24h: s.errors_24h,
+      }));
+      // #23 — append a TOTAL row summing the numeric columns so the exported
+      // spreadsheet carries a footer (no totals prop on ExportButton).
+      if (body.length > 0) {
+        body.push({
+          channel: "TOTAL",
+          feed: "",
+          table: "",
+          last_sync_at: null,
+          rows_in_range: statuses.reduce((a, s) => a + (s.rows_in_range || 0), 0),
+          unposted_count: statuses.reduce((a, s) => a + (s.unposted_count ?? 0), 0),
+          unmatched_deposits: statuses.reduce((a, s) => a + (s.unmatched_deposits ?? 0), 0),
+          errors_24h: statuses.reduce((a, s) => a + (s.errors_24h || 0), 0),
+        });
+      }
+      return body;
+    },
     [statuses],
   );
 
@@ -391,13 +424,13 @@ export default function InternalMarketplaceStatus() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("channel")}>Channel</th>
-                <th style={th} hidden={!visibleColumns.has("feed")}>Feed</th>
-                <th style={th} hidden={!visibleColumns.has("last_sync")}>Last sync</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")}>Rows in range</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unposted")}>Unposted</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")}>Unmatched dep.</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")}>Errors 24h</th>
+                <SortableTh label="Channel" sortKey="channel" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("channel")} />
+                <SortableTh label="Feed" sortKey="feed" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("feed")} />
+                <SortableTh label="Last sync" sortKey="last_sync" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("last_sync")} />
+                <SortableTh label="Rows in range" sortKey="rows_in_range" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")} />
+                <SortableTh label="Unposted" sortKey="unposted" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unposted")} />
+                <SortableTh label="Unmatched dep." sortKey="unmatched_dep" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")} />
+                <SortableTh label="Errors 24h" sortKey="errors_24h" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")} />
                 <th style={{ ...th, textAlign: "center" }}>Run now</th>
               </tr>
             </thead>
@@ -405,7 +438,7 @@ export default function InternalMarketplaceStatus() {
               {statuses.length === 0 && !loading && (
                 <tr><td colSpan={8} style={{ ...td, color: C.textMuted, textAlign: "center", fontStyle: "italic" }}>No feeds reporting.</td></tr>
               )}
-              {statuses.map((s) => {
+              {sorted.map((s) => {
                 const feed = FEEDS.find((f) => f.channel === s.channel && f.kind === s.kind);
                 const busy = feed?.manualUrl === manualBusy;
                 return (

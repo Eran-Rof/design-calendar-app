@@ -12,6 +12,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -63,6 +65,40 @@ export default function InternalEDI() {
   useEffect(() => { fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {}); }, []);
 
   const vendName = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors]);
+
+  // #5 — tri-state column sort for the two LIST tables. Vendor / document /
+  // when columns resolve through derived accessors (display values).
+  const {
+    sorted: sortedPartners,
+    sortKey: partnersSortKey,
+    sortDir: partnersSortDir,
+    onHeaderClick: onPartnersSort,
+  } = useSort(partners, {
+    persistKey: "tangerine:edi-partners:sort",
+    accessors: {
+      vendor: (p) => p.vendor_name || vendName.get(p.vendor_id) || "",
+      partner_id: (p) => p.partner_id,
+      transport: (p) => p.transport || "",
+      status: (p) => p.status,
+      last_sync: (p) => p.last_sync_at || "",
+    },
+  });
+  const {
+    sorted: sortedMessages,
+    sortKey: messagesSortKey,
+    sortDir: messagesSortDir,
+    onHeaderClick: onMessagesSort,
+  } = useSort(messages, {
+    persistKey: "tangerine:edi-messages:sort",
+    accessors: {
+      when: (m) => m.created_at,
+      vendor: (m) => m.vendor_name || vendName.get(m.vendor_id) || "",
+      direction: (m) => m.direction,
+      document: (m) => TXN_LABEL[m.transaction_set] || m.transaction_set,
+      interchange: (m) => m.interchange_id || "",
+      status: (m) => m.status,
+    },
+  });
 
   async function enable() {
     if (!vendId) { notify("Pick a vendor", "error"); return; }
@@ -116,10 +152,16 @@ export default function InternalEDI() {
           )}
           <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Vendor</th><th style={th}>Partner ID</th><th style={th}>Transport</th><th style={th}>Status</th><th style={th}>Last sync</th></tr></thead>
+            <thead><tr>
+              <SortableTh label="Vendor" sortKey="vendor" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Partner ID" sortKey="partner_id" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Transport" sortKey="transport" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Status" sortKey="status" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Last sync" sortKey="last_sync" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+            </tr></thead>
             <tbody>
               {partners.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={5}>No EDI partners configured yet.</td></tr>}
-              {partners.map((p) => (
+              {sortedPartners.map((p) => (
                 <tr key={p.id}>
                   <td style={td}>{p.vendor_name || vendName.get(p.vendor_id) || "—"}{p.vendor_code ? ` (${p.vendor_code})` : ""}</td>
                   <td style={{ ...td, fontFamily: "monospace" }}>{p.partner_id}</td>
@@ -141,10 +183,17 @@ export default function InternalEDI() {
           </div>
           <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>When</th><th style={th}>Vendor</th><th style={th}>Dir</th><th style={th}>Document</th><th style={th}>Interchange</th><th style={th}>Status</th></tr></thead>
+            <thead><tr>
+              <SortableTh label="When" sortKey="when" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Vendor" sortKey="vendor" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Dir" sortKey="direction" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Document" sortKey="document" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Interchange" sortKey="interchange" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Status" sortKey="status" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+            </tr></thead>
             <tbody>
               {messages.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={6}>No EDI messages yet — they appear here once partners exchange X12.</td></tr>}
-              {messages.map((m) => (
+              {sortedMessages.map((m) => (
                 <tr key={m.id}>
                   <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{new Date(m.created_at).toLocaleString()}</td>
                   <td style={td}>{m.vendor_name || vendName.get(m.vendor_id) || "—"}</td>
