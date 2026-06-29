@@ -195,6 +195,40 @@ function sizeVariantsOf(raw) {
 }
 const looseKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
 
+// Colour-abbreviation expansion. Xoro writes abbreviated colour words
+// ("Carbon- Blck", "IBIZA - MED WASH", "Skylar-LtBlue") while the catalog spells
+// them out ("Carbon - Black", "Ibiza - Medium Wash", "Skylar - Light Blue"), so
+// the loose key BLCK≠BLACK and the tuple colour match miss. We expand ONLY the
+// known abbreviation TOKENS and PRESERVE every other word — so "IBIZA - MED WASH"
+// → "IBIZA MEDIUM WASH" (Ibiza, the wash name, is kept; never collapsed to just
+// "Medium Wash"). Applied identically to BOTH the Xoro value and the catalog
+// value so they converge. Tokenises on non-alphanumerics AND camelCase / letter-
+// digit boundaries so combined forms ("LtBlue", "MdBlue") split correctly.
+const COLOR_ABBR = {
+  LT: "LIGHT", LITE: "LIGHT", LGT: "LIGHT", DK: "DARK", DRK: "DARK",
+  MD: "MEDIUM", MED: "MEDIUM", MDM: "MEDIUM",
+  BLK: "BLACK", BLCK: "BLACK", BLAK: "BLACK",
+  GRY: "GREY", GRAY: "GREY", GRYE: "GREY", HTHR: "HEATHER", HTR: "HEATHER",
+  CHRCL: "CHARCOAL", CHRC: "CHARCOAL", WSH: "WASH", WHT: "WHITE", WHTE: "WHITE",
+  BLU: "BLUE", NVY: "NAVY", BRN: "BROWN", GRN: "GREEN", W: "WITH", WTINT: "WITHTINT",
+};
+function expandTokens(s) {
+  return String(s ?? "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")     // camelCase  → camel Case
+    .replace(/([A-Za-z])([0-9])/g, "$1 $2")  // letter+digit boundary
+    .replace(/([0-9])([A-Za-z])/g, "$1 $2")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim().toUpperCase()
+    .split(/\s+/)
+    .map((t) => COLOR_ABBR[t] || t)
+    .join(" ");
+}
+// Abbreviation-expanded loose key (no separators) — for full ItemNumber↔sku_code
+// matching that tolerates abbreviated colour words.
+const expandedKey = (s) => expandTokens(s).replace(/[^A-Z0-9]+/g, "");
+// Abbreviation-expanded colour key — for choosing the right sibling colour.
+const expandedColorKey = (s) => expandTokens(s).replace(/\s+/g, " ").trim();
+
 // Parse a Xoro ItemNumber "STYLE-COLOR-SIZE" -> {style_code, color, size}.
 function parseItemNumber(item) {
   const s = String(item ?? "").trim();
@@ -333,10 +367,10 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   if (styleId && p.size) {
     const variants = sizeVariantsOf(p.size).map((s) => `"${s.replace(/"/g, '""')}"`).join(",");
     const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&style_id=eq.${styleId}&size=in.(${enc(variants)})&select=id,color,size`);
-    if (data?.length) {
-      const hit = data.find((r) => norm(r.color) === norm(p.color)) || data[0];
-      out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out;
-    }
+    // Match the colour (abbreviation-expanded) — do NOT fall back to data[0], which
+    // would attach a WRONG colour (e.g. an "Ibiza" line resolving to "Algae").
+    const hit = (data || []).find((r) => expandedColorKey(r.color) === expandedColorKey(p.color));
+    if (hit) { out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out; }
   }
   // 3) loose sku_code match within the style family (capture the family so a
   //    missing SIZE can be auto-created from a sibling below).
@@ -346,6 +380,12 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     const target = looseKey(itemNumber);
     const hit = family.find((r) => looseKey(r.sku_code) === target);
     if (hit) { out = { id: hit.id, created: false, reason: "loose-sku" }; skuCache.set(itemNumber, out); return out; }
+    // 3b) abbreviation-expanded loose match: tolerate Xoro's abbreviated colour
+    //     words (Blck↔Black, MD↔Medium, Lt↔Light) while KEEPING the wash name
+    //     (Ibiza, Carbon…). Expands both sides' tokens then strips separators.
+    const exTarget = expandedKey(itemNumber);
+    const exHit = family.find((r) => expandedKey(r.sku_code) === exTarget);
+    if (exHit) { out = { id: exHit.id, created: false, reason: "loose-expanded" }; skuCache.set(itemNumber, out); return out; }
   }
   // 3.5) AUTO-CREATE a missing SIZED SKU under an ON-MASTER family (sibling
   //      inherit). The prior code minted is_apparel=false rows unconditionally,
@@ -358,8 +398,15 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   //        • a real garment size (skip PPK pack tokens — those need a prepack setup)
   //      Off-master items (no family) still fall through to the unresolved bucket
   //      for an operator-gated style + SKU backfill (unchanged).
+  // Only create when a sibling with the SAME colour (abbreviation-expanded) exists,
+  // so the new SKU inherits the catalog's colour spelling. NEVER fall back to an
+  // arbitrary sibling's colour (that would mint a WRONG-colour SKU — e.g. creating
+  // an "Ibiza" size under "Algae"). No colour match ⇒ leave unresolved + reported.
+  // Prefer a SIZED sibling (r.size present) of the same colour, so the sku_code
+  // size-swap is valid — never a color-grain/no-size row.
   const sib = (family.length && p.size && !/PPK/i.test(itemNumber) && !/PPK/i.test(p.size))
-    ? (family.find((r) => r.style_id && norm(r.color) === norm(p.color)) || family.find((r) => r.style_id) || null)
+    ? (family.find((r) => r.style_id && r.size && expandedColorKey(r.color) === expandedColorKey(p.color))
+        || family.find((r) => r.style_id && expandedColorKey(r.color) === expandedColorKey(p.color)) || null)
     : null;
   if (sib) {
     if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
@@ -381,8 +428,20 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
       return out;
     }
     if (error && error.code === "23505") {
-      const again = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(newSku)}&select=id&limit=1`);
+      // The sku_code OR the LOGICAL tuple (style_id+color+canonical-size+inseam)
+      // already exists under a different sku_code spelling — reuse it rather than
+      // dropping the line to unresolved. Try exact sku_code, then the tuple.
+      let again = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(newSku)}&select=id&limit=1`);
+      if (!again?.length) {
+        const variants = sizeVariantsOf(p.size).map((s) => `"${s.replace(/"/g, '""')}"`).join(",");
+        const colorF = sib.color ? `&color=eq.${enc(sib.color)}` : `&color=is.null`;
+        const inseamF = sib.inseam ? `&inseam=eq.${enc(sib.inseam)}` : "";
+        again = await pgGet("ip_item_master", `entity_id=eq.${entityId}&style_id=eq.${sib.style_id}${colorF}${inseamF}&size=in.(${enc(variants)})&select=id&limit=1`);
+      }
       if (again?.[0]?.id) { out = { id: again[0].id, created: false, reason: "created-sibling-existing" }; skuCache.set(itemNumber, out); return out; }
+    } else if (error) {
+      // Unexpected insert failure — surface it (was silently dropped to unresolved).
+      console.error(`  ! sku create failed [${itemNumber} -> ${newSku}]: ${error.message || error.code || error}`);
     }
   }
   // 4) Could not resolve or create → import null-linked (reported). off-master
