@@ -60,6 +60,33 @@ export default function InternalMfgBuildOrders() {
   }
   useEffect(() => { void load(); }, []);
 
+  // Item 2 — delete a build line. The server only deletes draft/cancelled builds
+  // (components cascade); we check whether a BOM is attached (snapshotted on
+  // Release) and warn before deleting so the operator can continue or cancel.
+  async function handleDelete(b: Build) {
+    if (b.status !== "draft" && b.status !== "cancelled") {
+      notify("Only a draft or cancelled build can be deleted — cancel it first.", "error");
+      return;
+    }
+    let hasBom = b.status !== "draft"; // fallback heuristic if the detail fetch fails
+    try {
+      const r = await fetch(`/api/internal/build-orders/${b.id}`);
+      if (r.ok) { const full = await r.json() as Build; hasBom = Array.isArray(full.components) && full.components.length > 0; }
+    } catch { /* keep heuristic */ }
+    const ok = await confirmDialog(
+      hasBom
+        ? `Build ${b.build_number} has a BOM attached (its components are snapshotted). Deleting removes the build and its components. Continue?`
+        : `Delete build ${b.build_number}? This can't be undone.`,
+    );
+    if (!ok) return;
+    try {
+      const r = await fetch(`/api/internal/build-orders/${b.id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Build ${b.build_number} deleted.`, "success");
+      void load();
+    } catch (e: unknown) { notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+  }
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
@@ -103,6 +130,7 @@ export default function InternalMfgBuildOrders() {
                   <th style={th}>Status</th>
                   <th style={{ ...th, textAlign: "right" }}>WIP/Accum</th>
                   <th style={{ ...th, textAlign: "right" }}>Unit Cost</th>
+                  <th style={th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -114,6 +142,12 @@ export default function InternalMfgBuildOrders() {
                     <td style={td}><span style={{ color: STATUS_COLOR[b.status] }}>{b.status}</span></td>
                     <td style={{ ...td, textAlign: "right" }}>{money(b.accumulated_cost_cents)}</td>
                     <td style={{ ...td, textAlign: "right" }}>{money(b.finished_unit_cost_cents)}</td>
+                    {/* Item 2 — delete a build (draft/cancelled only; warns when a BOM is attached). */}
+                    <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                      {(b.status === "draft" || b.status === "cancelled") && (
+                        <button style={btnDanger} onClick={() => void handleDelete(b)}>Del</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
