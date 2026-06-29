@@ -120,6 +120,12 @@ export interface LineMatrixBodyHandle {
   /** Current filled lines for a printable document view, as a per-style color ×
    *  size MATRIX — read-only, NO SKU resolution / side effects (unlike resolve()). */
   getDocumentData: () => OrderDocData;
+  /** Add an empty style (matrix) section — same as the in-body Add button. Lets a
+   *  parent that hides the in-body buttons (hideAddButtons) drive them from its
+   *  own toolbar (operator item 2). */
+  addSection: () => void;
+  /** Add an empty non-matrix (flat) line — same as the in-body Add button. */
+  addFlat: () => void;
 }
 
 type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
@@ -154,6 +160,10 @@ export interface LineMatrixBodyProps {
    *  (e.g. a confirmed SO). Defaults to `editable`. Clicking an add button
    *  calls onRequestEdit() first so the newly-added row is editable. */
   canAdd?: boolean;
+  /** Hide the in-body Add-style / Add-line buttons. The SO modal sets this and
+   *  renders its own pair of buttons up on the Fulfillment-source row (operator
+   *  item 2), driving them through the exposed addSection()/addFlat() handle. */
+  hideAddButtons?: boolean;
   onRequestEdit?: () => void;
   /** PO: show a per-style "Requested in DC" + "Vendor-confirmed" date pair in
    *  each section header; the dates ride along on every resolved line of that
@@ -182,7 +192,7 @@ export type BodyTotals = { qty: number; cents: number; costCents: number; margin
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, hideAddButtons = false, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -568,6 +578,8 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       }
       return { styles: styleGroups, flats };
     },
+    addSection,
+    addFlat,
   }), [sections, flat, styles]);
 
   // Flat-picker options: merge any seeded label whose SKU isn't in the 500-item list.
@@ -587,7 +599,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             {showLots ? "Hide lots" : "Show lots"}
           </button>
         )}
-        {(canAdd ?? editable) && (
+        {(canAdd ?? editable) && !hideAddButtons && (
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={addSection} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Add style (matrix)</button>
             <button onClick={addFlat} style={btnSecondary}>+ Add non-matrix line</button>
@@ -611,9 +623,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         </div>
       )}
 
-      {sections.length === 0 && flat.length === 0 && (
+      {sections.length === 0 && flat.length === 0 && !editable && (
         <div style={{ color: C.textMuted, fontSize: 13, padding: "16px 12px", border: `1px dashed ${C.cardBdr}`, borderRadius: 8, marginBottom: 12 }}>
-          {editable ? "Click Add style (matrix) and type ordered quantities into the color × size grid. Most styles are matrix-driven; use + Add non-matrix line for the rare one-off SKU." : "No lines."}
+          No lines.
         </div>
       )}
 

@@ -141,7 +141,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
 const SELECT_COLS =
   "id, entity_id, brand_id, channel_id, customer_id, ship_to_location_id, so_number, " +
   "order_date, requested_ship_date, cancel_date, status, currency, payment_terms_id, " +
-  "ar_account_id, revenue_account_id, notes, customer_po, customer_po_is_placeholder, is_bulk_order, subtotal_cents, total_cents, fulfillment_source, is_closeout, " +
+  "ar_account_id, revenue_account_id, notes, customer_po, customer_po_is_placeholder, is_bulk_order, subtotal_cents, total_cents, fulfillment_source, is_closeout, sale_store, " +
   "factor_approval_status, factor_reference, factor_approved_cents, buyer_id, " +
   "credit_approval_status, credit_hold_reason, amount_paid_cents, paid_in_full_at, " +
   "parent_sales_order_id, is_split_parent, created_at, updated_at";
@@ -206,6 +206,7 @@ export function validateInsert(body) {
       revenue_account_id: nz("revenue_account_id"),
       notes: body.notes ? String(body.notes).trim() : null,
       customer_po: body.customer_po ? String(body.customer_po).trim() : null,
+      sale_store: body.sale_store && String(body.sale_store).trim() ? String(body.sale_store).trim() : null,
       customer_po_is_placeholder: body.customer_po_is_placeholder === true,
       is_bulk_order: body.is_bulk_order === true,
       fulfillment_source: ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null,
@@ -240,7 +241,19 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
-    const status = (url.searchParams.get("status") || "").trim();
+
+    // Facet: distinct selling-store list for the grid's Store filter dropdown.
+    if (url.searchParams.get("facet") === "stores") {
+      const { data: stores, error: stErr } = await admin.rpc("distinct_so_sale_stores", { p_entity_id: entity.id });
+      if (stErr) return res.status(500).json({ error: stErr.message });
+      return res.status(200).json((stores || []).map((r) => r.sale_store).filter(Boolean));
+    }
+
+    // Status may be a comma-separated list (multi-select grid filter); store is a
+    // single selling-store value (Item 5).
+    const statusRaw = (url.searchParams.get("status") || "").trim();
+    const statuses = statusRaw ? statusRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const store = (url.searchParams.get("store") || "").trim();
     const customerId = (url.searchParams.get("customer_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
     const customerPo = (url.searchParams.get("customer_po") || "").trim();
@@ -275,7 +288,9 @@ export default async function handler(req, res) {
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
-    if (status && !STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    for (const s of statuses) {
+      if (!STATUSES.includes(s)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    }
 
     const custId = customerId && UUID_RE.test(customerId) ? customerId : null;
     let data, error;
@@ -287,7 +302,7 @@ export default async function handler(req, res) {
       ({ data, error } = await admin.rpc("search_sales_orders", {
         p_entity_id: entity.id,
         p_q: q,
-        p_status: status || null,
+        p_status: statuses.length === 1 ? statuses[0] : null,
         p_customer_id: custId,
         p_brand_id: activeBrandId(req),
         p_channel_id: activeChannelId(req),
@@ -301,13 +316,21 @@ export default async function handler(req, res) {
         .limit(limit);
       query = applyBrandScope(query, req);
       query = applyChannelScope(query, req);
-      if (status) query = query.eq("status", status);
+      if (statuses.length === 1) query = query.eq("status", statuses[0]);
+      else if (statuses.length > 1) query = query.in("status", statuses);
+      if (store) query = query.eq("sale_store", store);
       if (custId) query = query.eq("customer_id", custId);
       ({ data, error } = await query);
     }
     if (error) return res.status(500).json({ error: error.message });
 
-    const headers = data || [];
+    let headers = data || [];
+    // The search RPC can't express a multi-status set or the store filter, so
+    // apply those client-side to the RPC result (Item 5 / Item 6).
+    if (q) {
+      if (statuses.length > 1) { const set = new Set(statuses); headers = headers.filter((h) => set.has(h.status)); }
+      if (store) headers = headers.filter((h) => (h.sale_store || "") === store);
+    }
     // Resolve a style_id → style_code so the style scope works from a drill too.
     if (!styleFilter) {
       const styleIdParam = (url.searchParams.get("style_id") || "").trim();
@@ -362,6 +385,7 @@ export default async function handler(req, res) {
       revenue_account_id: v.data.revenue_account_id,
       notes: v.data.notes,
       customer_po: v.data.customer_po,
+      sale_store: v.data.sale_store,
       customer_po_is_placeholder: v.data.customer_po_is_placeholder,
       is_bulk_order: v.data.is_bulk_order,
       fulfillment_source: v.data.fulfillment_source,
