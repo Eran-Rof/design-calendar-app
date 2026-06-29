@@ -16,13 +16,13 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import SearchableSelect from "./components/SearchableSelect";
 import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
-import { fmtDateDisplay } from "../utils/tandaTypes";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const INV_ADJ_TABLE_KEY = "tangerine:inventoryadjustments:columns";
 const INV_ADJ_COLUMNS: ColumnDef[] = [
   { key: "when",    label: "When" },
+  { key: "by",      label: "By" },
   { key: "type",    label: "Type" },
   { key: "style",   label: "Style" },
   { key: "qty",     label: "Qty" },
@@ -46,6 +46,7 @@ type Adjustment = {
   created_at: string;
   updated_at: string;
   created_by_user_id: string | null;
+  created_by_name?: string | null;
 };
 
 type Item = { id: string; sku_code: string | null; description?: string | null };
@@ -105,7 +106,6 @@ const modalCard: React.CSSProperties = {
   padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
-const fmtDate = fmtDateDisplay;
 
 function fmtMoneyCents(cents: number | null): string {
   if (cents == null) return "-";
@@ -126,9 +126,16 @@ export default function InternalInventoryAdjustments() {
   // Filters
   const [filterType, setFilterType] = useState<string>("");
   const [filterItem, setFilterItem] = useState("");
+  const [filterUser, setFilterUser] = useState(""); // item 4 — who created the adjustment
   const [filterPosted, setFilterPosted] = useState<"" | "true" | "false">("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  // Item 4 — distinct creators present in the loaded rows → user-filter options.
+  const userOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) if (r.created_by_user_id) m.set(r.created_by_user_id, r.created_by_name || r.created_by_user_id.slice(0, 8));
+    return [{ value: "", label: "All users" }, ...[...m].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }))];
+  }, [rows]);
 
   // Add flow. "+ Add" is the single entry point; it first opens a small chooser
   // (Single variant vs Matrix), which then opens the corresponding modal.
@@ -283,11 +290,20 @@ export default function InternalInventoryAdjustments() {
           />
         </div>
         <input
-          style={{ ...inputStyle, width: 320 }}
+          style={{ ...inputStyle, width: 280 }}
           placeholder="Filter by SKU…"
           value={filterItem}
           onChange={(e) => setFilterItem(e.target.value)}
         />
+        <div style={{ width: 180 }} title="Filter by who created the adjustment">
+          <SearchableSelect
+            value={filterUser || null}
+            onChange={(v) => setFilterUser(v || "")}
+            options={userOptions}
+            placeholder="All users"
+            inputStyle={inputStyle}
+          />
+        </div>
         <div style={{ width: 140 }}>
           <SearchableSelect
             value={filterPosted || null}
@@ -358,6 +374,7 @@ export default function InternalInventoryAdjustments() {
           <thead>
             <tr>
               <th style={th} hidden={!isVisible("when")}>When</th>
+              <th style={th} hidden={!isVisible("by")}>By</th>
               <th style={th} hidden={!isVisible("type")}>Type</th>
               <th style={th} hidden={!isVisible("style")}>Style</th>
               <th style={th} hidden={!isVisible("qty")}>Qty</th>
@@ -370,21 +387,24 @@ export default function InternalInventoryAdjustments() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td style={td} colSpan={9}>Loading…</td></tr>
+              <tr><td style={td} colSpan={10}>Loading…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td style={td} colSpan={9}>
+              <tr><td style={td} colSpan={10}>
                 <span style={{ color: C.textMuted }}>No adjustments. Use "+ Add" above.</span>
               </td></tr>
             )}
             {rows.filter((row) => {
               const fq = filterItem.trim().toLowerCase();
-              return !fq || itemLabel(row.item_id).toLowerCase().includes(fq);
+              if (fq && !itemLabel(row.item_id).toLowerCase().includes(fq)) return false;
+              if (filterUser && (row.created_by_user_id || "") !== filterUser) return false; // item 4
+              return true;
             }).map((row) => {
               const isPositive = row.qty_delta > 0;
               return (
                 <tr key={row.id}>
-                  <td style={td} hidden={!isVisible("when")}>{fmtDate(row.created_at)}</td>
+                  <td style={{ ...td, whiteSpace: "nowrap" }} hidden={!isVisible("when")}>{row.created_at ? new Date(row.created_at).toLocaleString("en-US") : "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("by")}>{row.created_by_name || "—"}</td>
                   <td style={td} hidden={!isVisible("type")}>{row.adjustment_type}</td>
                   <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(row.item_id)}</td>
                   <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }} hidden={!isVisible("qty")}>
