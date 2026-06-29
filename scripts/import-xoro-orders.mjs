@@ -56,6 +56,7 @@ const INCLUDE_SOS = args.has("--include-sos");        // lossy ATS-blob preview 
 const SOS_NATIVE = args.has("--sos-native");          // import from the rich tanda_sos mirror → sales_orders/_lines
 const INCLUDE_ARCHIVED = args.has("--include-archived");
 const SO_ONLY = args.has("--so-only");                // skip the PO step (SO-only run)
+const AFFECTED_ONLY = args.has("--affected-only");    // re-import ONLY orders that currently have ≥1 unresolved (null-linked) line — the targeted backfill
 
 // ── env ──────────────────────────────────────────────────────────────────--
 function loadEnv(file) {
@@ -337,20 +338,56 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
       out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out;
     }
   }
-  // 3) loose sku_code match within the style family
+  // 3) loose sku_code match within the style family (capture the family so a
+  //    missing SIZE can be auto-created from a sibling below).
+  let family = [];
   {
-    const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=ilike.${enc(p.style_code + "-*")}&select=id,sku_code&limit=500`);
+    family = (await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=ilike.${enc(p.style_code + "-*")}&select=id,sku_code,style_id,style_code,color,size,inseam,length,fit,is_apparel&limit=500`)) || [];
     const target = looseKey(itemNumber);
-    const hit = (data || []).find((r) => looseKey(r.sku_code) === target);
+    const hit = family.find((r) => looseKey(r.sku_code) === target);
     if (hit) { out = { id: hit.id, created: false, reason: "loose-sku" }; skuCache.set(itemNumber, out); return out; }
   }
-  // 4) DO NOT auto-create. The line imports null-linked (inventory_item_id=null).
-  //    The previous create path minted ip_item_master rows with is_apparel=false
-  //    hard-coded, which mis-flags denim apparel and corrupts apparel-only logic
-  //    (size matrix, HTS/tariff, duty). The ~784 unresolved SKUs are mostly
-  //    off-master denim styles that need an operator-gated style + sized-SKU
-  //    backfill (correct is_apparel + attributes) — handled separately, not here.
-  out.reason = styleId ? "needs-sku-backfill" : "no-style";
+  // 3.5) AUTO-CREATE a missing SIZED SKU under an ON-MASTER family (sibling
+  //      inherit). The prior code minted is_apparel=false rows unconditionally,
+  //      which mis-flagged denim apparel; we instead INHERIT is_apparel + the
+  //      apparel dims (inseam/length/fit) and the colour spelling from an existing
+  //      sibling SKU of the same style — so a real ordered size that simply has no
+  //      SKU yet (e.g. DMB0013 waist 30 when 31–36 exist) joins the matrix
+  //      correctly instead of importing as a blank null-linked line. Guards:
+  //        • family must already have sibling SKUs (never invent a bare style)
+  //        • a real garment size (skip PPK pack tokens — those need a prepack setup)
+  //      Off-master items (no family) still fall through to the unresolved bucket
+  //      for an operator-gated style + SKU backfill (unchanged).
+  const sib = (family.length && p.size && !/PPK/i.test(itemNumber) && !/PPK/i.test(p.size))
+    ? (family.find((r) => r.style_id && norm(r.color) === norm(p.color)) || family.find((r) => r.style_id) || null)
+    : null;
+  if (sib) {
+    if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
+    const sizeSafe = String(p.size).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    // Swap the sibling sku_code's trailing segment for our size — keeps the
+    // sibling's exact style/colour spelling in the new code.
+    const newSku = String(sib.sku_code).replace(/-[^-]*$/, `-${sizeSafe}`);
+    // is_apparel only when the sibling is apparel AND all five dims are present
+    // (mirrors resolveOrCreateSku — avoids the apparel_dims_required CHECK).
+    const apparelFinal = !!(sib.is_apparel && sib.color && p.size && sib.inseam && sib.length && sib.fit);
+    const row = {
+      entity_id: entityId, sku_code: newSku, style_code: sib.style_code, style_id: sib.style_id,
+      color: sib.color, size: p.size, inseam: sib.inseam, length: sib.length, fit: sib.fit, is_apparel: apparelFinal,
+    };
+    const { data, error } = await pgInsert("ip_item_master", row, "representation");
+    if (!error && data?.[0]?.id) {
+      out = { id: data[0].id, created: true, reason: "created-sibling" };
+      skuCache.set(itemNumber, { ...out, created: false }); // count the create once
+      return out;
+    }
+    if (error && error.code === "23505") {
+      const again = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(newSku)}&select=id&limit=1`);
+      if (again?.[0]?.id) { out = { id: again[0].id, created: false, reason: "created-sibling-existing" }; skuCache.set(itemNumber, out); return out; }
+    }
+  }
+  // 4) Could not resolve or create → import null-linked (reported). off-master
+  //    denim / PPK packs need an operator-gated style + sized-SKU backfill.
+  out.reason = (styleId || family.length) ? "needs-sku-backfill" : "no-style";
   skuCache.set(itemNumber, out);
   return out;
 }
@@ -365,13 +402,25 @@ async function importPOs(refs) {
   const existing = await pgGetPaged("purchase_orders", `entity_id=eq.${refs.entity.id}&select=id,po_number,notes`);
   const existingByNum = new Map((existing || []).map((r) => [r.po_number, r]));
 
-  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_vendor: 0, lines: 0, sku_created: 0, status: {}, lineStatus: {} };
+  // --affected-only: limit the re-import to POs that currently have ≥1 unresolved
+  // (null-linked) line — the targeted backfill (rebuilds those orders' lines from
+  // the authoritative tanda source, auto-creating missing sized SKUs).
+  let affected = null;
+  if (AFFECTED_ONLY) {
+    const numById = new Map((existing || []).map((r) => [r.id, r.po_number]));
+    const nullLines = await pgGetPaged("purchase_order_lines", `inventory_item_id=is.null&select=purchase_order_id`);
+    affected = new Set((nullLines || []).map((r) => numById.get(r.purchase_order_id)).filter(Boolean));
+    console.log(`  --affected-only: ${affected.size} POs have unresolved lines`);
+  }
+
+  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_vendor: 0, lines: 0, sku_created: 0, would_create: 0, status: {}, lineStatus: {} };
   const vendorUnresolved = new Set(), skuUnresolved = new Set();
   const samples = [];
 
   for (const po of pos) {
     const d = po.data || {};
     const poNum = po.po_number;
+    if (affected && !affected.has(poNum)) continue;
     const vendorId = refs.vendors.byName.get(norm(d.VendorName)) || refs.vendors.byCode.get(norm(d.VendorName)) || null;
     if (!vendorId) vendorUnresolved.add(d.VendorName || "(blank)");
     const status = mapPoStatus(d.StatusName);
@@ -387,7 +436,7 @@ async function importPOs(refs) {
       if (qty <= 0) continue;
       const sku = await resolveSku(refs.entity.id, it.ItemNumber, refs.styles, { apply: APPLY });
       if (sku.created) stats.sku_created++;
-      if (!sku.id) skuUnresolved.add(it.ItemNumber);
+      if (!sku.id) { if (sku.reason === "would-create-sibling") stats.would_create++; else skuUnresolved.add(it.ItemNumber); }
       const uc = cents(it.UnitPrice);
       const lst = mapPoLineStatus(it);
       stats.lineStatus[lst] = (stats.lineStatus[lst] || 0) + 1;
@@ -454,7 +503,7 @@ async function importPOs(refs) {
   console.log(`  inserts:        ${stats.insert}`);
   console.log(`  updates:        ${stats.update}`);
   console.log(`  lines:          ${stats.lines}`);
-  console.log(`  skus created:   ${stats.sku_created}`);
+  console.log(`  skus created:   ${stats.sku_created}${stats.would_create ? `  (would create on --apply: ${stats.would_create})` : ""}`);
   console.log(`  POs blocked (unresolved vendor, vendor_id NOT NULL): ${stats.blocked_no_vendor}`);
   console.log(`  skipped (app-owned native PO left untouched): ${stats.skip_app_owned}`);
   console.log(`  PO header status breakdown: ${JSON.stringify(stats.status)}`);
@@ -520,13 +569,25 @@ async function importSOsNative(refs) {
   const existing = await pgGetPaged("sales_orders", `entity_id=eq.${refs.entity.id}&select=id,so_number,notes`);
   const existingByNum = new Map((existing || []).map((r) => [r.so_number, r]));
 
-  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_customer: 0, lines: 0, sku_created: 0, status: {}, lineStatus: {} };
+  // --affected-only: limit the re-import to SOs that currently have ≥1 unresolved
+  // (null-linked) line — the targeted backfill (rebuilds those orders' lines from
+  // the authoritative tanda source, auto-creating missing sized SKUs).
+  let affected = null;
+  if (AFFECTED_ONLY) {
+    const numById = new Map((existing || []).map((r) => [r.id, r.so_number]));
+    const nullLines = await pgGetPaged("sales_order_lines", `inventory_item_id=is.null&select=sales_order_id`);
+    affected = new Set((nullLines || []).map((r) => numById.get(r.sales_order_id)).filter(Boolean));
+    console.log(`  --affected-only: ${affected.size} SOs have unresolved lines`);
+  }
+
+  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_customer: 0, lines: 0, sku_created: 0, would_create: 0, status: {}, lineStatus: {} };
   const custUnresolved = new Set(), skuUnresolved = new Set();
   const samples = [];
 
   for (const so of mirror) {
     const d = so.data || {};
     const soNum = so.so_number;
+    if (affected && !affected.has(soNum)) continue;
     const custId = refs.customers.byName.get(norm(d.CustomerName)) || refs.customers.byCode.get(norm(d.CustomerName)) || null;
     if (!custId) custUnresolved.add(d.CustomerName || "(blank)");
     const status = mapSoStatus(d.StatusName);
@@ -543,7 +604,7 @@ async function importSOsNative(refs) {
       const itemNo = soItemNumber(it);
       const sku = await resolveSku(refs.entity.id, itemNo, refs.styles, { apply: APPLY });
       if (sku.created) stats.sku_created++;
-      if (!sku.id) skuUnresolved.add(itemNo);
+      if (!sku.id) { if (sku.reason === "would-create-sibling") stats.would_create++; else skuUnresolved.add(itemNo); }
       const up = cents(it.UnitPrice);
       const lst = mapSoLineStatus(it);
       stats.lineStatus[lst] = (stats.lineStatus[lst] || 0) + 1;
@@ -613,7 +674,7 @@ async function importSOsNative(refs) {
   console.log(`  inserts:        ${stats.insert}`);
   console.log(`  updates:        ${stats.update}`);
   console.log(`  lines:          ${stats.lines}`);
-  console.log(`  skus created:   ${stats.sku_created}`);
+  console.log(`  skus created:   ${stats.sku_created}${stats.would_create ? `  (would create on --apply: ${stats.would_create})` : ""}`);
   console.log(`  SOs blocked (unresolved customer, customer_id NOT NULL): ${stats.blocked_no_customer}`);
   console.log(`  skipped (app-owned native SO left untouched): ${stats.skip_app_owned}`);
   console.log(`  SO header status breakdown: ${JSON.stringify(stats.status)}`);

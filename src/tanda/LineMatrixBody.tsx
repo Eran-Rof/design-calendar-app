@@ -561,7 +561,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const totalStr = (l.line_total_dollars || "").replace(/,/g, "").trim();
         if (!(q > 0) && totalStr === "") continue;
         const unit = q > 0 ? Number((l.unit_price_dollars || "").replace(/,/g, "")) || 0 : (Number(totalStr) || 0);
-        flats.push({ label: l.label || "(line)", description: l.description || null, qty: q > 0 ? q : 1, unitDollars: unit });
+        // Never render a blank "(line)": fall back to the line description for an
+        // unresolved-SKU line. Only repeat the description as a sub-label when it
+        // differs from the main label (avoid "VERGE — VERGE").
+        flats.push({ label: l.label || l.description || "(unmatched item)", description: l.label && l.description && l.label !== l.description ? l.description : null, qty: q > 0 ? q : 1, unitDollars: unit });
       }
       return { styles: styleGroups, flats };
     },
