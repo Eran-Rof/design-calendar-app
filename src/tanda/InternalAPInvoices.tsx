@@ -33,6 +33,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import RowHistory from "./components/RowHistory";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -261,6 +263,20 @@ export default function InternalAPInvoices() {
     return m;
   }, [vendors]);
 
+  // #5 Sortable columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:apinvoices:sort",
+    accessors: {
+      posting_date: (inv) => inv.posting_date,
+      due_date: (inv) => inv.due_date,
+      vendor: (inv) => vendorMap[inv.vendor_id]?.name || inv.vendor_id,
+      invoice_number: (inv) => inv.invoice_number,
+      gl_status: (inv) => inv.gl_status,
+      total: (inv) => Number(inv.total_amount_cents || "0"),
+      paid: (inv) => Number(inv.paid_amount_cents || "0"),
+    },
+  });
+
   async function doPost(inv: APInvoice) {
     if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`))) return;
     setBusy(inv.id);
@@ -411,18 +427,18 @@ export default function InternalAPInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("posting_date")}>Posting</th>
-                <th style={th} hidden={!isVisible("due_date")}>Due</th>
-                <th style={th} hidden={!isVisible("vendor")}>Vendor</th>
-                <th style={th} hidden={!isVisible("invoice_number")}>Invoice #</th>
-                <th style={th} hidden={!isVisible("gl_status")}>Status</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
+                <SortableTh label="Posting" sortKey="posting_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("posting_date")} />
+                <SortableTh label="Due" sortKey="due_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("due_date")} />
+                <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("vendor")} />
+                <SortableTh label="Invoice #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("invoice_number")} />
+                <SortableTh label="Status" sortKey="gl_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("gl_status")} />
+                <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+                <SortableTh label="Paid" sortKey="paid" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("paid")} />
                 <th style={{ ...th, width: 260 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((inv) => {
+              {sortedRows.map((inv) => {
                 const isDraft = inv.gl_status === "draft" || inv.gl_status === "unposted";
                 const isPosted = inv.gl_status === "posted";
                 const isPaid = inv.gl_status === "paid";

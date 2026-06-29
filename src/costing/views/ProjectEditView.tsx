@@ -16,7 +16,7 @@ import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
 import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
-import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
+import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename, computeExportTotals } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
 import { confirmDialog } from "../../shared/ui/warn";
@@ -93,10 +93,29 @@ export default function ProjectEditView() {
     if (await guardIncompleteRows()) navigate("list");
   };
 
-  const exportRows = React.useMemo(
-    () => buildExportRows(lines, vendorQuotes),
-    [lines, vendorQuotes],
-  );
+  const exportRows = React.useMemo(() => {
+    const rows = buildExportRows(lines, vendorQuotes);
+    // Append a TOTALS row so the Excel/PDF export footers the numeric
+    // columns (qty, total cost, total sales) + a weighted margin, matching
+    // the grid's own footer. computeExportTotals lives in exportService so
+    // the screen + export stay in lockstep. Skipped when there are no rows.
+    if (rows.length === 0) return rows;
+    const t = computeExportTotals(rows);
+    const totalsRow = {
+      style_code: "TOTAL",
+      style_name: "", description: "", size_scale: "", fabric: "", fit: "",
+      color: "", bottom_closure: "", waist_type: "", comment: "",
+      target_qty: t.totalQty,
+      vendor: "",
+      target_cost: "" as const, sell_target: "" as const, sell_price: "" as const,
+      margin_pct: t.weightedMargin,
+      priced_date: "", ly_unit_cost: "" as const, ly_qty: "" as const,
+      ly_margin_pct: "" as const, remarks: "",
+      total_cost: t.totalCost,
+      total_sales: t.totalSales,
+    };
+    return [...rows, totalsRow];
+  }, [lines, vendorQuotes]);
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [tab, setTab] = useState<EditTab>("grid");

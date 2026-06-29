@@ -26,6 +26,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const TABLE_KEY = "tanda.ar_receipts";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -255,6 +257,21 @@ export default function InternalARReceipts() {
     return t;
   }, [rows]);
 
+  // #5 Sortable columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:arreceipts:sort",
+    accessors: {
+      date: (r) => r.receipt_date,
+      customer: (r) => { const c = customerMap[r.customer_id]; return c ? (c.code ? `${c.code} ${c.name}` : c.name) : r.customer_id; },
+      amount: (r) => Number(r.amount_cents || "0"),
+      applied: (r) => Number(r.applied_cents || "0"),
+      unapplied: (r) => Number(r.unapplied_cents || "0"),
+      method: (r) => r.customer_payment_method,
+      bank: (r) => { const b = accountMap[r.bank_account_id]; return b ? `${b.code} ${b.name}` : r.bank_account_id; },
+      status: (r) => statusLabel(r).label,
+    },
+  });
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 16 }}>
@@ -335,23 +352,49 @@ export default function InternalARReceipts() {
         </div>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
         <ExportButton
-          rows={rows.map((r) => {
-            const cust = customerMap[r.customer_id];
-            const bank = accountMap[r.bank_account_id];
-            return {
-              receipt_date: r.receipt_date,
-              customer: cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : r.customer_id,
-              amount_cents: r.amount_cents,
-              applied_cents: r.applied_cents || "0",
-              unapplied_cents: r.unapplied_cents || "0",
-              method: r.customer_payment_method,
-              bank: bank ? `${bank.code} — ${bank.name}` : r.bank_account_id,
-              reference: r.reference,
-              notes: r.notes,
-              status: statusLabel(r).label,
-              source: r.source || "manual",
-            };
-          }) as unknown as Array<Record<string, unknown>>}
+          // #23 Export totals — base rows + a trailing Totals row that mirrors
+          // the on-screen "Active total" (non-void amount) and sums applied /
+          // unapplied across the exported set.
+          rows={(() => {
+            const base = rows.map((r) => {
+              const cust = customerMap[r.customer_id];
+              const bank = accountMap[r.bank_account_id];
+              return {
+                receipt_date: r.receipt_date,
+                customer: cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : r.customer_id,
+                amount_cents: r.amount_cents,
+                applied_cents: r.applied_cents || "0",
+                unapplied_cents: r.unapplied_cents || "0",
+                method: r.customer_payment_method,
+                bank: bank ? `${bank.code} — ${bank.name}` : r.bank_account_id,
+                reference: r.reference,
+                notes: r.notes,
+                status: statusLabel(r).label,
+                source: r.source || "manual",
+              };
+            });
+            let appliedTot = 0n, unappliedTot = 0n;
+            for (const r of rows) {
+              appliedTot += BigInt(r.applied_cents || "0");
+              unappliedTot += BigInt(r.unapplied_cents || "0");
+            }
+            return [
+              ...base,
+              {
+                receipt_date: "",
+                customer: "TOTAL (active)",
+                amount_cents: totalCents.toString(),
+                applied_cents: appliedTot.toString(),
+                unapplied_cents: unappliedTot.toString(),
+                method: "",
+                bank: "",
+                reference: null,
+                notes: null,
+                status: "",
+                source: "",
+              },
+            ];
+          })() as unknown as Array<Record<string, unknown>>}
           filename="ar-receipts"
           sheetName="AR Receipts"
           columns={[
@@ -396,19 +439,19 @@ export default function InternalARReceipts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("date")}>Date</th>
-                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("amount")}>Amount</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("applied")}>Applied</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unapplied")}>Unapplied</th>
-                <th style={th} hidden={!visibleColumns.has("method")}>Method</th>
-                <th style={th} hidden={!visibleColumns.has("bank")}>Bank</th>
-                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+                <SortableTh label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("date")} />
+                <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("customer")} />
+                <SortableTh label="Amount" sortKey="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("amount")} />
+                <SortableTh label="Applied" sortKey="applied" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("applied")} />
+                <SortableTh label="Unapplied" sortKey="unapplied" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unapplied")} />
+                <SortableTh label="Method" sortKey="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("method")} />
+                <SortableTh label="Bank" sortKey="bank" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("bank")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("status")} />
                 <th style={th}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {sortedRows.map((r) => {
                 const cust = customerMap[r.customer_id];
                 const bank = accountMap[r.bank_account_id];
                 const st = statusLabel(r);

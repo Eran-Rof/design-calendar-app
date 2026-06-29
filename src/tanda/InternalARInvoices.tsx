@@ -22,6 +22,8 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import RowHistory from "./components/RowHistory";
 // Wave 5 universal primitives — column show/hide, row-click-to-edit, dyn search.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -270,6 +272,20 @@ export default function InternalARInvoices() {
     return m;
   }, [customers]);
 
+  // #5 Sortable columns — null-safe accessors for computed/derived columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:arinvoices:sort",
+    accessors: {
+      customer: (inv) => customerMap[inv.customer_id]?.name || inv.customer_id,
+      total: (inv) => Number(inv.total_amount_cents || "0"),
+      paid: (inv) => Number(inv.paid_amount_cents || "0"),
+      balance: (inv) => Number(BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")),
+      invoice_date: (inv) => inv.invoice_date,
+      invoice_number: (inv) => inv.invoice_number,
+      status: (inv) => inv.gl_status,
+    },
+  });
+
   async function doPost(inv: ARInvoice) {
     if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`))) return;
     setBusy(inv.id);
@@ -467,18 +483,18 @@ export default function InternalARInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")}>Invoice #</th>
-                <th style={th} hidden={!isVisible("invoice_date")}>Date</th>
-                <th style={th} hidden={!isVisible("customer")}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("balance")}>Balance</th>
-                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <SortableTh label="Invoice #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")} />
+                <SortableTh label="Date" sortKey="invoice_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("invoice_date")} />
+                <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("customer")} />
+                <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+                <SortableTh label="Paid" sortKey="paid" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("paid")} />
+                <SortableTh label="Balance" sortKey="balance" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("balance")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
                 <th style={{ ...th, width: 260, textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((inv) => {
+              {sortedRows.map((inv) => {
                 const isDraft = inv.gl_status === "draft" || inv.gl_status === "unposted";
                 const isPendingApproval = inv.gl_status === "pending_approval";
                 const isSent = inv.gl_status === "sent" || inv.gl_status === "partial_paid" || inv.gl_status === "paid";

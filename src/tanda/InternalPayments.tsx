@@ -4,6 +4,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Payment {
   id: string;
@@ -63,6 +64,20 @@ export default function InternalPayments() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [entityId, status]);
+
+  // #5 Sortable columns — div-grid "table", so the useSort hook drives the
+  // order and a small clickable header cell renders the ▲▼ affordance.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:payments:sort",
+    accessors: {
+      vendor: (p) => p.vendor?.name || p.vendor_id,
+      amount: (p) => Number(p.amount),
+      method: (p) => p.method,
+      status: (p) => p.status,
+      initiated: (p) => p.initiated_at,
+      completed: (p) => p.completed_at,
+    },
+  });
 
   async function transition(id: string, action: "processing" | "completed" | "failed" | "cancelled") {
     if (!(await confirmDialog(`Mark payment ${action}?`))) return;
@@ -128,9 +143,15 @@ export default function InternalPayments() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 120px 120px 1fr", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Amount</div><div>Method</div><div>Status</div><div>Initiated</div><div>Completed</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Amount" k="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Method" k="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Initiated" k="initiated" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Completed" k="completed" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {rows.map((p) => (
+          {sortedRows.map((p) => (
             <div key={p.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 120px 120px 1fr", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{p.vendor?.name || p.vendor_id}</div>
@@ -257,6 +278,26 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Creating…" : "Create"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Clickable sortable header cell for the div-grid "table" (mirrors SortableTh's
+// ▲▼ affordance without the <th> markup the grid layout can't use).
+function SortHeader({ label, k, activeKey, dir, onSort, align }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir;
+  onSort: (key: string) => void; align?: "right";
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div
+      onClick={() => onSort(k)}
+      title={`Sort by ${label}`}
+      style={{ cursor: "pointer", userSelect: "none", textAlign: align, ...(active ? { color: C.text } : null) }}
+    >
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
     </div>
   );
 }

@@ -288,6 +288,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onFocus={e => e.currentTarget.select()}
             placeholder="Search…"
             autoFocus
             style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, marginBottom: 4 }}
@@ -1494,7 +1495,63 @@ interface CompsTotalsProp {
   combined: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
   hasMixed: boolean;
 }
+// Sort keys for the comparison table. "label" sorts on the leftmost
+// dimension text; the rest are numeric. Δ Rev / Δ Mrgn use the same
+// growth math the cells render so the sort matches what's on screen.
+type CompsSortKey = "label" | "tyQty" | "tyRev" | "tyMrgn" | "lyQty" | "lyRev" | "lyMrgn" | "dRev" | "dMrgn";
+function compsSortValue(r: DimRow, key: CompsSortKey): number | string {
+  switch (key) {
+    case "label":  return r.label.toLowerCase();
+    case "tyQty":  return r.tyQty;
+    case "tyRev":  return r.tyRev;
+    case "tyMrgn": return r.tyRev > 0 ? r.tyMrgn / r.tyRev : -Infinity;
+    case "lyQty":  return r.lyQty;
+    case "lyRev":  return r.lyRev;
+    case "lyMrgn": return r.lyRev > 0 ? r.lyMrgn / r.lyRev : -Infinity;
+    // Growth fraction (ty - ly)/ty — matches fmtGrowth; no-TY rows sink.
+    case "dRev":   return r.tyRev > 0 ? (r.tyRev - r.lyRev) / r.tyRev : -Infinity;
+    // Margin-points diff — matches fmtMarginPoints.
+    case "dMrgn": {
+      const typ = r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0;
+      const lyp = r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0;
+      return (typ === 0 || lyp === 0) ? -Infinity : typ - lyp;
+    }
+  }
+}
+
 function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
+  // Per-column sort over the data rows. null = natural (upstream) order,
+  // which is already TY-rev descending. Clicking a header sorts; clicking
+  // the active header flips direction. Totals rows below are unaffected —
+  // they're rendered after the sorted data rows, so they stay pinned.
+  const [sortKey, setSortKey] = useState<CompsSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const onSort = (k: CompsSortKey) => {
+    if (sortKey === k) { setSortDir(d => (d === "asc" ? "desc" : "asc")); }
+    else { setSortKey(k); setSortDir(k === "label" ? "asc" : "desc"); }
+  };
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = compsSortValue(a, sortKey);
+      const vb = compsSortValue(b, sortKey);
+      if (typeof va === "string" || typeof vb === "string") {
+        return String(va).localeCompare(String(vb)) * dir;
+      }
+      return (va - vb) * dir;
+    });
+  }, [rows, sortKey, sortDir]);
+  // Header cell with a functional ▲▼ affordance. align mirrors the body
+  // cell alignment so the arrow sits flush with the column.
+  const SortTh = ({ k, label, align }: { k: CompsSortKey; label: string; align?: "left" | "right" }): React.ReactElement => {
+    const active = sortKey === k;
+    return (
+      <th style={{ ...th(align === "right" ? "right" : "left"), cursor: "pointer", userSelect: "none", color: active ? C.text : undefined }} onClick={() => onSort(k)} title="Click to sort">
+        {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+      </th>
+    );
+  };
   // Helper: render one totals row. Used three times below — once for
   // the combined total (single-grain modes), or twice (one per grain
   // when hasMixed is true and we're in explode-OFF mode).
@@ -1523,19 +1580,19 @@ function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { c
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
         <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-            <th style={th()}>{colLabel}</th>
-            <th style={th("right")}>TY Qty</th>
-            <th style={th("right")}>TY Rev</th>
-            {!customerFacing && <th style={th("right")}>TY Mrgn%</th>}
-            <th style={th("right")}>LY Qty</th>
-            <th style={th("right")}>LY Rev</th>
-            {!customerFacing && <th style={th("right")}>LY Mrgn%</th>}
-            <th style={th("right")}>Δ Rev</th>
-            {!customerFacing && <th style={th("right")}>Δ Mrgn pp</th>}
+            <SortTh k="label" label={colLabel} />
+            <SortTh k="tyQty" label="TY Qty" align="right" />
+            <SortTh k="tyRev" label="TY Rev" align="right" />
+            {!customerFacing && <SortTh k="tyMrgn" label="TY Mrgn%" align="right" />}
+            <SortTh k="lyQty" label="LY Qty" align="right" />
+            <SortTh k="lyRev" label="LY Rev" align="right" />
+            {!customerFacing && <SortTh k="lyMrgn" label="LY Mrgn%" align="right" />}
+            <SortTh k="dRev" label="Δ Rev" align="right" />
+            {!customerFacing && <SortTh k="dMrgn" label="Δ Mrgn pp" align="right" />}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
+          {sortedRows.map((r, i) => {
             const growth = fmtGrowth(r.tyRev, r.lyRev);
             const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
             return (

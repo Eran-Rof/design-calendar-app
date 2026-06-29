@@ -99,7 +99,10 @@ export default async function handler(req, res) {
             event_type: n.event_type,
             title: n.title,
             body: n.body,
-            link: "/",
+            // Internal procurement recipients → open the Tangerine RFQs module
+            // (the shared notificationLink resolver also derives this from the
+            // rfq_id in metadata as a backstop).
+            link: "/tangerine?m=rfqs",
             metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, quote_id: quote.id, revision: n.revision, ...(rcp.apps ? { target_apps: rcp.apps } : {}) },
             // plm_user_id (when linked) reaches the in-app bell; email always sends.
             recipient: { internal_id: rcp.plm_user_id || "procurement", email: rcp.email },

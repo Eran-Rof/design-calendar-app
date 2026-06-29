@@ -196,6 +196,7 @@ export function DynamicSearchInput(props: DynamicSearchInputProps): React.ReactE
         role="searchbox"
         value={displayValue}
         onChange={handleChange}
+        onFocus={(e) => e.currentTarget.select()}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         aria-label={ariaLabel ?? placeholder}

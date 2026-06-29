@@ -263,6 +263,7 @@ export default function RfqListView() {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           placeholder="Search by vendor, customer, style, or RFQ title…"
           style={{
             flex: 1, maxWidth: 480,

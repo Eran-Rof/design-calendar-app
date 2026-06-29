@@ -135,6 +135,7 @@ export default function RfqMessagesInbox() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             placeholder="Search project, RFQ, or vendor…"
             style={{ marginTop: 10, width: "100%", boxSizing: "border-box", padding: "7px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0F172A", color: "#E2E8F0", fontSize: 12, fontFamily: "inherit" }}
           />
