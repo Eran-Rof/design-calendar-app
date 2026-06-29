@@ -113,6 +113,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
               placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
@@ -190,6 +191,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({ label, value, o
               placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
@@ -431,6 +433,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       placeholder="Search SKU or description…"
       value={search}
       onChange={e => setSearch(e.target.value)}
+      onFocus={e => e.currentTarget.select()}
     />
     <MultiSelectDropdown
       label="Category"
@@ -603,6 +606,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               placeholder="Search customers…"
               value={customerSearch}
               onChange={e => setCustomerSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />

@@ -119,6 +119,18 @@ filter and grouping controls.
 ## Wording: Warehouse (not Store)
 The toolbar location filter and the related labels (SO-line-items modal column, Sales-Comps location multi-select, and the Aged/Incomplete/Negative/Stock-vs-SO export headers) read **Warehouse**, not "Store" — Tangerine has warehouses + brands, no ROF sales stores. The underlying data field/values (`store` = `ROF / ROF ECOM / PT / PT ECOM`) and the **Excel input** column names (`Store` / `Sale Store`) are unchanged — only the on-screen + export-report wording.
 
+## Sales Comps results sort + filter UX (2026-06)
+
+The **Sales Comps** modal's comparison tables (per-customer / category / style /
+SKU breakdowns) now have **click-to-sort column headers** with a functional ▲▼
+indicator — sort by any of TY/LY Qty, Rev, Mrgn%, Δ Rev, or Δ Mrgn pp, or the
+leftmost dimension label. The default (unsorted) order stays the upstream
+TY-rev-descending order; the TOTAL row(s) stay pinned at the bottom regardless of
+sort. Every search/filter text box in the ATS toolbar (SKU search, the
+Category/Sub-Cat/Style/Brand/Cust-Vend dropdown search fields) and in the Sales
+Comps + Export-Options modals now **selects all text on focus**, so tabbing in and
+typing replaces the prior value in one keystroke.
+
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in
 - [inventory-planning-overview.md](inventory-planning-overview.md) — downstream consumer

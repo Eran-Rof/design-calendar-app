@@ -225,7 +225,9 @@ The **Masters** tab manages the small dropdown lists the grid uses: **Fit**, **C
 
 ## Exports
 
-Every table has an **Export** button (Projects list, project grid). It produces an Excel file of exactly the rows currently shown, so filter or sort first to scope your export.
+Every table has an **Export** button (Projects list, project grid). It produces an Excel file of exactly the rows currently shown, so filter or sort first to scope your export. The **project grid** export now ends with a **TOTAL row** that footers the numeric columns — total quantity, total cost, total sales, and the weighted margin % — matching the totals shown on screen at the bottom of the grid.
+
+Search boxes throughout the app (the RFQ list search, the Messages inbox search) **select all their text when you click into them**, so you can retype a new search without first clearing the old one.
 
 ## Tips and gotchas
 
