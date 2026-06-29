@@ -205,8 +205,12 @@ export default async function handler(req, res) {
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
-      credit_limit_cents: v.data.credit_limit_cents ?? null,
-      credit_limit_currency: v.data.credit_limit_currency ?? null,
+      // credit_limit_cents (NOT NULL default 0) + credit_limit_currency (NOT NULL
+      // default 'USD'): default to the column defaults rather than null, else an
+      // on-the-fly add (which sends neither) overrides the default with an explicit
+      // null and trips the not-null constraint (operator item 14, second cause).
+      credit_limit_cents: v.data.credit_limit_cents ?? 0,
+      credit_limit_currency: v.data.credit_limit_currency ?? "USD",
       // Chunk K — customer factoring (operator item 17).
       is_factored: v.data.is_factored === true,
       factor_id: v.data.factor_id || null,
