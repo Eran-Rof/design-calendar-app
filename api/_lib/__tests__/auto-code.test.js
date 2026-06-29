@@ -4,41 +4,48 @@ import { describe, it, expect, vi } from "vitest";
 import { nextCode, insertWithAutoCode } from "../autoCode.js";
 
 // Build a mock supabase client whose .from(...).select(...).ilike(...).eq(...)
-// chain resolves to a fixed { count }. The chain is thenable at the end via the
-// terminal .ilike()/.eq() returning a promise-like with the count.
-function mockCountClient(count) {
+// chain resolves to a fixed { data: rows }. nextCode now takes MAX(numeric
+// suffix)+1 over the returned rows (gap-proof), so the mock returns the existing
+// code rows rather than a count.
+function mockRowsClient(rows) {
   const chain = {
     select: vi.fn(() => chain),
     ilike: vi.fn(() => chain),
     eq: vi.fn(() => chain),
-    then: (resolve) => resolve({ count }),
+    then: (resolve) => resolve({ data: rows }),
   };
   return { from: vi.fn(() => chain) };
 }
+const codes = (...nums) => nums.map((n) => ({ code: n }));
 
 describe("nextCode", () => {
-  it("returns prefix + zero-padded count+1", async () => {
-    const admin = mockCountClient(0);
+  it("returns prefix-00001 when there are no existing rows", async () => {
+    const admin = mockRowsClient([]);
     expect(await nextCode(admin, "customers", "code", "CUST-")).toBe("CUST-00001");
   });
-  it("increments from an existing count", async () => {
-    const admin = mockCountClient(41);
+  it("increments from the existing MAX suffix", async () => {
+    const admin = mockRowsClient(codes("VEND-00041", "VEND-00010"));
     expect(await nextCode(admin, "vendors", "code", "VEND-")).toBe("VEND-00042");
   });
-  it("treats a null count as zero", async () => {
-    const admin = mockCountClient(null);
+  it("is gap-proof — uses MAX, not COUNT (the bug fix)", async () => {
+    // 2 rows but numbered up to 00005 → next must be 00006, NOT 00003.
+    const admin = mockRowsClient(codes("CUST-00001", "CUST-00005"));
+    expect(await nextCode(admin, "customers", "code", "CUST-")).toBe("CUST-00006");
+  });
+  it("treats null/empty data as zero", async () => {
+    const admin = mockRowsClient(null);
     expect(await nextCode(admin, "employees", "code", "EMP-")).toBe("EMP-00001");
   });
   it("applies the bump offset (used by the retry)", async () => {
-    const admin = mockCountClient(5);
+    const admin = mockRowsClient(codes("FAB-00005"));
     expect(await nextCode(admin, "fabric_codes", "code", "FAB-", { bump: 2 })).toBe("FAB-00008");
   });
-  it("scopes the count to entity_id when provided", async () => {
+  it("scopes the query to entity_id when provided", async () => {
     const chain = {
       select: vi.fn(() => chain),
       ilike: vi.fn(() => chain),
       eq: vi.fn(() => chain),
-      then: (resolve) => resolve({ count: 3 }),
+      then: (resolve) => resolve({ data: codes("FCT-00003") }),
     };
     const admin = { from: vi.fn(() => chain) };
     const code = await nextCode(admin, "factor_master", "code", "FCT-", { entityId: "e1" });
@@ -48,34 +55,33 @@ describe("nextCode", () => {
 });
 
 describe("insertWithAutoCode", () => {
-  // Helper: client that counts `count` rows and whose insert resolves to a
-  // queued sequence of { error } / { data } results (one per attempt).
-  function mockInsertClient(count, insertResults) {
+  // Helper: client whose nextCode query returns `rows`, and whose insert resolves
+  // to a queued sequence of { error } / { data } results (one per attempt).
+  function mockInsertClient(rows, insertResults) {
     let attempt = 0;
     const insertChain = {
       select: vi.fn(() => insertChain),
       single: vi.fn(() => Promise.resolve(insertResults[attempt++])),
     };
-    const countChain = {
-      select: vi.fn(() => countChain),
-      ilike: vi.fn(() => countChain),
-      eq: vi.fn(() => countChain),
-      then: (resolve) => resolve({ count }),
+    const rowsChain = {
+      select: vi.fn(() => rowsChain),
+      ilike: vi.fn(() => rowsChain),
+      eq: vi.fn(() => rowsChain),
+      then: (resolve) => resolve({ data: rows }),
     };
     return {
-      _builtCodes: [],
       from: vi.fn(() => ({
-        select: countChain.select,
-        ilike: countChain.ilike,
-        eq: countChain.eq,
-        then: countChain.then,
+        select: rowsChain.select,
+        ilike: rowsChain.ilike,
+        eq: rowsChain.eq,
+        then: rowsChain.then,
         insert: vi.fn(() => insertChain),
       })),
     };
   }
 
   it("inserts with the generated code on the first try", async () => {
-    const admin = mockInsertClient(0, [{ data: { id: "x", code: "CUST-00001" } }]);
+    const admin = mockInsertClient([], [{ data: { id: "x", code: "CUST-00001" } }]);
     const built = [];
     const { data, error } = await insertWithAutoCode(
       admin, "customers", "code", "CUST-",
@@ -87,7 +93,7 @@ describe("insertWithAutoCode", () => {
   });
 
   it("retries on a 23505 collision, bumping the number", async () => {
-    const admin = mockInsertClient(0, [
+    const admin = mockInsertClient([], [
       { error: { code: "23505" } },
       { data: { id: "y", code: "CUST-00002" } },
     ]);
@@ -103,7 +109,7 @@ describe("insertWithAutoCode", () => {
   });
 
   it("returns a non-23505 error immediately without retrying", async () => {
-    const admin = mockInsertClient(0, [
+    const admin = mockInsertClient([], [
       { error: { code: "23502", message: "null value" } },
       { data: { id: "z" } },
     ]);
