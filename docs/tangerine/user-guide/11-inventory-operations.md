@@ -43,6 +43,12 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 **Purpose:** records location-to-location movements of inventory. There is one entry point — **+ Add** — which opens a chooser offering two paths: a **Matrix** transfer (a whole style's color × size grid at once, like the Sales-Order and Adjustment matrix entry) or a **Single variant** transfer. The filterable list sits below.
 
 > **Required reason:** every transfer must carry a **Transfer Reason** (single and matrix alike). The reason picker is a searchable dropdown sourced from the **Transfer Reasons master** (Master Data → 🔁 Transfer Reasons), with an inline **"Add new"** option. If you try to save without one, the save is **blocked** and a warning appears — pick or add a reason to continue. The chosen reason name is written into the transfer's notes.
+>
+> **Add-reason is admin-only (2026):** the inline "Add new" creates a reason in the master — only **admins** (signed-in users) can do it; a non-admin who clicks it gets a warning and must pick an existing reason.
+>
+> **Wider matrix window:** the Matrix-transfer modal is now wide enough to show a full color × size grid (incl. the Grand-Total row) for the largest size runs, with the grid in a horizontal-scroll area so an extra-wide run is never clipped.
+>
+> **Who/when on the grid + user filter:** the list now shows a **By** (who logged it) and **Created** (date + time) column, and a **user filter** lets you scope to your own or another user's transfers. The creator is captured automatically (`created_by_user_id`) and resolved to a name server-side.
 
 ### What you'll see
 
