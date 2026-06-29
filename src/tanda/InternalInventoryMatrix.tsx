@@ -1053,7 +1053,7 @@ export default function InternalInventoryMatrix() {
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
   // Snapshot column show/hide — lifted up from SnapshotView so the control can
-  // live in the filter header row (next to Store). Persisted per browser.
+  // live in the filter header row (next to Warehouse). Persisted per browser.
   const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
     try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
   });
@@ -1468,10 +1468,10 @@ export default function InternalInventoryMatrix() {
     return [...seen].sort((a, b) => a.localeCompare(b));
   }, [allWarehouses, payload]);
 
-  // Store dropdown options — "All Stores" + every warehouse name.
+  // Warehouse dropdown options — "All Warehouses" + every warehouse name.
   const warehouseDropdownOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: ALL_WAREHOUSES, label: "All Stores", searchHaystack: "all stores warehouses" },
+      { value: ALL_WAREHOUSES, label: "All Warehouses", searchHaystack: "all warehouses stores" },
       ...warehouseList.map((w) => ({ value: w, label: w, searchHaystack: w })),
     ],
     [warehouseList],
@@ -1749,7 +1749,7 @@ export default function InternalInventoryMatrix() {
       {/* Controls */}
       <div style={{ marginBottom: 54, display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Row 1 — filter dropdowns + the Columns control (right of Store).
+        {/* Row 1 — filter dropdowns + the Columns control (right of Warehouse).
             Fields are kept compact so the whole row fits on one line. */}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
@@ -1830,17 +1830,17 @@ export default function InternalInventoryMatrix() {
           )}
 
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
-            Store
+            Warehouse
             <SearchableSelect
               value={warehouse}
               onChange={(v) => setWarehouse(!v ? ALL_WAREHOUSES : v)}
               options={warehouseDropdownOptions}
-              placeholder="Search store…"
+              placeholder="Search warehouse…"
               inputStyle={inputStyle}
             />
           </label>
 
-          {/* Column show/hide — sits at the end of Row 1, right of Store.
+          {/* Column show/hide — sits at the end of Row 1, right of Warehouse.
               Only meaningful on the all-styles Snapshot view. */}
           {!styleId && noStyleView === "snapshot" && (
             <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
@@ -2445,7 +2445,7 @@ export default function InternalInventoryMatrix() {
         </div>
       ) : visibleRows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Turn off <strong>Hide Zeros</strong>{whActive ? " or pick a different store" : ""} to see them.
+          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Turn off <strong>Hide Zeros</strong>{whActive ? " or pick a different warehouse" : ""} to see them.
         </div>
       ) : (
         <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
