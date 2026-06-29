@@ -108,7 +108,7 @@ type BulkMatchRow = { id: string; so_number: string | null; customer_po: string 
 type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null };
 type LotPick = { lot_number: string | null; qty: number };
 type PlanLine = { item_id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null; qty_ordered: number; picks: LotPick[]; filled: number; shortfall: number };
-type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null };
+type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null; payment_terms_id?: string | null; contacts?: { id?: string; name?: string; email?: string; phone?: string; title?: string }[] };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
 type Lookup = { id: string; code?: string; name: string };
 type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null; is_default?: boolean | null; address?: Record<string, unknown> | null };
@@ -163,8 +163,10 @@ export default function InternalSalesOrders() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  // Item 6 — multi-select status filter (any combination of statuses).
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  // Item 6 — multi-select status filter (any combination of statuses). Defaults
+  // to the live/open statuses (draft, confirmed, allocated, fulfilling) so the
+  // grid opens on actionable orders, not the full closed/cancelled history.
+  const [statusFilters, setStatusFilters] = useState<string[]>(["draft", "confirmed", "allocated", "fulfilling"]);
   // Item 5 — selling-store filter (Xoro SaleStoreName), mirrors the Inventory
   // Matrix store filter. storeOptions is the distinct store list for the dropdown.
   const [storeFilter, setStoreFilter] = useState("");
@@ -434,6 +436,12 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const [addMode, setAddMode] = useState(false);
   const editable = isNew || so?.status === "draft" || addMode;
   const canAddStyles = !isNew && so?.status === "confirmed" && !addMode;
+  // Item 13 — unlock the order HEADER (customer, ship-to, dates, terms, brand,
+  // channel, store, PO #, factor, notes) for editing on a saved SO via "✎ Edit
+  // header", independent of the line matrix (which stays draft/Add-styles gated).
+  // Saving header-only PATCHes the header without touching lines.
+  const [headerEditMode, setHeaderEditMode] = useState(false);
+  const headerEditable = editable || headerEditMode;
 
   // Item 1 — on-the-fly "+ New customer" rows created from this window are merged
   // in front of the loaded list so they're immediately selectable here without a
@@ -641,6 +649,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     const ch = channelForCustomer(c);
     if (ch) setChannelId(ch);
     if (isNew && c.default_brand_id) setBrandId((cur) => cur || c.default_brand_id || "");
+    // Item 9 — auto-fill Payment terms from the customer master (don't clobber a
+    // value already chosen on this order).
+    if (c.payment_terms_id) setPaymentTermsId((cur) => cur || c.payment_terms_id || "");
   }
 
   // Channels load asynchronously — if a customer was already chosen before the
@@ -1256,13 +1267,53 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     });
   }
 
+  // Item 13 — persist ONLY the header (no line resolution / replacement), so a
+  // saved order's header can be corrected at any status without re-touching lines.
+  async function saveHeaderOnly() {
+    setErr(null);
+    if (!customerId) { setErr("Pick a customer."); return; }
+    if (!shipToLocationId) { setErr("Pick a Ship-to address."); return; }
+    setSubmitting(true);
+    try {
+      const fa = moneyToNumber(factorApprovedDollars);
+      const body: Record<string, unknown> = {
+        customer_id: customerId, ship_to_location_id: shipToLocationId || null,
+        brand_id: brandId || null, channel_id: channelId || null,
+        order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
+        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null,
+        customer_po: customerPo.trim() || null, customer_po_is_placeholder: customerPoIsPlaceholder,
+        is_bulk_order: isBulkOrder, sale_store: saleStore || null,
+        fulfillment_source: fulfillmentSource || null, is_closeout: isCloseout,
+        factor_approval_status: factorStatus, factor_reference: factorReference.trim() || null,
+        factor_approved_cents: fa == null ? null : Math.round(fa * 100),
+        // NB: no `lines` key → the [id] PATCH leaves lines untouched.
+      };
+      const r = await fetch(`/api/internal/sales-orders/${so!.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Order header saved.", "success");
+      setHeaderEditMode(false);
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   const saveCloseButtons = (
     <>
       <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
       <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">View</button>
+      {/* Item 13 — edit the header on a saved order without re-opening the lines. */}
+      {!isNew && !editable && !headerEditMode && so?.status !== "cancelled" && (
+        <button onClick={() => setHeaderEditMode(true)} style={btnSecondary} disabled={submitting} title="Edit the order header (customer, ship-to, dates, terms, brand, channel, store, PO #, notes) without changing lines">✎ Edit header</button>
+      )}
+      {headerEditMode && (
+        <button onClick={() => void saveHeaderOnly()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save header"}</button>
+      )}
       {editable && <button onClick={() => void save(false)} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : isNew ? "Create draft" : addMode ? "Save changes" : "Save draft"}</button>}
       {editable && !addMode && <button onClick={() => void save(true)} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Save & Confirm"}</button>}
-      {!editable && !isNew && so?.status === "confirmed" && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
+      {!editable && !isNew && so?.status === "confirmed" && !headerEditMode && <button onClick={() => void save(false)} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save"}</button>}
     </>
   );
 
@@ -1293,7 +1344,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
                   options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
-                  placeholder="(pick customer…)" disabled={!editable} />
+                  placeholder="(pick customer…)" disabled={!headerEditable} />
               </div>
               {editable && (
                 <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this order"
@@ -1305,12 +1356,12 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             <SearchableSelect value={buyerId || null} onChange={(v) => setBuyerId(v)}
               options={[{ value: "", label: "(none)" }, ...buyers.map((b) => ({ value: b.id, label: b.title ? `${b.name} — ${b.title}` : b.name }))]}
               placeholder={customerId ? (buyers.length ? "(none)" : "(no buyers on this customer)") : "(pick customer first)"}
-              disabled={!editable || !customerId} />
+              disabled={!headerEditable || !customerId} />
           </Field>
           <Field label="Ship-to address *">
             <SearchableSelect value={shipToLocationId || null} onChange={(v) => setShipToLocationId(v)}
               options={[{ value: "", label: "(select)" }, ...shipTos.map((s) => ({ value: s.id, label: s.code ? `${s.code} — ${s.name}` : s.name }))]}
-              placeholder={customerId ? "(select)" : "(pick customer first)"} disabled={!editable || !customerId} />
+              placeholder={customerId ? "(select)" : "(pick customer first)"} disabled={!headerEditable || !customerId} />
             {(() => {
               const sel = shipTos.find((s) => s.id === shipToLocationId);
               const addr = formatShipAddress(sel?.address);
@@ -1327,7 +1378,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             AI "Upload customer PO" flow fills in. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "start" }}>
           <Field label="Customer PO # *">
-            <input type="text" value={customerPo} onChange={(e) => { setCustomerPo(e.target.value); setCustomerPoIsPlaceholder(false); }} disabled={!editable}
+            <input type="text" value={customerPo} onChange={(e) => { setCustomerPo(e.target.value); setCustomerPoIsPlaceholder(false); }} disabled={!headerEditable}
               style={{ ...inputStyle, borderColor: customerPoIsPlaceholder ? "#F59E0B" : (editable && !customerPo.trim() ? C.warn : C.cardBdr) }}
               placeholder="the customer's PO number" />
             {editable && !customerPo.trim() && (
@@ -1354,7 +1405,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               </div>
             )}
             <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: C.textSub, cursor: editable ? "pointer" : "default" }} title="A bulk order is split later into multiple distro customer POs. Incoming distros are matched against it (Scenario 4.2).">
-              <input type="checkbox" checked={isBulkOrder} disabled={!editable} onChange={(e) => setIsBulkOrder(e.target.checked)} />
+              <input type="checkbox" checked={isBulkOrder} disabled={!headerEditable} onChange={(e) => setIsBulkOrder(e.target.checked)} />
               Bulk order (split later across distro customer POs)
             </label>
           </Field>
@@ -1396,12 +1447,12 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         )}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-          <Field label="Start Ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-          <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+          <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
+          <Field label="Start Ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
+          <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
-              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.name, searchHaystack: `${t.name} ${t.code || ""}` }))]} placeholder="(select)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.name, searchHaystack: `${t.name} ${t.code || ""}` }))]} placeholder="(select)" disabled={!headerEditable} />
           </Field>
         </div>
 
@@ -1409,18 +1460,18 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           <Field label="Brand">
             {/* Name only (no codes); code stays searchable. Auto-fills from the selected style. */}
             <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
-              options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code || ""} ${b.name}` }))]} placeholder="(entity default)" disabled={!editable} />
+              options={[{ value: "", label: "(entity default)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.code || ""} ${b.name}` }))]} placeholder="(entity default)" disabled={!headerEditable} />
           </Field>
           <Field label="Channel">
             {/* Name only (no codes); code stays searchable. Auto-fills from the customer. */}
             <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v)}
-              options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code || ""} ${c.name}` }))]} placeholder="(select)" disabled={!editable} />
+              options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code || ""} ${c.name}` }))]} placeholder="(select)" disabled={!headerEditable} />
           </Field>
           <Field label="Store">
             {/* Item 5 — selling store (Xoro SaleStoreName); drives the grid store filter. */}
             <SearchableSelect value={saleStore || null} onChange={(v) => setSaleStore(v || "")}
               options={[{ value: "", label: "(none)" }, ...Array.from(new Set([...storeOptions, ...(saleStore ? [saleStore] : [])])).map((s) => ({ value: s, label: s }))]}
-              placeholder="(none)" disabled={!editable} />
+              placeholder="(none)" disabled={!headerEditable} />
           </Field>
         </div>
 
@@ -1430,10 +1481,10 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Field label="Status">
               <SearchableSelect value={factorStatus || null} onChange={(v) => setFactorStatus(v || "not_submitted")}
-                options={FACTOR_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="not_submitted" disabled={!editable} />
+                options={FACTOR_STATUSES.map((s) => ({ value: s, label: s }))} placeholder="not_submitted" disabled={!headerEditable} />
             </Field>
-            <Field label="Factor ref #"><input type="text" value={factorReference} onChange={(e) => setFactorReference(e.target.value)} disabled={!editable} style={inputStyle} placeholder="approval / ref number" /></Field>
-            <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} onBlur={() => setFactorApprovedDollars((v) => fmtMoneyComma(v))} disabled={!editable} style={inputStyle} placeholder="0.00" /></Field>
+            <Field label="Factor ref #"><input type="text" value={factorReference} onChange={(e) => setFactorReference(e.target.value)} disabled={!headerEditable} style={inputStyle} placeholder="approval / ref number" /></Field>
+            <Field label="Approved $"><input type="text" inputMode="decimal" value={factorApprovedDollars} onChange={(e) => setFactorApprovedDollars(e.target.value)} onBlur={() => setFactorApprovedDollars((v) => fmtMoneyComma(v))} disabled={!headerEditable} style={inputStyle} placeholder="0.00" /></Field>
           </div>
           {/* Chunk K (operator item 17) — ship-gate cue. Server is the source of truth (409 on ship). */}
           {customers.find((c) => c.id === customerId)?.is_factored === true && factorStatus !== "approved" && (
@@ -1465,7 +1516,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           </div>
         )}
 
-        <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} style={inputStyle} placeholder="optional" /></Field>
+        <Field label="Notes"><input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!headerEditable} style={inputStyle} placeholder="optional" /></Field>
 
         {/* Item 15 — ship to multiple stores: split this draft into per-store child SOs. */}
         {canSplit && (
@@ -1505,7 +1556,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <SearchableSelect
                 value={fulfillmentSource || null}
                 onChange={(v) => { setFulfillmentSource(v); setFulfillmentReview(false); }}
-                disabled={!editable}
+                disabled={!headerEditable}
                 options={[
                   { value: "", label: "(select — required)" },
                   { value: "production", label: "Production — make it (notifies Production Mgr)" },
@@ -1520,7 +1571,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               />
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
-              <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
+              <input type="checkbox" checked={isCloseout} disabled={!headerEditable} onChange={(e) => setIsCloseout(e.target.checked)} />
               Closeout order
             </label>
             {/* Item 2 — Add-style / Add-non-matrix buttons aligned with the

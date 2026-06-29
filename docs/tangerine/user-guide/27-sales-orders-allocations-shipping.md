@@ -72,7 +72,7 @@ From **🛒 Sales Orders → + New sales order**. The header pickers mirror the 
 | Order date | yes | Defaults to today. |
 | Start Ship | optional | `requested_ship_date`. |
 | Cancel date | optional | |
-| Payment terms | optional | |
+| Payment terms | optional | **Auto-fills from the customer master** (`customers.payment_terms_id`) when you pick a customer — overridable, and never clobbers a value you already chose. |
 | Brand | auto | **Auto-populated from the selected style** — picking a style in the matrix sets Brand to that style's brand (the first matrix style with a brand wins). You can override it; blank falls back to the entity default (`rof_default_brand_id()`). The dropdown shows **brand names only** (no codes; codes are still searchable). |
 | Channel | auto | **Auto-filled from the customer** (Shopify ⇒ DTC, else Wholesale — see Customer). Overridable. Shows **channel names only** (no codes; codes still searchable). |
 | Store | optional | `sales_orders.sale_store` — the **selling store** (Xoro `SaleStoreName`, e.g. ROF Main / ROF - ECOM / Psycho Tuna). Pick an existing store; drives the **Store filter** on the SO list. Imported SOs are backfilled from the Xoro mirror; app-created SOs default to none. |
@@ -143,11 +143,15 @@ The alert fires once per SO (deduped on the SO id), through the same `resolveInt
 
 **Save & Confirm** issues the PATCH `status: "confirmed"`. The first time an SO is confirmed, the `[id].js` handler assigns the immutable `so_number` in the format **`SO-YYYY-NNNNN`** (year from the order date; the `NNNNN` is a per-entity sequence padded to 5). The `(entity_id, so_number)` unique index enforces no collisions within a company. Line edits PATCH through while the SO is `draft` *or* `confirmed` (e.g. to fill in Unit $ after confirming); the handler returns **409** once the SO is `allocated` / `shipped` / `invoiced`.
 
+### ✎ Edit header on a saved order (item 13)
+
+Re-opening a saved order, a **✎ Edit header** button (footer) unlocks the **header** — customer, ship-to, buyer, dates, payment terms, brand, channel, store, fulfillment source, factor fields, Customer PO #, notes — for correction **at any status**, independent of the line matrix (which stays draft/Add-styles gated). **Save header** PATCHes only the header (it sends no `lines`, so the line lock never trips and quantities are untouched). Use this to fix a wrong ship-to, terms, or PO # on a confirmed/allocated order without re-opening or re-confirming it.
+
 ### Finding a sales order (list search)
 
 The **Search SO #, customer, style…** box at the top of 🛒 Sales Orders is **all-field**: the server matches the typed text against the **SO number**, the **customer name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring). So you can pull up an order by who it's for or by a style on it, not just its number. It works alongside the **Customer**, **Status** and **Store** filters (all are ANDed) and updates as you type (200 ms debounce).
 
-> **Status — multi-select (operator item 6).** The **Status** filter is a **multi-select dropdown** (checkbox list with search): tick any combination of statuses (e.g. *confirmed* + *allocated* + *fulfilling*) to see them all at once. Empty = all statuses. The selected set is passed to the server as a comma list (`?status=confirmed,allocated`) and applied with an `IN (…)`; when a text search is also active, the multi-status set is applied to the search results.
+> **Status — multi-select (operator item 6).** The **Status** filter is a **multi-select dropdown** (checkbox list with search): tick any combination of statuses (e.g. *confirmed* + *allocated* + *fulfilling*) to see them all at once. It **defaults to the live/open set — draft, confirmed, allocated, fulfilling** — so the grid opens on actionable orders rather than the full closed/cancelled history; clear or change the ticks to widen it. Empty = all statuses. The selected set is passed to the server as a comma list (`?status=confirmed,allocated`) and applied with an `IN (…)`; when a text search is also active, the multi-status set is applied to the search results.
 
 > **Store filter (operator item 5).** A **Store** dropdown — same searchable-dropdown control as the **Inventory Matrix** warehouse filter — lets you scope the list to one **selling store** (`sales_orders.sale_store`, the Xoro `SaleStoreName`: ROF Main / ROF - ECOM / Psycho Tuna / Prebook - Psycho Tuna). (This SO field is a genuine *selling store*, distinct from the inventory *warehouse* location.) "All stores" = no scope. The store list comes from `GET /api/internal/sales-orders?facet=stores` (distinct values via the `distinct_so_sale_stores` function). Imported SOs were backfilled from the Xoro mirror; set a store on app-created SOs via the **Store** field in the order header. The whole search — including the line-level style/SKU match — runs in the `search_sales_orders` SQL function, so it spans the entire order book (not just the loaded rows) without shipping a giant id list over HTTP.
 
