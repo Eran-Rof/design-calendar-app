@@ -442,11 +442,15 @@ export function todayStamp(): string {
  * Components typically call this from a button's onClick.
  */
 export function useTableExport<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
-  function exportNow(formatOverride?: ExportFormat) {
+  // `rowsOverride` lets a caller export a row set other than the bound `rows`
+  // (e.g. the SO grid's "Export all" fetches every filtered page on demand and
+  // hands the full set here, instead of the ≤500 rows shown — operator item 17).
+  function exportNow(formatOverride?: ExportFormat, rowsOverride?: T[]) {
     const fmt = formatOverride || args.format || "xlsx";
-    if (fmt === "csv") exportCsv(args);
-    else if (fmt === "pdf") exportPdf(args);
-    else exportXlsx(args);
+    const a = rowsOverride ? { ...args, rows: rowsOverride } : args;
+    if (fmt === "csv") exportCsv(a);
+    else if (fmt === "pdf") exportPdf(a);
+    else exportXlsx(a);
   }
   return { exportNow };
 }

@@ -133,7 +133,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
       margin_cents = avg_sell_cents - avg_cost_cents;
       margin_pct = avg_sell_cents !== 0 ? Math.round((margin_cents / avg_sell_cents) * 1000) / 10 : null;
     }
-    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct });
+    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct, total_qty: q });
   }
   return out;
 }
@@ -288,6 +288,11 @@ export default async function handler(req, res) {
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
+    // Pagination offset — the UI's "Export all" walks pages of `limit` rows
+    // (offset 0, 500, 1000, …) so a download covers the whole filtered set, not
+    // just the first page (operator item 17). The page size stays capped at 500.
+    let offset = parseInt(url.searchParams.get("offset") || "0", 10);
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
     for (const s of statuses) {
       if (!STATUSES.includes(s)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
     }
@@ -299,7 +304,10 @@ export default async function handler(req, res) {
       // description / SKU sku_code / style_code / description) runs in the
       // search_sales_orders RPC so the line-level match never has to ship a
       // large id.in.(…) URL. NULL brand/channel = "all" unless enforcing.
-      ({ data, error } = await admin.rpc("search_sales_orders", {
+      // p_offset is only sent when paging past the first page (Export all). It
+      // defaults to 0 in the function, so omitting it keeps working in the brief
+      // window between a deploy and the migration that adds the parameter.
+      const rpcArgs = {
         p_entity_id: entity.id,
         p_q: q,
         p_status: statuses.length === 1 ? statuses[0] : null,
@@ -307,13 +315,15 @@ export default async function handler(req, res) {
         p_brand_id: activeBrandId(req),
         p_channel_id: activeChannelId(req),
         p_limit: limit,
-      }));
+      };
+      if (offset > 0) rpcArgs.p_offset = offset;
+      ({ data, error } = await admin.rpc("search_sales_orders", rpcArgs));
     } else {
       let query = admin.from("sales_orders").select(SELECT_COLS)
         .eq("entity_id", entity.id)
         .order("order_date", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(limit);
+        .range(offset, offset + limit - 1);
       query = applyBrandScope(query, req);
       query = applyChannelScope(query, req);
       if (statuses.length === 1) query = query.eq("status", statuses[0]);
@@ -344,11 +354,12 @@ export default async function handler(req, res) {
     try {
       const metrics = await computeSoMetrics(admin, headers.map((h) => h.id), styleFilter);
       for (const h of headers) {
-        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null };
+        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null, total_qty: null };
         h.avg_cost_cents = m.avg_cost_cents;
         h.avg_sell_cents = m.avg_sell_cents;
         h.margin_cents = m.margin_cents;
         h.margin_pct = m.margin_pct;
+        h.total_qty = m.total_qty;  // item 18 — total units across the SO's lines
       }
     } catch { /* leave metrics absent on failure */ }
 

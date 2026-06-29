@@ -34,6 +34,18 @@ const SO_TABLE_KEY = "tangerine:salesorders:columns";
 // Server-side page size for the list (the endpoint caps at 500). The full set
 // lives server-side; use the search / filters to find older orders beyond this.
 const SO_LIST_LIMIT = 500;
+// Item 20 — new SOs default their Warehouse to the main warehouse (operator can
+// change it). Must match a name in the Warehouses master (reconciled by mig
+// 20260925); "Main Warehouse" is the canonical default location.
+const DEFAULT_WAREHOUSE = "Main Warehouse";
+// Item 19 — default the Cancel date to Start ship + this many days (editable).
+const CANCEL_DAYS_AFTER_SHIP = 6;
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 const SO_COLUMNS: ColumnDef[] = [
   { key: "so_number",   label: "SO #" },
   { key: "customer",    label: "Customer" },
@@ -48,6 +60,7 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "avg_sell",    label: "Avg sell" },
   { key: "margin_pct",  label: "Margin %" },
   { key: "margin_amt",  label: "Margin $" },
+  { key: "total_qty",   label: "Qty" },
   { key: "total",       label: "Total" },
 ];
 
@@ -102,6 +115,7 @@ type SO = {
   // Per-SO cost/margin aggregates (server-computed; style-scoped when filtered).
   avg_cost_cents?: number | null; avg_sell_cents?: number | null;
   margin_cents?: number | null; margin_pct?: number | null;
+  total_qty?: number | null;  // item 18 — total units across the SO's lines
 };
 // Scenario 4.2 — bulk↔distro match shapes (mirror /sales-orders/bulk-match).
 type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
@@ -206,41 +220,42 @@ export default function InternalSalesOrders() {
   }, [customers]);
 
   // Client-side date-range filter on the chosen date field. A row with a null
-  // value for the selected field is dropped only when a bound is set.
-  const filteredRows = useMemo(() => {
-    if (!dateFrom && !dateTo) return rows;
-    return rows.filter((so) => {
-      const raw = dateField === "order_date" ? so.order_date : so.requested_ship_date;
-      const d = (raw || "").slice(0, 10);
-      if (!d) return false;
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
-      return true;
-    });
-  }, [rows, dateFrom, dateTo, dateField]);
+  // value for the selected field is dropped only when a bound is set. Shared by
+  // the on-screen list and the "Export all" fetch so both apply the same range.
+  const inDateRange = useCallback((so: SO): boolean => {
+    if (!dateFrom && !dateTo) return true;
+    const raw = dateField === "order_date" ? so.order_date : so.requested_ship_date;
+    const d = (raw || "").slice(0, 10);
+    if (!d) return false;
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo && d > dateTo) return false;
+    return true;
+  }, [dateFrom, dateTo, dateField]);
+  const filteredRows = useMemo(() => rows.filter(inDateRange), [rows, inDateRange]);
 
-  // Export rows mirror the displayed list (same filter/search), with ids
-  // resolved to human labels and cents kept in cents for currency formatting.
-  const exportRows = useMemo(
-    () =>
-      filteredRows.map((so) => ({
-        so_number: so.so_number || "(draft)",
-        customer: customerName[so.customer_id] || "—",
-        store: so.sale_store || "",
-        order_date: so.order_date,
-        start_ship: so.requested_ship_date || "",
-        cancel_date: so.cancel_date || "",
-        status: so.status,
-        factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
-        credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
-        avg_cost_cents: so.avg_cost_cents ?? null,
-        avg_sell_cents: so.avg_sell_cents ?? null,
-        margin_pct: so.margin_pct ?? null,
-        margin_cents: so.margin_cents ?? null,
-        total_cents: Number(so.total_cents ?? 0),
-      })),
-    [filteredRows, customerName],
-  );
+  // Map an SO header → the export row shape (ids resolved to human labels; cents
+  // kept in cents for currency formatting). Shared by the on-screen export and
+  // the full "Export all" fetch so both produce identical columns.
+  const toExportRow = useCallback((so: SO) => ({
+    so_number: so.so_number || "(draft)",
+    customer: customerName[so.customer_id] || "—",
+    store: so.sale_store || "",
+    order_date: so.order_date,
+    start_ship: so.requested_ship_date || "",
+    cancel_date: so.cancel_date || "",
+    status: so.status,
+    factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
+    credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
+    avg_cost_cents: so.avg_cost_cents ?? null,
+    avg_sell_cents: so.avg_sell_cents ?? null,
+    margin_pct: so.margin_pct ?? null,
+    margin_cents: so.margin_cents ?? null,
+    total_qty: so.total_qty != null ? Number(so.total_qty) : null,
+    total_cents: Number(so.total_cents ?? 0),
+  }), [customerName]);
+
+  // Export rows mirror the displayed list (same filter/search).
+  const exportRows = useMemo(() => filteredRows.map(toExportRow), [filteredRows, toExportRow]);
   const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
@@ -255,8 +270,36 @@ export default function InternalSalesOrders() {
     { key: "avg_sell_cents", header: "Avg sell", format: "currency_cents" },
     { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
     { key: "margin_cents", header: "Margin $", format: "currency_cents" },
+    { key: "total_qty",  header: "Qty", format: "number" },
     { key: "total_cents", header: "Total", format: "currency_cents" },
   ];
+
+  // Item 17 — "Export all": walk every server page (offset 0, 500, 1000, …) with
+  // the SAME filters/search the list uses, so the download covers the whole
+  // filtered set rather than just the first 500 shown. Applies the same client
+  // date-range filter, then maps to the export shape.
+  const fetchAllForExport = useCallback(async () => {
+    const base = new URLSearchParams();
+    if (statusFilters.length) base.set("status", statusFilters.join(","));
+    if (storeFilter) base.set("store", storeFilter);
+    if (customerFilter) base.set("customer_id", customerFilter);
+    if (searchDebounced.trim()) { base.set("q", searchDebounced.trim()); base.set("style", searchDebounced.trim()); }
+    const styleDrill = readDrillParam("style_id");
+    if (styleDrill) base.set("style_id", styleDrill);
+    const PAGE = 500;
+    const acc: SO[] = [];
+    for (let offset = 0; offset < 100000; offset += PAGE) {
+      const p = new URLSearchParams(base);
+      p.set("limit", String(PAGE));
+      p.set("offset", String(offset));
+      const r = await fetch(`/api/internal/sales-orders?${p.toString()}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const page = await r.json() as SO[];
+      acc.push(...page);
+      if (page.length < PAGE) break;
+    }
+    return acc.filter(inDateRange).map(toExportRow);
+  }, [statusFilters, storeFilter, customerFilter, searchDebounced, inDateRange, toExportRow]);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -362,7 +405,7 @@ export default function InternalSalesOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
-        <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} />
+        <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} fetchRows={fetchAllForExport} />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -389,11 +432,11 @@ export default function InternalSalesOrders() {
             <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_qty")}>Qty</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={14}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={14}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={15}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={15}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
               return (
@@ -415,6 +458,7 @@ export default function InternalSalesOrders() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")}>{so.total_qty != null ? Number(so.total_qty).toLocaleString() : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
               </tr>
               );
@@ -467,11 +511,16 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const [shipToLocationId, setShipToLocationId] = useState(so?.ship_to_location_id || "");
   const [brandId, setBrandId] = useState(so?.brand_id || "");
   const [channelId, setChannelId] = useState(so?.channel_id || "");
-  // Item 5 — selling store (Xoro SaleStoreName). Optional; drives the grid filter.
-  const [saleStore, setSaleStore] = useState(so?.sale_store || "");
+  // Warehouse (sale_store). New SOs default to the main warehouse (item 20);
+  // editing keeps the saved value.
+  const [saleStore, setSaleStore] = useState(so?.sale_store || (so ? "" : DEFAULT_WAREHOUSE));
   const [orderDate, setOrderDate] = useState(so?.order_date || new Date().toISOString().slice(0, 10));
   const [reqShip, setReqShip] = useState(so?.requested_ship_date || "");
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
+  // Item 19 — auto-fill Cancel date = Start ship + 6 days, but only while the
+  // operator hasn't typed their own value. We remember the last auto value so a
+  // later ship-date change re-derives it, yet a manual edit is never overwritten.
+  const autoCancelRef = useRef(so?.cancel_date ? "__manual__" : "");
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   // #1156 — optional buyer (the person at the customer who placed the order).
   const [buyerId, setBuyerId] = useState(so?.buyer_id || "");
@@ -626,6 +675,18 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     return () => { cancel = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
+
+  // Item 19 — keep Cancel date defaulted to Start ship + 6 days until the
+  // operator overrides it. setCancelDate only runs when the current value is
+  // blank or equals our previous auto value, so a manual edit sticks.
+  useEffect(() => {
+    if (!reqShip) return;
+    const auto = addDaysIso(reqShip, CANCEL_DAYS_AFTER_SHIP);
+    if (!auto) return;
+    setCancelDate((cur) => (!cur || cur === autoCancelRef.current ? auto : cur));
+    autoCancelRef.current = auto;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqShip]);
 
   // #1156 — the customer's buyers, for the optional Buyer picker.
   useEffect(() => {
