@@ -1278,7 +1278,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                 section above the fold even when DevTools is open. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi />
-              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
+              <SelectField label="Warehouses" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
               <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi optionLabel={styleOptionLabel} />
