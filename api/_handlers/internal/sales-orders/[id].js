@@ -365,7 +365,13 @@ export default async function handler(req, res, params) {
                 event_type: "production_order_requested",
                 title: `Production order: ${soNo}`,
                 body: `Sales order ${soNo} was confirmed for PRODUCTION fulfillment. Review it in Tangerine → Sales Orders.`,
-                link: "/tangerine?m=sales_orders",
+                // Deep-link straight to this SO: q= filters the Sales Orders
+                // list to the so_number (falls back to the bare list if the
+                // number isn't assigned yet). The shared notificationLink
+                // resolver also derives this from metadata as a backstop.
+                link: data.so_number
+                  ? `/tangerine?m=sales_orders&q=${encodeURIComponent(data.so_number)}`
+                  : "/tangerine?m=sales_orders",
                 metadata: { sales_order_id: id, so_number: data.so_number || null, fulfillment_source: "production" },
                 recipient: { internal_id: "production", email },
                 dedupe_key: `production_order_${id}`,
