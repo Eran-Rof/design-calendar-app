@@ -509,7 +509,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         aria-autocomplete="list"
         aria-controls={listboxId}
         aria-activedescendant={activeOptionId}
-        onFocus={() => { if (!open) openPanel(); }}
+        onFocus={(e) => { if (!open) openPanel(); else e.currentTarget.select(); }}
         onClick={() => { if (!open) openPanel(); }}
         onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); setAddNewHighlighted(false); }}
         onKeyDown={onKeyDown}
