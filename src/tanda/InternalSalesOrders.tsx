@@ -500,7 +500,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   // style_code/color/size/sku_code.
   useEffect(() => {
     if (isNew || !so) return;
-    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null };
+    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null; description: string | null };
     fetch(`/api/internal/sales-orders/${so.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
       const byStyle = new Map<string, SeedSection>();
@@ -513,7 +513,13 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
           sec.cells.push({ color: l.color, size: l.size, inseam: l.inseam ?? null, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined });
         } else {
-          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : undefined });
+          // A null-linked (unresolved-SKU) line carries no sku_code/style_code —
+          // fall back to the line description so the document/list shows what it is
+          // ("VERGE 5 Pkt Slim Fit") instead of a blank "(line)".
+          const flatLabel = l.sku_code
+            ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}`
+            : (l.description?.trim() ? `${l.description.trim()}${l.inventory_item_id ? "" : " (unmatched SKU)"}` : undefined);
+          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: flatLabel, description: l.description?.trim() || undefined });
         }
       }
       setSeed({ sections: [...byStyle.values()], flat });
