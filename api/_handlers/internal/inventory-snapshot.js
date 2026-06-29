@@ -125,6 +125,14 @@ export default async function handler(req, res) {
   // size-less equivalent of the matrix's per-size explosion. PPK styles with no
   // active matrix are left un-exploded (pack counts shown as-is).
   const explodePpk = body?.explode_ppk === true || String(body?.explode_ppk || "") === "true";
+  // Optional Warehouse filter (on-hand LOCATION, per the house "Warehouse vs
+  // Store" rule). When set, the point-in-time on-hand columns (On Hand + the ATS
+  // on-hand source, and therefore ATS / ATS-incl-PO) are narrowed to that single
+  // warehouse; the other lifecycle columns (allocated / SO / PO / sold /
+  // purchased) are not warehouse-grained so they're unaffected. Empty = sum all
+  // warehouses (the prior behaviour). Match is case-insensitive on the name.
+  const warehouse = String(body?.warehouse || "").trim() || null;
+  const whKey = warehouse ? warehouse.toLowerCase() : null;
 
   try {
     const eid = await entityId(admin);
@@ -244,9 +252,18 @@ export default async function handler(req, res) {
       return { costBySku, costByLoose };
     };
 
+    // location_id → warehouse name (for the optional Warehouse filter). Layers
+    // carry the authoritative location_id since the multi-warehouse cutover; we
+    // fall back to the legacy `wh=<name>` notes tag when a layer has none.
+    const locNameById = new Map();
+    if (whKey) {
+      const { data: locRows } = await admin.from("inventory_locations").select("id, name").eq("entity_id", eid);
+      for (const lr of locRows || []) locNameById.set(lr.id, lr.name);
+    }
+
     const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
-      fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty").in("item_id", ids)),
-      fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand").in("item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes").in("item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand, warehouse_code").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status)").in("inventory_item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
@@ -258,15 +275,26 @@ export default async function handler(req, res) {
     ]);
 
     // ── Merge (in-memory; order doesn't matter). ──────────────────────────────
-    // On hand (inventory_layers — matches the matrix).
+    // On hand (inventory_layers — matches the matrix). When a Warehouse filter is
+    // active, only layers in that warehouse contribute (location name, or the
+    // legacy `wh=` notes tag as a fallback).
+    const layerWh = (l) => {
+      const name = l.location_id ? locNameById.get(l.location_id) : null;
+      if (name) return name;
+      const m = (l.notes || "").match(/wh=(.+)$/);
+      return m ? m[1].trim() : null;
+    };
     for (const r of layerRows) {
+      if (whKey && String(layerWh(r) || "").toLowerCase() !== whKey) continue;
       const q = (Number(r.remaining_qty) || 0) * mult(r.item_id);
       if (q > 0) { const b = bucketOfItem(r.item_id); if (b) b.on_hand += q; }
     }
-    // On hand (ATS source — latest snapshot per item).
+    // On hand (ATS source — latest snapshot per item). The ATS source carries a
+    // warehouse_code; under a Warehouse filter we keep only rows for that wh.
+    const atsRows = whKey ? ohRows.filter((r) => String(r.warehouse_code || "").toLowerCase() === whKey) : ohRows;
     const latestByItem = new Map();
-    for (const r of ohRows) { const c = latestByItem.get(r.item_id); if (!c || String(r.snapshot_date) > c) latestByItem.set(r.item_id, String(r.snapshot_date)); }
-    for (const r of ohRows) {
+    for (const r of atsRows) { const c = latestByItem.get(r.item_id); if (!c || String(r.snapshot_date) > c) latestByItem.set(r.item_id, String(r.snapshot_date)); }
+    for (const r of atsRows) {
       if (String(r.snapshot_date) !== latestByItem.get(r.item_id)) continue;
       const b = bucketOfItem(r.item_id); if (b) b.on_hand_ats += (Number(r.qty_on_hand) || 0) * mult(r.item_id);
     }

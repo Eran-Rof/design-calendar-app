@@ -1301,25 +1301,42 @@ export default function InternalInventoryMatrix() {
     () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
     [styles, brandId],
   );
+  // CASCADING filter options (#9): each dropdown only offers values that exist
+  // among the styles matching ALL the OTHER active filters (search text + the
+  // sibling dropdowns), so the filters narrow each other reciprocally. `except`
+  // is the dimension being computed (so it doesn't constrain its own options).
+  const matchesExcept = useMemo(() => {
+    const q = styleSearchDeb.trim().toLowerCase();
+    return (s: StyleListRow, except: "gender" | "group" | "category" | "sub") => {
+      if (except !== "gender" && genderFilter && s.gender_code !== genderFilter) return false;
+      if (except !== "group" && groupFilter && s.group_name !== groupFilter) return false;
+      if (except !== "category" && categoryFilter && s.category_name !== categoryFilter) return false;
+      if (except !== "sub" && subCategoryFilter && s.sub_category_name !== subCategoryFilter) return false;
+      if (q) {
+        const hay = [s.style_code, s.style_name, s.description, s.group_name, s.category_name, s.sub_category_name]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    };
+  }, [styleSearchDeb, genderFilter, groupFilter, categoryFilter, subCategoryFilter]);
+
   const genderOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.gender_code).filter((g): g is string => !!g))]
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "gender")).map((s) => s.gender_code).filter((g): g is string => !!g))]
       .sort((a, b) => (GENDER_LABELS[a] || a).localeCompare(GENDER_LABELS[b] || b)),
-    [brandScopedStyles],
+    [brandScopedStyles, matchesExcept],
   );
   const groupOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
-    [brandScopedStyles],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "group")).map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
   const categoryOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
-    [brandScopedStyles],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "category")).map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
   const subCategoryOptions = useMemo<string[]>(
-    () => {
-      const base = categoryFilter ? brandScopedStyles.filter((s) => s.category_name === categoryFilter) : brandScopedStyles;
-      return [...new Set(base.map((s) => s.sub_category_name).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
-    },
-    [brandScopedStyles, categoryFilter],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "sub")).map((s) => s.sub_category_name).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
 
   // Reset sub-category when category changes.
@@ -1334,17 +1351,27 @@ export default function InternalInventoryMatrix() {
     [brandStyles, multiPage],
   );
 
-  // Does the current page of filtered styles include ANY PPK (prepack) style?
-  // PPK grain rule is canonical: a style is a pack iff /PPK/i.test(style_code)
-  // (NOT size/pack_size). Used to FORCE per-unit explode when Totals is on — a
-  // PPK row's qty (packs) × pack avg-cost/price is meaningless as a $ total; the
-  // explode converts both to per-each so $ Cost / $ Wholesale reconcile. (#11)
-  const pageHasPpk = useMemo(
-    () => brandStyles
-      .slice(multiPage * MULTI_PAGE_SIZE, multiPage * MULTI_PAGE_SIZE + MULTI_PAGE_SIZE)
-      .some((s) => /ppk/i.test(s.style_code || "")),
-    [brandStyles, multiPage],
+  // Collapse (#13) aggregates across the FULL filtered set, not just the visible
+  // page — exactly like Export. When ANY Collapse column is checked, the snapshot
+  // fetches every filtered style (capped) so the roll-up sums all of them; the
+  // pager is hidden in that mode. A safety cap keeps a giant "all styles" collapse
+  // from posting tens of thousands of ids.
+  const SNAP_ALL_CAP = 4000;
+  const collapseActive = snapCollapse.size > 0;
+  const snapStyleIds = useMemo(
+    () => (collapseActive ? brandStyles.slice(0, SNAP_ALL_CAP).map((s) => s.id) : pageStyleIds),
+    [collapseActive, brandStyles, pageStyleIds],
   );
+
+  // Does the snapshot's fetched set include ANY PPK (prepack) style? PPK grain
+  // rule is canonical: a style is a pack iff /PPK/i.test(style_code) (NOT
+  // size/pack_size). Used to FORCE per-unit explode when Totals is on — a PPK
+  // row's qty (packs) × pack avg-cost/price is meaningless as a $ total; the
+  // explode converts both to per-each so $ Cost / $ Wholesale reconcile. (#11)
+  const pageHasPpk = useMemo(() => {
+    const set = new Set(snapStyleIds);
+    return brandStyles.some((s) => set.has(s.id) && /ppk/i.test(s.style_code || ""));
+  }, [brandStyles, snapStyleIds]);
 
   // Effective explode flag for the snapshot: the operator's Explode toggle, OR a
   // forced explode when Totals is showing AND the page contains a PPK style (so
@@ -1352,22 +1379,24 @@ export default function InternalInventoryMatrix() {
   // also implies explode (it folds packs into eaches). (#11)
   const effectiveExplodePpk = explodePpk || mergePpk || (snapTotals && pageHasPpk);
 
-  // Snapshot view (default all-styles): fetch the aggregate rows for this page.
+  // Snapshot view (default all-styles): fetch the aggregate rows for the visible
+  // page — or, when Collapse is active, the full filtered set (#13).
+  const snapFetchKey = snapStyleIds.join(",");
   useEffect(() => {
     if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
-    if (pageStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
+    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
     let cancelled = false;
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined }),
+      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo, effectiveExplodePpk]);
+  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1989,18 +2018,28 @@ export default function InternalInventoryMatrix() {
             <ExportButton rows={brandExportRows} filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Matrix" columns={brandExportColumns} />
           )}
 
-          {/* Style count + Prev/Next pager — Snapshot view (matrix view keeps its own bar). */}
+          {/* Style count + Prev/Next pager — Snapshot view (matrix view keeps its
+              own bar). When Collapse is active the snapshot aggregates the FULL
+              filtered set (#13), so the pager is replaced by an "all N styles"
+              note. */}
           {!styleId && noStyleView === "snapshot" && (
-            <>
-              <span style={{ color: C.textMuted, fontSize: 13 }}>Styles {hdrPageStart}–{hdrPageEnd} of {hdrTotalStyles}</span>
-              {hdrTotalPages > 1 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {hdrTotalPages}</span>
-                  <button onClick={() => setMultiPage((p) => Math.min(hdrTotalPages - 1, p + 1))} disabled={multiPage >= hdrTotalPages - 1} style={{ ...pagBtn, opacity: multiPage >= hdrTotalPages - 1 ? 0.4 : 1, cursor: multiPage >= hdrTotalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
-                </div>
-              )}
-            </>
+            collapseActive ? (
+              <span style={{ color: C.textMuted, fontSize: 13 }}>
+                Collapsed across all {Math.min(hdrTotalStyles, SNAP_ALL_CAP)} filtered style{hdrTotalStyles === 1 ? "" : "s"}
+                {hdrTotalStyles > SNAP_ALL_CAP ? ` (capped at ${SNAP_ALL_CAP})` : ""}
+              </span>
+            ) : (
+              <>
+                <span style={{ color: C.textMuted, fontSize: 13 }}>Styles {hdrPageStart}–{hdrPageEnd} of {hdrTotalStyles}</span>
+                {hdrTotalPages > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {hdrTotalPages}</span>
+                    <button onClick={() => setMultiPage((p) => Math.min(hdrTotalPages - 1, p + 1))} disabled={multiPage >= hdrTotalPages - 1} style={{ ...pagBtn, opacity: multiPage >= hdrTotalPages - 1 ? 0.4 : 1, cursor: multiPage >= hdrTotalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
+                  </div>
+                )}
+              </>
+            )
           )}
         </div>
       </div>
