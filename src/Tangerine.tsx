@@ -215,6 +215,15 @@ export default function Tangerine() {
     });
   };
 
+  // Publish the live NavDrawer width as a CSS var so descendant panels/modals
+  // can clear the drawer (`left: var(--tng-nav-offset)`) without threading the
+  // drawer state down as a prop — e.g. the Inventory Matrix drill modals, which
+  // otherwise centre over the full viewport and slide under the drawer (#24).
+  useEffect(() => {
+    const w = drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
+    try { document.documentElement.style.setProperty("--tng-nav-offset", `${w}px`); } catch { /* noop */ }
+  }, [drawerCollapsed]);
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {

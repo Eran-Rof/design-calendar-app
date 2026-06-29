@@ -360,6 +360,32 @@ function fmtQty(v: number): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+// ── reusable column sort (drill modals) ──────────────────────────────────────
+// A tiny click-to-sort helper for the Sold / Purchased popup tables (#5/#7). Each
+// header toggles asc → desc on the clicked key; the arrow renders the direction.
+type SortDir = "asc" | "desc";
+function useColumnSort<T>(initialKey: keyof T | null = null, initialDir: SortDir = "asc") {
+  const [key, setKey] = useState<keyof T | null>(initialKey);
+  const [dir, setDir] = useState<SortDir>(initialDir);
+  const onSort = (k: keyof T) => {
+    setKey((prev) => { if (prev === k) { setDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setDir("asc"); return k; });
+  };
+  const sort = (rows: T[]): T[] => {
+    if (key == null) return rows;
+    const out = [...rows];
+    out.sort((a, b) => {
+      const av = a[key], bv = b[key];
+      let c: number;
+      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      return dir === "asc" ? c : -c;
+    });
+    return out;
+  };
+  const arrow = (k: keyof T) => (key === k ? (dir === "asc" ? " ▲" : " ▼") : "");
+  return { key, dir, onSort, sort, arrow };
+}
+
 
 const ALL_BRANDS_SENTINEL     = "__ALL_BRANDS__";
 const ALL_GENDER_SENTINEL     = "__ALL_GENDER__";
@@ -776,8 +802,12 @@ type PurchasedDetail = {
   rows: { color: string | null; vendor: string | null; qty: number; unit_price: number | null; ref: string | null; bill_id: string | null; receipt_type: string; receipt_date: string | null; bill_date: string | null }[];
 };
 
-const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 };
-const modalCard: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(1000px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 20 };
+// Backdrop clears the NavDrawer: its left edge starts at --tng-nav-offset (the
+// live drawer width published by Tangerine) so the centered drill panel sits in
+// the content area and never slides UNDER the menu on a wrapped/narrow view
+// (#24). Falls back to 0 outside Tangerine. The card caps to the remaining width.
+const modalBackdrop: React.CSSProperties = { position: "fixed", top: 0, right: 0, bottom: 0, left: "var(--tng-nav-offset, 0px)", background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 };
+const modalCard: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(1000px, calc(100vw - var(--tng-nav-offset, 0px) - 40px))", maxHeight: "90vh", overflow: "auto", padding: 20 };
 const dl/* date-label */: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 };
 const dateInput: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 8px", fontSize: 13, colorScheme: "dark" };
 const money = (n: number | null | undefined) => n == null ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -803,19 +833,44 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
   const [data, setData] = useState<SoldDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [store, setStore] = useState<string>("");      // "" = all stores (#7)
+  const [collapseInv, setCollapseInv] = useState(false); // collapse rows on Invoice # (#18)
+  type SoldRow = SoldDetail["rows"][number];
+  const ctSort = useColumnSort<SoldDetail["color_totals"][number]>("qty", "desc");
+  const rowSort = useColumnSort<SoldRow>("date", "desc");
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
     if (explodePpk) qs.set("explode_ppk", "true"); // explode the drilled detail too
     fetch(`/api/internal/inventory-sold-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .then((j) => { if (!cancelled) { setData(j); setStore(""); } }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [row.style_id, from, to, explodePpk]);
-  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  // Store options across the invoice rows (#7). Wholesale rows carry no store, so
+  // this is mostly Ecom vs blank, but it constrains whatever store data exists.
+  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.store).filter((s): s is string => !!s))].sort(), [data]);
+  // Apply store filter → collapse-on-invoice (optional) → sort.
+  const invoiceRows = useMemo<SoldRow[]>(() => {
+    let rows = (data?.rows ?? []).filter((r) => !store || (r.store ?? "") === store);
+    if (collapseInv) {
+      const map = new Map<string, SoldRow & { _amt: number; _pq: number }>();
+      for (const r of rows) {
+        const key = r.invoice_number ?? `__${r.color ?? ""}`;
+        let g = map.get(key);
+        if (!g) { g = { ...r, color: null, qty: 0, _amt: 0, _pq: 0 }; map.set(key, g); }
+        g.qty += num(r.qty);
+        if (r.unit_price != null) { g._amt += num(r.unit_price) * num(r.qty); g._pq += num(r.qty); }
+      }
+      rows = [...map.values()].map(({ _amt, _pq, ...g }) => ({ ...g, unit_price: _pq > 0 ? +(_amt / _pq).toFixed(4) : null }));
+    }
+    return rowSort.sort(rows);
+  }, [data, store, collapseInv, rowSort.key, rowSort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, colorScheme: "dark" };
   return (
     <div style={modalBackdrop} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -828,21 +883,48 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
           <>
             <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals</div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
-              <thead><tr><th style={th}>Color</th><th style={thR}>Qty Sold</th><th style={thR}>Avg Unit Price</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => ctSort.onSort("color")}>Color{ctSort.arrow("color")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("qty")}>Qty Sold{ctSort.arrow("qty")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("avg_unit_price")}>Avg Unit Price{ctSort.arrow("avg_unit_price")}</th>
+              </tr></thead>
               <tbody>
-                {data.color_totals.map((c) => (
+                {ctSort.sort(data.color_totals).map((c) => (
                   <tr key={c.color ?? ""}><td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}</span></td><td style={tdR}>{fmtQty(c.qty)}</td><td style={tdR}>{money(c.avg_unit_price)}</td></tr>
                 ))}
                 <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td><td style={tdR} /></tr>
               </tbody>
             </table>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Invoices</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Invoices</span>
+              {storeOptions.length > 0 && (
+                <label style={{ fontSize: 11, color: C.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Store
+                  <select value={store} onChange={(e) => setStore(e.target.value)} style={selStyle}>
+                    <option value="">All</option>
+                    {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </label>
+              )}
+              <button type="button" onClick={() => setCollapseInv((v) => !v)} title="Collapse the rows onto Invoice number"
+                style={{ background: collapseInv ? C.primary : "transparent", color: collapseInv ? "#fff" : C.textSub, border: `1px solid ${collapseInv ? C.primary : C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
+                Collapse: Invoice {collapseInv ? "✓" : ""}
+              </button>
+            </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr><th style={th}>Color</th><th style={th}>Store</th><th style={thR}>Sold</th><th style={th}>Invoice #</th><th style={th}>Customer</th><th style={thR}>Unit Price</th><th style={th}>Date</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
+                <th style={th} onClick={() => rowSort.onSort("store")}>Store{rowSort.arrow("store")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("qty")}>Sold{rowSort.arrow("qty")}</th>
+                <th style={th} onClick={() => rowSort.onSort("invoice_number")}>Invoice #{rowSort.arrow("invoice_number")}</th>
+                <th style={th} onClick={() => rowSort.onSort("customer")}>Customer{rowSort.arrow("customer")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("unit_price")}>Unit Price{rowSort.arrow("unit_price")}</th>
+                <th style={th} onClick={() => rowSort.onSort("date")}>Date{rowSort.arrow("date")}</th>
+              </tr></thead>
               <tbody>
-                {data.rows.map((r, i) => (
+                {invoiceRows.map((r, i) => (
                   <tr key={i}>
-                    <td style={td}>{r.color || "—"}</td>
+                    <td style={td}>{collapseInv ? "—" : (r.color || "—")}</td>
                     <td style={td}>{r.store || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={td}>{r.invoice_number ? (r.ar_invoice_id ? <span role="button" tabIndex={0} onClick={() => onOpenInvoice(r.ar_invoice_id!, r.invoice_number!, r.customer)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.invoice_number}</span> : r.invoice_number) : "—"}</td>
@@ -851,7 +933,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
                     <td style={td}>{r.date ? fmtDate(String(r.date).slice(0, 10)) : "—"}</td>
                   </tr>
                 ))}
-                {data.rows.length === 0 && <tr><td style={td} colSpan={7}>No invoices in this range.</td></tr>}
+                {invoiceRows.length === 0 && <tr><td style={td} colSpan={7}>No invoices in this range{store ? ` for store ${store}` : ""}.</td></tr>}
               </tbody>
             </table>
           </>
@@ -873,6 +955,10 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, 
   // Click a colour row to filter the receipts/bills list to just that colour.
   // null = show all. Stored as the colour string ("" for the null-colour row).
   const [pickedColor, setPickedColor] = useState<string | null>(null);
+  const [collapseBill, setCollapseBill] = useState(false); // collapse rows on Bill # (#17)
+  type PurchRow = PurchasedDetail["rows"][number];
+  const ctSort = useColumnSort<PurchasedDetail["color_totals"][number]>("qty", "desc");
+  const rowSort = useColumnSort<PurchRow>("bill_date", "desc");
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
@@ -882,13 +968,29 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, 
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [row.style_id, from, to, explodePpk]);
-  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
   // Zebra/fade: alternate row tint so long colour lists stay readable on scroll.
   const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
-  const billRows = (data?.rows ?? []).filter((r) => pickedColor == null || (r.color ?? "") === pickedColor);
+  // Apply colour filter → collapse-on-bill (optional) → sort.
+  const billRows = useMemo<PurchRow[]>(() => {
+    let rows = (data?.rows ?? []).filter((r) => pickedColor == null || (r.color ?? "") === pickedColor);
+    if (collapseBill) {
+      const map = new Map<string, PurchRow & { _amt: number; _pq: number }>();
+      for (const r of rows) {
+        // Key on the bill/ref; rows with no ref (bare receipts) collapse per type.
+        const key = r.ref ?? `__${r.receipt_type}|${r.color ?? ""}`;
+        let g = map.get(key);
+        if (!g) { g = { ...r, color: null, qty: 0, _amt: 0, _pq: 0 }; map.set(key, g); }
+        g.qty += num(r.qty);
+        if (r.unit_price != null) { g._amt += num(r.unit_price) * num(r.qty); g._pq += num(r.qty); }
+      }
+      rows = [...map.values()].map(({ _amt, _pq, ...g }) => ({ ...g, unit_price: _pq > 0 ? +(_amt / _pq).toFixed(4) : null }));
+    }
+    return rowSort.sort(rows);
+  }, [data, pickedColor, collapseBill, rowSort.key, rowSort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={modalBackdrop} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -901,9 +1003,12 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, 
           <>
             <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals <span style={{ textTransform: "none", letterSpacing: 0, fontStyle: "italic" }}>— click a colour to filter the bills below</span></div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
-              <thead><tr><th style={th}>Color</th><th style={thR}>Purchased</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => ctSort.onSort("color")}>Color{ctSort.arrow("color")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("qty")}>Purchased{ctSort.arrow("qty")}</th>
+              </tr></thead>
               <tbody>
-                {data.color_totals.map((c, i) => {
+                {ctSort.sort(data.color_totals).map((c, i) => {
                   const key = c.color ?? "";
                   const selected = pickedColor === key;
                   return (
@@ -919,8 +1024,12 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, 
                 <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td></tr>
               </tbody>
             </table>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span>Receipts &amp; bills</span>
+              <button type="button" onClick={() => setCollapseBill((v) => !v)} title="Collapse the rows onto Bill number"
+                style={{ textTransform: "none", letterSpacing: 0, background: collapseBill ? C.primary : "transparent", color: collapseBill ? "#fff" : C.textSub, border: `1px solid ${collapseBill ? C.primary : C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
+                Collapse: Bill {collapseBill ? "✓" : ""}
+              </button>
               {pickedColor != null && (
                 <span style={{ textTransform: "none", letterSpacing: 0, color: C.textSub, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   · filtered to <strong style={{ color: C.text }}>{pickedColor || "—"}</strong>
@@ -929,11 +1038,20 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, 
               )}
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr><th style={th}>Color</th><th style={th}>Vendor</th><th style={thR}>Purchased</th><th style={thR}>Unit Price</th><th style={th}>Ref #</th><th style={th}>Type</th><th style={th}>Receipt Date</th><th style={th}>Bill Date</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
+                <th style={th} onClick={() => rowSort.onSort("vendor")}>Vendor{rowSort.arrow("vendor")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("qty")}>Purchased{rowSort.arrow("qty")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("unit_price")}>Unit Price{rowSort.arrow("unit_price")}</th>
+                <th style={th} onClick={() => rowSort.onSort("ref")}>Ref #{rowSort.arrow("ref")}</th>
+                <th style={th} onClick={() => rowSort.onSort("receipt_type")}>Type{rowSort.arrow("receipt_type")}</th>
+                <th style={th} onClick={() => rowSort.onSort("receipt_date")}>Receipt Date{rowSort.arrow("receipt_date")}</th>
+                <th style={th} onClick={() => rowSort.onSort("bill_date")}>Bill Date{rowSort.arrow("bill_date")}</th>
+              </tr></thead>
               <tbody>
                 {billRows.map((r, i) => (
                   <tr key={i} style={zebra(i)}>
-                    <td style={td}>{r.color || "—"}</td>
+                    <td style={td}>{collapseBill ? "—" : (r.color || "—")}</td>
                     <td style={td}>{r.vendor || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={tdR}>{money(r.unit_price)}</td>
@@ -978,7 +1096,7 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
   const centsCol = kind === "ar" ? "unit_price_cents" : "unit_cost_cents";
   return (
     <div style={{ ...modalBackdrop, zIndex: 210 }} onClick={onClose}>
-      <div style={{ ...modalCard, width: "min(820px, 96vw)" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(820px, calc(100vw - var(--tng-nav-offset, 0px) - 40px))" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{kind === "ar" ? "Invoice" : "Bill"} {number}</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1000,10 +1118,18 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
                 {lines.map((l, i) => {
                   const qty = Number(l.quantity) || 0;
                   const unit = l[centsCol] != null ? Number(l[centsCol]) / 100 : null;
-                  const lineTotal = l.line_total_cents != null ? Number(l.line_total_cents) / 100 : (unit != null ? unit * qty : null);
+                  // Line shapes differ by table: AR (ar_invoice_lines) carries
+                  // line_number + line_total_cents; AP (invoice_line_items) carries
+                  // a 0-based line_index + line_total in DOLLARS. Read whichever is
+                  // present so the bill popup doesn't blank out (paired with the
+                  // handler's line_index order fix — the #16 bill 500).
+                  const lineNo = l.line_number ?? (l.line_index != null ? Number(l.line_index) + 1 : i + 1);
+                  const lineTotal = l.line_total_cents != null
+                    ? Number(l.line_total_cents) / 100
+                    : (l.line_total != null ? Number(l.line_total) : (unit != null ? unit * qty : null));
                   return (
                     <tr key={i}>
-                      <td style={td}>{String(l.line_number ?? i + 1)}</td>
+                      <td style={td}>{String(lineNo)}</td>
                       <td style={td}>{String(l.description ?? "—")}</td>
                       <td style={tdR}>{fmtQty(qty)}</td>
                       <td style={tdR}>{money(unit)}</td>
@@ -1783,9 +1909,39 @@ export default function InternalInventoryMatrix() {
   );
   // Export mirrors EXACTLY what's on screen: run the same Merge-PPK + Collapse
   // roll-up the table uses, so a collapsed/merged view exports collapsed/merged.
+  // When the Totals strip is on, append its Totals row(s) to the bottom of the
+  // sheet (#23) — one row per measure (Qty / $ Cost / $ Wholesale / Avg Cost /
+  // Avg Sale), each carrying that measure's value in the summed quantity columns,
+  // matching the on-screen strip. avg_cost_cents/sale_price_cents export as
+  // currency_cents, so the $-measure rows store cents in those two columns.
   const snapExportRows = useMemo<Array<Record<string, unknown>>>(
-    () => rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => ({ ...r })),
-    [snapVisibleRows, mergePpk, snapCollapse],
+    () => {
+      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => ({ ...r }));
+      if (!snapTotals || data.length === 0) return data;
+      const qty: Record<string, number> = {};
+      const cost: Record<string, number> = {};
+      const whol: Record<string, number> = {};
+      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; }
+      for (const r of data) {
+        const c = (num((r as MergedRow).avg_cost_cents) ?? 0) / 100;
+        const p = (num((r as MergedRow).sale_price_cents) ?? 0) / 100;
+        for (const k of SNAP_SUM_COLS) { const v = num((r as unknown as Record<string, number>)[k]); qty[k] += v; cost[k] += v * c; whol[k] += v * p; }
+      }
+      const mkRow = (label: string, valOf: (k: string) => number): Record<string, unknown> => {
+        const row: Record<string, unknown> = { style_code: label };
+        for (const k of SNAP_SUM_COLS) row[k] = valOf(k);
+        return row;
+      };
+      return [
+        ...data,
+        mkRow("TOTAL — Qty", (k) => qty[k]),
+        mkRow("TOTAL — $ Cost", (k) => Math.round(cost[k])),
+        mkRow("TOTAL — $ Wholesale", (k) => Math.round(whol[k])),
+        mkRow("AVG — Cost / unit", (k) => (qty[k] > 0 ? +(cost[k] / qty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Sale / unit", (k) => (qty[k] > 0 ? +(whol[k] / qty[k]).toFixed(2) : 0)),
+      ];
+    },
+    [snapVisibleRows, mergePpk, snapCollapse, snapTotals],
   );
 
   // Multi-style pagination (shared by both no-style views) — computed here so the
