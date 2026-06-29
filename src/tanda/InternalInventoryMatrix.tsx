@@ -12,7 +12,7 @@
 //
 // No new API route — reuses the shared style-matrix endpoint. No migration.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets";
@@ -409,7 +409,11 @@ type SnapshotRow = {
 };
 // A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
 // (base + its PPK sibling combined) so the table can style it distinctly.
-type MergedRow = SnapshotRow & { _merged?: boolean };
+// `_components` carries the underlying base-style + PPK-pack rows (already
+// per-unit / exploded) that summed into the merged line, so the row can be
+// expanded (▾) to drill into what it's made of — they reconcile exactly to the
+// merged totals because the merge is a plain sum of these same rows.
+type MergedRow = SnapshotRow & { _merged?: boolean; _components?: SnapshotRow[] };
 
 function openTab(url: string) { window.open(url, "_blank", "noopener"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
@@ -528,7 +532,11 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         }
         const { _cost, _sale, ...row } = g;
         const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
-        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale) } as MergedRow);
+        // Keep the underlying base + PPK rows (already per-unit) so the merged
+        // line can be expanded (▾) to drill into its components; only those
+        // carrying data are shown. They sum back to the merged totals exactly.
+        const components = all.filter(hasData);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), _components: components } as MergedRow);
       }
     }
     src = out;
@@ -600,6 +608,13 @@ function SnapshotView({
   // background so long lists stay readable; mirrors the drill modals' zebra().
   const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.16)" : "transparent" });
   const HOVER_BG = "rgba(59,130,246,0.26)"; // distinct from BOTH zebra tints
+
+  // Expanded Merge-PPK rows — a merged "BASE/PPK" line can be expanded (▾) to
+  // reveal its components: the base-style eaches + the PPK-pack contribution
+  // (exploded to per-unit), which sum back to the merged totals exactly.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   // ── Collapse / roll-up ────────────────────────────────────────────────────
   // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
@@ -759,13 +774,26 @@ function SnapshotView({
               const merged = !!r._merged; // Merge-PPK row (base + PPK combined)
               const linkable = !!r.style_id && !!r.style_code && !merged;
               const rowBg = merged ? "rgba(139,92,246,0.16)" : (zebra(i).background as string);
+              const rowKey = `${r.style_id}|${r.style_code}|${r.color ?? ""}|${r.category ?? ""}`;
+              // Merged rows with components get a ▾ expander to drill into the
+              // base-style eaches + PPK-pack contribution that summed into them.
+              const comps = merged ? (r._components ?? []) : [];
+              const canExpand = comps.length > 0;
+              const isOpen = expanded.has(rowKey);
               return (
-                <tr key={`${r.style_id}|${r.style_code}|${r.color ?? ""}|${r.category ?? ""}`}
-                    style={{ borderBottom: `1px solid ${C.rowBdr}`, background: rowBg }}
+                <Fragment key={rowKey}>
+                <tr style={{ borderBottom: `1px solid ${C.rowBdr}`, background: rowBg }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = HOVER_BG; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
                   {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
-                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600, color: merged ? "#C4B5FD" : C.text }}>{r.style_code || "—"}</td>}
+                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600, color: merged ? "#C4B5FD" : C.text }}>
+                    {canExpand && (
+                      <span role="button" tabIndex={0} aria-expanded={isOpen} title={isOpen ? "Hide components" : "Show base + PPK components"}
+                        onClick={() => toggleExpand(rowKey)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(rowKey); } }}
+                        style={{ cursor: "pointer", marginRight: 6, color: "#C4B5FD", userSelect: "none", display: "inline-block", width: 12 }}>{isOpen ? "▾" : "▸"}</span>
+                    )}
+                    {r.style_code || "—"}
+                  </td>}
                   {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
                   {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
                   {show("on_hand") && <td style={tdNum}><NumLink v={r.on_hand} url={linkable ? `${lnkMatrix(r.style_id)}${exp}` : null} /></td>}
@@ -781,6 +809,40 @@ function SnapshotView({
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                   {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                 </tr>
+                {/* Component drill — base-style eaches + PPK-pack contribution
+                    (per-unit), each linkable to its own style, summing back to
+                    the merged line above. Tinted + indented to read as children. */}
+                {isOpen && comps.map((cr, ci) => {
+                  const cPpk = /ppk/i.test(cr.style_code); // PPK grain rule (style code, not size)
+                  const cLink = !!cr.style_id && !!cr.style_code;
+                  const cThumb = thumbs.get(cr.style_id)?.byColor[(cr.color || "").toLowerCase().trim()] ?? thumbs.get(cr.style_id)?.default ?? null;
+                  const cBg = "rgba(139,92,246,0.07)";
+                  return (
+                    <tr key={`${rowKey}::comp::${cr.style_id}|${cr.style_code}|${cr.color ?? ""}|${ci}`}
+                        style={{ borderBottom: `1px solid ${C.rowBdr}`, background: cBg }}>
+                      {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={cr.style_id} label={cr.style_code} url={cThumb} size={36} /></td>}
+                      {show("style_code") && <td style={{ ...tdTxt, paddingLeft: 34, color: C.textSub }}>
+                        <span style={{ color: cPpk ? "#93C5FD" : C.textSub, fontWeight: 600 }}>{cPpk ? "PPK pack" : "Base eaches"}</span>{"  "}
+                        <span style={{ color: C.textMuted, fontSize: 13 }}>{cr.style_code}</span>
+                      </td>}
+                      {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={cr.color} size={16} /> {cr.color || "—"}</span></td>}
+                      {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.description || "—"}</td>}
+                      {show("on_hand") && <td style={tdNum}><NumLink v={cr.on_hand} url={cLink ? `${lnkMatrix(cr.style_id)}${exp}` : null} /></td>}
+                      {show("allocated") && <td style={tdNum}><NumLink v={cr.allocated} url={cLink ? lnkAlloc(cr.style_code) : null} /></td>}
+                      {show("on_so") && <td style={tdNum}><NumLink v={cr.on_so} url={cLink ? lnkSO(cr.style_code) : null} /></td>}
+                      {show("ats") && <td style={tdNum}><NumLink v={cr.ats} url={cLink ? lnkATS(cr.style_code) : null} /></td>}
+                      {show("on_po") && <td style={tdNum}><NumLink v={cr.on_po} url={cLink ? lnkPO(cr.style_code) : null} /></td>}
+                      {show("ats_incl_po") && <td style={tdNum}><NumLink v={cr.ats_incl_po} url={cLink ? lnkATS(cr.style_code, true) : null} /></td>}
+                      {show("sold") && <td style={tdNum}><NumBtn v={cr.sold} onClick={cLink ? () => onOpenSold(cr) : null} /></td>}
+                      {show("purchased") && <td style={tdNum}><NumBtn v={cr.purchased} onClick={cLink ? () => onOpenPurchased(cr) : null} /></td>}
+                      {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.category || "—"}</td>}
+                      {show("in_transit") && <td style={tdNum}>{fmtQty(cr.in_transit)}</td>}
+                      {show("avg_cost_cents") && <td style={tdNum}>{cr.avg_cost_cents != null ? (cr.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("sale_price_cents") && <td style={tdNum}>{cr.sale_price_cents != null ? (cr.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                    </tr>
+                  );
+                })}
+                </Fragment>
               );
             })}
           </tbody>
