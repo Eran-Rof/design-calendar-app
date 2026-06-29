@@ -180,7 +180,7 @@ function Section({ title, tone, rows, sectionKey, onDownload, onUpload, emptyTex
                       <span style={{ color: TH.textMuted, fontSize: 12 }}>Not uploaded</span>
                     )}
                     {d?.rejection_reason && (
-                      <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>⚠ {d.rejection_reason}</div>
+                      <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>{d.rejection_reason}</div>
                     )}
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -269,7 +269,7 @@ function UploadModal({ entry, onClose, onUploaded }: { entry: GroupEntry; onClos
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 12, padding: 24, width: "min(500px, 95vw)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 12, padding: 24, width: "min(500px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: TH.primary, marginBottom: 4 }}>UPLOAD</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 4 }}>{entry.document_type.name}</div>
         {entry.document_type.description && <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>{entry.document_type.description}</div>}

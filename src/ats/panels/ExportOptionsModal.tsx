@@ -83,6 +83,24 @@ export interface ExportOptions {
   customSalesRangeEnabled: boolean;
   customSalesRangeStart: string; // YYYY-MM-DD, empty when disabled
   customSalesRangeEnd: string;   // YYYY-MM-DD, empty when disabled
+  // Append a "By Size Matrix" worksheet: per style, a color × size grid of
+  // ATS-available eaches (size columns from the style's size scale) plus
+  // bulk SO / PO columns and a separate PPK pack column. Size-grain data is
+  // fetched from /api/internal/ats-size-matrix (tangerine_size_onhand);
+  // the main color-grain report is unaffected.
+  bySizeMatrix: boolean;
+  // Add a dedicated Image column with each row's color-matched product
+  // thumbnail (embedded bytes — the same images the grid shows). The caller
+  // fetches the thumbnails before building the workbook. Optional so existing
+  // ExportOptions constructors (defaults, tests) stay valid.
+  images?: boolean;
+  // Buyer worksheet: the live internal pricing view. Shows the Avg Cost column
+  // INLINE plus an editable Sls Prc with LIVE Mrgn % / Total $ Excel formulas
+  // that recompute when a price is edited. NOT customer-safe (cost + margin are
+  // visible) — it's a working tool. Forces Avg Cost + Sls Prc @ Margin on and
+  // is mutually exclusive with Customer Facing. Optional so existing
+  // ExportOptions constructors (defaults, tests) stay valid.
+  buyerWorksheet?: boolean;
 }
 
 interface Props {
@@ -111,6 +129,9 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
   const [customerFacing, setCustomerFacing]   = useState(false);
   const [hideZeroColumns, setHideZeroColumns] = useState(false);
   const [hideATSData, setHideATSData]         = useState(false);
+  const [bySizeMatrix, setBySizeMatrix]       = useState(false);
+  const [includeImages, setIncludeImages]     = useState(false);
+  const [buyerWorksheet, setBuyerWorksheet]   = useState(false);
   // Sub-panel state revealed when Hide ATS data is on. Pre-seeded with
   // "last 3 months from today" so the date inputs render a meaningful
   // default even before the operator interacts with them.
@@ -176,6 +197,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     customSalesRangeEnabled: hideATSData && customRangeEnabled,
     customSalesRangeStart:   hideATSData && customRangeEnabled ? customStart : "",
     customSalesRangeEnd:     hideATSData && customRangeEnabled ? customEnd   : "",
+    bySizeMatrix,
+    images: includeImages,
+    // Buyer worksheet forces Avg Cost + Sls Prc @ Margin on and the live
+    // formulas; the export layer applies that. Suppressed under Hide ATS data
+    // (no cost/price columns survive that mode).
+    buyerWorksheet: hideATSData ? false : buyerWorksheet,
   });
 
   // Custom-range validity is only meaningful when both Hide ATS data
@@ -215,6 +242,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     setCustomerFacing(false);
     setHideZeroColumns(false);
     setHideATSData(false);
+    setBySizeMatrix(false);
+    setIncludeImages(false);
     setCustomRangeEnabled(false);
     setCustomStart(isoMinusMonths(todayIso(), 3));
     setCustomEnd(todayIso());
@@ -233,7 +262,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
       <div
         style={{
           background: "#1E293B", border: "1px solid #334155", borderRadius: 12,
-          minWidth: 460, maxWidth: 520, color: "#F1F5F9",
+          width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+          boxSizing: "border-box", color: "#F1F5F9",
           fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
         }}
         onClick={e => e.stopPropagation()}
@@ -295,13 +325,41 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
           <CheckRow
             label="Customer Facing (hide all cost + margin data — Avg Cost, Total Cost, Sls Prc @ Mrgn, T3/LY Mrgn %)"
             checked={customerFacing}
-            onChange={setCustomerFacing}
+            onChange={(v) => { setCustomerFacing(v); if (v) setBuyerWorksheet(false); }}
           />
+
+          <div>
+            <CheckRow
+              label="Buyer worksheet (live pricing: Avg Cost + editable Sls Prc with auto-updating Mrgn % & Total $)"
+              checked={buyerWorksheet && !hideATSData}
+              onChange={(v) => { setBuyerWorksheet(v); if (v) setCustomerFacing(false); }}
+              disabled={hideATSData}
+              disabledTitle="Disabled because Hide ATS data is on — the cost / price columns live in the hidden block"
+            />
+            {buyerWorksheet && !hideATSData && (
+              <div style={{ marginLeft: 28, marginTop: 6, fontSize: 11, color: "#94A3B8", lineHeight: 1.4 }}>
+                Internal tool — shows cost. <b>Mrgn %</b> and <b>Total $</b> are live Excel formulas: edit a <b>Sls Prc</b> and they
+                recalculate. Uses the Margin % above for the starting price.
+              </div>
+            )}
+          </div>
 
           <CheckRow
             label="Hide zero columns (drop any data column whose body is empty / all zero)"
             checked={hideZeroColumns}
             onChange={setHideZeroColumns}
+          />
+
+          <CheckRow
+            label="By Size Matrix (adds a worksheet: per-style color × size ATS-available grid + PPK column)"
+            checked={bySizeMatrix}
+            onChange={setBySizeMatrix}
+          />
+
+          <CheckRow
+            label="Include style images (adds an Image column with each row's product thumbnail)"
+            checked={includeImages}
+            onChange={setIncludeImages}
           />
 
           <div>
@@ -380,7 +438,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                     <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
                   </button>
                   {custDropOpen && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: 320, maxHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                    <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, zIndex: 100, width: "min(320px, 95vw)", maxHeight: "min(340px, 90vh)", boxSizing: "border-box", display: "flex", flexDirection: "column", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
                       <div style={{ padding: "8px 10px", borderBottom: "1px solid #334155" }}>
                         <input
                           type="text"
@@ -454,7 +512,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             <div
               style={{
                 background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
-                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+                boxSizing: "border-box", color: "#F1F5F9",
                 fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
               }}
               onClick={e => e.stopPropagation()}
@@ -493,7 +552,8 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
             <div
               style={{
                 background: "#1E293B", border: "1px solid #F59E0B", borderRadius: 12,
-                minWidth: 360, maxWidth: 420, color: "#F1F5F9",
+                width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto",
+                boxSizing: "border-box", color: "#F1F5F9",
                 fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
               }}
               onClick={e => e.stopPropagation()}

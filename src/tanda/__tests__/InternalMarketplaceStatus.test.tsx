@@ -23,7 +23,6 @@ vi.mock("../../shared/ui/warn", () => ({
 
 import InternalMarketplaceStatus, {
   CHANNEL_LABEL,
-  CHANNEL_EMOJI,
   FEEDS,
   DEPOSIT_TABLES,
   UNPOSTED_JE_TABLES,
@@ -82,10 +81,9 @@ describe("InternalMarketplaceStatus — catalogs", () => {
     expect(Object.keys(CHANNEL_LABEL).sort()).toEqual(["faire", "fba", "shopify", "walmart"]);
   });
 
-  it("every channel has an emoji + a human label", () => {
+  it("every channel has a human label", () => {
     for (const ch of ["shopify", "fba", "walmart", "faire"] as const) {
       expect(CHANNEL_LABEL[ch]).toBeTruthy();
-      expect(CHANNEL_EMOJI[ch]).toBeTruthy();
     }
   });
 
@@ -190,19 +188,18 @@ describe("<InternalMarketplaceStatus /> — rendering", () => {
     mockFetchOnce({ feeds: makeFeedStatuses() });
     render(<InternalMarketplaceStatus />);
     await waitFor(() => {
-      const btn = screen.getByTitle(/Download \d+ rows? as Excel/);
+      const btn = screen.getByTitle(/Export \d+ rows? \(Excel or PDF\)/);
       expect(btn).toBeInTheDocument();
     });
   });
 
-  it("renders the DateRangePresets chip row with date-input pair", async () => {
+  it("renders the DateRangePresets dropdown with date-input pair", async () => {
     mockFetchOnce({ feeds: makeFeedStatuses() });
     render(<InternalMarketplaceStatus />);
     await waitFor(() => expect(screen.getByLabelText(/From date/i)).toBeInTheDocument());
     expect(screen.getByLabelText(/To date/i)).toBeInTheDocument();
-    // At least one preset chip
-    const chips = screen.getAllByRole("button").filter((b) => b.getAttribute("data-preset-key"));
-    expect(chips.length).toBeGreaterThan(0);
+    // Presets are folded into a single dropdown <select>.
+    expect(screen.getByTestId("date-range-presets-dropdown")).toBeInTheDocument();
   });
 
   it("Manual 'Run now' buttons are disabled when no cached auth user", async () => {

@@ -4,6 +4,20 @@ import { useEffect, useState } from "react";
 import { searchAudit, type IpAuditRow } from "../../governance/services/auditExplorerService";
 import { S, PAL, formatDateTime } from "../../components/styles";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
+
+const TABLE_KEY = "ip.audit_explorer";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "when", label: "When" },
+  { key: "source", label: "Source" },
+  { key: "actor", label: "Actor" },
+  { key: "entity", label: "Entity" },
+  { key: "event_field", label: "Event / Field" },
+  { key: "old_new", label: "Old → New" },
+  { key: "message", label: "Message" },
+];
 
 export default function AuditExplorer() {
   const [rows, setRows] = useState<IpAuditRow[]>([]);
@@ -13,6 +27,7 @@ export default function AuditExplorer() {
   const [entity, setEntity] = useState("");
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function run() {
     setLoading(true);
@@ -29,6 +44,20 @@ export default function AuditExplorer() {
     } finally { setLoading(false); }
   }
   useEffect(() => { void run(); }, []);
+
+  // Additive per-column sort over the fetched audit rows. Sortable columns map
+  // to direct scalar fields (or a trivially-correct accessor); Old → New is a
+  // computed composite and stays inert.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "ip:audit_explorer:sort",
+    accessors: {
+      when: (r) => r.created_at ?? "",
+      actor: (r) => r.actor ?? "",
+      entity: (r) => r.entity_type ?? "",
+      event_field: (r) => r.event_or_field ?? "",
+      message: (r) => r.message ?? "",
+    },
+  });
 
   return (
     <div>
@@ -63,38 +92,43 @@ export default function AuditExplorer() {
         </div>
       </div>
 
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                          onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+      </div>
+
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>When</th>
-              <th style={S.th}>Source</th>
-              <th style={S.th}>Actor</th>
-              <th style={S.th}>Entity</th>
-              <th style={S.th}>Event / Field</th>
-              <th style={S.th}>Old → New</th>
-              <th style={S.th}>Message</th>
+              <SortableTh label="When" sortKey="when" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("when")} />
+              <SortableTh label="Source" sortKey="source" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("source")} />
+              <SortableTh label="Actor" sortKey="actor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("actor")} />
+              <SortableTh label="Entity" sortKey="entity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("entity")} />
+              <SortableTh label="Event / Field" sortKey="event_field" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("event_field")} />
+              <th hidden={!visibleColumns.has("old_new")} style={S.th}>Old → New</th>
+              <SortableTh label="Message" sortKey="message" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("message")} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={`${r.source}:${r.id}`}>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDateTime(r.created_at)}</td>
-                <td style={S.td}>
+                <td hidden={!visibleColumns.has("when")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDateTime(r.created_at)}</td>
+                <td hidden={!visibleColumns.has("source")} style={S.td}>
                   <span style={{ ...S.chip, background: r.source === "planning" ? PAL.accent + "33" : PAL.accent2 + "33",
                                  color: r.source === "planning" ? PAL.accent : PAL.accent2 }}>
                     {r.source}
                   </span>
                 </td>
-                <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11 }}>{r.actor ?? ""}</td>
-                <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
+                <td hidden={!visibleColumns.has("actor")} style={{ ...S.td, fontFamily: "monospace", fontSize: 11 }}>{r.actor ?? ""}</td>
+                <td hidden={!visibleColumns.has("entity")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>
                   {r.entity_type}
                 </td>
-                <td style={S.td}>{r.event_or_field}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", fontSize: 11, color: PAL.textDim }}>
+                <td hidden={!visibleColumns.has("event_field")} style={S.td}>{r.event_or_field}</td>
+                <td hidden={!visibleColumns.has("old_new")} style={{ ...S.td, fontFamily: "monospace", fontSize: 11, color: PAL.textDim }}>
                   {r.old_value == null && r.new_value == null ? "" : `${r.old_value ?? "∅"} → ${r.new_value ?? "∅"}`}
                 </td>
-                <td style={{ ...S.td, fontSize: 12, color: PAL.textDim }}>{r.message ?? ""}</td>
+                <td hidden={!visibleColumns.has("message")} style={{ ...S.td, fontSize: 12, color: PAL.textDim }}>{r.message ?? ""}</td>
               </tr>
             ))}
             {rows.length === 0 && (

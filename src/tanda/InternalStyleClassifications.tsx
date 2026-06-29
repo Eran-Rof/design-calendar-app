@@ -9,12 +9,15 @@
 // sub_category values; operators curate the controlled vocabulary here.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const STYLE_CLASS_TABLE_KEY = "tangerine:styleclassifications:columns";
 const STYLE_CLASS_COLUMNS: ColumnDef[] = [
@@ -65,6 +68,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -86,17 +90,21 @@ export default function InternalStyleClassifications() {
   const [rows, setRows] = useState<Classification[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Classification | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     STYLE_CLASS_TABLE_KEY,
     STYLE_CLASS_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:styleclassifications:sort",
+  });
 
   const { getRowProps } = useRowClickEdit<Classification>({
     onRowClick: (r) => setEditing(r),
@@ -112,7 +120,7 @@ export default function InternalStyleClassifications() {
     try {
       const params = new URLSearchParams();
       params.set("kind", kind);
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/style-classifications?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -125,7 +133,7 @@ export default function InternalStyleClassifications() {
   }
 
   // Reload on kind / include-inactive change. Search is on Enter / button.
-  useEffect(() => { void load(); }, [kind, includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, kind, includeInactive]);
 
   async function del(row: Classification) {
     if (!(await confirmDialog(`Delete ${row.kind} "${row.name}"?`))) return;
@@ -159,7 +167,6 @@ export default function InternalStyleClassifications() {
           placeholder={`Search ${kindLabel.toLowerCase()} name…`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -184,6 +191,7 @@ export default function InternalStyleClassifications() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 
@@ -193,7 +201,7 @@ export default function InternalStyleClassifications() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -202,14 +210,14 @@ export default function InternalStyleClassifications() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Sort" sortKey="sort_order" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sort_order")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {sorted.map((row) => (
                 <ScrollHighlightRow
                   key={row.id}
                   rowId={row.id}
@@ -284,7 +292,7 @@ function ClassificationFormModal({ mode, kind, kindLabel, row, onClose, onSaved 
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 460, maxWidth: 560, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? `Add ${kindLabel.toLowerCase()}` : `Edit ${kindLabel.toLowerCase()} "${row!.name}"`}
         </h3>

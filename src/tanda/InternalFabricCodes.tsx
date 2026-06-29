@@ -1,10 +1,11 @@
-// src/tanda/InternalFabricCodes.tsx
+﻿// src/tanda/InternalFabricCodes.tsx
 //
 // Tangerine P3 Chunk 11 — internal admin panel for fabric_codes CRUD.
 // List + search + country/active filter + add/edit modal + hard-delete with
 // 409-on-reference guard. Wraps /api/internal/fabric-codes and /:id.
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -12,6 +13,8 @@ import SearchableSelect, { type SearchableSelectOption } from "./components/Sear
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const FABRIC_CODES_TABLE_KEY = "tangerine:fabriccodes:columns";
 const FABRIC_CODE_COLUMNS: ColumnDef[] = [
@@ -20,7 +23,6 @@ const FABRIC_CODE_COLUMNS: ColumnDef[] = [
   { key: "composition_text",  label: "Composition" },
   { key: "fabric_weight_gsm", label: "GSM" },
   { key: "country_of_origin", label: "COO" },
-  { key: "hts_code",          label: "HTS" },
   { key: "is_active",         label: "Active" },
 ];
 
@@ -32,7 +34,6 @@ type FabricCode = {
   composition_json: unknown;
   fabric_weight_gsm: number | null;
   country_of_origin_iso2: string | null;
-  hts_code: string | null;
   care_instructions: string | null;
   default_vendor_id: string | null;
   is_active: boolean;
@@ -68,14 +69,19 @@ const inputStyle: React.CSSProperties = {
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  // Narrower than the full column (code is short) + flex-centered with no
+  // minHeight so its height matches the adjacent Name input.
+  width: "calc(100% - 6ch)", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -88,8 +94,8 @@ export default function InternalFabricCodes() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [country, setCountry] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: country, debouncedValue: countryDebounced, setValue: setCountry } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<FabricCode | null>(null);
@@ -100,6 +106,12 @@ export default function InternalFabricCodes() {
     FABRIC_CODE_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:fabriccodes:sort",
+    // The COO column key differs from its underlying scalar field name.
+    accessors: { country_of_origin: (r) => r.country_of_origin_iso2 },
+  });
 
   const { getRowProps } = useRowClickEdit<FabricCode>({
     onRowClick: (r) => setEditing(r),
@@ -112,8 +124,8 @@ export default function InternalFabricCodes() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
-      if (country.trim()) params.set("country", country.trim().toUpperCase());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
+      if (countryDebounced.trim()) params.set("country", countryDebounced.trim().toUpperCase());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/fabric-codes?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -127,7 +139,7 @@ export default function InternalFabricCodes() {
 
   async function loadVendors() {
     try {
-      const r = await fetch(`/api/internal/vendor-master?limit=500`);
+      const r = await fetch(`/api/internal/vendor-master?limit=5000`);
       if (!r.ok) return;
       const data = await r.json();
       if (Array.isArray(data)) setVendors(data as Vendor[]);
@@ -143,7 +155,7 @@ export default function InternalFabricCodes() {
     } catch { /* non-fatal */ }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, countryDebounced, includeInactive]);
   useEffect(() => { void loadVendors(); }, []);
   useEffect(() => { void loadCountries(); }, []);
 
@@ -171,7 +183,6 @@ export default function InternalFabricCodes() {
           placeholder="Search code / name / composition…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 320 }}
         />
         <input
@@ -179,7 +190,6 @@ export default function InternalFabricCodes() {
           placeholder="Country (ISO-2)"
           value={country}
           onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 130 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -201,7 +211,6 @@ export default function InternalFabricCodes() {
             { key: "composition_text",       header: "Composition" },
             { key: "fabric_weight_gsm",      header: "GSM", format: "number" },
             { key: "country_of_origin_iso2", header: "COO" },
-            { key: "hts_code",               header: "HTS" },
             { key: "care_instructions",      header: "Care Instructions" },
             { key: "default_vendor_id",      header: "Default Vendor ID" },
             { key: "is_active",              header: "Active" },
@@ -224,7 +233,7 @@ export default function InternalFabricCodes() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -233,18 +242,17 @@ export default function InternalFabricCodes() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("composition_text")}>Composition</th>
-                <th style={th} hidden={!isVisible("fabric_weight_gsm")}>GSM</th>
-                <th style={th} hidden={!isVisible("country_of_origin")}>COO</th>
-                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Composition" sortKey="composition_text" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("composition_text")} />
+                <SortableTh label="GSM" sortKey="fabric_weight_gsm" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("fabric_weight_gsm")} />
+                <SortableTh label="COO" sortKey="country_of_origin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country_of_origin")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}
@@ -259,7 +267,6 @@ export default function InternalFabricCodes() {
                   <td style={td} hidden={!isVisible("composition_text")}>{r.composition_text}</td>
                   <td style={td} hidden={!isVisible("fabric_weight_gsm")}>{r.fabric_weight_gsm ?? "—"}</td>
                   <td style={td} hidden={!isVisible("country_of_origin")}>{r.country_of_origin_iso2 ?? "—"}</td>
-                  <td style={td} hidden={!isVisible("hts_code")}>{r.hts_code ?? "—"}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{r.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(r); }} style={btnSecondary}>Edit</button>
@@ -311,7 +318,6 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
     composition_text:       fabric?.composition_text       ?? "",
     fabric_weight_gsm:      fabric?.fabric_weight_gsm != null ? String(fabric.fabric_weight_gsm) : "",
     country_of_origin_iso2: fabric?.country_of_origin_iso2 ?? "",
-    hts_code:               fabric?.hts_code               ?? "",
     care_instructions:      fabric?.care_instructions      ?? "",
     default_vendor_id:      fabric?.default_vendor_id      ?? "",
     is_active:              fabric?.is_active              ?? true,
@@ -350,7 +356,6 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
         // The DB column + handler support remain; we simply stop sending it.
         fabric_weight_gsm:      form.fabric_weight_gsm ? Number(form.fabric_weight_gsm) : null,
         country_of_origin_iso2: form.country_of_origin_iso2.trim().toUpperCase() || null,
-        hts_code:               form.hts_code.trim() || null,
         care_instructions:      form.care_instructions.trim() || null,
         default_vendor_id:      form.default_vendor_id || null,
         is_active:              form.is_active,
@@ -386,7 +391,7 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 680, maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add fabric code" : `Edit ${fabric!.code}`}
@@ -437,24 +442,16 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
               placeholder="Pick a country (search ISO / name)…"
             />
           </Field>
-          <Field label="HTS code">
-            <input
-              type="text"
-              value={form.hts_code}
-              onChange={(e) => setForm({ ...form, hts_code: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. 5208.32"
-            />
-          </Field>
           <Field label="Default vendor">
-            <select
-              value={form.default_vendor_id}
-              onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              <option value="">(select)</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.default_vendor_id || null}
+              onChange={(v) => setForm({ ...form, default_vendor_id: v })}
+              options={[
+                { value: "", label: "(select)" },
+                ...vendors.map((v) => ({ value: v.id, label: v.name })),
+              ]}
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Care instructions" wide>
             <textarea
@@ -478,7 +475,9 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable on tall records. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
           <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}

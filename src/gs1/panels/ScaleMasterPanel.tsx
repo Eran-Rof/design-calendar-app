@@ -4,6 +4,19 @@ import { useGS1Store } from "../store/gs1Store";
 import type { ScaleSizeRatio } from "../types";
 import { KNOWN_SCALE_CODES } from "../types";
 import type { BomCheckResult } from "../services/bomBuilderService";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "gs1.scale_master";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "scale_code", label: "Scale Code" },
+  { key: "description", label: "Description" },
+  { key: "total_units", label: "Total Units" },
+  { key: "size_ratios", label: "Size Ratios" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -45,7 +58,7 @@ function EditModal({ code, existing, onSave, onClose }: {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 420, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: "min(420px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 16 }}>Scale: {code}</h3>
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: TH.textSub2 }}>Description</label>
@@ -81,6 +94,7 @@ function EditModal({ code, existing, onSave, onClose }: {
 
 export default function ScaleMasterPanel() {
   const { scales, scaleRatios, scaleLoading, scaleError, loadScales, saveScale, deleteScale, checkUpcCoverageForStyleColor } = useGS1Store();
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding,  setAdding]  = useState(false);
   const [newCode, setNewCode] = useState("");
@@ -95,6 +109,12 @@ export default function ScaleMasterPanel() {
   const [coverageError,  setCoverageError]  = useState("");
 
   useEffect(() => { loadScales(); }, []);
+
+  // Additive per-column sort over the scale list. Sortable columns map to
+  // direct scalar fields; Size Ratios is a computed join (inert).
+  const { sorted: sortedScales, sortKey, sortDir, onHeaderClick } = useSort(scales, {
+    persistKey: "gs1:scale_master:sort",
+  });
 
   const ratiosFor = (code: string) => scaleRatios.filter(r => r.scale_code === code);
 
@@ -147,11 +167,19 @@ export default function ScaleMasterPanel() {
       <div style={{ background: TH.surface, borderRadius: 10, padding: "16px 20px", boxShadow: `0 1px 4px ${TH.shadow}`, marginBottom: 20 }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 15, color: TH.textSub }}>Add Scale Code</h3>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <select value={newCode} onChange={e => setNewCode(e.target.value)}
-            style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-            <option value="">— select code —</option>
-            {knownCodes.filter(c => !scales.find(s => s.scale_code === c)).map(c => <option key={c}>{c}</option>)}
-          </select>
+          <div style={{ width: 160 }}>
+            <SearchableSelect
+              theme="light"
+              value={newCode || null}
+              onChange={v => setNewCode(v)}
+              inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+              placeholder="— select code —"
+              options={[
+                { value: "", label: "— select code —" },
+                ...knownCodes.filter(c => !scales.find(s => s.scale_code === c)).map(c => ({ value: c, label: c })),
+              ]}
+            />
+          </div>
           <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase().slice(0, 4))}
             placeholder="or type custom" maxLength={4}
             style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 120 }} />
@@ -165,6 +193,16 @@ export default function ScaleMasterPanel() {
       </div>
 
       {/* Scale list */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       <div style={{ background: TH.surface, borderRadius: 10, boxShadow: `0 1px 4px ${TH.shadow}` }}>
         {scaleLoading
           ? <p style={{ padding: 20, color: TH.textMuted, fontSize: 13 }}>Loading…</p>
@@ -174,24 +212,28 @@ export default function ScaleMasterPanel() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Scale Code", "Description", "Total Units", "Size Ratios", ""].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                    <SortableTh label="Scale Code" sortKey="scale_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("scale_code")} />
+                    <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("description")} />
+                    <SortableTh label="Total Units" sortKey="total_units" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("total_units")} />
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("size_ratios")}>Size Ratios</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scales.map(sc => {
+                  {sortedScales.map(sc => {
                     const ratios = ratiosFor(sc.scale_code);
                     return (
                       <tr key={sc.id}>
-                        <td style={{ ...TD_STYLE, fontWeight: 700, fontFamily: "monospace" }}>{sc.scale_code}</td>
-                        <td style={{ ...TD_STYLE, color: TH.textMuted }}>{sc.description || "—"}</td>
-                        <td style={TD_STYLE}>{sc.total_units ?? "—"}</td>
-                        <td style={{ ...TD_STYLE, maxWidth: 300 }}>
+                        <td style={{ ...TD_STYLE, fontWeight: 700, fontFamily: "monospace" }} hidden={!visibleColumns.has("scale_code")}>{sc.scale_code}</td>
+                        <td style={{ ...TD_STYLE, color: TH.textMuted }} hidden={!visibleColumns.has("description")}>{sc.description || "—"}</td>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("total_units")}>{sc.total_units ?? "—"}</td>
+                        <td style={{ ...TD_STYLE, maxWidth: 300 }} hidden={!visibleColumns.has("size_ratios")}>
                           {ratios.length === 0
                             ? <span style={{ color: TH.textMuted, fontSize: 12 }}>No ratios</span>
                             : <span style={{ fontSize: 12, color: TH.textSub2 }}>{ratios.map(r => `${r.size}×${r.qty}`).join(", ")}</span>
                           }
                         </td>
-                        <td style={TD_STYLE}>
+                        <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                           <div style={{ display: "flex", gap: 8 }}>
                             <button onClick={() => setEditing(sc.scale_code)}
                               style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}>
@@ -231,11 +273,17 @@ export default function ScaleMasterPanel() {
           ))}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Scale Code</label>
-            <select value={coverageScale} onChange={e => setCoverageScale(e.target.value)}
-              style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-              <option value="">— select —</option>
-              {scales.map(s => <option key={s.scale_code}>{s.scale_code}</option>)}
-            </select>
+            <SearchableSelect
+              theme="light"
+              value={coverageScale || null}
+              onChange={v => setCoverageScale(v)}
+              inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+              placeholder="— select —"
+              options={[
+                { value: "", label: "— select —" },
+                ...scales.map(s => ({ value: s.scale_code, label: s.scale_code })),
+              ]}
+            />
           </div>
           <button type="submit" disabled={coverageLoading || !coverageStyle.trim() || !coverageColor.trim() || !coverageScale.trim()}
             style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -255,7 +303,7 @@ export default function ScaleMasterPanel() {
               <span style={{ fontSize: 14, fontWeight: 600, color: TH.textSub }}>
                 {coverageResult.complete
                   ? "✓ Complete — all sizes have matching UPCs"
-                  : `⚠ Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
+                  : `Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
               </span>
               <span style={{ fontSize: 12, color: TH.textMuted }}>Scale {coverageResult.scale_code}</span>
             </div>

@@ -244,7 +244,7 @@ export default function InternalARAging() {
               {filtered.map((r) => (
                 <tr key={r.customer_id}>
                   <td style={td} hidden={!visibleColumns.has("customer")}>
-                    <strong>{r.customer_name || r.customer_code || r.customer_id}</strong>
+                    <strong>{r.customer_name || r.customer_code || "—"}</strong>
                     {r.customer_code && r.customer_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>
                         ({r.customer_code})

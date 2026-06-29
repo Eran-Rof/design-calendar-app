@@ -15,14 +15,34 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { WarnHost, notify, confirmDialog } from "./shared/ui/warn";
+import { StyleGalleryHost } from "./shared/ui/StyleImageGallery";
 
 import InternalStyleMaster        from "./tanda/InternalStyleMaster";
 import InternalPimProductCatalog  from "./tanda/InternalPimProductCatalog";
 import InternalFabricCodes        from "./tanda/InternalFabricCodes";
+import InternalHtsMaster          from "./tanda/InternalHtsMaster";
 import InternalVendorMaster       from "./tanda/InternalVendorMaster";
 import InternalCustomerMaster     from "./tanda/InternalCustomerMaster";
 import InternalPaymentTerms       from "./tanda/InternalPaymentTerms";
 import InternalSizeScales         from "./tanda/InternalSizeScales";
+import InternalSeasonMaster       from "./tanda/InternalSeasonMaster";
+import InternalColorMaster        from "./tanda/InternalColorMaster";
+import InternalFabricMillMaster   from "./tanda/InternalFabricMillMaster";
+import InternalPartMaster         from "./tanda/InternalPartMaster";
+import InternalServiceItemMaster  from "./tanda/InternalServiceItemMaster";
+import InternalPartTypeMaster     from "./tanda/InternalPartTypeMaster";
+import InternalPartInventory      from "./tanda/InternalPartInventory";
+import InternalMfgBom             from "./tanda/InternalMfgBom";
+import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
+import InternalMfgReports         from "./tanda/InternalMfgReports";
+import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
+import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
+import InternalDatePresetMaster from "./tanda/InternalDatePresetMaster";
+import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
+import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
+import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
+import InternalCarrierMaster      from "./tanda/InternalCarrierMaster";
+import InternalBuyerScopeMaster   from "./tanda/InternalBuyerScopeMaster";
 import InternalB2BAccounts        from "./tanda/InternalB2BAccounts";
 import InternalPriceLists         from "./tanda/InternalPriceLists";
 import InternalPromotions         from "./tanda/InternalPromotions";
@@ -38,6 +58,17 @@ import InternalAPPayments         from "./tanda/InternalAPPayments";
 import InternalARInvoices         from "./tanda/InternalARInvoices";
 import InternalSalesOrders        from "./tanda/InternalSalesOrders";
 import InternalAllocations        from "./tanda/InternalAllocations";
+import InternalSalesReturns       from "./tanda/InternalSalesReturns";
+import InternalDropShip          from "./tanda/InternalDropShip";
+import InternalThreePL           from "./tanda/InternalThreePL";
+import InternalThreePLRecon      from "./tanda/InternalThreePLRecon";
+import InternalEDI               from "./tanda/InternalEDI";
+import InternalEdiCustomers      from "./tanda/InternalEdiCustomers";
+import InternalEdiSettings       from "./tanda/InternalEdiSettings";
+import InternalReportsHub        from "./tanda/InternalReportsHub";
+import InternalFixedAssets       from "./tanda/InternalFixedAssets";
+import InternalBudgets           from "./tanda/InternalBudgets";
+import InternalForm1099          from "./tanda/InternalForm1099";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
 import InternalReceiving          from "./tanda/InternalReceiving";
 import InternalBookkeeperApproval from "./tanda/InternalBookkeeperApproval";
@@ -53,6 +84,7 @@ import InternalAPAging            from "./tanda/InternalAPAging";
 import InternalSalesByRep         from "./tanda/InternalSalesByRep";
 import InternalSalesByCustomer    from "./tanda/InternalSalesByCustomer";
 import InternalGLDetail           from "./tanda/InternalGLDetail";
+import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
@@ -84,6 +116,8 @@ import InternalCrmPipelineReport      from "./tanda/InternalCrmPipelineReport";
 import InternalShadowMirrorStatus     from "./tanda/InternalShadowMirrorStatus";
 // P11-7 — Shopify Refunds reports panel.
 import InternalShopifyRefunds         from "./tanda/InternalShopifyRefunds";
+// P11 — Connect Shopify Store (encrypted token; enables sync + image pull).
+import InternalShopifyStores          from "./tanda/InternalShopifyStores";
 // Tangerine P12-99 — Marketplaces status panel (Shopify / FBA / Walmart / Faire dashboard).
 import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit nav group).
@@ -96,8 +130,10 @@ import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
 // M31 — surface the standalone Planning app inside the Tangerine shell; gate by
 // the shared PLM per-app permission (`permissions.planning.access`, default-true).
 import { canAccessAppFromSession } from "./permissions";
-// Cross-cutter T4-3 — Personalization favorites drawer.
+// Cross-cutter T4-3 — Personalization favorites drawer (legacy, kept for other apps).
 import FavoritesMenu from "./components/FavoritesMenu";
+// Navigation drawer — replaces the horizontal TopNav.
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
 // Tangerine P10-5 — Top-bar entity switcher (visible when caller has ≥2 entities).
 import EntitySwitcher from "./components/EntitySwitcher";
 import BrandChannelSwitcher from "./components/BrandChannelSwitcher";
@@ -109,303 +145,47 @@ import InternalCommissionPayouts       from "./tanda/InternalCommissionPayouts";
 // Nav-reachable scorecard entry points (wrap the existing drill-through modals).
 import InternalVendorScorecard         from "./tanda/InternalVendorScorecard";
 import InternalCustomerScorecard       from "./tanda/InternalCustomerScorecard";
+// #983 — surface 26 built-but-unmenued panels (Treasury, ESG & Compliance,
+// Workflow, Reports analytics, RFQs, Marketplaces, Admin entities/onboarding).
+import InternalPayments               from "./tanda/InternalPayments";
+import InternalReconciliationDashboard from "./tanda/InternalReconciliationDashboard";
+import InternalFx                     from "./tanda/InternalFx";
+import InternalVirtualCards           from "./tanda/InternalVirtualCards";
+import InternalScf                    from "./tanda/InternalScf";
+import InternalDiscountOffers         from "./tanda/InternalDiscountOffers";
+import InternalTax                    from "./tanda/InternalTax";
+import InternalRfqs                   from "./tanda/InternalRfqs";
+import InternalAnalytics              from "./tanda/InternalAnalytics";
+import InternalInsights               from "./tanda/InternalInsights";
+import InternalAnomalies              from "./tanda/InternalAnomalies";
+import InternalBenchmark              from "./tanda/InternalBenchmark";
+import InternalHealthScores           from "./tanda/InternalHealthScores";
+import InternalPreferred              from "./tanda/InternalPreferred";
+import InternalSustainability         from "./tanda/InternalSustainability";
+import InternalEsgScores              from "./tanda/InternalEsgScores";
+import InternalDiversity              from "./tanda/InternalDiversity";
+import InternalComplianceAudit        from "./tanda/InternalComplianceAudit";
+import InternalComplianceAutomation   from "./tanda/InternalComplianceAutomation";
+import InternalWorkflowRules          from "./tanda/InternalWorkflowRules";
+import InternalWorkflowExecutions     from "./tanda/InternalWorkflowExecutions";
+import InternalWorkspaces             from "./tanda/InternalWorkspaces";
+import InternalMarketplace            from "./tanda/InternalMarketplace";
+import InternalMarketplaceInquiries   from "./tanda/InternalMarketplaceInquiries";
+import InternalEntities               from "./tanda/InternalEntities";
+import InternalOnboarding             from "./tanda/InternalOnboarding";
+import InternalApiKeys                from "./tanda/InternalApiKeys";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+import { AskAIPanel } from "./ai/AskAIPanel";
+import type { GridContextSnapshot } from "./ai/tools";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Theme — match the dark Tanda palette so the admin panels (which use the
-// same color constants) blend in.
-// ─────────────────────────────────────────────────────────────────────────────
-const C = {
-  bg: "#0F172A",
-  card: "#1E293B",
-  cardBdr: "#334155",
-  text: "#F1F5F9",
-  textMuted: "#94A3B8",
-  textSub: "#CBD5E1",
-  primary: "#3B82F6",
-  primaryDim: "#1d4ed8",
-  // Tangerine brand accent
-  tangerine: "#fb923c",
-  tangerineDim: "#c2410c",
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tangerine modules — the 6 admin panels shipped in P1 Chunks 7/7b/7c/8a/8b/8c
-// ─────────────────────────────────────────────────────────────────────────────
-type ModuleKey =
-  | "style_master"
-  | "pim_catalog"
-  | "fabric_codes"
-  | "vendor_master"
-  | "customer_master"
-  | "payment_terms"
-  // Chunk I — reference master panels.
-  | "countries"
-  | "genders"
-  | "style_classifications"
-  | "factors"
-  | "size_scales"
-  // P18-F — internal B2B admin (buyers + wholesale price list).
-  | "b2b_accounts"
-  | "b2b_price_list"
-  | "pricing_promotions"
-  | "gl_accounts"
-  | "gl_periods"
-  | "journal_entries"
-  | "ap_invoices"
-  | "ap_payments"
-  | "ar_invoices"
-  | "ar_receipts"
-  | "sales_orders"
-  | "sales_allocations"
-  | "ar_aging"
-  | "ar_backfill"
-  | "trial_balance"
-  | "income_statement"
-  | "balance_sheet"
-  | "cash_flow"
-  | "year_end_close"
-  | "bank_reconciliation"
-  | "bank_recon_report"
-  | "approval_rules"
-  | "approval_requests"
-  | "notifications"
-  | "notification_prefs"
-  | "employees"
-  | "employee_titles"
-  | "employee_departments"
-  | "inventory_matrix"
-  | "prepack_matrices"
-  | "purchase_orders"
-  | "receiving"
-  | "bookkeeper_approval"
-  | "qc_inspections"
-  | "customs_entries"
-  | "broker_invoices"
-  | "three_way_match"
-  | "procurement_recon"
-  | "inventory_transfers"
-  | "inventory_adjustments"
-  | "cycle_counts"
-  | "scanner_sessions"
-  | "cases"
-  // P7-7 — M9-subset reports under the new 📊 Reports group.
-  | "ap_aging"
-  | "sales_by_rep"
-  | "sales_by_customer"
-  | "gl_detail"
-  // P8-3 — M25 CRM under new 🤝 CRM nav group.
-  | "crm_opportunities"
-  | "crm_activities"
-  | "crm_tasks"
-  | "crm_pipeline_report"
-  // Cross-cutter T10-7 — Shadow Mirror Status (Xoro → Tangerine nightly mirror).
-  | "shadow_mirror"
-  // P11-7 — Shopify Refunds reports panel.
-  | "shopify_refunds"
-  // Tangerine P12-99 — Marketplaces status (Shopify / FBA / Walmart / Faire).
-  | "marketplace_status"
-  // Cross-cutter T11-3 — Universal audit log admin panel (🕒 Audit).
-  | "audit_log"
-  | "vendor_scorecard"
-  | "customer_scorecard"
-  | "commission_accruals"
-  | "commission_payouts"
-  // P14-3b — RBAC User Access admin panel (🔐 Admin).
-  | "user_access";
-
-type GroupKey = "Master Data" | "Accounting" | "Vendors" | "Sales" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
-
-type ModuleDef = {
-  key: ModuleKey;
-  label: string;
-  emoji: string;
-  group: GroupKey;
-};
-
-// Order groups appear in the top nav. Also where the per-group icon comes from.
-// P8-3: CRM positioned between Accounting and Reports — operator workflow is
-// "invoice posts → check pipeline → log activity" so it follows Accounting and
-// precedes the cross-functional Reports group.
-// Top nav is grouped into FIVE section dropdowns; each section nests the
-// existing groups as labelled sub-sections inside its dropdown. Keeps the bar
-// short while preserving the group taxonomy. Every GroupKey must appear in
-// exactly one section (else its modules vanish from the nav).
-const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
-  { section: "Master Data", emoji: "📚", groups: ["Master Data"] },
-  { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
-  { section: "Vendors",     emoji: "🏭", groups: ["Vendors"] },
-  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
-  // Chunk I item 8 — split the former combined "Sales & CRM" header into two
-  // distinct top-level headers: "Sales" (order entry + sales channels) and
-  // "Customers" (CRM pipeline + customer-service cases), reachable separately.
-  { section: "Sales",       emoji: "🛒", groups: ["Sales", "Shopify", "Marketplaces"] },
-  { section: "Customers",   emoji: "🤝", groups: ["Customers", "Customers – Accts Rec", "CRM", "Customer Service"] },
-  { section: "Admin",       emoji: "🔧", groups: ["Notifications", "HR", "Audit", "Admin"] },
-];
-
-const GROUP_ICON: Record<GroupKey, string> = {
-  "Master Data":      "📚",
-  "Accounting":       "💼",
-  "Vendors":          "🏭",
-  "CRM":              "🤝",
-  "Customers":        "🤝",
-  "Customers – Accts Rec": "📥",
-  "Reports":          "📊",
-  "Inventory":        "📦",
-  "Customer Service": "🎧",
-  "Shopify":          "🛍️",
-  "Marketplaces":     "🛒",
-  "Shadow Mirror":    "🔁",
-  "Approvals":        "✅",
-  "Notifications":    "🔔",
-  "HR":               "👥",
-  "Audit":            "🕒",
-  "Admin":            "🔧",
-};
-
-const MODULES: ModuleDef[] = [
-  { key: "style_master",      label: "Style Master",      emoji: "🎨", group: "Master Data" },
-  // P8-8: PIM Product Catalog — metadata (attributes / descriptions / images)
-  // on top of the styles created in Style Master.
-  { key: "pim_catalog",       label: "Product Catalog",   emoji: "🏷️", group: "Master Data" },
-  { key: "fabric_codes",      label: "Fabric Codes",      emoji: "🧵", group: "Master Data" },
-  { key: "vendor_master",     label: "Vendor Master",     emoji: "🏭", group: "Master Data" },
-  { key: "customer_master",   label: "Customer Master",   emoji: "🤝", group: "Master Data" },
-  { key: "payment_terms",     label: "Payment Terms",     emoji: "📆", group: "Master Data" },
-  // Chunk I — reference masters.
-  { key: "countries",            label: "Countries",          emoji: "🌍", group: "Master Data" },
-  { key: "genders",              label: "Genders",            emoji: "⚧", group: "Master Data" },
-  { key: "style_classifications", label: "Group/Category/Sub", emoji: "🗂️", group: "Master Data" },
-  { key: "factors",              label: "Factors/Insurance",  emoji: "🏦", group: "Master Data" },
-  { key: "size_scales",          label: "Size Scales",        emoji: "📏", group: "Master Data" },
-  // P18-F — internal B2B admin panels (authorize buyers + manage price lists).
-  { key: "b2b_accounts",   label: "B2B Buyers",     emoji: "🛍️", group: "Customers" },
-  // M43 — Pricing Engine admin (price lists supersede the interim B2B price list).
-  { key: "b2b_price_list",     label: "Price Lists", emoji: "🏷️", group: "Pricing" },
-  { key: "pricing_promotions", label: "Promotions",  emoji: "🎁", group: "Pricing" },
-  { key: "gl_accounts",       label: "Chart of Accounts", emoji: "📒", group: "Accounting" },
-  { key: "gl_periods",        label: "Periods",           emoji: "🗓️", group: "Accounting" },
-  { key: "journal_entries",   label: "Journal Entries",   emoji: "📓", group: "Accounting" },
-  { key: "ap_invoices",       label: "AP Invoices",       emoji: "🧾", group: "Vendors" },
-  { key: "ap_payments",       label: "AP Payments",       emoji: "💸", group: "Vendors" },
-  { key: "ar_invoices",       label: "AR Invoices",       emoji: "🧮", group: "Customers – Accts Rec" },
-  // P4-5: AR Receipts (customer payments + applications). Sibling to AR
-  // Invoices above (P4-4).
-  { key: "ar_receipts",       label: "AR Receipts",       emoji: "💵", group: "Customers – Accts Rec" },
-  // P16/M10 — native Sales Order entry.
-  { key: "sales_orders",      label: "Sales Orders",      emoji: "🛒", group: "Sales" },
-  // P16/M18 — Allocations Workbench (cross-SO allocation).
-  { key: "sales_allocations", label: "Allocations",       emoji: "📊", group: "Sales" },
-  // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
-  { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
-  // P4-8: Historical backfill — one-shot operator tool.
-  { key: "ar_backfill",       label: "AR Backfill",       emoji: "🗄️", group: "Customers – Accts Rec" },
-  // P5-2: Trial Balance — foundation report for all the other financial statements.
-  { key: "trial_balance",     label: "Trial Balance",     emoji: "📊", group: "Accounting" },
-  // P5-3: Income Statement (P&L) — revenue + COGS + opex with subtotals.
-  { key: "income_statement",  label: "Income Statement",  emoji: "📈", group: "Accounting" },
-  // P5-4: Balance Sheet (assets / liabilities / equity as-of).
-  { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
-  // P5-5: Cash Flow Statement (indirect method).
-  { key: "cash_flow",         label: "Cash Flow",         emoji: "💧", group: "Accounting" },
-  // P5-6: Year-End Close — one-shot operator tool, terminal flip on all 12 periods of the FY.
-  { key: "year_end_close",    label: "Year-End Close",    emoji: "🔚", group: "Accounting" },
-  // P6-5: Bank Reconciliation (accounts overview + unmatched txn queue).
-  { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦", group: "Accounting" },
-  // P6-6: Per (bank_account, period) reconciliation report.
-  { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
-  // P7-6: M44 Commission Accruals + Commission Payouts. (Sales Reps master
-  // removed — reps are managed as Employees; commission panels read the
-  // sales_reps table directly via /api/internal/sales-reps GET.)
-  { key: "commission_accruals",   label: "Commission Accruals",   emoji: "💰", group: "Accounting" },
-  { key: "commission_payouts",    label: "Commission Payouts",    emoji: "📜", group: "Accounting" },
-  { key: "approval_rules",    label: "Approval Rules",    emoji: "⚙️", group: "Approvals" },
-  { key: "approval_requests", label: "Approval Inbox",    emoji: "✅", group: "Approvals" },
-  { key: "notifications",     label: "Notifications",     emoji: "🔔", group: "Notifications" },
-  { key: "notification_prefs",label: "Notif. Preferences",emoji: "🎚️", group: "Notifications" },
-  { key: "employees",         label: "Employees",         emoji: "👥", group: "HR" },
-  // P16 — Employee Title + Department reference masters.
-  { key: "employee_titles",      label: "Employee Titles",      emoji: "🏷️", group: "HR" },
-  { key: "employee_departments", label: "Employee Departments", emoji: "🏢", group: "HR" },
-  // P16/M11 — native Purchase Orders (origination + matrix line entry).
-  { key: "purchase_orders",     label: "Purchase Orders",   emoji: "📦", group: "Procurement" },
-  // P13/C1 — Receiving + bookkeeper approval (procurement operational layer).
-  { key: "receiving",           label: "Receiving",         emoji: "📥", group: "Procurement" },
-  { key: "bookkeeper_approval", label: "Bookkeeper Approval", emoji: "🧾", group: "Procurement" },
-  // P13/C2-C4 — QC + trade compliance + 3-way match.
-  { key: "qc_inspections",      label: "QC Inspections",    emoji: "🔍", group: "Procurement" },
-  { key: "customs_entries",     label: "Customs Entries",   emoji: "🛃", group: "Procurement" },
-  { key: "broker_invoices",     label: "Broker Invoices",   emoji: "🚢", group: "Procurement" },
-  { key: "three_way_match",     label: "3-Way Match",       emoji: "⚖️", group: "Procurement" },
-  { key: "procurement_recon",   label: "Procurement Recon", emoji: "🧮", group: "Procurement" },
-  { key: "inventory_matrix",    label: "Inventory Matrix",  emoji: "🧮", group: "Inventory" },
-  // Prepack Matrix Driver — per-size pack composition master (drives Explode-PPK).
-  { key: "prepack_matrices",    label: "Prepack Matrices",  emoji: "📦", group: "Inventory" },
-  { key: "inventory_transfers", label: "Inventory Transfers", emoji: "🔁", group: "Inventory" },
-  { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
-  { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
-  { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Inventory" },
-  // P7-9: M47 Customer Service / Cases panel.
-  { key: "cases",             label: "Cases",             emoji: "🎫", group: "Customer Service" },
-  // P7-7: M9-subset operational reports (AP Aging + Sales by Rep + Sales by
-  // Customer + GL Detail). AR items (incl. AR Aging) now live under the
-  // "Customers – Accts Rec" group; the Reports menu group hosts these reports.
-  { key: "ap_aging",          label: "AP Aging (report)", emoji: "📅", group: "Vendors" },
-  // Nav reorg: Sales by Rep → Sales section; Sales by Customer → Customers section.
-  { key: "sales_by_rep",      label: "Sales by Rep",      emoji: "🧑‍💼", group: "Sales" },
-  { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝", group: "Customers" },
-  { key: "gl_detail",         label: "GL Detail",         emoji: "🔍", group: "Reports" },
-  // P8-3 — M25 CRM panels under new 🤝 CRM nav group.
-  { key: "crm_opportunities",   label: "Opportunities",     emoji: "💼", group: "CRM" },
-  { key: "crm_activities",      label: "Activities",        emoji: "📋", group: "CRM" },
-  { key: "crm_tasks",           label: "Tasks",             emoji: "✅", group: "CRM" },
-  { key: "crm_pipeline_report", label: "Pipeline Report",   emoji: "📊", group: "CRM" },
-  // Cross-cutter T10-7 — Shadow Mirror Status dashboard (single panel under 🔁).
-  { key: "shadow_mirror",       label: "Mirror Status",     emoji: "🔁", group: "Shadow Mirror" },
-  // P11-7 — Shopify Refunds reports panel (read-only audit surface).
-  { key: "shopify_refunds",     label: "Refunds",           emoji: "↩️", group: "Shopify" },
-  // Tangerine P12-99 — Marketplaces close-out status panel (Shopify / FBA / Walmart / Faire).
-  { key: "marketplace_status",  label: "Marketplace Status",emoji: "🛒", group: "Marketplaces" },
-  // Cross-cutter T11-3 — Universal audit log admin panel (operator-facing row_changes browser).
-  { key: "audit_log",           label: "Audit Log",         emoji: "🕒", group: "Audit" },
-  // P14-3b — RBAC User Access (role matrix + per-cell overrides).
-  { key: "user_access",         label: "User Access",       emoji: "🔐", group: "Admin" },
-  // Nav-reachable scorecard entry points (also opened by the 📊 row buttons).
-  { key: "vendor_scorecard",    label: "Vendor Scorecard",   emoji: "📊", group: "Vendors" },
-  { key: "customer_scorecard",  label: "Customer Scorecard", emoji: "📊", group: "Customers" },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Apps launcher — links to the other modules within the design-calendar-app
-// suite. Each navigates the browser to the existing URL (same tab).
-// ─────────────────────────────────────────────────────────────────────────────
-type AppLink = { href: string; label: string; emoji: string; description: string };
-
-const APPS: AppLink[] = [
-  { href: "/",          label: "Design Calendar", emoji: "📅", description: "Calendar, tasks, collections" },
-  { href: "/tanda",     label: "PO WIP",          emoji: "📦", description: "Purchase orders, shipments, invoices" },
-  { href: "/ats",       label: "ATS Planning",    emoji: "📊", description: "Available-to-ship inventory grid" },
-  { href: "/techpack",  label: "Tech Packs",      emoji: "📐", description: "Style spec sheets" },
-  { href: "/gs1",       label: "GS1 Labels",      emoji: "🏷️", description: "GTIN-14 prepack labels" },
-  { href: "/planning",  label: "Planning",        emoji: "📈", description: "Inventory forecasting" },
-  { href: "/vendor",    label: "Vendor Portal",   emoji: "🌐", description: "External vendor view (separate auth)" },
-];
-
-// M31 — the standalone Planning app's screens, surfaced as first-class deep
-// links inside the Tangerine shell (header nav + home landing). The Planning
-// app keeps its own shell once you land there; these are entry points. No data
-// plumbing yet — Planning still reads its own Xoro/Shopify-backed tables.
-const PLANNING_SCREENS: AppLink[] = [
-  { href: "/planning/wholesale", label: "Wholesale", emoji: "🛒", description: "Wholesale demand forecast" },
-  { href: "/planning/ecom",      label: "Ecom",      emoji: "🛍️", description: "Shopify weekly forecast" },
-  { href: "/planning/supply",    label: "Supply",    emoji: "⚖️", description: "Supply reconciliation + buy recs" },
-  { href: "/planning/scenarios", label: "Scenarios", emoji: "🔀", description: "What-if planning + exports" },
-  { href: "/planning/accuracy",  label: "Accuracy",  emoji: "🎯", description: "Forecast accuracy + AI" },
-  { href: "/planning/execution", label: "Execution", emoji: "🚀", description: "Approved buy-plan batches" },
-];
+// Module registry + palette extracted to src/erp/ (Tangerine.tsx shrink).
+import { C } from "./erp/theme";
+import {
+  MODULES, NAV_SECTIONS, GROUP_ICON, APPS, PLANNING_SCREENS,
+} from "./erp/modules";
+import type { ModuleKey, GroupKey, ModuleDef, AppLink } from "./erp/modules";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -420,6 +200,21 @@ export default function Tangerine() {
   // opening ?m=journal_entries in a new tab lands directly on that panel.
   // Also accepts the legacy `?view=` param written by COA click-throughs etc.
   // Read on initial mount; subsequent navigation uses goToModule() below.
+  const [aiOpen, setAiOpen] = useState(false);
+
+  // Navigation drawer collapsed state (persisted in localStorage).
+  const [drawerCollapsed, setDrawerCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("tangerine:nav:collapsed:v1") === "1"; }
+    catch { return false; }
+  });
+  const toggleDrawer = () => {
+    setDrawerCollapsed((v) => {
+      const next = !v;
+      try { localStorage.setItem("tangerine:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
+
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -469,11 +264,23 @@ export default function Tangerine() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Browser tab title = the active module's menu header, so every tab opened
+  // via the menu (or a ?m= deep link) is identifiable at a glance. Falls back
+  // to the app name on the home landing.
+  useEffect(() => {
+    const label = activeModule
+      ? (MODULES as { key: string; label: string }[]).find((m) => m.key === activeModule)?.label
+      : null;
+    document.title = label ? `${label} · Tangerine` : "Tangerine ERP";
+  }, [activeModule]);
+
   const [appsOpen, setAppsOpen] = useState(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   // Chunk I item 1 — display name shown in the top bar (falls back to email).
   const [userName, setUserName] = useState<string | null>(null);
+  // Optional MS Graph profile photo (object URL). Null → initials avatar.
+  const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
 
   // Auth gate: on mount, check for an MS token. If present + non-expired, fetch
   // the signed-in user's email from Graph (User.Read is already in MS_SCOPES).
@@ -510,6 +317,20 @@ export default function Tangerine() {
         setCachedAuthUserEmail(resolvedEmail);
         setCachedAuthUserName(resolvedName);
         setAuthState("signed_in");
+
+        // Best-effort MS Graph profile photo for the nav avatar. Failure
+        // (no photo set / 404) silently falls back to the initials avatar.
+        (async () => {
+          try {
+            const pr = await fetch("https://graph.microsoft.com/v1.0/me/photo/$value", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!pr.ok) return;
+            const blob = await pr.blob();
+            if (cancelled) return;
+            setUserPhotoUrl(URL.createObjectURL(blob));
+          } catch { /* initials fallback */ }
+        })();
 
         // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
         // endpoint fails (network / server-side mis-config), surface a
@@ -561,7 +382,7 @@ export default function Tangerine() {
   }
 
   async function handleSignOut() {
-    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "🚪", confirmText: "Sign out" }))) return;
+    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "", confirmText: "Sign out" }))) return;
     clearMsTokens();
     // P14 JWT phase — drop the cached per-user token so a signed-out browser
     // can't keep presenting it. (It also expires server-side after 12h.)
@@ -584,19 +405,56 @@ export default function Tangerine() {
   return (
     <div style={{ background: C.bg, color: C.text, minHeight: "100vh" }}>
       <WarnHost />
-      <TopNav
+      <StyleGalleryHost />
+      <NavDrawer
         activeModule={activeModule}
-        onSelectModule={goToModule}
-        appsOpen={appsOpen}
-        onToggleApps={() => setAppsOpen((v) => !v)}
-        onCloseApps={() => setAppsOpen(false)}
-        onGoHome={() => goToModule(null)}
+        onSelectModule={(k) => goToModule(k as ModuleKey | null)}
         userEmail={userEmail}
         userName={userName}
+        userPhotoUrl={userPhotoUrl}
         onSignOut={handleSignOut}
+        modules={MODULES}
+        sections={NAV_SECTIONS}
+        groupIcons={GROUP_ICON}
+        canPlanning={canAccessAppFromSession("planning")}
+        collapsed={drawerCollapsed}
+        onToggleCollapsed={toggleDrawer}
       />
 
-      <main style={{ padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
+      {/* Slim top bar — anchored left of the drawer, holds entity/brand pickers.
+          z:150 sits above content but below the sidebar (z:200) and modals. */}
+      <div style={{
+        position: "fixed", top: 0, right: 0,
+        left: drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        height: 40, zIndex: 150,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        gap: 8, padding: "0 16px",
+        background: "#0b1220", borderBottom: "1px solid rgba(255,255,255,0.08)",
+        transition: "left 0.2s ease",
+      }}>
+        <EntitySwitcher inline />
+        <button
+          type="button"
+          onClick={() => setAiOpen(v => !v)}
+          title="Ask AI — questions about your data or how to use Tangerine"
+          style={{
+            background: "#1E293B", color: "#F1F5F9", border: "1px solid #334155",
+            borderRadius: 8, padding: "6px 8px", fontSize: 12, fontWeight: 600,
+            cursor: "pointer", whiteSpace: "nowrap",
+            ...(aiOpen ? { borderColor: "#7C3AED", color: "#c4b5fd" } : {}),
+          }}
+        >Ask AI</button>
+        <BrandChannelSwitcher inline />
+      </div>
+
+      <main style={{
+        marginLeft: drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN,
+        transition: "margin-left 0.2s ease",
+        padding: "24px 32px",
+        paddingTop: 64,
+        minHeight: "100vh",
+        boxSizing: "border-box",
+      }}>
         {activeModule === null && <HomeLanding onSelectModule={goToModule} />}
         {activeModule === "style_master"    && <InternalStyleMaster />}
         {activeModule === "pim_catalog"     && <InternalPimProductCatalog />}
@@ -609,6 +467,25 @@ export default function Tangerine() {
         {activeModule === "style_classifications" && <InternalStyleClassifications />}
         {activeModule === "factors"              && <InternalFactors />}
         {activeModule === "size_scales"          && <InternalSizeScales />}
+        {activeModule === "season_master"        && <InternalSeasonMaster />}
+        {activeModule === "color_master"         && <InternalColorMaster />}
+        {activeModule === "fabric_mill_master"    && <InternalFabricMillMaster />}
+        {activeModule === "part_master"           && <InternalPartMaster />}
+        {activeModule === "service_item_master"   && <InternalServiceItemMaster />}
+        {activeModule === "part_type_master"      && <InternalPartTypeMaster />}
+        {activeModule === "part_inventory"        && <InternalPartInventory />}
+        {activeModule === "mfg_bom"               && <InternalMfgBom />}
+        {activeModule === "mfg_build_orders"      && <InternalMfgBuildOrders />}
+        {activeModule === "mfg_reports"           && <InternalMfgReports />}
+        {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
+        {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
+        {activeModule === "date_preset_master" && <InternalDatePresetMaster />}
+        {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
+        {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
+        {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
+        {activeModule === "carrier_master"       && <InternalCarrierMaster />}
+        {activeModule === "buyer_scope_master"   && <InternalBuyerScopeMaster />}
+        {activeModule === "hts_master"           && <InternalHtsMaster />}
         {activeModule === "b2b_accounts"         && <InternalB2BAccounts />}
         {activeModule === "b2b_price_list"       && <InternalPriceLists />}
         {activeModule === "pricing_promotions"   && <InternalPromotions />}
@@ -621,6 +498,17 @@ export default function Tangerine() {
         {activeModule === "ar_receipts"       && <InternalARReceipts />}
         {activeModule === "sales_orders"      && <InternalSalesOrders />}
         {activeModule === "sales_allocations" && <InternalAllocations />}
+        {activeModule === "sales_returns" && <InternalSalesReturns />}
+        {activeModule === "drop_ship" && <InternalDropShip />}
+        {activeModule === "three_pl" && <InternalThreePL />}
+        {activeModule === "three_pl_recon" && <InternalThreePLRecon />}
+        {activeModule === "edi" && <InternalEDI />}
+        {activeModule === "edi_customers" && <InternalEdiCustomers />}
+        {activeModule === "edi_settings" && <InternalEdiSettings />}
+        {activeModule === "reports_hub" && <InternalReportsHub />}
+        {activeModule === "fixed_assets" && <InternalFixedAssets />}
+        {activeModule === "budgets" && <InternalBudgets />}
+        {activeModule === "form_1099" && <InternalForm1099 />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
         {activeModule === "receiving"         && <InternalReceiving />}
         {activeModule === "bookkeeper_approval" && <InternalBookkeeperApproval />}
@@ -657,6 +545,7 @@ export default function Tangerine() {
         {activeModule === "sales_by_rep"        && <InternalSalesByRep />}
         {activeModule === "sales_by_customer"   && <InternalSalesByCustomer />}
         {activeModule === "gl_detail"           && <InternalGLDetail />}
+        {activeModule === "upc_report"          && <InternalUpcReport />}
         {/* P8-3 — M25 CRM panels */}
         {activeModule === "crm_opportunities"   && <InternalCrmOpportunities />}
         {activeModule === "crm_activities"      && <InternalCrmActivities />}
@@ -666,6 +555,8 @@ export default function Tangerine() {
         {activeModule === "shadow_mirror"       && <InternalShadowMirrorStatus />}
         {/* P11-7 — Shopify Refunds reports panel */}
         {activeModule === "shopify_refunds"     && <InternalShopifyRefunds />}
+        {/* P11 — Connect Shopify Store */}
+        {activeModule === "shopify_stores"      && <InternalShopifyStores />}
         {/* Tangerine P12-99 — Marketplaces close-out status dashboard */}
         {activeModule === "marketplace_status"  && <InternalMarketplaceStatus />}
         {/* Cross-cutter T11-3 — Universal audit log admin panel */}
@@ -676,17 +567,70 @@ export default function Tangerine() {
         {activeModule === "customer_scorecard"    && <InternalCustomerScorecard />}
         {/* P14-3b — RBAC User Access admin panel */}
         {activeModule === "user_access"            && <InternalUserAccess />}
+        {/* #983 — Treasury */}
+        {activeModule === "payments"               && <InternalPayments />}
+        {activeModule === "recon_dashboard"        && <InternalReconciliationDashboard />}
+        {activeModule === "fx"                      && <InternalFx />}
+        {activeModule === "virtual_cards"          && <InternalVirtualCards />}
+        {activeModule === "scf"                     && <InternalScf />}
+        {activeModule === "discount_offers"        && <InternalDiscountOffers />}
+        {activeModule === "tax"                     && <InternalTax />}
+        {/* #983 — Procurement RFQs */}
+        {activeModule === "rfqs"                    && <InternalRfqs />}
+        {/* #983 — Reports analytics */}
+        {activeModule === "analytics"              && <InternalAnalytics />}
+        {activeModule === "insights"               && <InternalInsights />}
+        {activeModule === "anomalies"              && <InternalAnomalies />}
+        {activeModule === "benchmark"              && <InternalBenchmark />}
+        {activeModule === "health_scores"          && <InternalHealthScores />}
+        {activeModule === "preferred"              && <InternalPreferred />}
+        {/* #983 — ESG & Compliance */}
+        {activeModule === "sustainability"         && <InternalSustainability />}
+        {activeModule === "esg_scores"             && <InternalEsgScores />}
+        {activeModule === "diversity"              && <InternalDiversity />}
+        {activeModule === "compliance_audit"       && <InternalComplianceAudit />}
+        {activeModule === "compliance_automation"  && <InternalComplianceAutomation />}
+        {/* #983 — Workflow */}
+        {activeModule === "workflow_rules"         && <InternalWorkflowRules />}
+        {activeModule === "workflow_executions"    && <InternalWorkflowExecutions />}
+        {activeModule === "workspaces"             && <InternalWorkspaces />}
+        {/* #983 — Marketplaces */}
+        {activeModule === "marketplace"            && <InternalMarketplace />}
+        {activeModule === "marketplace_inquiries"  && <InternalMarketplaceInquiries />}
+        {/* #983 — Admin */}
+        {activeModule === "entities"               && <InternalEntities />}
+        {activeModule === "onboarding"             && <InternalOnboarding />}
+        {/* M15 — External / Partner API key admin */}
+        {activeModule === "api_keys"               && <InternalApiKeys />}
       </main>
-      {/* Tangerine P10-5 — Top-bar entity switcher (fixed top-right). */}
-      <EntitySwitcher />
-      {/* P15 Brand Master C2 — global brand/channel pickers (fixed top-right).
-          Inert until BRAND_SCOPE_MODE turns on per-report filtering (chunk 3). */}
-      <BrandChannelSwitcher />
+      {/* EntitySwitcher + BrandChannelSwitcher moved to the slim top bar above. */}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
           from any module; invisible until the hotkey fires. */}
       <GlobalSearchPaletteAuto />
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
+
+      <AskAIPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        appId="tangerine"
+        setters={{}}
+        buildContext={(): GridContextSnapshot => ({
+          columns: [],
+          active_filters: {},
+          sort: null,
+          row_count: 0,
+          distinct: { categories: [], sub_categories: [], styles: [], genders: [], stores: [] },
+          sample_rows: [],
+        })}
+        samplePrompts={[
+          "What's our total open AR right now?",
+          "How do I post a manual journal entry?",
+          "Where is the fixed-asset register?",
+          "List the open purchase orders by vendor",
+          "What does GR/IR mean in receiving?",
+        ]}
+      />
     </div>
   );
 }
@@ -808,8 +752,23 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return [];
-    return items
-      .filter((it) => it.label.toLowerCase().includes(term) || it.section.toLowerCase().includes(term))
+    // Match panel LABELS first. Only fall back to section-name matching when no
+    // label matches at all — otherwise typing a word that also appears in a
+    // section name (e.g. "Master" → the "Master Data" group) flooded the list
+    // with every panel in that section. Within label hits, rank exact > prefix
+    // > substring so the closest panel surfaces at the top.
+    const labelHits = items.filter((it) => it.label.toLowerCase().includes(term));
+    const base = labelHits.length > 0
+      ? labelHits
+      : items.filter((it) => it.section.toLowerCase().includes(term)); // jump by section name
+    const rank = (it: SearchItem) => {
+      const l = it.label.toLowerCase();
+      if (l === term) return 0;
+      if (l.startsWith(term)) return 1;
+      return 2;
+    };
+    return [...base]
+      .sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label))
       .slice(0, 12);
   }, [q, items]);
 
@@ -830,11 +789,14 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
         onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
         onFocus={() => { if (q.trim()) setOpen(true); }}
         onKeyDown={onKeyDown}
-        placeholder="🔍 Find a panel…"
+        placeholder="Find a panel…"
         aria-label="Find a panel"
         style={{
           background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 6, padding: "6px 10px", fontSize: 13, width: 200, outline: "none",
+          borderRadius: 6, padding: "6px 10px", fontSize: 13, outline: "none",
+          // Shrinks on narrow viewports (down to a usable 140px) so it never
+          // forces the bar to overflow, but caps at 200px on wide screens.
+          width: "clamp(140px, 14vw, 200px)",
         }}
       />
       {open && results.length > 0 && (
@@ -885,6 +847,7 @@ interface TopNavProps {
   onGoHome: () => void;
   userEmail: string | null;
   userName: string | null;
+  userPhotoUrl?: string | null;
   onSignOut: () => void;
 }
 
@@ -911,7 +874,59 @@ function isModalOpen(): boolean {
   return false;
 }
 
-function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, userName, onSignOut }: TopNavProps) {
+// Derive 1–2 uppercase initials from a display name (preferred) or email.
+// "Eran Bitton" → "EB"; "eran@x.com" → "E". Empty string → "?".
+function deriveInitials(name?: string | null, email?: string | null): string {
+  const src = (name || "").trim();
+  if (src) {
+    const parts = src.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  const e = (email || "").trim();
+  if (e) return e[0].toUpperCase();
+  return "?";
+}
+
+// Deterministic background colour from the avatar seed so each user keeps a
+// stable swatch across reloads (no random flicker).
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const palette = ["#3B82F6", "#fb923c", "#10B981", "#8B5CF6", "#EC4899", "#F59E0B", "#06B6D4", "#EF4444"];
+  return palette[h % palette.length];
+}
+
+// Small circular user avatar: photo if supplied, else initials on a colour.
+function UserAvatar({ name, email, photoUrl }: { name?: string | null; email?: string | null; photoUrl?: string | null }) {
+  const size = 28;
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name || email || "User"}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+  const initials = deriveInitials(name, email);
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size, height: size, borderRadius: "50%", flexShrink: 0,
+        background: avatarColor(name || email || ""),
+        color: "#fff", fontSize: 11, fontWeight: 700,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        letterSpacing: 0.5, userSelect: "none",
+      }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseApps, onGoHome, userEmail, userName, userPhotoUrl, onSignOut }: TopNavProps) {
   // Group-dropdown nav: hover the group → opens its menu; mouse leaves the
   // group container (button + dropdown) → closes immediately. openGroup is
   // also driven by click (keyboard / accessibility fallback) and Esc.
@@ -982,10 +997,16 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       style={{
         background: "#0b1220",
         borderBottom: `1px solid ${C.cardBdr}`,
-        padding: "10px 24px",
+        padding: "10px 16px",
         display: "flex",
         alignItems: "center",
-        gap: 20,
+        // Allow the row to tighten its inter-item gap as width shrinks, with a
+        // sane floor, so the whole bar fits common widths (1280–1920) without a
+        // horizontal page scrollbar. The group-dropdown <nav> is the flex/wrap
+        // element that absorbs the slack (see below); Favorites, Find-a-panel,
+        // Apps and the user/avatar stay fixed and always visible.
+        gap: "clamp(8px, 1vw, 20px)",
+        minWidth: 0,
         position: "sticky",
         top: 0,
         zIndex: 100,
@@ -1031,25 +1052,44 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
       {/* Favorites — first action icon (consistent across all apps). */}
       <FavoritesMenu />
 
-      <nav style={{ display: "flex", gap: 4, flex: 1, marginLeft: 20, alignItems: "center" }}>
+      {/* Menu-item finder — type-ahead jump to any panel, positioned right after
+          Favorites (separate from the section dropdowns). Respects the same
+          permission filter. flexShrink:0 keeps it from being squeezed out when
+          the group-dropdown row wraps/shrinks. */}
+      <div style={{ flexShrink: 0 }}>
+        <MenuSearch items={searchItems} onSelect={handleSelect} />
+      </div>
+
+      <nav style={{ display: "flex", flexWrap: "wrap", gap: 4, rowGap: 6, flex: 1, minWidth: 0, marginLeft: 20, alignItems: "center" }}>
         {NAV_SECTIONS.map((sec) => {
           // Sub-groups of this section that have at least one permitted module.
           const subGroups = sec.groups
             .map((g) => ({
               group: g,
-              modules: MODULES.filter((m) => m.group === g && can(rbacModuleForTangerine(m.key), "read")),
+              // Dropdown items are sorted ALPHABETICALLY by label (operator
+              // request — Master Data + every other group) so destinations are
+              // predictable to scan regardless of MODULES declaration order.
+              modules: MODULES.filter((m) => m.group === g && can(rbacModuleForTangerine(m.key), "read"))
+                .slice()
+                .sort((a, b) => a.label.localeCompare(b.label)),
             }))
             .filter((sg) => sg.modules.length > 0);
           if (subGroups.length === 0) return null;
 
           const containsActive = subGroups.some((sg) => sg.modules.some((m) => m.key === activeModule));
           const isOpen = openGroup === sec.section;
+          // The sub-group that shares the section's name is redundant with the
+          // section trigger above (e.g. "Master Data" section → "Master Data"
+          // group). Omit it from the left rail and make its modules the DEFAULT
+          // pane, so the header isn't duplicated. The left rail lists only the
+          // OTHER sub-categories (EDI, Reports, Approvals, …).
+          const leftRailGroups = subGroups.filter((sg) => sg.group !== sec.section);
           const multi = subGroups.length > 1;
-          // Sub-group whose items fill the flyout pane: hovered (if in this
-          // section) → the one holding the active module → first.
+          // Pane to show: hovered → active-holding → the section-named group → first.
           const shown =
             subGroups.find((sg) => sg.group === hoverSub) ||
             subGroups.find((sg) => sg.modules.some((m) => m.key === activeModule)) ||
+            subGroups.find((sg) => sg.group === sec.section) ||
             subGroups[0];
 
           return (
@@ -1066,13 +1106,16 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                   background: containsActive || isOpen ? C.card : "transparent",
                   border: `1px solid ${containsActive || isOpen ? C.cardBdr : "transparent"}`,
                   color: containsActive || isOpen ? C.text : C.textSub,
-                  padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 6,
+                  // Responsive: padding + gap tighten as the viewport narrows so
+                  // every group button stays on the bar at common widths.
+                  padding: "6px clamp(7px, 0.6vw, 12px)", borderRadius: 6,
+                  fontSize: "clamp(12px, 0.85vw, 13px)", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: "clamp(4px, 0.4vw, 6px)",
+                  whiteSpace: "nowrap",
                 }}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
               >
-                <span>{sec.emoji}</span>
                 <span>{sec.section}</span>
                 <span style={{ fontSize: 10 }}>{isOpen ? "▴" : "▾"}</span>
               </button>
@@ -1090,8 +1133,8 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                 >
                   {/* Left rail: sub-group picker (only when >1 sub-group). */}
                   {multi && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 168, borderRight: `1px solid ${C.cardBdr}`, paddingRight: 6 }}>
-                      {subGroups.map((sg) => {
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 168, borderRight: `1px solid ${C.cardBdr}`, paddingRight: 6 }}>
+                      {leftRailGroups.map((sg) => {
                         const isShown = sg.group === shown.group;
                         const hasActive = sg.modules.some((m) => m.key === activeModule);
                         return (
@@ -1103,15 +1146,12 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                             style={{
                               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
                               background: isShown ? "#0b1220" : "transparent", border: 0,
-                              color: hasActive ? "#60A5FA" : isShown ? C.text : C.textSub,
-                              padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                              color: hasActive ? "#60A5FA" : isShown ? C.textSub : C.textMuted,
+                              padding: "14px 10px", borderRadius: 4, fontSize: 14, cursor: "pointer",
                               textAlign: "left", fontWeight: hasActive ? 700 : 500,
                             }}
                           >
-                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ width: 18, display: "inline-block" }}>{GROUP_ICON[sg.group]}</span>
-                              {sg.group}
-                            </span>
+                            <span>{sg.group}</span>
                             <span style={{ fontSize: 10, opacity: 0.6 }}>▸</span>
                           </button>
                         );
@@ -1124,7 +1164,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                       module in a NEW tab instead, so the in-progress modal is never
                       lost. cmd/ctrl/shift/middle-click always open a new tab
                       natively (href is present; we don't preventDefault those). */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 224 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 224 }}>
                     {shown.modules.map((m) => {
                       const active = activeModule === m.key;
                       const hovered = hoveredKey === m.key;
@@ -1156,14 +1196,13 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                           onMouseLeave={() => setHoveredKey((cur) => (cur === m.key ? null : cur))}
                           style={{
                             background: hovered ? "rgba(59, 130, 246, 0.14)" : active ? "#0b1220" : "transparent",
-                            border: 0, color: hovered || active ? C.text : C.textSub,
-                            padding: "8px 10px", borderRadius: 4, fontSize: 13, cursor: "pointer",
+                            border: 0, color: hovered || active ? C.textSub : C.textMuted,
+                            padding: "14px 12px", borderRadius: 4, fontSize: 14, cursor: "pointer",
                             textAlign: "left", display: "flex", alignItems: "center", gap: 8,
                             transition: "background 80ms ease, color 80ms ease",
                             textDecoration: "none",
                           }}
                         >
-                          <span style={{ width: 18, display: "inline-block" }}>{m.emoji}</span>
                           <span>{m.label}</span>
                         </a>
                       );
@@ -1186,22 +1225,20 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
             style={{
               background: "transparent", border: "1px solid transparent", color: C.textSub,
-              padding: "6px 12px", borderRadius: 6, fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6, textDecoration: "none",
+              padding: "6px clamp(7px, 0.6vw, 12px)", borderRadius: 6,
+              fontSize: "clamp(12px, 0.85vw, 13px)", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: "clamp(4px, 0.4vw, 6px)",
+              textDecoration: "none", whiteSpace: "nowrap",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
           >
-            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+            <span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
           </a>
         )}
-
-        {/* Menu-item finder — type-ahead jump to any panel, separate from the
-            section dropdowns. Respects the same permission filter. */}
-        <MenuSearch items={searchItems} onSelect={handleSelect} />
       </nav>
 
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", flexShrink: 0 }}>
         <button
           type="button"
           onClick={onToggleApps}
@@ -1220,18 +1257,17 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           aria-haspopup="menu"
           aria-expanded={appsOpen}
         >
-          <span>🧩</span>
           <span>Apps</span>
           <span style={{ fontSize: 10 }}>{appsOpen ? "▴" : "▾"}</span>
         </button>
         {appsOpen && <AppsLauncher onClose={onCloseApps} />}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 12, borderLeft: `1px solid ${C.cardBdr}`, marginLeft: 4, flexShrink: 0 }}>
         {(userName || userEmail) && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, fontSize: 11 }}>
-            <span style={{ color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Signed in</span>
-            <span style={{ color: C.text, fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={userEmail || userName || ""}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }} title={userEmail || userName || ""}>
+            <UserAvatar name={userName} email={userEmail} photoUrl={userPhotoUrl} />
+            <span style={{ color: C.text, fontWeight: 600, fontSize: 13, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {userName || userEmail}
             </span>
           </div>
@@ -1292,6 +1328,8 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1310,7 +1348,7 @@ function AppsLauncher({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 22 }}>{a.emoji}</span>
               <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2, minWidth: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{a.label}</span>
-                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.description}</span>
+                <span style={{ fontSize: 11, color: C.textMuted, whiteSpace: "normal", overflowWrap: "anywhere" }}>{a.description}</span>
               </div>
             </a>
           ))}
@@ -1350,58 +1388,58 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       </div>
 
       <Section title="Master Data">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {masterModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Accounting">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {acctModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Vendors">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
           {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
-          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
-          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="📝" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="" sublabel="External · new tab" />
         </div>
       </Section>
 
       <Section title="CRM (P8)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {crmModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Reports (P7-7)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {reportsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Approvals (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {approvalsModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Notifications (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {notifModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="HR (P2)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {hrModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Inventory (P3)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {inventoryModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
@@ -1411,7 +1449,7 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
           tab. Gated by the shared planning permission. */}
       {canAccessAppFromSession("planning") && (
         <Section title="Planning (M31)">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
             {PLANNING_SCREENS.map((s) => (
               <ExternalLinkCard key={s.href} href={s.href} label={s.label} emoji={s.emoji} sublabel={s.description} />
             ))}
@@ -1420,19 +1458,19 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
       )}
 
       <Section title="Customer Service (P7)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {csModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Marketplaces (P11–P12)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {marketplacesModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
 
       <Section title="Shadow Mirror (T10)">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {mirrorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
         </div>
       </Section>
@@ -1443,6 +1481,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
             <a
               key={a.href}
               href={a.href}
+              target="_blank"
+              rel="noopener"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -1489,20 +1529,19 @@ function ModuleCard({ module, onClick }: { module: ModuleDef; onClick: () => voi
         background: C.card,
         border: `1px solid ${C.cardBdr}`,
         borderRadius: 10,
-        padding: 16,
+        padding: 24,
         textAlign: "left",
         color: C.text,
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        gap: 12,
         transition: "border-color 0.15s, transform 0.05s",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.tangerine; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.cardBdr; }}
     >
-      <div style={{ fontSize: 32 }}>{module.emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{module.label}</div>
+      <div style={{ fontSize: 17, fontWeight: 600, color: C.textSub }}>{module.label}</div>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{module.group}</div>
     </button>
   );
@@ -1538,7 +1577,7 @@ function ExternalLinkCard({ href, label, emoji, sublabel }: { href: string; labe
     >
       <div style={{ fontSize: 32 }}>{emoji}</div>
       <div style={{ fontSize: 15, fontWeight: 600 }}>{label} <span style={{ fontSize: 12, color: C.textMuted }}>↗</span></div>
-      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{sublabel}</div>
+      <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "normal", overflowWrap: "anywhere", minWidth: 0 }}>{sublabel}</div>
     </a>
   );
 }

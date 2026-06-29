@@ -295,6 +295,14 @@ export function fmtDate(d?: string): string {
   return `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}/${dt.getFullYear()}`;
 }
 
+export function fmtDateDisplay(d?: string | null): string {
+  if (!d) return "—";
+  const str = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T00:00:00" : d;
+  const dt = new Date(str);
+  if (isNaN(dt.getTime())) return d;
+  return `${String(dt.getMonth() + 1).padStart(2,"0")}/${String(dt.getDate()).padStart(2,"0")}/${dt.getFullYear()}`;
+}
+
 export function fmtCurrency(n?: number, code = "USD"): string {
   if (n == null) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: code }).format(n);

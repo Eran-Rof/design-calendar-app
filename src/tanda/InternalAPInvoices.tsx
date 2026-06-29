@@ -20,6 +20,7 @@
 //     can grow past 7 postable bank entries).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
@@ -36,6 +37,10 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
+import { useItemResolver } from "./hooks/useItemResolver";
+import LineViewToggle from "./components/LineViewToggle";
+import { readDrillParam } from "./scorecardDrill";
 
 type GlStatus = "draft" | "unposted" | "pending_approval" | "posted" | "paid" | "void" | "reversed";
 
@@ -51,6 +56,7 @@ type APInvoice = {
   description: string | null;
   expense_account_id: string | null;
   ap_account_id: string | null;
+  payment_terms_id?: string | null;
   receiving_channel?: "WS" | "EC" | null;
   accrual_je_id: string | null;
   cash_je_id: string | null;
@@ -74,6 +80,7 @@ type APInvoiceLine = {
 type APInvoiceFull = APInvoice & { lines: APInvoiceLine[] };
 
 type Vendor = { id: string; name: string; vendor_code?: string };
+type PaymentTerm = { id: string; code: string; name: string; due_days: number; is_active?: boolean };
 type Account = {
   id: string;
   code: string;
@@ -122,6 +129,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -178,11 +186,14 @@ export default function InternalAPInvoices() {
   const [err, setErr] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<GlStatus | "">("");
-  const [vendorFilter, setVendorFilter] = useState("");
+  // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount.
+  const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
   const [sourceFilter, setSourceFilter] = useState<string>("");
   // Wave 5 — DynamicSearchInput-controlled debounced search (200ms).
+  // Scorecard per-line drill: ?q=<invoice_number> seeds the search on mount so a
+  // new-tab deep-link lands here filtered to that single invoice (q ilike).
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =
-    useDebouncedSearch("", 200);
+    useDebouncedSearch(readDrillParam("q"), 200);
   const [includeVoid, setIncludeVoid] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -298,14 +309,21 @@ export default function InternalAPInvoices() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as GlStatus | "")} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="pending_approval">Pending approval</option>
-          <option value="posted">Posted</option>
-          <option value="paid">Paid</option>
-          <option value="void">Void</option>
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as GlStatus | "")}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "draft", label: "Draft" },
+              { value: "pending_approval", label: "Pending approval" },
+              { value: "posted", label: "Posted" },
+              { value: "paid", label: "Paid" },
+              { value: "void", label: "Void" },
+            ]}
+            placeholder="All statuses"
+          />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect
             value={vendorFilter || null}
@@ -384,7 +402,7 @@ export default function InternalAPInvoices() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -420,8 +438,8 @@ export default function InternalAPInvoices() {
                     {...rowProps}
                     style={{ ...(rowProps.style || {}), ...(isVoid ? { opacity: 0.5 } : {}) }}
                   >
-                    <td style={td} hidden={!isVisible("posting_date")}>{inv.posting_date}</td>
-                    <td style={td} hidden={!isVisible("due_date")}>{inv.due_date || "—"}</td>
+                    <td style={td} hidden={!isVisible("posting_date")}>{fmtDateDisplay(inv.posting_date)}</td>
+                    <td style={td} hidden={!isVisible("due_date")}>{fmtDateDisplay(inv.due_date) || "—"}</td>
                     <td style={td} hidden={!isVisible("vendor")}>{vendorMap[inv.vendor_id]?.name || "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}
@@ -529,6 +547,8 @@ function APInvoiceModal({
   const [description, setDescription] = useState(invoice?.description || "");
   const [apAccountId, setApAccountId] = useState(invoice?.ap_account_id || "");
   const [expenseAccountId, setExpenseAccountId] = useState(invoice?.expense_account_id || "");
+  const [paymentTermsId, setPaymentTermsId] = useState(invoice?.payment_terms_id || "");
+  const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([]);
   // The selected vendor's current defaults (for auto-fill + the write-back prompt).
   const [vendorDefaults, setVendorDefaults] = useState<{ ap: string | null; expense: string | null }>({ ap: null, expense: null });
 
@@ -541,11 +561,51 @@ function APInvoiceModal({
   const [stagedDocs, setStagedDocs] = useState<File[]>([]); // attached before save (new invoice)
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // ▦ Matrix / ☰ List toggle for the lines section.
+  const [lineView, setLineView] = useState<"list" | "matrix">("list");
+
+  // Resolve inventory lines' item ids → {color,size} for the matrix view; only
+  // inventory lines have an item id (expense lines fall back to the list below).
+  const lineItemIds = useMemo(
+    () => lines.filter((l) => l.kind === "inventory").map((l) => l.inventory_item_id).filter(Boolean),
+    [lines],
+  );
+  const { itemMap: resolvedItems } = useItemResolver(lineItemIds, lineView === "matrix");
+  const matrixData = useMemo(() => {
+    const itemLookup = new Map<string, Item>();
+    for (const it of items) itemLookup.set(it.id, it);
+    const matrixEntries: MatrixEntry[] = [];
+    const fallback: { label: string; qty: number }[] = [];
+    for (const l of lines) {
+      if (l.kind === "expense") {
+        fallback.push({ label: l.description || "(expense line)", qty: 0 });
+        continue;
+      }
+      const qty = Number(l.quantity) || 0;
+      const resolved = l.inventory_item_id
+        ? (resolvedItems.get(l.inventory_item_id) || itemLookup.get(l.inventory_item_id))
+        : undefined;
+      if (resolved && resolved.color && resolved.size) {
+        matrixEntries.push({ color: resolved.color, size: resolved.size, qty });
+      } else {
+        fallback.push({ label: resolved?.sku_code || l.description || "(inventory line)", qty });
+      }
+    }
+    return { matrixEntries, fallback };
+  }, [lines, resolvedItems, items]);
 
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=1000")
       .then((r) => r.json())
       .then((arr: Account[]) => setAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active") : []))
+      .catch(() => {});
+  }, []);
+
+  // Payment-terms master for the Payment Terms picker.
+  useEffect(() => {
+    fetch("/api/internal/payment-terms")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: PaymentTerm[]) => setPaymentTerms(Array.isArray(arr) ? arr : []))
       .catch(() => {});
   }, []);
 
@@ -572,9 +632,13 @@ function APInvoiceModal({
         if (cancel || !v) return;
         const dAp = v.default_gl_ap_account_id || null;
         const dEx = v.default_gl_expense_account_id || null;
+        const dTerms = v.payment_terms_id || null;
         setVendorDefaults({ ap: dAp, expense: dEx });
         setApAccountId((prev) => (isNew ? (dAp || "") : (prev || dAp || "")));
         setExpenseAccountId((prev) => (isNew ? (dEx || "") : (prev || dEx || "")));
+        // Auto-fill payment terms only when new or the field is still empty —
+        // never clobber an explicit edit on an existing invoice.
+        if (dTerms) setPaymentTermsId((prev) => (isNew ? dTerms : (prev || dTerms)));
       })
       .catch(() => {});
     return () => { cancel = true; };
@@ -683,6 +747,7 @@ function APInvoiceModal({
         description: description.trim() || null,
         expense_account_id: expenseAccountId || null,
         ap_account_id: apAccountId || null,
+        payment_terms_id: paymentTermsId || null,
         lines: apiLines,
       };
 
@@ -758,7 +823,7 @@ function APInvoiceModal({
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-        padding: 20, width: 1000, maxWidth: "95vw", color: C.text,
+        padding: 20, width: "min(1000px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text,
       }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {isNew ? "New AP invoice" : `Edit AP invoice ${invoice?.invoice_number || ""}`}
@@ -793,20 +858,37 @@ function APInvoiceModal({
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Type">
-                <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="vendor_bill">Invoice</option>
-                  <option value="vendor_credit_memo">Credit</option>
-                  <option value="expense_report">Expense report</option>
-                </select>
+                <SearchableSelect
+                  value={kind || null}
+                  onChange={(v) => setKind(v)}
+                  options={[
+                    { value: "vendor_bill", label: "Invoice" },
+                    { value: "vendor_credit_memo", label: "Credit" },
+                    { value: "expense_report", label: "Expense report" },
+                  ]}
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Posting date">
                 <input type="date" value={postingDate} onChange={(e) => setPostingDate(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Due date">
                 <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!editable} style={inputStyle} />
+              </Field>
+              <Field label="Payment terms">
+                <SearchableSelect
+                  value={paymentTermsId || null}
+                  onChange={(v) => setPaymentTermsId(v)}
+                  options={[
+                    { value: "", label: "(none)" },
+                    ...paymentTerms.map((t) => ({ value: t.id, label: `${t.name} (${t.due_days}d)` })),
+                  ]}
+                  placeholder="(defaults from vendor)"
+                  disabled={!editable}
+                />
               </Field>
               <Field label="Default expense account">
                 <SearchableSelect
@@ -841,15 +923,15 @@ function APInvoiceModal({
             {lines.some((l) => l.kind === "inventory") && (
               <div style={{ marginTop: 12 }}>
                 <Field label="Receive inventory into (brand pool)">
-                  <select
+                  <SearchableSelect
                     value={receivingChannel}
-                    onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                    onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+                    options={[
+                      { value: "WS", label: "Wholesale pool" },
+                      { value: "EC", label: "Ecom pool" },
+                    ]}
                     disabled={!editable}
-                    style={inputStyle as React.CSSProperties}
-                  >
-                    <option value="WS">Wholesale pool</option>
-                    <option value="EC">Ecom pool</option>
-                  </select>
+                  />
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
                     Received units land in the brand's {receivingChannel === "EC" ? "Ecom" : "Wholesale"} pool when posted (single-pool brands ignore this).
                   </div>
@@ -859,14 +941,35 @@ function APInvoiceModal({
 
             <div style={{ marginTop: 16, marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-              {editable && (
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" onClick={() => addLine("expense")} style={btnSecondary}>+ Expense line</button>
-                  <button type="button" onClick={() => addLine("inventory")} style={btnSecondary}>+ Inventory line</button>
-                </div>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <LineViewToggle value={lineView} onChange={setLineView} />
+                {editable && lineView === "list" && (
+                  <>
+                    <button type="button" onClick={() => addLine("expense")} style={btnSecondary}>+ Expense line</button>
+                    <button type="button" onClick={() => addLine("inventory")} style={btnSecondary}>+ Inventory line</button>
+                  </>
+                )}
+              </div>
             </div>
 
+            {lineView === "matrix" ? (
+              <div style={{ marginBottom: 12 }}>
+                <LineColorSizeMatrix entries={matrixData.matrixEntries} />
+                {matrixData.fallback.length > 0 && (
+                  <div style={{ marginTop: 10, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                      Non-matrix lines (expense / no color&size)
+                    </div>
+                    {matrixData.fallback.map((f, i) => (
+                      <div key={i} style={{ fontSize: 12, color: C.textSub, display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                        <span>{f.label}</span>
+                        {f.qty > 0 && <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>qty {f.qty.toLocaleString()}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
             <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -885,10 +988,15 @@ function APInvoiceModal({
                     <tr key={l.key}>
                       <td style={td}>{idx + 1}</td>
                       <td style={td}>
-                        <select value={l.kind} onChange={(e) => updateLine(idx, { kind: e.target.value as "expense" | "inventory" })} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                          <option value="expense">expense</option>
-                          <option value="inventory">inventory</option>
-                        </select>
+                        <SearchableSelect
+                          value={l.kind}
+                          onChange={(v) => updateLine(idx, { kind: v as "expense" | "inventory" })}
+                          options={[
+                            { value: "expense", label: "expense" },
+                            { value: "inventory", label: "inventory" },
+                          ]}
+                          disabled={!editable}
+                        />
                       </td>
                       <td style={td}>
                         {l.kind === "expense" ? (
@@ -964,6 +1072,7 @@ function APInvoiceModal({
                 </tfoot>
               </table>
             </div>
+            )}
 
             {!isNew && invoice && (
               <div style={{ marginTop: 16, marginBottom: 16 }}>
@@ -994,7 +1103,9 @@ function APInvoiceModal({
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            {/* Sticky action footer — pinned to the bottom of the scrolling
+                modal so Save / Close stay reachable on tall invoices. */}
+            <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
               <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
               {editable && (
                 <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !formValid}>
@@ -1072,7 +1183,7 @@ function APPaymentModal({
     }}>
       <div onClick={(e) => e.stopPropagation()} style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-        padding: 20, width: 600, maxWidth: "95vw", color: C.text,
+        padding: 20, width: "min(600px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text,
       }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>
           Record payment — invoice {invoice.invoice_number}
@@ -1090,13 +1201,17 @@ function APPaymentModal({
             <input type="text" value={amountDollars} onChange={(e) => setAmountDollars(e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Method">
-            <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle as React.CSSProperties}>
-              <option value="ach">ACH</option>
-              <option value="wire">Wire</option>
-              <option value="check">Check</option>
-              <option value="credit_card">Credit card</option>
-              <option value="cash">Cash</option>
-            </select>
+            <SearchableSelect
+              value={method || null}
+              onChange={(v) => setMethod(v)}
+              options={[
+                { value: "ach", label: "ACH" },
+                { value: "wire", label: "Wire" },
+                { value: "check", label: "Check" },
+                { value: "credit_card", label: "Credit card" },
+                { value: "cash", label: "Cash" },
+              ]}
+            />
           </Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>

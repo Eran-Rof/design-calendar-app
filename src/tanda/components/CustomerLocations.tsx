@@ -15,8 +15,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { newWorkbook, addAoaSheet, downloadExcelWorkbook } from "../../shared/excelLogo";
 import { notify, confirmDialog } from "../../shared/ui/warn";
 import AddressFields, { type Address } from "./AddressFields";
+import { formatUsPhone } from "../../shared/phone";
+import SearchableSelect from "./SearchableSelect";
 
 type LocationType = "dc" | "store" | "other";
 
@@ -85,7 +88,7 @@ function emptyDraft(location_type: LocationType = "store"): LocationDraft {
 
 function addrSummary(addr: Address): string {
   if (!addr) return "—";
-  const parts = [addr.line1, addr.city, addr.state, addr.postal_code, addr.country].filter(Boolean);
+  const parts = [addr.line1, addr.city, addr.state, addr.postal ?? addr.postal_code, addr.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "—";
 }
 
@@ -119,15 +122,16 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
         </div>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Type</div>
-          <select
-            style={inputStyle as React.CSSProperties}
+          <SearchableSelect
+            inputStyle={inputStyle as React.CSSProperties}
             value={draft.location_type}
-            onChange={(e) => set("location_type", e.target.value as LocationType)}
-          >
-            <option value="dc">DC (distribution center)</option>
-            <option value="store">Store</option>
-            <option value="other">Other</option>
-          </select>
+            onChange={(v) => set("location_type", v as LocationType)}
+            options={[
+              { value: "dc", label: "DC (distribution center)" },
+              { value: "store", label: "Store" },
+              { value: "other", label: "Other" },
+            ]}
+          />
         </div>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Contact name</div>
@@ -143,8 +147,8 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
           <input
             style={inputStyle}
             value={draft.phone}
-            onChange={(e) => set("phone", e.target.value)}
-            placeholder="+1 (555) 000-0000"
+            onChange={(e) => set("phone", formatUsPhone(e.target.value))}
+            placeholder="(555) 000-0000"
           />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
@@ -257,7 +261,7 @@ function LocationModal({ customerId, existing, defaultType = "store", onClose, o
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-          padding: 20, width: 520, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto",
+          padding: 20, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
           color: C.text,
         }}
       >
@@ -332,19 +336,9 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
       "Jane Buyer", "+1 (555) 000-0000", "store@example.com",
     ];
     const aoa = [STORE_UPLOAD_HEADERS, exampleRow];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Stores");
-    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "store-upload-template.xlsx";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    const wb = newWorkbook();
+    addAoaSheet(wb, "Stores", aoa, { title: "Customer Locations — Upload Template", subtitle: "Fill one row per store, then upload. The example row below shows the format." });
+    void downloadExcelWorkbook(wb, "store-upload-template.xlsx");
   }
 
   // Parse an .xlsx client-side and POST one customer_locations row per data
@@ -386,7 +380,7 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
               line1: cell(row, "address_line1") || undefined,
               city: cell(row, "city") || undefined,
               state: cell(row, "state") || undefined,
-              postal_code: cell(row, "postal") || undefined,
+              postal: cell(row, "postal") || undefined,
               country: cell(row, "country") || undefined,
             };
             return {

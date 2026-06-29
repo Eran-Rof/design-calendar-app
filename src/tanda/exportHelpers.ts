@@ -1,5 +1,6 @@
 import { type XoroPO, type Milestone, type LocalNote, itemQty, normalizeSize, sizeSort } from "../utils/tandaTypes";
 import { extractPpk } from "../shared/prepack";
+import { newWorkbook, addLogoBanner, downloadExcelWorkbook, argb, xfill, xthin, type ExcelJS } from "../shared/excelLogo";
 
 // Mirror of the EXPLODE PPK toggle in poMatrixTab — same localStorage
 // key. When ON (default), the matrix export's Total column shows
@@ -36,35 +37,52 @@ export function printPODetail() {
   setTimeout(() => { win.print(); win.close(); }, 400);
 }
 
-export function exportPOExcel(po: XoroPO, items: any[], mode: string, milestones: Record<string, Milestone[]>, notes: LocalNote[]) {
-  const XLSX = (window as any).XLSX;
-  if (!XLSX) throw new Error("Excel library still loading — try again in a moment.");
-  _exportPOExcelInner(XLSX, po, items, mode, milestones, notes);
+export async function exportPOExcel(po: XoroPO, items: any[], mode: string, milestones: Record<string, Milestone[]>, notes: LocalNote[]) {
+  const { wb, fileName } = buildPOWorkbook(po, items, mode, milestones, notes);
+  await downloadExcelWorkbook(wb, fileName);
 }
 
-function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string, milestones: Record<string, Milestone[]>, notes: LocalNote[]) {
+// Builds the ROF-branded ExcelJS workbook + filename for a PO export.
+// Separated from the browser download so it can be unit-tested.
+export function buildPOWorkbook(po: XoroPO, items: any[], mode: string, milestones: Record<string, Milestone[]>, notes: LocalNote[]): { wb: ExcelJS.Workbook; fileName: string } {
   const poNum = po.PoNumber ?? "PO";
   const totalVal = items.reduce((s: number, i: any) => s + itemQty(i) * (i.UnitPrice ?? 0), 0);
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+  let fileName = "";
 
-  // ── Style definitions ──
-  const BRAND = "1E293B"; const BRAND_LT = "334155"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "F1F5F9";
-  const bdr = { style: "thin", color: { rgb: "CBD5E0" } };
-  const border = { top: bdr, bottom: bdr, left: bdr, right: bdr };
-  const fill = (rgb: string) => ({ patternType: "solid", fgColor: { rgb } });
-  const titleStyle = { font: { bold: true, sz: 14, color: { rgb: WHITE } }, fill: fill(BRAND), alignment: { horizontal: "left", vertical: "center" }, border };
-  const subtitleStyle = { font: { sz: 10, color: { rgb: "94A3B8" }, italic: true }, fill: fill(BRAND), alignment: { horizontal: "left" }, border };
-  const colHeaderStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "center", vertical: "center" }, border };
-  const colHeaderLeftStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND_LT), alignment: { horizontal: "left", vertical: "center" }, border };
-  const cellStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-  const cellCenterStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "center", vertical: "center" } });
-  const cellRightStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { horizontal: "right", vertical: "center" } });
-  const totalCenterStyle = { font: { bold: true, sz: 11, color: { rgb: WHITE } }, fill: fill(BRAND), border, alignment: { horizontal: "center", vertical: "center" } };
-  const labelStyle = (isEven: boolean) => ({ font: { bold: true, sz: 11, color: { rgb: BRAND_LT } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-  const valStyle = (isEven: boolean) => ({ font: { sz: 11, color: { rgb: "1A202C" } }, fill: fill(isEven ? LIGHT_GRAY : WHITE), border, alignment: { vertical: "center" } });
-
+  // ── Canonical "ATS look" palette ──
+  const BRAND = "1F497D"; const WHITE = "FFFFFF"; const LIGHT_GRAY = "EEF3FA"; const GRY = "D0D8E4"; const BODY = "1A202C";
+  const SPACER = "3278CC"; // lighter-blue ATS spacer column
+  const SPACER_WCH = 1.8;
+  const allBorder = { top: xthin(GRY), bottom: xthin(GRY), left: xthin(GRY), right: xthin(GRY) };
   const FMT_QTY = "#,##0";
   const FMT_USD = "$#,##0.00";
+
+  // Insert lighter-blue spacer columns AFTER each given (original) column index,
+  // splitting the grid into ATS-style sections. Returns the widened rows/widths
+  // plus the spacer-column set and remapped dollar/qty column indices.
+  function withSpacers(rows: any[][], widths: number[], breakAfter: number[], dollarCols: number[], qtyCols: number[]) {
+    const breaks = new Set(breakAfter);
+    const origLen = Math.max(widths.length, ...rows.map((r) => r.length));
+    const map: number[] = [];
+    const newRows: any[][] = rows.map(() => []);
+    const newWidths: number[] = [];
+    const spacerCols = new Set<number>();
+    let ni = 0;
+    for (let oi = 0; oi < origLen; oi++) {
+      map[oi] = ni;
+      rows.forEach((row, ri) => { newRows[ri][ni] = row[oi] ?? ""; });
+      newWidths[ni] = widths[oi] ?? 14;
+      ni++;
+      if (breaks.has(oi)) {
+        spacerCols.add(ni);
+        rows.forEach((row, ri) => { newRows[ri][ni] = ""; });
+        newWidths[ni] = SPACER_WCH;
+        ni++;
+      }
+    }
+    return { rows: newRows, widths: newWidths, spacerCols, dollarCols: dollarCols.map((c) => map[c]), qtyCols: qtyCols.map((c) => map[c]) };
+  }
 
   const poInfoBlock: any[][] = [
     ["PO Number", po.PoNumber ?? "", "Vendor", po.VendorName ?? "", "Status", po.StatusName ?? ""],
@@ -73,71 +91,128 @@ function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string, 
   ];
   if (po.Memo) poInfoBlock.push(["Memo", po.Memo, "", "", "", ""]);
 
-  function styleSheet(tableData: any[][], colWidths: number[], opts?: { totalRow?: boolean; dollarCols?: number[]; qtyCols?: number[] }) {
+  const wb = newWorkbook();
+
+  // Build one styled, logo'd worksheet from a header+data table.
+  function styleSheet(name: string, tableData: any[][], colWidths: number[], opts?: { totalRow?: boolean; dollarCols?: number[]; qtyCols?: number[]; spacerCols?: Set<number> }) {
     const cols = Math.max(tableData[0]?.length || 2, 6);
-    const all: any[][] = [];
-    const titleRow = [po.VendorName + " — " + poNum]; for (let i = 1; i < cols; i++) titleRow.push("");
-    all.push(titleRow);
-    const subRow = ["Generated: " + today]; for (let i = 1; i < cols; i++) subRow.push("");
-    all.push(subRow);
-    poInfoBlock.forEach(row => { const r = [...row]; while (r.length < cols) r.push(""); all.push(r); });
-    const blankRow: string[] = []; for (let i = 0; i < cols; i++) blankRow.push(""); all.push(blankRow);
-    const dataStart = all.length;
-    tableData.forEach(row => { const r = [...row]; while (r.length < cols) r.push(""); all.push(r); });
+    const ws = wb.addWorksheet(name);
+    const start = addLogoBanner(wb, ws, { cols }); // rows 1-2 logo; report has its own title
+    const isSpacer = (c: number) => opts?.spacerCols?.has(c) ?? false;
+    const spacerCell = (cell: ExcelJS.Cell) => { cell.value = ""; cell.fill = xfill(SPACER); cell.border = {}; };
 
-    const sheet = XLSX.utils.aoa_to_sheet(all);
-    sheet["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: cols - 1 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: cols - 1 } },
-    ];
-    if (po.Memo) {
-      const memoRowIdx = 2 + poInfoBlock.length - 1;
-      sheet["!merges"].push({ s: { r: memoRowIdx, c: 1 }, e: { r: memoRowIdx, c: cols - 1 } });
+    ws.mergeCells(start, 1, start, cols);
+    const tc = ws.getCell(start, 1);
+    tc.value = `${po.VendorName ?? ""} — ${poNum}`;
+    tc.font = { bold: true, size: 14, color: { argb: argb(WHITE) }, name: "Calibri" };
+    tc.fill = xfill(BRAND); tc.alignment = { horizontal: "left", vertical: "middle" }; tc.border = allBorder;
+    ws.getRow(start).height = 28;
+
+    const subR = start + 1;
+    ws.mergeCells(subR, 1, subR, cols);
+    const sc = ws.getCell(subR, 1);
+    sc.value = `Generated: ${today}`;
+    sc.font = { italic: true, size: 10, color: { argb: argb("BBD0EC") }, name: "Calibri" };
+    sc.fill = xfill(BRAND); sc.alignment = { horizontal: "left", vertical: "middle" }; sc.border = allBorder;
+    ws.getRow(subR).height = 18;
+
+    let r = subR + 1;
+    // Lay the PO info block over the NON-spacer columns only, merging each
+    // value across its group. Without this, the matrix/line-items separator
+    // column (≈1.8 wide) would trap an info value (e.g. the vendor name) and
+    // clip it. Falls back to the plain even layout when there are no spacers.
+    const usableCols: number[] = [];
+    for (let c = 0; c < cols; c++) if (!isSpacer(c)) usableCols.push(c);
+    const labelFont: any = { bold: true, size: 11, color: { argb: argb(BRAND) }, name: "Calibri" };
+    const valueFont: any = { size: 11, color: { argb: argb(BODY) }, name: "Calibri" };
+    poInfoBlock.forEach((info, idx) => {
+      const fill = xfill(idx % 2 === 0 ? LIGHT_GRAY : WHITE);
+      for (let c = 0; c < cols; c++) { const cell = ws.getCell(r, c + 1); cell.value = ""; cell.fill = fill; cell.border = allBorder; cell.alignment = { vertical: "middle" }; }
+      const pairs: Array<[string, string]> = [];
+      for (let i = 0; i < 6; i += 2) if (info[i] != null && info[i] !== "") pairs.push([String(info[i]), String(info[i + 1] ?? "")]);
+      if (pairs.length === 0) { r++; return; }
+      // When there aren't enough non-spacer columns for a label + value cell
+      // per pair, combine each pair into one "Label: value" cell so nothing
+      // is dropped or clipped.
+      const separate = usableCols.length >= pairs.length * 2;
+      const placeCells: Array<{ text: string; bold: boolean }> = [];
+      for (const [lbl, val] of pairs) {
+        if (separate) { placeCells.push({ text: lbl, bold: true }); placeCells.push({ text: val, bold: false }); }
+        else placeCells.push({ text: val ? `${lbl}: ${val}` : lbl, bold: true });
+      }
+      // Greedily assign non-spacer columns to each cell, merging across
+      // columns (incl. any spacer in between) until it's wide enough; reserve
+      // a column for each remaining cell so none gets squeezed out.
+      let ui = 0;
+      placeCells.forEach((pc, ci) => {
+        if (ui >= usableCols.length) return;
+        const isLast = ci === placeCells.length - 1;
+        const remaining = placeCells.length - ci - 1;
+        const maxUi = isLast ? usableCols.length : Math.max(ui + 1, usableCols.length - remaining);
+        const need = isLast ? Infinity : pc.text.length;
+        const startU = ui; let w = 0;
+        do { w += colWidths[usableCols[ui]] ?? 10; ui++; } while (ui < maxUi && w < need);
+        const c0 = usableCols[startU], c1 = usableCols[ui - 1];
+        if (c1 > c0) { try { ws.mergeCells(r, c0 + 1, r, c1 + 1); } catch { /* overlap */ } }
+        const cell = ws.getCell(r, c0 + 1);
+        cell.value = pc.text as ExcelJS.CellValue;
+        cell.font = pc.bold ? labelFont : valueFont;
+        cell.alignment = { vertical: "middle" };
+      });
+      r++;
+    });
+
+    for (let c = 0; c < cols; c++) { const cell = ws.getCell(r, c + 1); cell.fill = xfill(WHITE); cell.border = allBorder; }
+    r++;
+
+    const headerVals = tableData[0];
+    for (let c = 0; c < cols; c++) {
+      const cell = ws.getCell(r, c + 1);
+      if (isSpacer(c)) { spacerCell(cell); continue; }
+      cell.value = (headerVals[c] ?? "") as ExcelJS.CellValue;
+      cell.fill = xfill(BRAND);
+      cell.font = { bold: true, size: 11, color: { argb: argb(WHITE) }, name: "Calibri" };
+      cell.alignment = { horizontal: c === 0 ? "left" : "center", vertical: "middle" };
+      cell.border = allBorder;
     }
-    const finalWidths: number[] = [];
-    for (let i = 0; i < cols; i++) finalWidths.push(colWidths[i] || 14);
-    sheet["!cols"] = finalWidths.map((w: number) => ({ wch: w }));
-    sheet["!rows"] = [{ hpt: 28 }, { hpt: 18 }];
+    r++;
 
-    const range = XLSX.utils.decode_range(sheet["!ref"]);
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const addr = XLSX.utils.encode_cell({ r, c });
-        if (!sheet[addr]) sheet[addr] = { v: "", t: "s" };
-        const cell = sheet[addr];
-
-        if (r === 0) { cell.s = titleStyle; }
-        else if (r === 1) { cell.s = subtitleStyle; }
-        else if (r >= 2 && r < dataStart - 1) {
-          const isEven = (r - 2) % 2 === 0;
-          cell.s = (c % 2 === 0) ? labelStyle(isEven) : valStyle(isEven);
-        }
-        else if (r === dataStart - 1) { cell.s = { fill: fill(WHITE), border }; }
-        else if (r === dataStart) {
-          cell.s = c === 0 ? colHeaderLeftStyle : colHeaderStyle;
-        }
-        else if (opts?.totalRow && r === range.e.r) {
-          cell.s = totalCenterStyle;
-          if (opts?.dollarCols?.includes(c) && typeof cell.v === "number") { cell.z = FMT_USD; cell.t = "n"; }
-          else if (opts?.qtyCols?.includes(c) && typeof cell.v === "number") { cell.z = FMT_QTY; cell.t = "n"; }
-        }
-        else {
-          const isEven = (r - dataStart - 1) % 2 === 0;
-          if (typeof cell.v === "number") {
-            cell.s = cellRightStyle(isEven);
-            if (opts?.dollarCols?.includes(c)) { cell.z = FMT_USD; cell.t = "n"; }
-            else if (opts?.qtyCols?.includes(c)) { cell.z = FMT_QTY; cell.t = "n"; }
-            else { cell.z = FMT_QTY; cell.t = "n"; }
-          } else {
-            cell.s = c === 0 ? cellStyle(isEven) : cellCenterStyle(isEven);
+    const dataRows = tableData.slice(1);
+    dataRows.forEach((dr, di) => {
+      const isLast = !!opts?.totalRow && di === dataRows.length - 1;
+      const isEven = di % 2 === 0;
+      for (let c = 0; c < cols; c++) {
+        const cell = ws.getCell(r, c + 1);
+        if (isSpacer(c)) { spacerCell(cell); continue; }
+        const v = dr[c] ?? "";
+        cell.value = v as ExcelJS.CellValue;
+        cell.border = allBorder;
+        const isNum = typeof v === "number";
+        if (isLast) {
+          cell.fill = xfill(BRAND);
+          cell.font = { bold: true, size: 11, color: { argb: argb(WHITE) }, name: "Calibri" };
+          cell.alignment = { horizontal: "center", vertical: "middle" };
+          if (isNum) {
+            if (opts?.dollarCols?.includes(c)) cell.numFmt = FMT_USD;
+            else if (opts?.qtyCols?.includes(c)) cell.numFmt = FMT_QTY;
           }
+        } else if (isNum) {
+          cell.fill = xfill(isEven ? LIGHT_GRAY : WHITE);
+          cell.font = { size: 11, color: { argb: argb(BODY) }, name: "Calibri" };
+          cell.alignment = { horizontal: "right", vertical: "middle" };
+          cell.numFmt = opts?.dollarCols?.includes(c) ? FMT_USD : FMT_QTY;
+        } else {
+          cell.fill = xfill(isEven ? LIGHT_GRAY : WHITE);
+          cell.font = { size: 11, color: { argb: argb(BODY) }, name: "Calibri" };
+          cell.alignment = { horizontal: c === 0 ? "left" : "center", vertical: "middle" };
         }
       }
-    }
-    return sheet;
-  }
+      r++;
+    });
 
-  const wb = XLSX.utils.book_new();
+    for (let c = 0; c < cols; c++) ws.getColumn(c + 1).width = colWidths[c] || 14;
+    return ws;
+  }
 
   if (mode === "po" || mode === "header" || mode === "matrix") {
     const parsed = items.map((item: any) => {
@@ -178,40 +253,46 @@ function _exportPOExcelInner(XLSX: any, po: XoroPO, items: any[], mode: string, 
     const mxDollar = [3 + nSz + 1, 3 + nSz + 2];
     const mxQty = [...sizeOrder.map((_: any, i: number) => 3 + i), 3 + nSz];
     const mxW = [18, 26, 14, ...sizeOrder.map(() => 10), 10, 12, 14];
-    XLSX.utils.book_append_sheet(wb, styleSheet(mxRows, mxW, { totalRow: true, dollarCols: mxDollar, qtyCols: mxQty }), "Matrix");
+    // Separator after Color (style info → sizes). No separator before the totals.
+    const mxSp = withSpacers(mxRows, mxW, [2], mxDollar, mxQty);
+    styleSheet("Matrix", mxSp.rows, mxSp.widths, { totalRow: true, dollarCols: mxSp.dollarCols, qtyCols: mxSp.qtyCols, spacerCols: mxSp.spacerCols });
     const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
     items.forEach((item: any) => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
     lineData.push(["TOTAL", "", items.reduce((s: number, i: any) => s + itemQty(i), 0), "", totalVal]);
-    XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
-    XLSX.writeFile(wb, `${poNum}_PO_Details.xlsx`);
+    const liSp = withSpacers(lineData, [22, 32, 12, 14, 16], [1], [3, 4], [2]);
+    styleSheet("Line Items", liSp.rows, liSp.widths, { totalRow: true, dollarCols: liSp.dollarCols, qtyCols: liSp.qtyCols, spacerCols: liSp.spacerCols });
+    fileName = `${poNum}_PO_Details.xlsx`;
 
   } else if (mode === "milestones") {
     const poMs = milestones[poNum] || [];
     const rows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
     poMs.forEach((m: Milestone) => { rows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-    XLSX.utils.book_append_sheet(wb, styleSheet(rows, [20, 26, 14, 14, 14, 30]), "Milestones");
-    XLSX.writeFile(wb, `${poNum}_Milestones.xlsx`);
+    styleSheet("Milestones", rows, [20, 26, 14, 14, 14, 30]);
+    fileName = `${poNum}_Milestones.xlsx`;
 
   } else if (mode === "notes") {
     const poNotes = notes.filter((n: any) => n.poNumber === poNum || n.po_number === poNum);
     const rows: any[][] = [["Date", "User", "Note"]];
     poNotes.forEach((n: any) => { rows.push([n.date ?? n.created_at ?? "", n.user ?? n.user_name ?? "", n.text ?? n.note ?? ""]); });
-    XLSX.utils.book_append_sheet(wb, styleSheet(rows, [22, 18, 52]), "Notes");
-    XLSX.writeFile(wb, `${poNum}_Notes.xlsx`);
+    styleSheet("Notes", rows, [22, 18, 52]);
+    fileName = `${poNum}_Notes.xlsx`;
 
   } else if (mode === "all") {
     const lineData: any[][] = [["SKU", "Description", "Qty", "Unit Price", "Total"]];
     items.forEach((item: any) => { lineData.push([item.ItemNumber ?? "", item.Description ?? "", itemQty(item), item.UnitPrice ?? 0, itemQty(item) * (item.UnitPrice ?? 0)]); });
     lineData.push(["TOTAL", "", items.reduce((s: number, i: any) => s + itemQty(i), 0), "", totalVal]);
-    XLSX.utils.book_append_sheet(wb, styleSheet(lineData, [22, 32, 12, 14, 16], { totalRow: true, dollarCols: [3, 4], qtyCols: [2] }), "Line Items");
+    const liSp = withSpacers(lineData, [22, 32, 12, 14, 16], [1], [3, 4], [2]);
+    styleSheet("Line Items", liSp.rows, liSp.widths, { totalRow: true, dollarCols: liSp.dollarCols, qtyCols: liSp.qtyCols, spacerCols: liSp.spacerCols });
     const poMs = milestones[poNum] || [];
     if (poMs.length > 0) {
       const msRows: any[][] = [["Category", "Milestone", "Expected Date", "Status", "Status Date", "Notes"]];
       poMs.forEach((m: Milestone) => { msRows.push([m.category, m.phase, m.expected_date ?? "", m.status, m.status_date ?? "", m.notes ?? ""]); });
-      XLSX.utils.book_append_sheet(wb, styleSheet(msRows, [20, 26, 14, 14, 14, 30]), "Milestones");
+      styleSheet("Milestones", msRows, [20, 26, 14, 14, 14, 30]);
     }
-    XLSX.writeFile(wb, `${poNum}_All.xlsx`);
+    fileName = `${poNum}_All.xlsx`;
   } else {
     throw new Error("Excel export not available for this tab.");
   }
+
+  return { wb, fileName };
 }

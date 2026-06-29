@@ -45,6 +45,18 @@ function buildAggregate(level: Exclude<CollapseLevel, "none">, key: string, part
       }
     }
   }
+  // A style-level collapse groups every color/store row of ONE style, so
+  // they all share one clean style description (e.g. "LAIDBACK Baggy Fit").
+  // Surface it on the aggregate so the Description column reads like a leaf
+  // row instead of the generic "(N items)" count. Category / sub-category
+  // groups span many styles, so they keep the count. Only the clean
+  // master_description is used — never a child's dirty Xoro variant
+  // description (which packs the SKU + color + size into the field).
+  let masterDescription: string | null = null;
+  if (level === "style") {
+    const withDesc = children.find(c => (c.master_description ?? "").trim());
+    masterDescription = (withDesc?.master_description ?? "").trim() || null;
+  }
   return {
     sku: `__group:${level}:${key}`,
     description: `(${children.length} items)`,
@@ -68,6 +80,7 @@ function buildAggregate(level: Exclude<CollapseLevel, "none">, key: string, part
     master_sub_category: level === "subCategory" || level === "style" ? parts[1] : null,
     master_style: level === "style" ? parts[2] : null,
     master_color: null,
+    master_description: masterDescription,
     master_match_source: "style",
     __collapsed: { level, key, childCount: children.length },
   };

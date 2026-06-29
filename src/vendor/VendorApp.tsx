@@ -14,6 +14,7 @@ import { ROFLogoFull } from "../utils/styles";
 import { supabaseVendor } from "./supabaseVendor";
 import VendorLogin from "./auth/VendorLogin";
 import VendorSetup from "./auth/VendorSetup";
+import VendorResetPassword from "./auth/VendorResetPassword";
 import POList from "./po/POList";
 import ShipmentsList from "./shipments/ShipmentsList";
 import ShipmentDetail from "./shipments/ShipmentDetail";
@@ -57,6 +58,8 @@ import VendorScf from "./payments/VendorScf";
 import VendorVirtualCards from "./payments/VendorVirtualCards";
 import VendorWithholding from "./payments/VendorWithholding";
 import VendorPayments from "./payments/VendorPayments";
+import { LanguageProvider } from "./i18n/LanguageContext";
+import LanguageSelector from "./i18n/LanguageSelector";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -120,6 +123,67 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     return <Navigate to="/vendor/onboarding" replace />;
   }
   return <>{children}</>;
+}
+
+// Canonical per-view names — single source of truth for the browser tab title.
+// The nav TabLink / MORE_GROUPS labels are the canonical names; detail routes
+// map to a sensible singular of their parent. Resolution is longest-prefix
+// match (see vendorViewTitle), so list more specific routes before their parents.
+const VENDOR_VIEW_TITLES: { prefix: string; name: string }[] = [
+  // Detail / nested routes first (longest / most specific)
+  { prefix: "/vendor/pos", name: "Purchase Order" },
+  { prefix: "/vendor/rfqs", name: "RFQs" },
+  { prefix: "/vendor/shipments/new", name: "Submit Shipment" },
+  { prefix: "/vendor/shipments", name: "Shipments" },
+  { prefix: "/vendor/invoices/new", name: "Submit Invoice" },
+  { prefix: "/vendor/invoices", name: "Invoices" },
+  { prefix: "/vendor/payment-preferences", name: "Payment prefs" },
+  { prefix: "/vendor/payments", name: "Payments" },
+  { prefix: "/vendor/messages", name: "Messages" },
+  { prefix: "/vendor/compliance", name: "Compliance" },
+  { prefix: "/vendor/reports", name: "Dashboard" },
+  { prefix: "/vendor/notifications", name: "Notifications" },
+  { prefix: "/vendor/phases", name: "Phases" },
+  { prefix: "/vendor/onboarding", name: "Onboarding" },
+  { prefix: "/vendor/setup", name: "Setup" },
+  { prefix: "/vendor/reset", name: "Reset password" },
+  { prefix: "/vendor/login", name: "Sign in" },
+  { prefix: "/vendor/entity-switcher", name: "Switch Entity" },
+  { prefix: "/vendor/mobile/feed", name: "Feed" },
+  // More menu
+  { prefix: "/vendor/contracts", name: "Contracts" },
+  { prefix: "/vendor/catalog", name: "Catalog" },
+  { prefix: "/vendor/discount-offers", name: "Early pay" },
+  { prefix: "/vendor/financing", name: "Financing" },
+  { prefix: "/vendor/scf", name: "Financing" },
+  { prefix: "/vendor/virtual-cards", name: "Virtual cards" },
+  { prefix: "/vendor/withholding", name: "Tax" },
+  { prefix: "/vendor/tax", name: "Tax" },
+  { prefix: "/vendor/sustainability", name: "Sustainability" },
+  { prefix: "/vendor/esg", name: "ESG" },
+  { prefix: "/vendor/diversity", name: "Diversity" },
+  { prefix: "/vendor/workspaces", name: "Workspaces" },
+  { prefix: "/vendor/disputes", name: "Disputes" },
+  { prefix: "/vendor/marketplace", name: "Marketplace" },
+  { prefix: "/vendor/scorecard", name: "Scorecard" },
+  { prefix: "/vendor/performance", name: "Scorecard" },
+  { prefix: "/vendor/bulk", name: "Bulk" },
+  { prefix: "/vendor/settings", name: "Settings" },
+  { prefix: "/vendor/erp", name: "ERP" },
+  { prefix: "/vendor/edi", name: "EDI" },
+  { prefix: "/vendor/health", name: "Health" },
+  // Bare /vendor (Purchase Orders) — keep last so it never shadows the above
+  { prefix: "/vendor", name: "Purchase Orders" },
+];
+
+function vendorViewTitle(pathname: string): string | null {
+  let best: { prefix: string; name: string } | null = null;
+  for (const e of VENDOR_VIEW_TITLES) {
+    if (pathname === e.prefix || pathname.startsWith(e.prefix + "/")) {
+      if (!best || e.prefix.length > best.prefix.length) best = e;
+    }
+  }
+  return best ? best.name : null;
 }
 
 const MORE_GROUPS: { group: string; items: { to: string; label: string; match: (p: string) => boolean }[] }[] = [
@@ -251,6 +315,75 @@ function MoreMenu({ activePath }: { activePath: string }) {
   );
 }
 
+function MessagesTabLink() {
+  const { session } = useVendorSession();
+  const loc = useLocation();
+  const active = loc.pathname.startsWith("/vendor/messages");
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const tok = (await supabaseVendor.auth.getSession()).data.session?.access_token || "";
+        const headers = { Authorization: `Bearer ${tok}` };
+        const [r1, r2] = await Promise.all([
+          fetch("/api/vendor/messages/unread-count", { headers }),
+          fetch("/api/vendor/rfqs/messages-inbox", { headers }),
+        ]);
+        let total = 0;
+        if (r1.ok) {
+          const d = await r1.json() as { count?: number };
+          total += Number(d.count || 0);
+        }
+        if (r2.ok) {
+          const arr = await r2.json() as { unread?: number }[];
+          total += arr.reduce((s, x) => s + Number(x.unread || 0), 0);
+        }
+        if (!cancelled) setUnread(total);
+      } catch {
+        // silently ignore — badge stays at last value
+      }
+    }
+    void load();
+    const i = window.setInterval(load, 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(i);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [session]);
+
+  if (!session) return null;
+  return (
+    <Link
+      to="/vendor/messages"
+      style={{
+        position: "relative",
+        padding: "10px 18px",
+        fontSize: 13, fontWeight: 600,
+        color: active ? "#FFFFFF" : "rgba(255,255,255,0.65)",
+        textDecoration: "none",
+        borderBottom: `3px solid ${active ? TH.primary : "transparent"}`,
+        marginBottom: -1,
+        display: "inline-flex", alignItems: "center", gap: 6,
+      }}
+    >
+      <span>Messages</span>
+      {unread > 0 && (
+        <span style={{
+          minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+          background: "#EF4444", color: "#fff", fontSize: 10, fontWeight: 700,
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+        }}>{unread > 9 ? "9+" : unread}</span>
+      )}
+    </Link>
+  );
+}
+
 function NotificationsTabLink() {
   const { session } = useVendorSession();
   const loc = useLocation();
@@ -295,7 +428,6 @@ function NotificationsTabLink() {
         display: "inline-flex", alignItems: "center", gap: 6,
       }}
     >
-      <span style={{ fontSize: 15, lineHeight: 1 }}>🔔</span>
       <span>Notifications</span>
       {unread > 0 && (
         <span style={{
@@ -320,7 +452,7 @@ function TabNav() {
       <TabLink to="/vendor/shipments" active={p.startsWith("/vendor/shipments")}>Shipments</TabLink>
       <TabLink to="/vendor/invoices" active={p.startsWith("/vendor/invoices")}>Invoices</TabLink>
       <TabLink to="/vendor/payments" active={p.startsWith("/vendor/payments")}>Payments</TabLink>
-      <TabLink to="/vendor/messages" active={p.startsWith("/vendor/messages")}>Messages</TabLink>
+      <MessagesTabLink />
       <TabLink to="/vendor/compliance" active={p.startsWith("/vendor/compliance")}>Compliance</TabLink>
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
         <MoreMenu activePath={p} />
@@ -366,6 +498,12 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
   const { session } = useVendorSession();
   const nav = useNavigate();
   const loc = useLocation();
+  // Central browser-tab title: "<View> · Vendor Portal", longest-prefix match.
+  // Falls back to "Ring of Fire Vendor Portal" for unmatched routes.
+  useEffect(() => {
+    const name = vendorViewTitle(loc.pathname);
+    document.title = name ? `${name} · Vendor Portal` : "Ring of Fire Vendor Portal";
+  }, [loc.pathname]);
   return (
     <div style={{ minHeight: "100vh", background: TH.bg, fontFamily: "system-ui, -apple-system, sans-serif", color: TH.text, colorScheme: "dark" }}>
       <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 24px", background: TH.header, borderBottom: `1px solid ${TH.border}`, boxShadow: `0 1px 2px ${TH.shadowMd}` }}>
@@ -375,20 +513,25 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
         <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontWeight: 700, fontSize: 20, color: "#FFFFFF", letterSpacing: 0.3, textShadow: "0 1px 1px rgba(0,0,0,0.2)" }}>
           Vendor Portal
         </div>
-        {session && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
-            <button
-              onClick={async () => {
-                await supabaseVendor.auth.signOut();
-                nav("/vendor/login", { replace: true });
-              }}
-              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.12)", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
-            >
-              Sign out
-            </button>
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Language picker is available before sign-in too, so vendors can
+              set their language on the login screen. */}
+          <LanguageSelector />
+          {session && (
+            <>
+              <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
+              <button
+                onClick={async () => {
+                  await supabaseVendor.auth.signOut();
+                  nav("/vendor/login", { replace: true });
+                }}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.12)", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+              >
+                Sign out
+              </button>
+            </>
+          )}
+        </div>
       </header>
       {withTabs && session && <TabNav />}
       <main style={{ padding: "24px" }}>{children}</main>
@@ -424,9 +567,11 @@ export default function VendorApp() {
   }
   return (
     <BrowserRouter>
+      <LanguageProvider>
       <Routes>
         <Route path="/vendor/login" element={<VendorShell><VendorLogin /></VendorShell>} />
         <Route path="/vendor/setup" element={<VendorShell><VendorSetup /></VendorShell>} />
+        <Route path="/vendor/reset" element={<VendorShell><VendorResetPassword /></VendorShell>} />
         <Route
           path="/vendor/onboarding"
           element={
@@ -581,6 +726,7 @@ export default function VendorApp() {
         <Route path="/portal/:slug/login"    element={<PortalLogin />} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
+      </LanguageProvider>
     </BrowserRouter>
   );
 }

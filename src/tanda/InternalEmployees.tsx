@@ -24,6 +24,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import RowHistory from "./components/RowHistory";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -135,6 +137,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -187,6 +190,16 @@ export default function InternalEmployees() {
     EMPLOYEES_COLUMNS,
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  // title/department render resolved lookups (titleOf/deptOf), so they stay
+  // non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:employees:sort",
+    accessors: {
+      name: (e) => e.display_name,
+      active: (e) => e.is_active,
+    },
+  });
 
   // P16 — the modal writes the title_id / department_id FK pointers (via the
   // SearchableSelect pickers), but the list reads the legacy title / department
@@ -298,16 +311,16 @@ export default function InternalEmployees() {
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("code")}>Code</th>
-              <th style={th} hidden={!isVisible("name")}>Name</th>
-              <th style={th} hidden={!isVisible("email")}>Email</th>
+              <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+              <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+              <SortableTh label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("email")} />
               <th style={th} hidden={!isVisible("title")}>Title</th>
               <th style={th} hidden={!isVisible("department")}>Department</th>
-              <th style={th} hidden={!isVisible("active")}>Active</th>
+              <SortableTh label="Active" sortKey="active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("active")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -318,7 +331,7 @@ export default function InternalEmployees() {
                 <span style={{ color: C.textMuted }}>No employees yet. Click <strong>+ Add</strong> to create one.</span>
               </td></tr>
             )}
-            {rows.map((e) => (
+            {sorted.map((e) => (
               <ScrollHighlightRow
                 key={e.id}
                 rowId={e.id}
@@ -331,7 +344,7 @@ export default function InternalEmployees() {
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("email")}>{e.email}</td>
                 <td style={td} hidden={!isVisible("title")}>{titleOf(e)}</td>
                 <td style={td} hidden={!isVisible("department")}>{deptOf(e)}</td>
-                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "🟢" : "⚪"}</td>
+                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "Active" : "Inactive"}</td>
                 <td style={td}>
                   <button style={btnSecondary} onClick={() => setEditing(e)}>Edit</button>
                   &nbsp;
@@ -553,7 +566,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     return [
       { value: "", label: "(not linked)" },
       ...plmUsers.map((u) => {
-        const label = u.name ? `${u.name} (${u.username || u.id})` : (u.username || u.id);
+        const label = u.name ? (u.username ? `${u.name} (${u.username})` : u.name) : (u.username || "—");
         return { value: u.id, label, searchHaystack: `${u.name ?? ""} ${u.username ?? ""} ${u.id}` };
       }),
     ];
@@ -566,7 +579,7 @@ function EmployeeModal({ mode, employee, employees, titles, departments, onCance
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 640, maxHeight: "90vh", overflow: "auto",
+        padding: 24, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>
           {mode === "add" ? "Add employee" : "Edit employee"}

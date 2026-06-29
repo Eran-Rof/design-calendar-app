@@ -6,19 +6,51 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 | Panel | Status | Chunk |
 |---|---|---|
-| 🔁 Inventory Transfers | **Read-only skeleton** | P3-7 (2026-05-27) |
-| 📐 Inventory Adjustments | **Live** | P3-5 (2026-05-27) |
-| 🧮 Cycle Counts | Not shipped yet | P3-6 (planned) |
-| 🛠️ Inventory Adjustments | In flight | P3-5 (planned) |
+| 🔁 Inventory Transfers | **Live** (matrix + single-variant entry) | P3-7 (2026-05-27); entry shipped 2026-06-05 |
+| 📐 Inventory Adjustments | **Live** (GL auto-select + reason master dropdown) | P3-5 (2026-05-27); improved #1020 |
+| 📋 Adjustment Reason Master | **Live** | Master Data → Adjustment Reasons (#1020) |
 | 📋 Cycle Counts | **Shipped** | P3-6 (2026-05-27) |
+
+> **#1020 improvements (2026-08-25):**
+> - **GL account auto-selected** — the server always resolves the "Inventory Adjustments Expense" account from Chart of Accounts automatically. Operators no longer pick a GL account when creating an adjustment.
+> - **Reason from master** — the free-text reason field is replaced by a searchable dropdown sourced from the new **Adjustment Reason Master** (`Master Data → 📋 Adjustment Reasons`). Manage reasons there; they appear in both the single-variant and matrix adjustment modals. The dropdown shows the reason **name only** (the code stays searchable).
+>
+> **Single-adjustment modal updates (2026):**
+> - **Direction selector** — instead of typing a signed number, pick **+ Add inventory** (increase on-hand) or **− Reduce inventory** (decrease) and enter a positive quantity. Saving shows a confirmation spelling out the direction and the journal entry it will book on Post (**add** → DR Inventory / CR Inventory Adjustments; **reduce** → CR Inventory / DR Inventory Adjustments).
+> - **Reason required** — a reason must be picked before saving (inline `*` warning + a blocking toast otherwise).
+> - **Add a reason on the fly** — type a new reason in the dropdown and click **"+ Add reason '…'"**; it's created in the Adjustment Reason Master and selected. **Admins only** (signed-in users) — a non-admin sees a warning and must pick an existing reason.
+>
+> **Adjustment list — who/when + user filter (2026):** the grid shows a **When** (date + time) and **By** (who created it) column, and a **user filter** lets you scope to your own or another user's adjustments. The creator is captured automatically (`created_by_user_id`) and resolved to a name server-side.
 
 ---
 
-## 11.1 Inventory Transfers (skeleton)
+## 11.0 Inventory Matrix (on-hand view)
+
+**Where:** Tangerine top nav → **🧮 Inventory Matrix** (Inventory group). A read-only on-hand view that renders any style's color × size grid (× rise / inseam when the scale carries them), with amber row/column totals, blended Avg Cost, Total Cost, and Last-Received date — mirroring the PO-detail matrix.
+
+**Finding styles.** Leave the style picker empty and use **Search styles** (and the Brand / Gender / Group / Category / Sub-Category dropdowns) to narrow the list; the view stacks one matrix block per matching style, 25 per page. The header bar reads **"Styles X–Y of N"** for the current page. Click any style's header to drill into its single-style view and its **SO / PO / Invoice** tabs.
+
+> **Styles with no on-hand are shown, not hidden (2026-06-11).** Every style that matches your search now renders a block, so the number of blocks always matches the "Styles X–Y of N" count. A style with no on-hand inventory (for example a zero-stock **-PPK** or **-KO** sibling) appears as a slim header + a *"No on-hand inventory"* note instead of vanishing. *Previously a zero-on-hand style was counted in the header total but produced no block — so searching e.g. `RYB0594` could read "1–3 of 3" while only one matrix showed.* Turn off **Hide Zeros** to expand any such style into its full zero-quantity grid, or click its header to open it directly.
+
+**Display toggles.** **Hide Zeros** (default on) drops zero-total color rows within each style; **Explode** folds PPK packs on-hand into sized eaches via the Prepack Matrix master; **By Inseam** splits each color into per-inseam rows with subtotals (shown only when the scale carries inseams). The **Warehouse** dropdown narrows on-hand to one warehouse.
+
+> **The default view is the Inventory Snapshot** (one row per style + color across all metrics — On Hand, Allocated, On SO, ATS, On PO, Sold, Purchased, …), not the per-style grids. The grids are the **OH matrices** toggle. The Snapshot adds **Merge PPK** (collapse base + PPK sibling into one `BASE/PPK` row), a **Collapse** control (collapse rows *onto* Style or Item Category — e.g. one line per style with all colours summed, or one line per category), a **Totals** toggle (totals strip above the headers stacking, per column, units + quantity × avg cost + quantity × avg SO sale price), a **Columns** show/hide, click-to-drill quantities, and a determinate load bar. See **chapter 28 → Inventory Snapshot** for the full details.
+
+---
+
+## 11.1 Inventory Transfers
 
 **Where:** Tangerine top nav → **🔁 Inventory Transfers** (Inventory group).
 
-**Purpose:** records location-to-location movements of inventory. At the P3-7 skeleton stage the panel is **read-only**: the schema (`inventory_transfers` table) is in place for forward compatibility, but the create / edit UX is intentionally deferred until the multi-warehouse module lands.
+**Purpose:** records location-to-location movements of inventory. There is one entry point — **+ Add** — which opens a chooser offering two paths: a **Matrix** transfer (a whole style's color × size grid at once, like the Sales-Order and Adjustment matrix entry) or a **Single variant** transfer. The filterable list sits below.
+
+> **Required reason:** every transfer must carry a **Transfer Reason** (single and matrix alike). The reason picker is a searchable dropdown sourced from the **Transfer Reasons master** (Master Data → 🔁 Transfer Reasons), with an inline **"Add new"** option. If you try to save without one, the save is **blocked** and a warning appears — pick or add a reason to continue. The chosen reason name is written into the transfer's notes.
+>
+> **Add-reason is admin-only (2026):** the inline "Add new" creates a reason in the master — only **admins** (signed-in users) can do it; a non-admin who clicks it gets a warning and must pick an existing reason.
+>
+> **Wider matrix window:** the Matrix-transfer modal is now wide enough to show a full color × size grid (incl. the Grand-Total row) for the largest size runs, with the grid in a horizontal-scroll area so an extra-wide run is never clipped.
+>
+> **Who/when on the grid + user filter:** the list now shows a **By** (who logged it) and **Created** (date + time) column, and a **user filter** lets you scope to your own or another user's transfers. The creator is captured automatically (`created_by_user_id`) and resolved to a name server-side.
 
 ### What you'll see
 
@@ -33,27 +65,35 @@ A list view with these columns:
 | **Date** | `transfer_date` — when the move happened |
 | **Notes** | `notes` — free-form operator notes |
 
-Three filter inputs above the table:
+Three filter dropdowns above the table — all are SearchableSelect pickers, no UUID entry:
 
-- **Item ID (uuid)** — exact match on the item being moved
-- **From location** — exact match on the source location
-- **To location** — exact match on the destination location
+- **All styles** — pick a style from the dropdown to narrow the list to that style's transfers.
+- **From warehouse** — pick a warehouse to filter by source location.
+- **To warehouse** — pick a warehouse to filter by destination location.
 
-Any combination of filters narrows the list. Clear an input to drop that filter.
+Any combination of filters narrows the list. Clearing a dropdown to its "All …" placeholder removes that filter.
 
-### Why the "Add" button is disabled
+### + Add → Matrix (recommended)
 
-The **+ Add** button is intentionally disabled with the tooltip:
+Click **+ Add**, then choose the **Matrix** tile to open the size-grid entry modal:
 
-> *"Multi-warehouse + transfer creation lands when M37 full UX ships. Schema exists for forward compatibility."*
+1. **Pick a FROM location and a TO location** (free-form text — they must differ). The From/To boxes default to whatever you typed in the panel's filter inputs, so set those first to pre-fill.
+2. **Pick a Transfer Reason** (required) — searchable dropdown over the Transfer Reasons master, with inline "Add new". *(Optional)* type a **Notes** line — both apply to every transfer row created in this batch.
+3. **Pick a style** with the searchable dropdown. The panel loads that style's **color × size** grid (× inseam when the style spans multiple inseams). The faint number above each cell is the current on-hand.
+4. **Type a transfer qty into each cell** you want to move. The header counts the cells filled and the total units.
+5. Click **Create N transfer(s)**. Each non-zero cell is resolved to its SKU / `inventory_item_id` (find-or-create, exactly like the Matrix Adjustment) and **one `inventory_transfers` row is created per cell** — same `from_location` / `to_location` / reason / `notes` across the batch.
 
-Until the multi-warehouse module lands, the operator runs a single location and there's nothing to transfer between. The table will remain empty by design. When M37's full chunk ships, this same panel grows a create-transfer modal + GL impact wiring for cross-entity moves.
+This mirrors the **Matrix Adjustment** and **Matrix Sales-Order** entry exactly — one style, one grid, one row per filled cell.
+
+### + Add → Single variant
+
+Click **+ Add**, then choose the **Single variant** tile for a one-SKU transfer: **pick a SKU** with the searchable dropdown (search by SKU / style / description — no UUID), a qty, the From/To locations, a **Transfer Reason** (required), and optional notes. This is the secondary path when you only need to move a single variant.
 
 ### Empty state
 
-> *"No transfers logged yet. Schema is in place for forward compatibility."*
+> *"No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer."*
 
-This is the expected state during P3 until M37 ships its full UX or a cross-entity transfer is created elsewhere.
+This is the expected state until the first transfer is created.
 
 ---
 
@@ -84,9 +124,11 @@ Each AP invoice line that carries an `inventory_item_id` together with **both** 
 
 ## 11.2 GL impact policy
 
-Internal transfers between owned locations within a single entity **do not hit the General Ledger**. The `posted_je_id` column on the underlying table stays NULL for those rows. The inventory simply moves between layers (consume one layer at the source, create a new layer at the destination with the same `unit_cost_cents`).
+Internal transfers between owned locations within a single entity **do not hit the General Ledger**. The `posted_je_id` column on the underlying table stays NULL for those rows. The inventory simply moves between layers (consume the oldest layers at the source, create new layers at the destination with the same `unit_cost_cents`).
 
-Cross-entity transfers — once that scenario is supported — will post via `gl_post_journal_entry` and link the resulting JE in `posted_je_id`. At the P3-7 skeleton stage no such posting path exists.
+**Live since 2026-06-06 (M52):** this is now wired. `POST /api/internal/inventory-transfers` resolves the From/To **warehouse codes** to `inventory_locations` ids and calls the `transfer_inventory_between_locations()` RPC, which FIFO-drains the source warehouse's oldest cost layers and re-creates them at the destination (`source_kind='transfer_in'`). Cost basis and total on-hand are preserved (conservation-checked inside the RPC); it errors if the source warehouse lacks enough on-hand. Each `inventory_layers.location_id` is the authoritative warehouse (re-pointed from the legacy `wh=` notes tag at cutover), and the Inventory Matrix warehouse breakdown reads `location_id`. **Limitation:** deleting a transfer's audit row does NOT reverse the move — record a reverse transfer instead.
+
+Cross-entity transfers — once that scenario is supported — will post via `gl_post_journal_entry` and link the resulting JE in `posted_je_id`.
 
 ---
 
@@ -95,7 +137,10 @@ Cross-entity transfers — once that scenario is supported — will post via `gl
 | Method | Path | Behavior |
 |---|---|---|
 | `GET` | `/api/internal/inventory-transfers` | List (filterable, capped at 500). Default 100 rows ordered by `transfer_date DESC`. |
-| `POST` / `PATCH` / `DELETE` | (any) | **Returns 405 Method Not Allowed.** Creation UX deferred. |
+| `POST` | `/api/internal/inventory-transfers` | Create one transfer row. Body: `item_id` (uuid), `qty` (>0), `from_location`, `to_location` (must differ), optional `notes`, `transfer_date`, `created_by_user_id`. Returns 201 with the created row. The matrix-transfer UI calls this once per non-zero cell. |
+| `GET` | `/api/internal/inventory-transfers/:id` | Fetch one transfer by id. 404 if not found. |
+| `PATCH` | `/api/internal/inventory-transfers/:id` | Update mutable fields (`qty`, `notes`, `transfer_date`) on unposted rows only. 409 if posted. `item_id`, `from_location`, `to_location` are locked — delete and recreate. |
+| `DELETE` | `/api/internal/inventory-transfers/:id` | Hard-delete an unposted transfer. 409 if posted. |
 
 Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (text), `limit` (1–500, default 100).
 
@@ -106,6 +151,20 @@ Filter query params: `item_id` (uuid), `from_location` (text), `to_location` (te
 **Where:** Tangerine top nav → **📐 Inventory Adjustments** (Inventory group).
 
 **Purpose:** records ad-hoc inventory deltas (damage, shrinkage, found, correction, write-off, return-to-vendor) and posts them to the GL plus the FIFO ledger.
+
+### Entry modes
+
+**+ Add is the single entry point.** Click **+ Add** and a small chooser asks how you want to enter the adjustment — **Single variant** or **Matrix**. (There is no separate top-level Matrix button anymore; matrix entry now lives inside the Add flow.)
+
+In both modes the **Adjustment Type** picker is a searchable dropdown sourced from the configurable **Adjustment Type master** (Master Data → ⚙️ Adjustment Types). The type is a **category / reason for grouping only — it does NOT decide increase vs decrease.** That is governed purely by the sign of the quantity (and the unit cost for increases).
+
+> **Required type:** an adjustment cannot be saved without an Adjustment Type. If the type is empty (e.g. the master has no active types yet), the save is **blocked** and a warning appears — add a type in the Adjustment Types master and pick it to continue. (This does not change the FIFO increase/decrease accounting, which still keys off the quantity sign and unit cost.)
+
+- **Single variant** — the classic one-row modal. Search for one SKU, pick the adjustment type, type a signed `qty_delta`, supply the counter GL account + reason (and a unit cost for positive deltas), and save one draft.
+- **Matrix (recommended for whole styles)** — works exactly like **Sales Order matrix entry** (chapter 27). You pick the adjustment type, counter GL account, and reason **once** for the whole batch, choose a **style** from the searchable picker, and the panel renders that style's **color × size (× inseam)** grid using the same `EditableSizeMatrix` primitive the SO and PO screens use. Type a signed quantity into any cell (negative = decrease / FIFO-consume, positive = increase / new FIFO layer); the faint number above each cell is the current on-hand. For positive cells, fill the per-row **Unit cost (¢)** column (the column header has a "set all" field to stamp one cost across every row).
+
+  On **Create adjustments**, each non-zero cell is resolved to its SKU — reusing the existing `ip_item_master` row when the cell already maps to one, otherwise find-or-create via `POST /api/internal/style-matrix/resolve-sku` (the same resolver Sales Order entry uses) — and one draft is POSTed to the standard `POST /api/internal/inventory-adjustments` endpoint per cell. The batch-level type / counter account / reason (and brand pool for increases) apply to every created draft. Drafts are then reviewed and posted individually like any other adjustment.
+
 ## 11.4 Cycle Counts
 
 **Where:** Tangerine top nav → **📋 Cycle Counts** (Inventory group).
@@ -302,5 +361,5 @@ If any single line's variance exceeds **10%** of its `system_qty` (configurable 
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.
 - **P3-5 — Inventory Adjustments:** add `🛠️ Adjustments` panel under this same Inventory group. Posts to GL via M37 / M5 logic per architecture §5.
-- **M37 full UX (post-P3):** enable create + edit + post on Inventory Transfers. The disabled `+ Add` button activates; the schema doesn't change.
+- **M37 transfer full build (shipped 2026-06-05, #1024):** warehouse-picker filters, edit + delete for unposted rows, `GET|PATCH|DELETE /api/internal/inventory-transfers/:id` handler. Still pending: GL posting for cross-entity moves.
 - **Positive-variance cost capture in UI:** the finalize flow currently relies on `ip_item_avg_cost` for positive variances; a future iteration adds an inline cost prompt for items that have no avg-cost row.

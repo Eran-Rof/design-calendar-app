@@ -59,6 +59,10 @@ export function apInvoiceReceived(event) {
   let drLines;
   let totalCents;
   const inventoryLayers = [];
+  // Manufacturing (M5b): a PART line stocks a part_master part into its OWN FIFO
+  // pool (1360 Inventory-Parts, subledger=part). Drained by postEvent's
+  // partInventoryLayers branch — parts are kept separate from style inventory.
+  const partInventoryLayers = [];
 
   if (useMultiLine) {
     drLines = [];
@@ -68,7 +72,12 @@ export function apInvoiceReceived(event) {
       if (!ln || ln.amount == null || ln.amount === "") {
         throw new Error(`apInvoiceReceived: each line requires amount`);
       }
-      if (ln.inventory_item_id) {
+      const isPartLine = !!ln.part_id;
+      if (isPartLine) {
+        if (!ln.part_inventory_account_id) {
+          throw new Error(`apInvoiceReceived: part line requires part_inventory_account_id`);
+        }
+      } else if (ln.inventory_item_id) {
         if (!ln.inventory_account_id) {
           throw new Error(`apInvoiceReceived: inventory line requires inventory_account_id`);
         }
@@ -76,10 +85,11 @@ export function apInvoiceReceived(event) {
         throw new Error(`apInvoiceReceived: expense line requires expense_account_id`);
       }
 
-      const accountId = ln.inventory_item_id ? ln.inventory_account_id : ln.expense_account_id;
+      const accountId = isPartLine ? ln.part_inventory_account_id
+        : ln.inventory_item_id ? ln.inventory_account_id : ln.expense_account_id;
       const memo = ln.memo || desc;
-      const subType = ln.inventory_item_id ? "item" : null;
-      const subId = ln.inventory_item_id || null;
+      const subType = isPartLine ? "part" : ln.inventory_item_id ? "item" : null;
+      const subId = isPartLine ? ln.part_id : (ln.inventory_item_id || null);
 
       drLines.push({
         line_number: lineNumber++,
@@ -92,10 +102,24 @@ export function apInvoiceReceived(event) {
       });
       totalCents += toCents(ln.amount);
 
+      // M5b: queue a PART FIFO layer for a part line with qty + unit_cost_cents.
+      if (isPartLine && ln.qty != null && ln.qty !== "" && ln.unit_cost_cents != null && ln.unit_cost_cents !== "") {
+        partInventoryLayers.push({
+          part_id: ln.part_id,
+          qty: ln.qty,
+          unit_cost_cents: ln.unit_cost_cents,
+          source_kind: "ap_invoice",
+          source_invoice_id: d.invoice_id,
+          location_id: ln.location_id || d.receiving_location_id || null,
+          received_at: d.invoice_date,
+          notes: ln.memo || null,
+        });
+      }
+
       // P3-4: queue a FIFO layer for any inventory line that supplied qty +
       // unit_cost_cents. Lines without these stay JE-only (legacy behavior).
       if (
-        ln.inventory_item_id &&
+        !isPartLine && ln.inventory_item_id &&
         ln.qty != null && ln.qty !== "" &&
         ln.unit_cost_cents != null && ln.unit_cost_cents !== ""
       ) {
@@ -160,6 +184,7 @@ export function apInvoiceReceived(event) {
       ln.credit = d0;
     }
     inventoryLayers.length = 0;
+    partInventoryLayers.length = 0;
   }
 
   const accrual = {
@@ -175,12 +200,12 @@ export function apInvoiceReceived(event) {
     lines: drLines,
   };
 
-  // inventoryLayers is omitted when empty to keep parity with rules that don't
-  // emit them (manualEntry, apInvoicePaid, etc).
-  if (inventoryLayers.length > 0) {
-    return { accrual, cash: null, inventoryLayers };
-  }
-  return { accrual, cash: null };
+  // inventoryLayers / partInventoryLayers are omitted when empty to keep parity
+  // with rules that don't emit them (manualEntry, apInvoicePaid, etc).
+  const out = { accrual, cash: null };
+  if (inventoryLayers.length > 0) out.inventoryLayers = inventoryLayers;
+  if (partInventoryLayers.length > 0) out.partInventoryLayers = partInventoryLayers;
+  return out;
 }
 
 function required(obj, fields) {

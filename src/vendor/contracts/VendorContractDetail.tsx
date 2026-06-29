@@ -5,6 +5,7 @@ import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge, { contractTone } from "../StatusBadge";
 import { fmtDate, fmtMoney } from "../utils";
 import { showFileViewer } from "../../utils/fileViewer";
+import { showAlert } from "../ui/AppDialog";
 import AttachmentsManager from "../ui/AttachmentsManager";
 
 interface Contract {
@@ -70,14 +71,14 @@ export default function VendorContractDetail() {
 
   async function download(path: string) {
     const url = await signedUrl(path);
-    if (!url) { alert("Could not generate download link."); return; }
+    if (!url) { void showAlert({ title: "Error", message: "Could not generate download link.", tone: "danger" }); return; }
     void showFileViewer({ signedUrl: url, filename: path.split("/").pop() || "contract" });
   }
 
   async function submitSign() {
     if (!file || !contract) return;
-    if (file.type !== "application/pdf") { alert("Please upload a PDF."); return; }
-    if (file.size > 20 * 1024 * 1024) { alert("File exceeds 20MB limit."); return; }
+    if (file.type !== "application/pdf") { void showAlert({ title: "Invalid file", message: "Please upload a PDF.", tone: "warn" }); return; }
+    if (file.size > 20 * 1024 * 1024) { void showAlert({ title: "File too large", message: "File exceeds 20MB limit.", tone: "warn" }); return; }
     setSigning(true);
     try {
       const path = `${contract.vendor_id}/${contract.id}/signed_${Date.now()}_${file.name}`;
@@ -95,7 +96,7 @@ export default function VendorContractDetail() {
       setFile(null);
       await load();
     } catch (e: unknown) {
-      alert(`Sign failed: ${e instanceof Error ? e.message : String(e)}`);
+      void showAlert({ title: "Sign failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSigning(false);
     }
@@ -191,7 +192,7 @@ function Field({ label, value }: { label: string; value: string }) {
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 480, maxWidth: "92vw", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 480, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <h3 style={{ margin: 0, color: TH.text, fontSize: 16 }}>{title}</h3>
           <button onClick={onClose} style={{ border: "none", background: "transparent", fontSize: 20, color: TH.textMuted, cursor: "pointer" }}>×</button>

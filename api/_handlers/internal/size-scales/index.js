@@ -8,9 +8,11 @@
 // POST — create one size_scales row. Body:
 //          { name (required),
 //            sizes (array of strings OR comma-separated string, ORDERED),
+//            inseams (array OR comma-separated string, ORDERED, optional),
 //            sort_order (>=0, optional, default 0), is_active (default true) }
 //          The `code` is SERVER-GENERATED (SCALE-NNNNN); any client-supplied
 //          `code` is ignored. (Auto-coded master — operator item 14 pattern.)
+//          `inseams` is optional — empty = a size-only scale (tops/accessories).
 //
 // Tangerine — Size Scale Master. Mirrors the payment-terms handler shape
 // (resolveDefaultEntityId + ROF scope; service-role writes; anon-read in DB).
@@ -64,6 +66,11 @@ export function normalizeSizes(input) {
     .map((s) => (s == null ? "" : String(s).trim()))
     .filter((s) => s !== "");
 }
+
+// Inseams normalize identically to sizes (ordered, trimmed, de-blanked) — the
+// only difference is inseams are OPTIONAL (an empty list is a valid size-only
+// scale). Aliased for call-site clarity.
+export const normalizeInseams = normalizeSizes;
 
 export default async function handler(req, res) {
   corsHeaders(res);
@@ -140,6 +147,9 @@ export function validateInsert(body) {
     return { error: "at least one size is required" };
   }
 
+  // Inseams are optional — empty list = a size-only scale (tops, accessories).
+  const inseams = normalizeInseams(body.inseams);
+
   let sortOrder = 0;
   if (body.sort_order != null && body.sort_order !== "") {
     sortOrder = typeof body.sort_order === "number" ? body.sort_order : parseInt(body.sort_order, 10);
@@ -157,6 +167,7 @@ export function validateInsert(body) {
       // code is injected by the handler (server-generated); not taken from body.
       name:       String(body.name).trim(),
       sizes,
+      inseams,
       sort_order: sortOrder,
       is_active:  isActive,
     },

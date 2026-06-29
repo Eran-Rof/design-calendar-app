@@ -24,15 +24,24 @@ export function getDaysUntil(d: string): number {
 export function formatDate(d: string): string {
   if (!d) return "";
   const x = parseLocalDate(d);
-  return `${MONTHS[x.getMonth()]} ${x.getDate()}, ${x.getFullYear()}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()}`;
+}
+
+// Resolve a collection's creation date to a YYYY-MM-DD string for display.
+// `createdAt` is stamped when a collection is created (addCollection) and was
+// backfilled for pre-existing collections from each row's original insert
+// timestamp. We deliberately do NOT fall back to `_updatedAt` — that's the
+// last-save time, not creation, so showing it as "Created" is misleading.
+// Returns "" when no creation date is available. Pass through formatDate.
+export function collCreatedDate(collData: any): string {
+  const raw = collData?.createdAt;
+  return raw ? String(raw).slice(0, 10) : "";
 }
 
 export function formatDT(d: string): string {
   if (!d) return "";
   const x = new Date(d);
-  return `${MONTHS[x.getMonth()]} ${x.getDate()} ${x.getHours()}:${String(
-    x.getMinutes()
-  ).padStart(2, "0")}`;
+  return `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}/${x.getFullYear()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`;
 }
 
 export function addDays(ds: string, n: number): string {

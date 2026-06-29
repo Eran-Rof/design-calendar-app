@@ -15,6 +15,8 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Row = {
   entity_id: string;
@@ -59,6 +61,7 @@ const btnPrimary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const selectStyle: React.CSSProperties = { ...inputStyle, width: 140 };
 const th: React.CSSProperties = {
@@ -132,6 +135,21 @@ export default function InternalTrialBalance() {
   const [basis, setBasis] = useState<Basis>("ACCRUAL");
   const [fromDate, setFromDate] = useState<string>(isoMinusDays(90));
   const [toDate, setToDate] = useState<string>(todayISO());
+  const [drill, setDrill] = useState<GLDetailTarget | null>(null);
+
+  // Open the GL-account drill-down scoped to the report's current from/to/basis.
+  function openDrill(r: Row) {
+    if (!r.account_id) return;
+    setDrill({
+      accountId: r.account_id,
+      code: r.code,
+      name: r.name,
+      accountType: r.account_type,
+      from: fromDate,
+      to: toDate,
+      basis,
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -179,10 +197,12 @@ export default function InternalTrialBalance() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Basis
-          <select value={basis} onChange={(e) => setBasis(e.target.value as Basis)} style={selectStyle}>
-            <option value="ACCRUAL">ACCRUAL</option>
-            <option value="CASH">CASH</option>
-          </select>
+          <SearchableSelect value={basis} onChange={(v) => setBasis(v as Basis)} inputStyle={selectStyle}
+            options={[
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+          />
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           From
@@ -192,7 +212,7 @@ export default function InternalTrialBalance() {
           To
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
@@ -257,10 +277,22 @@ export default function InternalTrialBalance() {
                     </tr>
                     {g.rows.map((r) => {
                       const net = Number(r.debit_cents || 0) - Number(r.credit_cents || 0);
+                      const drillable = !!r.account_id;
                       return (
-                        <tr key={r.account_id}>
+                        <tr
+                          key={r.account_id}
+                          onClick={() => openDrill(r)}
+                          onDoubleClick={() => openDrill(r)}
+                          title={drillable ? "Open GL detail for this account" : undefined}
+                          style={drillable ? { cursor: "pointer" } : undefined}
+                          onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = C.groupHeaderBg; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                        >
                           <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{r.code || "—"}</td>
-                          <td style={td}>{r.name || "—"}</td>
+                          <td style={td}>
+                            {r.name || "—"}
+                            {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
+                          </td>
                           <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.account_type || "—"}</td>
                           <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.normal_balance || "—"}</td>
                           <td style={tdNum}>{fmtCents(r.debit_cents)}</td>
@@ -303,6 +335,14 @@ export default function InternalTrialBalance() {
           </table>
         )}
       </div>
+
+      {!loading && rows.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>
+          Tip: click an account row to open its GL detail for the selected range and basis.
+        </div>
+      )}
+
+      {drill && <GLDetailModal target={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

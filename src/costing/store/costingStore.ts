@@ -87,6 +87,10 @@ type State = {
 
   // Line actions
   addLine: (seed?: Partial<CostingLine>) => Promise<CostingLine | null>;
+  // Duplicate a line into a NEW row directly below the source. Copies all
+  // fields EXCEPT id/created_at/updated_at and the vendor selection
+  // (selected_vendor_quote_id is reset to null so the operator picks anew).
+  duplicateLine: (sourceId: string) => Promise<CostingLine | null>;
   updateLine: (id: string, patch: Partial<CostingLine>) => Promise<void>;
   deleteLine: (id: string) => Promise<void>;
   reorderLines: (idOrder: string[]) => Promise<void>;
@@ -125,10 +129,19 @@ type State = {
   updateMaster: (kind: MasterKind, id: string, name: string) => Promise<void>;
   deleteMaster: (kind: MasterKind, id: string) => Promise<void>;
 
-  // Operator-added extra colors (saved to app_data.costing_extra_colors so
-  // /search/colors will pick them up next reload).
+  // Operator-only freeform color + vendor masters. Stored server-side in
+  // app_data.costing_extra_colors / costing_extra_vendors. Auto-pruned by
+  // the server against ip_item_master.color / ip_vendor_master / vendors
+  // on every read — entries that have since become canonical drop out.
   extraColors: string[];
+  extraVendors: string[];
   addExtraColor: (name: string) => Promise<void>;
+  addExtraVendor: (name: string) => Promise<void>;
+  renameExtraColor: (oldName: string, newName: string) => Promise<void>;
+  renameExtraVendor: (oldName: string, newName: string) => Promise<void>;
+  deleteExtraColor: (name: string) => Promise<void>;
+  deleteExtraVendor: (name: string) => Promise<void>;
+  loadFreeformMasters: () => Promise<void>;
 
   // Pre-loaded vendor list for the grid's vendor picker. Loaded once on
   // grid mount (small, <100 active vendors typically). Same pattern the
@@ -275,16 +288,89 @@ export const useCostingStore = create<State>((set, get) => ({
     }
   },
 
+  async duplicateLine(sourceId) {
+    const project = get().project;
+    if (!project) return null;
+    const lines = get().lines;
+    const srcIdx = lines.findIndex((l) => l.id === sourceId);
+    if (srcIdx < 0) return null;
+    const source = lines[srcIdx];
+
+    // Copy ALL fields except the ones that must not carry over:
+    //  - id          → omitted so the server INSERTs a fresh row
+    //  - created_at/updated_at → server-managed timestamps
+    //  - selected_vendor_quote_id → VENDOR reset; the duplicate starts with
+    //    no awarded vendor so the operator must pick a new one.
+    //  - status      → a brand-new line is always 'draft' (a copy of a sent/
+    //    quoted/awarded line must NOT inherit that lifecycle state).
+    const {
+      id: _omitId,
+      created_at: _omitCreated,
+      updated_at: _omitUpdated,
+      selected_vendor_quote_id: _omitVendor,
+      status: _omitStatus,
+      ...rest
+    } = source as CostingLine & { created_at?: unknown; updated_at?: unknown };
+
+    // sort_order is an integer column — fractional midpoints aren't valid.
+    // Append at max+1 temporarily; reorderLines normalises to 0,1,2,…
+    // immediately after the INSERT so the visual order is always correct.
+    const maxOrder = lines.reduce((m, l) => Math.max(m, l.sort_order ?? 0), 0);
+    const newSortOrder = maxOrder + 1;
+
+    const copy = {
+      ...rest,
+      status: "draft",
+      selected_vendor_quote_id: null,
+      sort_order: newSortOrder,
+    } as Partial<CostingLine>;
+
+    try {
+      const created = await api.upsertLines(project.id, [copy]);
+      const newLine = created[0];
+      if (!newLine) return null;
+      // Insert directly after the source in the local array (don't trust the
+      // fractional sort_order to re-sort — splice in at the right index).
+      set((s) => {
+        const i = s.lines.findIndex((l) => l.id === sourceId);
+        const arr = [...s.lines];
+        arr.splice(i < 0 ? arr.length : i + 1, 0, newLine);
+        return { lines: arr, selectedLineId: newLine.id };
+      });
+      // Re-normalize sort_order to clean sequential integers and persist the
+      // reindex (same path the reorder flow uses) so values don't drift
+      // toward fractions over repeated duplications.
+      const idOrder = get().lines.map((l) => l.id);
+      void get().reorderLines(idOrder);
+      return newLine;
+    } catch (e) {
+      set({ error: (e as Error).message });
+      return null;
+    }
+  },
+
   async updateLine(id, patch) {
-    // Optimistic local update so the grid feels responsive.
+    // All statuses are editable. The UI layer handles quoted-status confirmation
+    // before calling here. This path is a direct optimistic update for all states.
     set((s) => ({
       lines: s.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)),
     }));
     try {
       const updated = await api.updateLine(id, patch);
+      // Strip the server's revision-confirmation envelope before storing the line.
+      const { _rfq_revision, ...line } = updated;
       set((s) => ({
-        lines: s.lines.map((l) => (l.id === id ? updated : l)),
+        lines: s.lines.map((l) => (l.id === id ? (line as CostingLine) : l)),
       }));
+      // On-screen confirmation that the edit was pushed to the vendor's RFQ.
+      if (_rfq_revision && _rfq_revision.rfqs?.length) {
+        const vendors = _rfq_revision.vendors?.length
+          ? _rfq_revision.vendors.join(", ") : "the vendor";
+        const fields = _rfq_revision.fields?.length
+          ? ` (${_rfq_revision.fields.join(", ")})` : "";
+        const titles = _rfq_revision.rfqs.map((r) => `"${r.title}"`).join(", ");
+        get().setNotice(`RFQ ${titles} revised${fields} — sent to ${vendors}.`, "info");
+      }
     } catch (e) {
       set({ error: (e as Error).message });
     }
@@ -578,17 +664,18 @@ export const useCostingStore = create<State>((set, get) => ({
 
   masters: { fit: [], closure: [], waist: [], comment: [], compliance: [], fabric: [] },
   extraColors: [],
+  extraVendors: [],
 
   async loadMasters() {
     try {
-      const [fit, closure, waist, comment, compliance, fabric, extras] = await Promise.all([
+      const [fit, closure, waist, comment, compliance, fabric, freeform] = await Promise.all([
         sbLoadSvc(MASTER_KEY.fit),
         sbLoadSvc(MASTER_KEY.closure),
         sbLoadSvc(MASTER_KEY.waist),
         sbLoadSvc(MASTER_KEY.comment),
         sbLoadSvc(MASTER_KEY.compliance),
         sbLoadSvc(MASTER_KEY.fabric),
-        sbLoadSvc("costing_extra_colors"),
+        api.getFreeformMasters().catch(() => ({ colors: [], vendors: [] })),
       ]);
       // Compliance is auto-seeded the first time it loads empty so the
       // grid dropdown isn't blank for new operators. Persisted immediately
@@ -622,7 +709,8 @@ export const useCostingStore = create<State>((set, get) => ({
           compliance: complianceList,
           fabric:     Array.isArray(fabric)  ? (fabric as MasterEntry[])  : [],
         },
-        extraColors: Array.isArray(extras) ? (extras as string[]) : [],
+        extraColors:  Array.isArray((freeform as api.FreeformMasters).colors)  ? (freeform as api.FreeformMasters).colors  : [],
+        extraVendors: Array.isArray((freeform as api.FreeformMasters).vendors) ? (freeform as api.FreeformMasters).vendors : [],
       });
     } catch (e) {
       set({ error: `loadMasters: ${(e as Error).message}` });
@@ -663,12 +751,63 @@ export const useCostingStore = create<State>((set, get) => ({
   async addExtraColor(name) {
     const clean = name.trim();
     if (!clean) return;
-    const current = get().extraColors;
-    if (current.some((c) => c.toLowerCase() === clean.toLowerCase())) return;
-    const next = [...current, clean].sort();
-    set({ extraColors: next });
-    try { await sbSaveSvc("costing_extra_colors", next); }
-    catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
+    if (get().extraColors.some((c) => c.toLowerCase() === clean.toLowerCase())) return;
+    try {
+      const list = await api.addFreeformMaster("colors", clean);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `addExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async addExtraVendor(name) {
+    const clean = name.trim();
+    if (!clean) return;
+    if (get().extraVendors.some((v) => v.toLowerCase() === clean.toLowerCase())) return;
+    try {
+      const list = await api.addFreeformMaster("vendors", clean);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `addExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async renameExtraColor(oldName, newName) {
+    const clean = newName.trim();
+    if (!clean || clean.toLowerCase() === oldName.trim().toLowerCase()) return;
+    try {
+      const list = await api.renameFreeformMaster("colors", oldName, clean);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `renameExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async renameExtraVendor(oldName, newName) {
+    const clean = newName.trim();
+    if (!clean || clean.toLowerCase() === oldName.trim().toLowerCase()) return;
+    try {
+      const list = await api.renameFreeformMaster("vendors", oldName, clean);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `renameExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async deleteExtraColor(name) {
+    try {
+      const list = await api.deleteFreeformMaster("colors", name);
+      set({ extraColors: list });
+    } catch (e) { set({ error: `deleteExtraColor: ${(e as Error).message}` }); }
+  },
+
+  async deleteExtraVendor(name) {
+    try {
+      const list = await api.deleteFreeformMaster("vendors", name);
+      set({ extraVendors: list });
+    } catch (e) { set({ error: `deleteExtraVendor: ${(e as Error).message}` }); }
+  },
+
+  async loadFreeformMasters() {
+    try {
+      const r = await api.getFreeformMasters();
+      set({
+        extraColors:  Array.isArray(r.colors)  ? r.colors  : [],
+        extraVendors: Array.isArray(r.vendors) ? r.vendors : [],
+      });
+    } catch (e) { set({ error: `loadFreeformMasters: ${(e as Error).message}` }); }
   },
 
   // ── Vendor picker pre-load ────────────────────────────────────────────────

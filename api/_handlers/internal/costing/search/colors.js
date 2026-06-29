@@ -57,27 +57,36 @@ export default async function handler(req, res) {
     if (r.color && typeof r.color === "string") seen.add(r.color.trim());
   }
 
-  // 2. Colors typed on prior costing_lines. NOT scoped by style_code —
-  // operator may want to reuse "STORMY WEATHER" across styles.
+  // 2. Colors typed on prior costing_lines. SCOPED to the same style when one
+  // is provided — operator ask: a style's dropdown must show only that style's
+  // colors (RYB187810 has one color, not every color ever typed on any style).
+  // When no style is scoped, the full list is still offered as a fallback.
   try {
-    const { data: lineRows } = await admin.from("costing_lines")
+    let lineQuery = admin.from("costing_lines")
       .select("color")
       .not("color", "is", null)
       .range(0, 9999);
+    if (styleCode) lineQuery = lineQuery.eq("style_code", styleCode);
+    const { data: lineRows } = await lineQuery;
     for (const r of lineRows || []) {
       if (r.color && typeof r.color === "string") seen.add(r.color.trim());
     }
-  } catch { /* non-fatal — falls back to source 1 + 3 */ }
+  } catch { /* non-fatal — falls back to source 1 */ }
 
-  // 3. Operator-added extras from app_data.
-  try {
-    const { data: extras } = await admin.from("app_data")
-      .select("value").eq("key", "costing_extra_colors").maybeSingle();
-    if (extras?.value) {
-      const arr = typeof extras.value === "string" ? JSON.parse(extras.value) : extras.value;
-      if (Array.isArray(arr)) for (const c of arr) if (typeof c === "string") seen.add(c.trim());
-    }
-  } catch { /* swallow */ }
+  // 3. Operator-added freeform extras (app_data) — GLOBAL suggestions, so only
+  // merged when NO style is scoped. With a style selected the dropdown reflects
+  // that style's real colors; the picker's "+ Add new color" still lets the
+  // operator add a one-off, which then re-surfaces via source 2 for this style.
+  if (!styleCode) {
+    try {
+      const { data: extras } = await admin.from("app_data")
+        .select("value").eq("key", "costing_extra_colors").maybeSingle();
+      if (extras?.value) {
+        const arr = typeof extras.value === "string" ? JSON.parse(extras.value) : extras.value;
+        if (Array.isArray(arr)) for (const c of arr) if (typeof c === "string") seen.add(c.trim());
+      }
+    } catch { /* swallow */ }
+  }
 
   let rows = Array.from(seen).filter(Boolean).sort();
   if (q) rows = rows.filter((c) => c.toLowerCase().includes(q));

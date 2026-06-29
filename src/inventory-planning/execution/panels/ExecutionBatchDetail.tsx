@@ -11,6 +11,7 @@ import type {
   WritebackResult,
 } from "../types/execution";
 import {
+  canBatchTransition,
   exportExecutionBatch,
   isBatchLocked,
   markActionStatus,
@@ -20,14 +21,32 @@ import {
   transitionBatch,
   updateExecutionAction,
   createTangerinePos,
+  linkPlanningVendor,
 } from "../services";
-import type { TangerinePoResult } from "../services/tangerinePoService";
+import type { TangerinePoResult, TangerineVendorSuggestion } from "../services/tangerinePoService";
+import type { ExecutionExportNameMaps } from "../services";
+
+// Deep-link target for the Tangerine native PO panel (Procurement → Purchase
+// Orders). Planning runs at /planning, so created POs open in a new tab.
+const PO_PANEL_URL = "/tangerine?m=purchase_orders";
+
+const SKIP_LABEL: Record<string, string> = {
+  already_linked: "already linked to a PO",
+  cancelled: "cancelled action",
+  zero_qty: "zero approved qty",
+  no_sku: "SKU not in item master",
+  no_vendor: "no vendor on action",
+  vendor_missing: "vendor not in planning master",
+  vendor_unlinked: "vendor not linked to Tangerine",
+};
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";
+import { confirmDialog, promptDialog } from "../../../shared/ui/warn";
 import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { can } from "../../governance/services/permissionService";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const STATUS_COLOR: Record<string, string> = {
   pending:   "#94A3B8",
@@ -58,12 +77,14 @@ export interface ExecutionBatchDetailProps {
   run: IpPlanningRun | null;
   items: IpItem[];
   categories: IpCategory[];
+  // id → name maps so the xlsx export shows vendor/customer/channel names, not UUIDs.
+  nameMaps?: ExecutionExportNameMaps;
   onChange: () => Promise<void> | void;
   onToast: (t: ToastMessage) => void;
 }
 
 export default function ExecutionBatchDetail({
-  batch, actions, writebackConfig, run, items, categories, onChange, onToast,
+  batch, actions, writebackConfig, run, items, categories, nameMaps, onChange, onToast,
 }: ExecutionBatchDetailProps) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<WritebackResult[]>([]);
@@ -76,6 +97,9 @@ export default function ExecutionBatchDetail({
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
+  const actionById = useMemo(() => new Map(actions.map((a) => [a.id, a])), [actions]);
+  // Resolve an action id to its SKU code for human-readable log/validation lines (never show a raw UUID).
+  const actionLabel = (id: string): string => itemById.get(actionById.get(id)?.sku_id ?? "")?.sku_code ?? "—";
 
   const totals = useMemo(() => {
     const t = { total: 0, approvedQty: 0, suggestedQty: 0, exported: 0, submitted: 0, succeeded: 0, failed: 0 };
@@ -112,7 +136,7 @@ export default function ExecutionBatchDetail({
     } finally { setBusy(false); }
   }
   async function archive() {
-    if (!window.confirm("Archive this batch?")) return;
+    if (!(await confirmDialog("Archive this batch?"))) return;
     setBusy(true);
     try {
       await transitionBatch({ batch, to: "archived" });
@@ -127,7 +151,7 @@ export default function ExecutionBatchDetail({
     if (!run) { onToast({ text: "Run not found", kind: "error" }); return; }
     setBusy(true);
     try {
-      await exportExecutionBatch({ batch, actions, run, items, categories });
+      await exportExecutionBatch({ batch, actions, run, items, categories, names: nameMaps });
       // Move to exported status if we were approved.
       if (batch.status === "approved") {
         await transitionBatch({ batch, to: "exported", message: "xlsx exported" });
@@ -155,7 +179,7 @@ export default function ExecutionBatchDetail({
       onToast({ text: "Fix validation errors before submitting", kind: "error" });
       return;
     }
-    if (!window.confirm("Submit approved actions for writeback? Live mode will hit ERP endpoints when enabled.")) return;
+    if (!(await confirmDialog("Submit approved actions for writeback? Live mode will hit ERP endpoints when enabled.", { title: "Submit for writeback", confirmText: "Submit" }))) return;
     setBusy(true);
     try {
       const r = await submitBatch({ batch, actions });
@@ -167,10 +191,27 @@ export default function ExecutionBatchDetail({
     } finally { setBusy(false); }
   }
 
+  // M31 (direction A) — preview (dry-run) which draft POs this buy plan would
+  // create, and why actions get skipped, WITHOUT writing anything.
+  async function previewPos() {
+    setBusy(true);
+    try {
+      const r = await createTangerinePos({ batch, dryRun: true });
+      setPoResult(r);
+      const elig = r.diagnostics?.eligible_lines ?? 0;
+      onToast({ text: r.message || `Preview — ${elig} line(s) across ${r.created.length} vendor(s)`, kind: "success" });
+    } catch (e) {
+      onToast({ text: "Preview failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally { setBusy(false); }
+  }
+
   // M31 (direction A) — create DRAFT native Tangerine POs from this buy plan
   // (one draft PO per vendor). Operator issues them in Tangerine Procurement.
   async function createPos() {
-    if (!window.confirm("Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).")) return;
+    if (!(await confirmDialog(
+      "Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).\n\nTip: use \"Preview POs\" first to see what will be created and which actions will skip.",
+      { title: "Create Tangerine POs", confirmText: "Create POs", confirmColor: "#EA580C" },
+    ))) return;
     setBusy(true);
     try {
       const r = await createTangerinePos({ batch });
@@ -182,9 +223,23 @@ export default function ExecutionBatchDetail({
     } finally { setBusy(false); }
   }
 
+  // One-click resolve of an unlinked planning vendor → Tangerine vendor, then
+  // re-preview so the skipped lines move into the eligible set.
+  async function linkVendor(s: TangerineVendorSuggestion, tangerineVendorId: string) {
+    setBusy(true);
+    try {
+      const r = await linkPlanningVendor({ planningVendorId: s.planning_vendor_id, tangerineVendorId });
+      onToast({ text: r.message, kind: "success" });
+      const preview = await createTangerinePos({ batch, dryRun: true });
+      setPoResult(preview);
+    } catch (e) {
+      onToast({ text: "Link failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally { setBusy(false); }
+  }
+
   async function editApprovedQty(action: IpExecutionAction) {
     const current = action.approved_qty ?? action.suggested_qty;
-    const raw = window.prompt(`Approved qty for ${action.action_type}`, String(current));
+    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", inputType: "number", defaultValue: String(current) });
     if (raw == null) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) { onToast({ text: "Invalid number", kind: "error" }); return; }
@@ -204,7 +259,7 @@ export default function ExecutionBatchDetail({
     }
   }
   async function remove(action: IpExecutionAction) {
-    if (!window.confirm("Remove this action from the batch?")) return;
+    if (!(await confirmDialog("Remove this action from the batch?"))) return;
     try {
       await removeAction({ batch, action });
       await onChange();
@@ -254,7 +309,7 @@ export default function ExecutionBatchDetail({
                 Approve batch · role required
               </span>
             )}
-            {locked && batch.status !== "archived" && batch.status !== "executed" && (
+            {locked && canBatchTransition(batch.status, "ready") && (
               <button style={S.btnSecondary} disabled={busy} onClick={markReady}>Reopen to ready</button>
             )}
             {batch.status !== "archived" && (
@@ -300,11 +355,17 @@ export default function ExecutionBatchDetail({
                   onClick={submit}>
             Submit writeback
           </button>
+          <button style={S.btnSecondary}
+                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
+                  title={canWriteback ? "Preview (dry-run) the draft POs this buy plan would create — no writes" : "Missing permission: run_writeback"}
+                  onClick={previewPos}>
+            Preview POs
+          </button>
           <button style={{ ...S.btnPrimary, background: "#EA580C" }}
                   disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
                   title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
                   onClick={createPos}>
-            🍊 Create Tangerine POs
+            Create Tangerine POs
           </button>
           <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
             Writeback is per-action (Xoro). <b>Create Tangerine POs</b> turns <code style={{ color: PAL.text }}>create_buy_request</code> actions into draft native POs, grouped by vendor.
@@ -313,19 +374,56 @@ export default function ExecutionBatchDetail({
 
         {poResult && (
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+            {/* Diagnostics summary banner */}
+            {poResult.diagnostics && (
+              <div style={{ background: PAL.accent + "18", color: PAL.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+                <b style={{ color: poResult.dry_run ? PAL.accent : PAL.green }}>{poResult.dry_run ? "PREVIEW" : "DONE"}</b>
+                <span>{poResult.diagnostics.eligible_lines} eligible line(s) → {poResult.diagnostics.vendors} vendor PO(s)</span>
+                {poResult.diagnostics.skipped > 0 && <span style={{ color: PAL.textMuted }}>· {poResult.diagnostics.skipped} skipped</span>}
+                {poResult.diagnostics.warnings > 0 && <span style={{ color: PAL.yellow }}>· {poResult.diagnostics.warnings} cost warning(s)</span>}
+                {Object.entries(poResult.diagnostics.skip_breakdown || {}).map(([code, n]) => (
+                  <span key={code} style={{ ...S.chip, background: PAL.textMuted + "22", color: PAL.textMuted, fontSize: 11 }}>
+                    {n}× {SKIP_LABEL[code] || code}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {poResult.created.map((c, i) => (
-              <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                {c.preview ? "[preview] " : "✓ "}{c.vendor_name || c.vendor_id} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO ${c.po_id.slice(0, 8)} (draft)` : ""}
+              <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{c.preview ? "[preview] " : "✓ "}{c.vendor_name || "—"} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO (draft)` : ""}</span>
+                {c.po_id && (
+                  <a href={PO_PANEL_URL} target="_blank" rel="noreferrer" style={{ color: PAL.accent, textDecoration: "underline" }}>open in Procurement →</a>
+                )}
               </div>
             ))}
+
+            {/* Unlinked-vendor suggestions with one-click Link */}
+            {poResult.vendor_suggestions.filter((s) => s.candidates.length > 0).map((s) => (
+              <div key={"vs" + s.planning_vendor_id} style={{ background: PAL.yellow + "18", color: PAL.text, padding: "6px 10px", borderRadius: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ color: PAL.yellow }}>link planning vendor <b>{s.vendor_code || s.name}</b> →</span>
+                {s.candidates.map((cand) => (
+                  <button key={cand.id} style={{ ...S.btnGhost, fontSize: 12 }} disabled={busy} onClick={() => linkVendor(s, cand.id)}
+                          title={`Set portal_vendor_id → ${cand.name} (matched on ${cand.match_on})`}>
+                    {cand.name} ({cand.match_on})
+                  </button>
+                ))}
+              </div>
+            ))}
+            {poResult.vendor_suggestions.filter((s) => s.candidates.length === 0).map((s) => (
+              <div key={"vsn" + s.planning_vendor_id} style={{ background: PAL.textMuted + "18", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>
+                planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
+              </div>
+            ))}
+
             {poResult.warnings.map((w) => (
               <div key={"w" + w.action_id} style={{ background: PAL.yellow + "22", color: PAL.yellow, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                ⚠ {w.action_id.slice(0, 8)} · {w.message}
+                {actionLabel(w.action_id)} · {w.message}
               </div>
             ))}
-            {poResult.skipped.map((s) => (
+            {poResult.skipped.filter((s) => s.code !== "vendor_unlinked").map((s) => (
               <div key={"s" + s.action_id} style={{ background: PAL.textMuted + "22", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                skipped {s.action_id.slice(0, 8)} · {s.reason}
+                skipped {actionLabel(s.action_id)} · {s.reason}
               </div>
             ))}
           </div>
@@ -342,7 +440,7 @@ export default function ExecutionBatchDetail({
                 fontSize: 12,
                 fontFamily: "monospace",
               }}>
-                [{r.dry_run ? "dry" : "live"}] {r.action_id.slice(0, 8)} · {r.status} · {r.message}
+                [{r.dry_run ? "dry" : "live"}] {actionLabel(r.action_id)} · {r.status} · {r.message}
               </div>
             ))}
           </div>
@@ -360,6 +458,7 @@ export default function ExecutionBatchDetail({
                 <th style={S.th}>SKU</th>
                 <th style={S.th}>Period</th>
                 <th style={S.th}>PO</th>
+                <th style={S.th}>Tangerine PO</th>
                 <th style={{ ...S.th, textAlign: "right" }}>Suggested</th>
                 <th style={{ ...S.th, textAlign: "right" }}>Approved</th>
                 <th style={S.th}>Method</th>
@@ -377,25 +476,39 @@ export default function ExecutionBatchDetail({
                   <tr key={a.id} style={{ background: a.execution_status === "failed" ? "#3f1d1d22" : undefined }}>
                     <td style={S.td}>{a.action_type.replace(/_/g, " ")}</td>
                     <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
-                      {item?.sku_code ?? a.sku_id.slice(0, 8)}
+                      {item?.sku_code ?? "—"}
                     </td>
                     <td style={S.td}>{a.period_start ?? "–"}</td>
                     <td style={S.td}>{a.po_number ?? "–"}</td>
+                    <td style={S.td}>
+                      {(() => {
+                        const tpo = (a.response_json as { tangerine_po_id?: string } | null)?.tangerine_po_id;
+                        return tpo ? (
+                          <a href={PO_PANEL_URL} target="_blank" rel="noreferrer"
+                             style={{ ...S.chip, background: PAL.green + "22", color: PAL.green, textDecoration: "none" }}
+                             title={`Draft Tangerine PO ${tpo} — open Procurement`}>
+                            draft PO ↗
+                          </a>
+                        ) : <span style={{ color: PAL.textMuted }}>–</span>;
+                      })()}
+                    </td>
                     <td style={S.tdNum}>{formatQty(a.suggested_qty)}</td>
                     <td style={{ ...S.tdNum, color: locked ? PAL.textDim : PAL.accent, cursor: locked ? "default" : "pointer" }}
                         onClick={() => !locked && editApprovedQty(a)}>
                       {a.approved_qty == null ? "click to set" : formatQty(a.approved_qty)}
                     </td>
                     <td style={S.td}>
-                      <select disabled={locked} style={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
-                              value={a.execution_method}
-                              onChange={(e) => changeMethod(a, e.target.value as IpExecutionMethod)}>
-                        <option value="export_only">export_only</option>
-                        <option value="manual_erp_entry">manual_erp_entry</option>
-                        <option value="api_writeback" disabled={!apiAllowed}>
-                          api_writeback {apiAllowed ? "" : "(disabled)"}
-                        </option>
-                      </select>
+                      <SearchableSelect
+                        disabled={locked}
+                        value={a.execution_method}
+                        onChange={(v) => changeMethod(a, v as IpExecutionMethod)}
+                        options={[
+                          { value: "export_only", label: "export_only" },
+                          { value: "manual_erp_entry", label: "manual_erp_entry" },
+                          { value: "api_writeback", label: `api_writeback ${apiAllowed ? "" : "(disabled)"}`, disabled: !apiAllowed },
+                        ]}
+                        inputStyle={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
+                      />
                     </td>
                     <td style={S.td}>
                       <span style={{ ...S.chip, background: (STATUS_COLOR[a.execution_status] ?? PAL.textMuted) + "33", color: STATUS_COLOR[a.execution_status] ?? PAL.textMuted }}>
@@ -415,7 +528,7 @@ export default function ExecutionBatchDetail({
                 );
               })}
               {actions.length === 0 && (
-                <tr><td colSpan={10} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+                <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                   No actions in this batch.
                 </td></tr>
               )}
@@ -429,7 +542,7 @@ export default function ExecutionBatchDetail({
             <div style={{ fontSize: 12, color: PAL.textDim, marginBottom: 6 }}>Validation</div>
             {issues.map((i, idx) => (
               <div key={idx} style={{ fontSize: 12, color: i.severity === "error" ? PAL.red : PAL.yellow, padding: "2px 0" }}>
-                {i.severity === "error" ? "✕" : "!"} {i.action_id.slice(0, 8)} · {i.field ?? ""} — {i.message}
+                {i.severity === "error" ? "✕" : "!"} {actionLabel(i.action_id)} · {i.field ?? ""} — {i.message}
               </div>
             ))}
           </div>

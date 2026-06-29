@@ -28,11 +28,11 @@ export const MergeConfirmModal: React.FC<MergeConfirmModalProps> = ({
       onClick={() => setPendingMerge(null)}
     >
       <div
-        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, maxWidth: 480, width: "90%", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
+        style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, maxWidth: 480, width: "90%", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 16px 48px rgba(0,0,0,0.6)" }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ fontSize: 20, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>
-          {isLow ? "⚠️ Low Similarity Warning" : "Merge SKUs?"}
+          {isLow ? "Low Similarity Warning" : "Merge SKUs?"}
         </div>
         <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 20, lineHeight: 1.6 }}>
           Merging <span style={{ color: "#60A5FA", fontFamily: "monospace" }}>{fromSku}</span> into <span style={{ color: "#10B981", fontFamily: "monospace" }}>{toSku}</span>.

@@ -105,7 +105,7 @@ export default function VendorPickerCell({ value, onPick, placeholder, inputStyl
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#334155"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             >
-              <div style={{ fontWeight: 600 }}>{v.legal_name || v.code || v.id}</div>
+              <div style={{ fontWeight: 600 }}>{v.legal_name || v.code || "—"}</div>
               <div style={{ fontSize: 11, color: "#94A3B8" }}>
                 {v.code ? `${v.code}` : ""}
                 {v.country ? ` · ${v.country}` : ""}

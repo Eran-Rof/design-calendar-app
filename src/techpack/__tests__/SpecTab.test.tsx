@@ -124,7 +124,7 @@ describe("<SpecTab /> — measurements grid", () => {
     expect(arg.measurements[0].pointOfMeasure).toBe("Bust");
   });
 
-  it("clicking 🗑️ on a row removes it", () => {
+  it("clicking Delete on a row removes it", () => {
     const updateSelected = vi.fn();
     render(<SpecTab {...defaultProps({
       tp: makeTp([
@@ -133,7 +133,7 @@ describe("<SpecTab /> — measurements grid", () => {
       ]),
       updateSelected,
     })} />);
-    const removes = screen.getAllByText("🗑️");
+    const removes = screen.getAllByText("Delete");
     fireEvent.click(removes[0]);
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.measurements.map((m: Measurement) => m.id)).toEqual(["b"]);

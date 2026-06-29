@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
+import { resolveVendorId } from "../vendorId";
 import { fmtDate } from "../utils";
 import ShipmentAddForm from "./ShipmentAddForm";
 
@@ -35,9 +36,13 @@ export default function ShipmentsList() {
     setLoading(true);
     setErr(null);
     try {
+      // Scope to this vendor explicitly — RLS is permissive (see vendorId.ts).
+      const vendorId = await resolveVendorId();
+      if (!vendorId) { setRows([]); return; }
       const { data, error } = await supabaseVendor
         .from("shipments")
         .select("id, number, number_type, sealine_scac, sealine_name, carrier, invoice_created_at, pol_locode, pod_locode, eta, ata, current_status, last_tracked_at, po_number, updated_at")
+        .eq("vendor_id", vendorId)
         .order("updated_at", { ascending: false });
       if (error) throw error;
       setRows((data ?? []) as ShipmentRow[]);
@@ -140,7 +145,7 @@ export default function ShipmentsList() {
                 )}
                 {r.invoice_created_at && (
                   <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", alignSelf: "flex-start", fontWeight: 600 }}>
-                    🧾 Invoiced {fmtDate(r.invoice_created_at)}
+                    Invoiced {fmtDate(r.invoice_created_at)}
                   </span>
                 )}
                 {!r.current_status && !r.invoice_created_at && (

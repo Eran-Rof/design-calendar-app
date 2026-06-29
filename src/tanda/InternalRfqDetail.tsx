@@ -1,90 +1,104 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme, type QuoteSortKey } from "./rfq/RfqQuotesAndMessages";
 
-interface Quote {
+interface RofRevision {
   id: string;
-  vendor_id: string;
-  vendor_name: string | null;
-  status: string;
-  total_price: number | null;
-  lead_time_days: number | null;
-  valid_until: string | null;
-  notes: string | null;
-  submitted_at: string | null;
-  health_score: number;
+  rfq_line_item_id: string;
+  revised_at: string;
+  changed_fields: string[];
+  old_values: Record<string, unknown>;
+  new_values: Record<string, unknown>;
+  revised_by: string | null;
 }
-
 interface RfqDetail {
   rfq: { id: string; title: string; description: string | null; category: string | null; status: string; submission_deadline: string | null; awarded_to_vendor_id: string | null };
   line_items: { id: string; line_index: number; description: string; quantity: number; unit_of_measure: string | null }[];
   invitations: { id: string; vendor_id: string; status: string; vendor: { name: string } }[];
   quotes: { id: string; status: string }[];
+  rof_revisions?: RofRevision[];
 }
 
-const C = {
+// Friendly labels for vendor-visible revision fields.
+const REV_FIELD_LABELS: Record<string, string> = {
+  target_price: "Target cost", quantity: "Quantity", fabric_code: "Fabric",
+  fit: "Fit", bottom_closure: "Closure", size_scale_label: "Size scale",
+  waist_type: "Waist", style_code: "Style", color: "Color",
+  documents: "Documents",
+};
+function fmtRevVal(v: unknown): string {
+  if (v == null || v === "") return "—";
+  return String(v);
+}
+
+const C: RfqTheme = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 
-type SortKey = "price" | "lead_time" | "health";
-
 export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId: string; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<RfqDetail | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortKey>("price");
+  const [sort, setSort] = useState<QuoteSortKey>("price");
+  // Bumped after publish/close/award to force the shared quotes panel to refetch.
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // "Vendor revised their quote" alert — surfaced when the RFQ is opened.
+  // The in-app bell does NOT fire for these (internal RFQ notifications are
+  // email-only), so we alert right here on the screen. A localStorage ack per
+  // RFQ means we re-alert only when a NEWER revision arrives.
+  const [revised, setRevised] = useState<{ revisedVendors: { vendor_name: string; revision: number }[]; maxRevision: number } | null>(null);
+  const toastedRef = useRef(false);
+  useEffect(() => { toastedRef.current = false; }, [rfqId]);
+
+  function handleRevisions(info: { revisedVendors: { vendor_name: string; revision: number }[]; maxRevision: number }) {
+    if (!info || info.revisedVendors.length === 0) { setRevised(null); return; }
+    let acked = 0;
+    try { acked = Number(localStorage.getItem(`rfq_rev_ack_${rfqId}`) || 0); } catch { /* noop */ }
+    if (info.maxRevision <= acked) { setRevised(null); return; }
+    setRevised(info);
+    if (!toastedRef.current) {
+      toastedRef.current = true;
+      const names = info.revisedVendors.map((v) => v.vendor_name).join(", ");
+      const plural = info.revisedVendors.length > 1;
+      notify(`${names} revised ${plural ? "their quotes" : "their quote"} — review the highlighted rows below.`, "info");
+    }
+  }
+  function dismissRevised() {
+    if (revised) { try { localStorage.setItem(`rfq_rev_ack_${rfqId}`, String(revised.maxRevision)); } catch { /* noop */ } }
+    setRevised(null);
+  }
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const [dRes, qRes] = await Promise.all([
-        fetch(`/api/internal/rfqs/${rfqId}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(r.statusText))),
-        fetch(`/api/internal/rfqs/${rfqId}/quotes?sort=${sort}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(r.statusText))),
-      ]);
+      const dRes = await fetch(`/api/internal/rfqs/${rfqId}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(r.statusText)));
       setDetail(dRes as RfqDetail);
-      setQuotes(qRes as Quote[]);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [rfqId, sort]);
+  useEffect(() => { void load(); }, [rfqId]);
 
   async function publish() {
     const r = await fetch(`/api/internal/rfqs/${rfqId}/publish`, { method: "POST" });
     if (!r.ok) { notify(await r.text(), "error"); return; }
-    await load(); onChanged();
+    await load(); setReloadKey((k) => k + 1); onChanged();
   }
   async function closeRfq() {
     if (!(await confirmDialog("Close this RFQ? No more quotes can be submitted."))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/close`, { method: "POST" });
     if (!r.ok) { notify(await r.text(), "error"); return; }
-    await load(); onChanged();
+    await load(); setReloadKey((k) => k + 1); onChanged();
   }
   async function award(vendorId: string, vendorName: string) {
     if (!(await confirmDialog(`Award this RFQ to ${vendorName}? All other quotes will be rejected.`))) return;
     const r = await fetch(`/api/internal/rfqs/${rfqId}/award/${vendorId}`, { method: "POST" });
     if (!r.ok) { notify(await r.text(), "error"); return; }
-    await load(); onChanged();
-  }
-
-  function downloadCsv() {
-    const headers = ["Vendor", "Status", "Total price", "Lead time (days)", "Valid until", "Health score", "Submitted at"];
-    const rows = quotes.map((q) => [
-      q.vendor_name || "",
-      q.status,
-      q.total_price != null ? String(q.total_price) : "",
-      q.lead_time_days != null ? String(q.lead_time_days) : "",
-      q.valid_until || "",
-      String(q.health_score),
-      q.submitted_at || "",
-    ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `rfq-${rfqId}-quotes.csv`; a.click(); URL.revokeObjectURL(url);
+    await load(); setReloadKey((k) => k + 1); onChanged();
   }
 
   if (loading) return <div style={{ color: C.textMuted }}>Loading…</div>;
@@ -112,61 +126,95 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
           <div style={{ display: "flex", gap: 8 }}>
             {rfq.status === "draft" && <button onClick={() => void publish()} style={btnPrimary}>Publish</button>}
             {rfq.status === "published" && <button onClick={() => void closeRfq()} style={btnSecondary}>Close</button>}
-            <button onClick={downloadCsv} style={btnSecondary}>⬇ CSV</button>
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginBottom: 10 }}>
-        <h3 style={{ fontSize: 15, margin: 0 }}>Quote comparison ({quotes.length})</h3>
-        <div style={{ color: C.textMuted, fontSize: 12, marginLeft: "auto" }}>Sort:</div>
-        <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={selectSt}>
-          <option value="price">Lowest price</option>
-          <option value="lead_time">Fastest lead time</option>
-          <option value="health">Highest health</option>
-        </select>
-      </div>
-
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 130px 120px 110px 100px 140px 160px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-          <div>Vendor</div>
-          <div style={{ textAlign: "right" }}>Total</div>
-          <div style={{ textAlign: "right" }}>Lead time</div>
-          <div style={{ textAlign: "right" }}>Health</div>
-          <div>Status</div>
-          <div>Submitted</div>
-          <div style={{ textAlign: "right" }}>Action</div>
-        </div>
-        {quotes.length === 0 ? (
-          <div style={{ padding: 30, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No quotes yet.</div>
-        ) : quotes.map((q) => (
-          <div key={q.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 130px 120px 110px 100px 140px 160px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-            <div style={{ fontWeight: 600 }}>{q.vendor_name || "—"}</div>
-            <div style={{ textAlign: "right" }}>{q.total_price != null ? `$${Number(q.total_price).toLocaleString()}` : "—"}</div>
-            <div style={{ textAlign: "right", color: C.textSub }}>{q.lead_time_days != null ? `${q.lead_time_days}d` : "—"}</div>
-            <div style={{ textAlign: "right", color: q.health_score >= 80 ? C.success : q.health_score >= 60 ? C.warn : C.danger, fontWeight: 700 }}>{q.health_score}</div>
-            <div style={{ color: statusColor(q.status), fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>{q.status}</div>
-            <div style={{ color: C.textMuted, fontSize: 11 }}>{q.submitted_at ? q.submitted_at.slice(0, 10) : "—"}</div>
-            <div style={{ textAlign: "right" }}>
-              {!isAwarded && q.status === "submitted" && (
-                <button onClick={() => void award(q.vendor_id, q.vendor_name || q.vendor_id)} style={{ ...btnPrimary, background: C.success }}>Award</button>
-              )}
-              {isAwarded && q.status === "awarded" && <span style={{ color: C.success, fontSize: 12, fontWeight: 700 }}>✓ Awarded</span>}
-            </div>
+      {revised && (
+        <div style={{ background: "#422006", border: `1px solid ${C.warn}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, fontSize: 13, color: C.text }}>
+            <b>{revised.revisedVendors.map((v) => `${v.vendor_name} (v${v.revision})`).join(", ")}</b>{" "}
+            {revised.revisedVendors.length > 1 ? "have revised their quotes" : "has revised their quote"} since first submission.
+            Review the updated figures — the <b>Revised</b> rows below expand to show current vs. prior.
           </div>
-        ))}
-      </div>
+          <button onClick={dismissRevised} style={btnSecondary}>Got it</button>
+        </div>
+      )}
+
+      <RfqQuotesPanel
+        rfqId={rfqId}
+        theme={C}
+        sort={sort}
+        onSortChange={setSort}
+        onAward={(vendorId, vendorName) => void award(vendorId, vendorName)}
+        isAwarded={isAwarded}
+        lineLabel={(lineItemId) => {
+          const li = detail.line_items.find((x) => x.id === lineItemId);
+          return li ? `#${li.line_index} ${li.description}` : "Line";
+        }}
+        reloadKey={reloadKey}
+        onRevisionsDetected={handleRevisions}
+      />
+
+      <RfqVendorThreadPanel
+        rfqId={rfqId}
+        theme={C}
+        vendors={(detail.invitations || []).map((i) => ({ vendor_id: i.vendor_id, vendor_name: i.vendor?.name || i.vendor_id }))}
+      />
+
+      <RofRevisionHistory
+        revisions={detail.rof_revisions || []}
+        lineLabel={(lineItemId) => {
+          const li = detail.line_items.find((x) => x.id === lineItemId);
+          return li ? `#${li.line_index} ${li.description}` : "Line";
+        }}
+      />
     </div>
   );
 }
 
-function statusColor(s: string) {
-  if (s === "awarded") return C.success;
-  if (s === "submitted" || s === "under_review") return C.primary;
-  if (s === "rejected") return C.danger;
-  return C.textSub;
+// Caveat 2 — buyer/ROF revision history: what Ring of Fire changed on the
+// vendor-visible RFQ fields, when, old → new. Mirrors the vendor quote-revision
+// history but for the buyer side. Collapsed by default.
+function RofRevisionHistory({
+  revisions, lineLabel,
+}: { revisions: RofRevision[]; lineLabel: (id: string) => string }) {
+  const [open, setOpen] = useState(false);
+  if (!revisions || revisions.length === 0) return null;
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px", marginTop: 14 }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ background: "transparent", border: "none", color: C.text, cursor: "pointer", fontSize: 13, fontWeight: 700, padding: 0, display: "flex", alignItems: "center", gap: 8 }}
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        RFQ revision history (Ring of Fire) · {revisions.length}
+      </button>
+      {open && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {revisions.map((rev) => (
+            <div key={rev.id} style={{ borderLeft: `2px solid ${C.success}`, paddingLeft: 12 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4 }}>
+                {new Date(rev.revised_at).toLocaleString()} · {lineLabel(rev.rfq_line_item_id)}
+                {rev.revised_by ? ` · ${rev.revised_by}` : ""}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                {(rev.changed_fields || []).map((f) => (
+                  <div key={f} style={{ fontSize: 12, color: C.textSub }}>
+                    <span style={{ color: C.textMuted }}>{REV_FIELD_LABELS[f] || f}:</span>{" "}
+                    <span style={{ textDecoration: "line-through", color: C.textMuted }}>{fmtRevVal(rev.old_values?.[f])}</span>
+                    {" → "}
+                    <span style={{ color: C.success, fontWeight: 600 }}>{fmtRevVal(rev.new_values?.[f])}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const btnPrimary = { padding: "6px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
-const selectSt = { padding: "5px 8px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 12 } as const;

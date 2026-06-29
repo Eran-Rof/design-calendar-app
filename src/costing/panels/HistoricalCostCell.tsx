@@ -1,13 +1,13 @@
 // HistoricalCostCell — read-only popover showing tanda_pos history that
-// matches the costing line's style + selected vendor (including archived
+// matches the costing line's style ACROSS ALL VENDORS (including archived
 // POs). Renders as a trigger button in the grid; click → popover lists
-// every matching PO line with: po_number, received_date (or planned_ddp
-// if not yet received), and unit_price.
+// ONE row per matching PO with: po_number, vendor_name, qty totals,
+// quantity-weighted unit_price, and date (received or planned).
 //
 // Data: GET /api/internal/costing/lines/:line_id/po-history
 //
 // Empty / error states are surfaced inline in the popover so the operator
-// understands WHY there's no data (no style, no vendor, no matching POs).
+// understands WHY there's no data (no style, no matching POs).
 
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -21,11 +21,11 @@ interface Props {
 interface HistoryRow {
   po_number: string | null;
   po_id: string;
-  item_number: string | null;
-  description: string | null;
+  vendor_name: string | null;
   qty_ordered: number | null;
   qty_received: number | null;
   unit_price: number | null;
+  qty_per_pack?: number;
   received_date: string | null;
   planned_ddp: string | null;
   status: string | null;
@@ -34,7 +34,7 @@ interface HistoryRow {
 
 interface HistoryResp {
   rows: HistoryRow[];
-  reason?: "no_style_code" | "no_selected_vendor" | "no_pos_for_vendor";
+  reason?: "no_style_code" | "no_pos_for_style";
 }
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -48,7 +48,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 460, align: "right" });
+  const { anchorRef, pos } = usePopoverAnchor<HTMLButtonElement>({ open, minWidth: 620, align: "right" });
 
   useEffect(() => {
     if (!open) return;
@@ -101,7 +101,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
         type="button"
         ref={anchorRef}
         onClick={() => setOpen((v) => !v)}
-        title="View tanda_pos history for this style + vendor"
+        title="View tanda_pos history for this style across all vendors"
         style={{
           width: "100%", textAlign: "center",
           background: "transparent", color: "#94A3B8",
@@ -109,7 +109,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
           padding: "2px 6px", fontSize: 10, fontWeight: 600,
           cursor: "pointer",
         }}
-      >📋 PO Hist</button>
+      >PO Hist</button>
       {open && pos && ReactDOM.createPortal(
         <div
           ref={popRef}
@@ -125,7 +125,7 @@ export default function HistoricalCostCell({ lineId }: Props) {
             position: "sticky", top: 0, background: "#1E293B",
             fontSize: 11, color: "#94A3B8", letterSpacing: ".04em", textTransform: "uppercase",
           }}>
-            PO history · same style + vendor (incl. archived)
+            PO history · same style · all vendors (incl. archived)
           </div>
           {loading && <div style={{ padding: 12, fontSize: 12, color: "#94A3B8" }}>Loading…</div>}
           {error && (
@@ -136,50 +136,59 @@ export default function HistoricalCostCell({ lineId }: Props) {
           {!loading && !error && rows.length === 0 && (
             <div style={{ padding: 12, fontSize: 12, color: "#94A3B8", fontStyle: "italic" }}>
               {reason === "no_style_code" && "Pick a style on this line first."}
-              {reason === "no_selected_vendor" && "Pick a vendor on this line first."}
-              {reason === "no_pos_for_vendor" && "No POs on file for this vendor yet."}
-              {!reason && "No POs match this style + vendor."}
+              {reason === "no_pos_for_style" && "No POs on file for this style yet."}
+              {!reason && "No POs match this style."}
             </div>
           )}
           {rows.length > 0 && (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-              <thead style={{ background: "#0F172A" }}>
-                <tr>
-                  <Th>PO#</Th>
-                  <Th>Item</Th>
-                  <Th align="right">Qty</Th>
-                  <Th align="right">Recv</Th>
-                  <Th align="right">Unit $</Th>
-                  <Th>Date</Th>
-                  <Th>Status</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const dateLabel = r.received_date
-                    ? `${fmtDateDisplay(r.received_date)} (recv)`
-                    : r.planned_ddp
-                      ? `${fmtDateDisplay(r.planned_ddp)} (plan)`
+            <>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead style={{ background: "#0F172A" }}>
+                  <tr>
+                    <Th>PO#</Th>
+                    <Th>Vendor</Th>
+                    <Th align="right">Qty</Th>
+                    <Th align="right">Recv</Th>
+                    <Th align="right">Pack</Th>
+                    <Th align="right">Unit $</Th>
+                    <Th>Date</Th>
+                    <Th>Status</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const dateLabel = r.received_date
+                      ? `${fmtDateDisplay(r.received_date)} (recv)`
+                      : r.planned_ddp
+                        ? `${fmtDateDisplay(r.planned_ddp)} (plan)`
+                        : "—";
+                    const packLabel = (r.qty_per_pack != null && r.qty_per_pack > 1)
+                      ? String(r.qty_per_pack)
                       : "—";
-                  return (
-                    <tr key={`${r.po_id}_${i}`} style={{ borderTop: "1px solid #334155", opacity: r.archived ? 0.6 : 1 }}>
-                      <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.po_number || "—"}</span></Td>
-                      <Td>{r.item_number || "—"}</Td>
-                      <Td align="right">{r.qty_ordered != null ? fmtQty.format(r.qty_ordered) : "—"}</Td>
-                      <Td align="right">{r.qty_received != null ? fmtQty.format(r.qty_received) : "—"}</Td>
-                      <Td align="right">{r.unit_price != null ? `$${fmtMoney.format(r.unit_price)}` : "—"}</Td>
-                      <Td>{dateLabel}</Td>
-                      <Td>
-                        {r.archived && (
-                          <span style={{ background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, marginRight: 4 }}>archived</span>
-                        )}
-                        <span style={{ color: "#94A3B8" }}>{r.status || ""}</span>
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={`${r.po_id}_${i}`} style={{ borderTop: "1px solid #334155", opacity: r.archived ? 0.6 : 1 }}>
+                        <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.po_number || "—"}</span></Td>
+                        <Td>{r.vendor_name || "—"}</Td>
+                        <Td align="right">{r.qty_ordered != null ? fmtQty.format(r.qty_ordered) : "—"}</Td>
+                        <Td align="right">{r.qty_received != null ? fmtQty.format(r.qty_received) : "—"}</Td>
+                        <Td align="right"><span style={{ color: packLabel !== "—" ? "#A78BFA" : "#475569" }}>{packLabel}</span></Td>
+                        <Td align="right">{r.unit_price != null ? `$${fmtMoney.format(r.unit_price)}` : "—"}</Td>
+                        <Td>{dateLabel}</Td>
+                        <Td>
+                          {r.archived && (
+                            <span style={{ background: "#F59E0B22", color: "#F59E0B", border: "1px solid #F59E0B", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, marginRight: 4 }}>archived</span>
+                          )}
+                          <span style={{ color: "#94A3B8" }}>{r.status || ""}</span>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ padding: "5px 10px 6px", borderTop: "1px solid #1E3A5F", fontSize: 9, color: "#475569", fontStyle: "italic" }}>
+                Unit $ is per-unit (pack prices exploded by pack size)
+              </div>
+            </>
           )}
         </div>,
         document.body,

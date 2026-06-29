@@ -25,11 +25,58 @@ export const config = { maxDuration: 15 };
 const CODE_PREFIX = "VEND-";
 const STATUS_VALUES = ["active", "on_hold", "inactive"];
 
+// Default GL accounts applied to NEW vendors when the caller doesn't supply one.
+// (Backfilled on existing vendors via prod SQL 2026-06-10.)
+//   A/P 2000 ("Accounts Payable (A/P)") — every vendor.
+//   Inventory Adjustments Expense 6343 — apparel vendors only (the default;
+//   non-apparel vendors are the documented exception set, see
+//   20260856000000_seed_non_apparel_vendors.sql).
+const DEFAULT_AP_ACCOUNT_ID = "a76c35e7-8335-464a-b31b-95a30cb39220";
+const DEFAULT_APPAREL_EXPENSE_ACCOUNT_ID = "1adcc4a0-3eae-4d89-b9dc-7605e254ffa8";
+
+// Non-apparel vendors (lower-cased names) — the authoritative exception set from
+// the non-apparel seed migration. categories do NOT discriminate apparel here, so
+// the apparel default expense account is suppressed by explicit name match.
+const NON_APPAREL_NAMES = new Set([
+  "gpa logistics group inc.",
+  "ebay",
+  "blue shield ca",
+  "damian valencia",
+  "health first new york",
+  "meta platforms, inc. - ads",
+]);
+
+// Conservative Title-Case for NEW vendor names: only re-cases tokens that are
+// all-lowercase, leaving acronyms (ROF, BMO, EDI, HK), mixed-case (McGraw), and
+// known legal suffixes (LLC, Inc., Ltd.) untouched. Existing names are NOT
+// touched — bulk initcap would mangle acronyms/suffixes.
+const PRESERVE_TOKENS = new Set([
+  "LLC", "L.L.C.", "INC", "INC.", "LTD", "LTD.", "CO", "CO.", "CORP", "CORP.",
+  "HK", "EDI", "USA", "US", "UK", "EU", "ROF", "BMO", "DBA", "PLC", "GMBH",
+]);
+function titleCaseVendorName(raw) {
+  const s = String(raw).trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  return s
+    .split(" ")
+    .map((tok) => {
+      const upper = tok.toUpperCase();
+      // Preserve known acronyms / legal suffixes verbatim (upper-cased).
+      if (PRESERVE_TOKENS.has(upper)) return upper;
+      // Leave anything already containing an uppercase letter alone (acronyms,
+      // brand casing like "eBay", "McGraw") — only fix fully-lowercase tokens.
+      if (/[A-Z]/.test(tok)) return tok;
+      // Fully lowercase word → capitalize first letter.
+      return tok.charAt(0).toUpperCase() + tok.slice(1);
+    })
+    .join(" ");
+}
+
 // Columns safe to return — explicitly omits tax_id, bank_account_encrypted.
 // payment_terms_id (P3-9) is the new structured FK; the legacy free-text
 // payment_terms column is retained read-only for backward-compat display.
 const SAFE_SELECT =
-  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, website, wechat_id, moq, " +
+  "id, code, name, legal_name, country, transit_days, categories, contact, contact_title, email, phone, phone_country_code, website, wechat_id, moq, " +
   "payment_terms, payment_terms_id, default_currency, default_gl_ap_account_id, default_gl_expense_account_id, " +
   "status, is_1099_vendor, address, deleted_at, created_at, updated_at";
 
@@ -57,7 +104,7 @@ export default async function handler(req, res) {
     const url = new URL(req.url, `https://${req.headers.host}`);
     const includeInactive = url.searchParams.get("include_inactive") === "true";
     const q = (url.searchParams.get("q") || "").trim();
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10) || 1000, 5000);
 
     let query = admin
       .from("vendors")
@@ -145,9 +192,13 @@ export function validateInsert(body) {
       return { error: "default_gl_expense_account_id must be a valid UUID" };
     }
   }
+  // Conservative Title-Case on NEW names (acronym/suffix-safe). Existing names
+  // are never bulk-updated.
+  const name = titleCaseVendorName(body.name);
+  const isNonApparel = NON_APPAREL_NAMES.has(name.toLowerCase());
   return {
     data: {
-      name:                        String(body.name).trim(),
+      name,
       code:                        body.code ? String(body.code).trim().toUpperCase() : null,
       legal_name:                  body.legal_name ? String(body.legal_name).trim() : null,
       country:                     body.country ? String(body.country).trim() : null,
@@ -157,14 +208,21 @@ export function validateInsert(body) {
       contact_title:               body.contact_title ?? null,
       email:                       body.email ?? null,
       phone:                       body.phone ?? null,
+      phone_country_code:          body.phone_country_code != null && body.phone_country_code !== ""
+                                     ? parseInt(String(body.phone_country_code).replace(/\D/g, ""), 10) || null
+                                     : null,
       website:                     body.website ?? null,
       wechat_id:                   body.wechat_id ?? null,
       moq:                         body.moq ?? null,
       payment_terms:               body.payment_terms ?? null,
       payment_terms_id:            body.payment_terms_id || null,
       default_currency:            body.default_currency || "USD",
-      default_gl_ap_account_id:    body.default_gl_ap_account_id || null,
-      default_gl_expense_account_id: body.default_gl_expense_account_id || null,
+      // Default A/P 2000 for every vendor when not supplied.
+      default_gl_ap_account_id:    body.default_gl_ap_account_id || DEFAULT_AP_ACCOUNT_ID,
+      // Default expense 6343 for apparel vendors (the default) when not supplied;
+      // non-apparel vendors get no expense default.
+      default_gl_expense_account_id: body.default_gl_expense_account_id
+                                       || (isNonApparel ? null : DEFAULT_APPAREL_EXPENSE_ACCOUNT_ID),
       status:                      body.status || "active",
       is_1099_vendor:              body.is_1099_vendor === true,
       address:                     body.address && typeof body.address === "object" ? body.address : {},

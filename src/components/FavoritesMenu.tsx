@@ -51,6 +51,21 @@ const TANGERINE_MODULE_TO_MENU_KEY: Record<string, string> = (() => {
   }
   return m;
 })();
+
+// Internal app code (menuKeys `app` field) → the user-facing app name shown on
+// the favorite's badge. The registry stores codes like "tanda" / "powip"; the
+// operator wants the real app names instead (e.g. "tanda" → Tangerine).
+const APP_DISPLAY_NAME: Record<string, string> = {
+  dc: "Design Calendar",
+  ats: "ATS",
+  powip: "PO WIP",
+  tanda: "Tangerine",
+  techpack: "Tech Packs",
+  gs1: "GS1",
+  planning: "Planning",
+  costing: "Costing",
+  vendor: "Vendor Portal",
+};
 import {
   emitFavoritesToast,
   subscribeFavoritesToasts,
@@ -220,8 +235,12 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
     };
   }, [open]);
 
-  function navigate(menuKey: string, route: string): void {
+  // Plain click → same-tab navigate. Modifier / middle click falls through so
+  // the browser opens the favorite's route in a new TAB (the rows are <a> links).
+  function navigate(e: React.MouseEvent, menuKey: string, route: string): void {
     if (typeof window === "undefined") return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
     logClick(menuKey);
     window.location.href = route;
   }
@@ -367,7 +386,7 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                 const label = meta?.label ?? k;
                 const route = meta?.route ?? "/";
                 const icon = meta?.icon;
-                const appTag = meta?.app ? meta.app.toUpperCase() : null;
+                const appTag = meta?.app ? (APP_DISPLAY_NAME[meta.app] ?? meta.app.toUpperCase()) : null;
                 return (
                   <div
                     key={k}
@@ -376,13 +395,13 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                     onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = C.panelHi; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => navigate(k, route)}
+                    <a
+                      href={route}
+                      onClick={(e) => navigate(e, k, route)}
                       title={appTag ? `${appTag} — ${label}` : label}
                       style={{
                         flex: 1, minWidth: 0, background: "transparent", border: "none",
-                        color: C.textSub, textAlign: "left", fontSize: 13, cursor: "pointer",
+                        color: C.textSub, textAlign: "left", fontSize: 13, cursor: "pointer", textDecoration: "none",
                         padding: "7px 6px", display: "flex", alignItems: "center", gap: 8, fontFamily: "inherit",
                       }}
                     >
@@ -397,7 +416,7 @@ export default function FavoritesMenu({ buttonStyle }: FavoritesMenuProps): JSX.
                           {appTag}
                         </span>
                       )}
-                    </button>
+                    </a>
                     <button
                       type="button"
                       onClick={() => void removeKey(k)}

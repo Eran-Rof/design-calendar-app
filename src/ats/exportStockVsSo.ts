@@ -188,7 +188,7 @@ export function exportStockVsSo(
     { label: "SKU",               fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Description",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Category",          fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
-    { label: "Store",             fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Warehouse",             fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Customer",          fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Order #",           fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Ship Date",         fill: PALETTE.HEADER_TEXT,   align: "center" as const },

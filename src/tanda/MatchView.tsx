@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
+import SearchableSelect from "./components/SearchableSelect";
 
 // Internal-only cross-vendor 3-way match view. Reads the
 // three_way_match_summary + three_way_match_view SQL views via the
@@ -153,18 +154,27 @@ export default function MatchView() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
-          <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}>
-            <option value="">All vendors</option>
-            {Object.entries(vendors).sort(([, a], [, b]) => a.localeCompare(b)).map(([id, name]) => (
-              <option key={id} value={id}>{name}</option>
-            ))}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} style={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}>
-            <option value="all">All statuses</option>
-            <option value="discrepancy">Discrepancy only</option>
-            <option value="pending">Pending only</option>
-            <option value="matched">Matched only</option>
-          </select>
+          <SearchableSelect
+            value={vendorFilter || null}
+            onChange={(v) => setVendorFilter(v)}
+            options={[
+              { value: "", label: "All vendors" },
+              ...Object.entries(vendors).sort(([, a], [, b]) => a.localeCompare(b)).map(([id, name]) => ({ value: id, label: name })),
+            ]}
+            placeholder="All vendors"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}
+          />
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "discrepancy", label: "Discrepancy only" },
+              { value: "pending", label: "Pending only" },
+              { value: "matched", label: "Matched only" },
+            ]}
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}
+          />
           <div style={{ fontSize: 12, color: TH.textMuted, marginLeft: "auto" }}>{visible.length} of {rows.length}</div>
         </div>
       </div>

@@ -10,7 +10,8 @@
 //        client can render top-to-bottom without re-sorting.
 //
 // POST — create a new category. Body:
-//        { code, name, parent_category_id?, sort_order?, is_active? }
+//        { name, parent_category_id?, sort_order?, is_active? }
+//        `code` is AUTO-GENERATED (PCAT-NNNNN) by a DB trigger + immutable.
 //
 // Tangerine P8-6 (M42 PIM).
 
@@ -50,11 +51,8 @@ export function validateCreate(body) {
   }
   const out = {};
 
-  const code = String(body.code ?? "").trim();
-  if (!code) return { error: "code is required" };
-  if (code.length > 64) return { error: "code must be <= 64 chars" };
-  out.code = code;
-
+  // `code` is AUTO-GENERATED (PCAT-NNNNN) by a DB trigger and is immutable —
+  // any client-supplied code is ignored on create and frozen on update.
   const name = String(body.name ?? "").trim();
   if (!name) return { error: "name is required" };
   if (name.length > 120) return { error: "name must be <= 120 chars" };

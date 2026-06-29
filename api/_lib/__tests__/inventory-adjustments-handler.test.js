@@ -24,10 +24,14 @@ describe("validateInsert", () => {
   it("rejects bad item_id", () => {
     expect(validateInsert({ item_id: "bad" }).error).toMatch(/item_id/);
   });
-  it("rejects invalid adjustment_type", () => {
-    expect(validateInsert({
-      item_id: UUID, adjustment_type: "bogus", qty_delta: 1, reason: "r", gl_account_id: UUID2,
-    }).error).toMatch(/adjustment_type/);
+  it("accepts any non-empty adjustment_type (master-driven, not a fixed enum)", () => {
+    // Adjustment types now come from the Adjustment Type master, so an arbitrary
+    // non-empty value is no longer rejected on type grounds (qty_delta<0 = a
+    // decrease, which needs no unit cost).
+    const r = validateInsert({
+      item_id: UUID, adjustment_type: "bogus", qty_delta: -1, reason: "r", gl_account_id: UUID2,
+    });
+    expect(String(r.error || "")).not.toMatch(/adjustment_type/);
   });
   it("rejects zero qty_delta", () => {
     expect(validateInsert({
@@ -64,10 +68,13 @@ describe("validateInsert", () => {
       item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "   ", gl_account_id: UUID2,
     }).error).toMatch(/reason/);
   });
-  it("rejects bad gl_account_id", () => {
-    expect(validateInsert({
-      item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "r", gl_account_id: "bad",
-    }).error).toMatch(/gl_account_id/);
+  it("accepts call without gl_account_id (server fills it)", () => {
+    // gl_account_id is now server-filled (Inventory Adjustments Expense account).
+    // Client may omit it or pass any value — both are accepted.
+    const r = validateInsert({
+      item_id: UUID, adjustment_type: "damage", qty_delta: -5, reason: "r",
+    });
+    expect(r.error).toBeUndefined();
   });
   it("accepts a valid negative draft", () => {
     const v = validateInsert({
@@ -104,8 +111,8 @@ describe("parseListQuery", () => {
     const r = parseListQuery(sp(`item_id=${UUID}`));
     expect(r.filters.item_id).toBe(UUID);
   });
-  it("rejects bad adjustment_type", () => {
-    expect(parseListQuery(sp("adjustment_type=bogus")).error).toMatch(/adjustment_type/);
+  it("accepts any adjustment_type filter (master-driven)", () => {
+    expect(parseListQuery(sp("adjustment_type=bogus")).error).toBeFalsy();
   });
   it("posted=true|false parsed", () => {
     expect(parseListQuery(sp("posted=true")).filters.posted).toBe(true);

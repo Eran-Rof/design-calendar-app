@@ -1,4 +1,4 @@
-import type { ATSRow } from "./types";
+﻿import type { ATSRow } from "./types";
 import { fmtDate } from "./helpers";
 import {
   INTEREST_RATE, PALLET_PCS, STORAGE_PER_PALLET_MONTH, DEFAULT_LAST_RECEIVED,
@@ -51,20 +51,18 @@ function teallSubtotalStyle(num: boolean): any {
 }
 
 function fmtMMDDYYYY(iso: string): string {
-  // Canonical app-wide date format: MMM/DD/YYYY (matches fmtDateDisplay).
+  // Canonical app-wide date format: MM/DD/YYYY (matches fmtDateDisplay).
   // Name kept for back-compat with existing call sites in this file.
   const d = new Date(iso + "T00:00:00");
   if (isNaN(d.getTime())) return iso;
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[d.getMonth()]}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
 export type AgedInvenResult = "empty" | ReportPayload;
 
 export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, category = "All"): AgedInvenResult {
   const today    = new Date();
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const todayStr = `${months[today.getMonth()]}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
+  const todayStr = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
 
   const categoryLabel = category !== "All" ? ` – ${category}` : "";
 
@@ -84,7 +82,12 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
   const exploded: ColorRecord[] = [];
   for (const r of rows) {
     if (!r.onHand || r.onHand <= 0) continue;
-    if (category !== "All" && r.category !== category) continue;
+    // Match the Category dropdown, which lists master_category values (the
+    // item-master-resolved "truth"), NOT the freeform r.category from the
+    // raw feed. Comparing against r.category here made every single-category
+    // run come back empty because the two fields differ. Fall back to
+    // r.category for rows the master didn't resolve.
+    if (category !== "All" && (r.master_category ?? r.category) !== category) continue;
     const { base, color } = parseSku(r.sku);
 
     let lrIso = DEFAULT_LAST_RECEIVED;
@@ -100,7 +103,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     exploded.push({
       store:           r.store ?? "Unknown",
-      gender:          r.gender ?? r.category ?? "?",
+      gender:          r.master_gender ?? r.gender ?? r.category ?? "?",
       base,
       color,
       description:     r.description ?? "",
@@ -159,7 +162,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     // Row 0 — Title banner
     const titleStyle = semHeader(GRAND_TOTAL_FILL, "center");
     aoa.push([
-      { v: `${ageDaysThreshold}+ Day Aged Inventory${categoryLabel} – Summary by Store & Gender`, t: "s", s: titleStyle },
+      { v: `${ageDaysThreshold}+ Day Aged Inventory${categoryLabel} – Summary by Warehouse & Gender`, t: "s", s: titleStyle },
       ...Array(TC - 1).fill(null).map(() => ({ v: "", t: "s", s: titleStyle })),
     ]);
     // Row 1 — Subtitle
@@ -197,7 +200,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     // Row 4 — column headers (inherit each col's group color)
     const colHdrs: Array<[string, "left" | "center" | "right", string]> = [
-      ["Store",                "left",   PALETTE.HEADER_TEXT],
+      ["Warehouse",                "left",   PALETTE.HEADER_TEXT],
       ["Gender",               "left",   PALETTE.HEADER_TEXT],
       ["Total Qty\nOn Hand",   "center", PALETTE.HEADER_TEXT],
       ["Avg Unit\nCost",       "center", PALETTE.HEADER_TEXT],
@@ -353,7 +356,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     const colHdrLabels: Array<[string, "left" | "center" | "right"]> = [
       ["Gender",              "center"],
-      ["Store",               "left"],
+      ["Warehouse",               "left"],
       ["Base Part Number",    "left"],
       ["Color",               "center"],
       ["Description",         "left"],

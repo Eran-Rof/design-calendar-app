@@ -4,6 +4,18 @@
 import { useMemo, useState } from "react";
 import type { IpPlanningAnomaly } from "../types/intelligence";
 import { S, PAL, formatPeriodCode } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "ip.anomaly_queue";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "severity", label: "Severity" },
+  { key: "type", label: "Type" },
+  { key: "sku", label: "SKU" },
+  { key: "period", label: "Period" },
+  { key: "conf", label: "Conf." },
+  { key: "message", label: "Message" },
+];
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: "#EF4444",
@@ -33,6 +45,7 @@ export default function AnomalyQueue({ anomalies, skuCodeById }: AnomalyQueuePro
   const [filterType, setFilterType] = useState("all");
   const [filterSeverity, setFilterSeverity] = useState("all");
   const [criticalOnly, setCriticalOnly] = useState(false);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const types = useMemo(() => {
     const s = new Set<string>();
@@ -78,47 +91,62 @@ export default function AnomalyQueue({ anomalies, skuCodeById }: AnomalyQueuePro
         </div>
       </div>
       <div style={S.toolbar}>
-        <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => <option key={t} value={t}>{ANOMALY_LABEL[t] ?? t}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterType}
+          onChange={(v) => setFilterType(v)}
+          options={[
+            { value: "all", label: "All types" },
+            ...types.map((t) => ({ value: t, label: ANOMALY_LABEL[t] ?? t })),
+          ]}
+          inputStyle={S.select}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, color: PAL.textDim, fontSize: 13 }}>
           <input type="checkbox" checked={criticalOnly} onChange={(e) => setCriticalOnly(e.target.checked)} />
           Critical only
         </label>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+        </div>
       </div>
 
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Severity</th>
-              <th style={S.th}>Type</th>
-              <th style={S.th}>SKU</th>
-              <th style={S.th}>Period</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Conf.</th>
-              <th style={S.th}>Message</th>
+              <th style={S.th} hidden={!visibleColumns.has("severity")}>Severity</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={S.th} hidden={!visibleColumns.has("sku")}>SKU</th>
+              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
+              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("conf")}>Conf.</th>
+              <th style={S.th} hidden={!visibleColumns.has("message")}>Message</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((a) => (
               <tr key={a.id}>
-                <td style={S.td}>
+                <td style={S.td} hidden={!visibleColumns.has("severity")}>
                   <span style={{
                     ...S.chip,
                     background: (SEVERITY_COLOR[a.severity] ?? PAL.textMuted) + "33",
                     color: SEVERITY_COLOR[a.severity] ?? PAL.textMuted,
                   }}>{a.severity}</span>
                 </td>
-                <td style={S.td}>{ANOMALY_LABEL[a.anomaly_type] ?? a.anomaly_type}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{ANOMALY_LABEL[a.anomaly_type] ?? a.anomaly_type}</td>
+                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }} hidden={!visibleColumns.has("sku")}>
                   {skuCodeById.get(a.sku_id) ?? "(unknown sku)"}
                 </td>
-                <td style={S.td}>{formatPeriodCode(a.period_code)}</td>
-                <td style={{ ...S.tdNum, color: PAL.textDim }}>
+                <td style={S.td} hidden={!visibleColumns.has("period")}>{formatPeriodCode(a.period_code)}</td>
+                <td style={{ ...S.tdNum, color: PAL.textDim }} hidden={!visibleColumns.has("conf")}>
                   {a.confidence_score != null ? `${Math.round(a.confidence_score * 100)}%` : "–"}
                 </td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{a.message}</td>
+                <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("message")}>{a.message}</td>
               </tr>
             ))}
             {filtered.length === 0 && (

@@ -85,8 +85,18 @@ export async function upsertLines(projectId: string, lines: LineUpsertRow[]): Pr
   }));
 }
 
-export async function updateLine(lineId: string, patch: Partial<CostingLine>): Promise<CostingLine> {
-  return json<CostingLine>(await fetch(`/api/internal/costing/lines/${lineId}`, {
+// The server attaches `_rfq_revision` when the edit re-synced onto a sent RFQ
+// line and notified the vendor — drives the on-screen "RFQ revised & sent"
+// confirmation. Absent on ordinary saves.
+export interface RfqRevisionSummary {
+  rfqs: Array<{ id: string; title: string; vendors: string[] }>;
+  vendors: string[];
+  fields: string[];
+}
+export type UpdatedLine = CostingLine & { _rfq_revision?: RfqRevisionSummary | null };
+
+export async function updateLine(lineId: string, patch: Partial<CostingLine>): Promise<UpdatedLine> {
+  return json<UpdatedLine>(await fetch(`/api/internal/costing/lines/${lineId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -95,6 +105,69 @@ export async function updateLine(lineId: string, patch: Partial<CostingLine>): P
 
 export async function deleteLine(lineId: string): Promise<void> {
   return json<void>(await fetch(`/api/internal/costing/lines/${lineId}`, { method: "DELETE" }));
+}
+
+// ── AI cost co-pilot ─────────────────────────────────────────────────────────
+// Advisory only — the server reads LY/T3 comp + PO history and returns a
+// suggested cost / sell / margin with rationale. It never writes the line; the
+// caller applies values via updateLine.
+export interface CostSuggestion {
+  is_ddp: boolean;
+  insufficient_data: boolean;
+  suggested_target_cost: number | null;
+  suggested_fob_cost: number | null;
+  suggested_sell_target: number | null;
+  suggested_margin_pct: number | null;
+  confidence: number | null;
+  rationale: string;
+  signals: string[];
+  comps_used: Record<string, unknown>;
+  model: string;
+  generated_at: string;
+}
+
+export async function suggestLineCosts(lineId: string, signal?: AbortSignal): Promise<CostSuggestion> {
+  return json<CostSuggestion>(await fetch(`/api/internal/costing/lines/${lineId}/suggest`, { signal }));
+}
+
+// ── AI size-curve forecast ───────────────────────────────────────────────────
+// Informational — the server learns the per-size split from the style's own
+// 24-month sales history and applies it to the line's target_qty.
+export interface SizeCurveSize {
+  size: string;
+  units: number;
+  pct: number;
+  suggested_qty?: number;
+  flag?: string;
+}
+export interface SizeCurveForecast {
+  style_code: string | null;
+  color: string | null;
+  target_qty: number | null;
+  size_scale_label: string | null;
+  basis: string;
+  total_units_analyzed: number;
+  txn_count: number;
+  insufficient_data: boolean;
+  sizes: SizeCurveSize[];
+  narrative: string;
+  model: string;
+  generated_at: string;
+}
+
+export async function forecastSizeCurve(lineId: string, signal?: AbortSignal): Promise<SizeCurveForecast> {
+  return json<SizeCurveForecast>(await fetch(`/api/internal/costing/lines/${lineId}/size-curve`, { signal }));
+}
+
+// Stage B fork: mark a Sent/Quoted line 'revised' (locked) server-side + close
+// its superseded vendor RFQ. The new Draft copy is created by the caller via
+// upsertLines. 409 if the line isn't Sent/Quoted.
+export async function reviseLine(lineId: string): Promise<{ ok: boolean; revised_line_id: string }> {
+  return json(await fetch(`/api/internal/costing/lines/${lineId}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }));
 }
 
 // ── Vendor quotes ───────────────────────────────────────────────────────────
@@ -196,6 +269,8 @@ export interface GeneratedRfq {
   vendor: string;
   line_count: number;
   total_qty: number;
+  /** True once the RFQ was auto-sent (published + vendor invited) in the same step. */
+  sent?: boolean;
 }
 
 export interface GenerateRfqsResult {
@@ -222,7 +297,11 @@ export interface GenerateRfqsNeedsConfirm {
 }
 
 /**
- * Create RFQs from the selected costing lines.
+ * Create RFQs from the selected costing lines AND auto-send (publish) each one
+ * to its vendor in the same step — there is no separate "Send to Vendor" click.
+ * On success each created RFQ is published, the vendor portal invitation exists,
+ * and the vendor has been notified (rfq_invited). `created[].sent` reflects the
+ * per-RFQ auto-send outcome (a rare auto-send failure is also listed in errors).
  *
  * The handler refuses (HTTP 409 + needs_confirm) when an RFQ already exists
  * for the same style + color + vendor, UNLESS allowDuplicate is passed. The
@@ -420,8 +499,8 @@ export function customerDisplayName(c: CustomerHit | null | undefined): string {
   const billing = c.billing_address;
   const name = typeof billing?.name === "string" ? billing.name : undefined;
   const company = typeof billing?.company === "string" ? billing.company : undefined;
-  const raw = name || company || c.code || c.id;
-  return typeof raw === "string" ? stripExcelPrefix(raw) : raw;
+  const raw = name || company || c.code;
+  return typeof raw === "string" ? stripExcelPrefix(raw) : "—";
 }
 
 export async function searchCustomers(q: string, signal?: AbortSignal): Promise<CustomerHit[]> {
@@ -467,6 +546,53 @@ export async function addVendor(name: string, opts?: { code?: string; country?: 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, ...opts }),
   }));
+}
+
+// ── Freeform color/vendor masters (auto-pruned against canonical sources) ──
+//
+// Returns the operator-managed extras lists (server already drops anything
+// that has since appeared in ip_item_master.color / ip_vendor_master /
+// vendors). Backed by h527.
+
+export type FreeformKind = "colors" | "vendors";
+
+export interface FreeformMasters {
+  colors: string[];
+  vendors: string[];
+}
+
+export async function getFreeformMasters(): Promise<FreeformMasters> {
+  return json<FreeformMasters>(await fetch(`/api/internal/costing/masters/freeform`));
+}
+
+export async function addFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, name }),
+    }),
+  );
+  return r.list;
+}
+
+export async function renameFreeformMaster(kind: FreeformKind, oldName: string, newName: string): Promise<string[]> {
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, oldName, newName }),
+    }),
+  );
+  return r.list;
+}
+
+export async function deleteFreeformMaster(kind: FreeformKind, name: string): Promise<string[]> {
+  const sp = new URLSearchParams({ kind, name });
+  const r = await json<{ kind: FreeformKind; list: string[] }>(
+    await fetch(`/api/internal/costing/masters/freeform?${sp.toString()}`, { method: "DELETE" }),
+  );
+  return r.list;
 }
 
 // ── Style → SKU / target-cost seed helper ───────────────────────────────────
@@ -614,4 +740,66 @@ export async function awardRfq(rfqId: string, vendorId: string): Promise<AwardRf
     method: "POST",
     headers: { "Content-Type": "application/json" },
   }));
+}
+
+// ── Compare RFQs (cross-RFQ vendor-quote comparison for one project) ─────────
+// GET /api/internal/costing/rfq-compare?project_id=… → every RFQ in the
+// project with its line items + submitted vendor quotes (+ per-line unit
+// prices). The matrix math (cheapest-per-line, deltas) is computed client-side
+// in RfqCompareView.
+
+export interface RfqCompareLineItem {
+  id: string;
+  line_index: number | null;
+  description: string | null;
+  quantity: number | null;
+  // Reference SELL price from the source costing line
+  // (rfq_line_items.costing_line_id → costing_lines.sell_price). NULL when the
+  // RFQ line was not originated from costing. Drives margin = (sell − quoted) / sell.
+  sell_price: number | null;
+}
+
+export interface RfqCompareQuoteLine {
+  rfq_line_item_id: string;
+  unit_price: number | null;
+  quantity: number | null;
+  notes: string | null;
+}
+
+export interface RfqCompareQuote {
+  vendor_id: string;
+  vendor_name: string | null;
+  status: string | null;
+  total_price: number | null;
+  lead_time_days: number | null;
+  valid_until: string | null;
+  /** When the vendor submitted this quote — drives the header's quote date. */
+  submitted_at: string | null;
+  notes: string | null;
+  lines: RfqCompareQuoteLine[];
+}
+
+export interface RfqCompareRfq {
+  id: string;
+  code: string | null;
+  title: string | null;
+  status: string | null;
+  line_items: RfqCompareLineItem[];
+  quotes: RfqCompareQuote[];
+}
+
+export interface RfqCompareResult {
+  project: { id: string; name: string };
+  rfqs: RfqCompareRfq[];
+}
+
+export async function compareRfqs(projectId: string): Promise<RfqCompareResult> {
+  const sp = new URLSearchParams({ project_id: projectId });
+  return json<RfqCompareResult>(await fetch(`/api/internal/costing/rfq-compare?${sp.toString()}`));
+}
+
+// Only projects whose RFQs have at least one real vendor quote — used to populate
+// the Compare-RFQs picker so empty projects aren't listed.
+export async function compareEligibleProjects(): Promise<CostingProject[]> {
+  return json<CostingProject[]>(await fetch(`/api/internal/costing/rfq-compare/projects`));
 }

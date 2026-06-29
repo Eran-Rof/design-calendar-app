@@ -22,6 +22,7 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 const INV_ADJ_TABLE_KEY = "tangerine:inventoryadjustments:columns";
 const INV_ADJ_COLUMNS: ColumnDef[] = [
   { key: "when",    label: "When" },
+  { key: "by",      label: "By" },
   { key: "type",    label: "Type" },
   { key: "style",   label: "Style" },
   { key: "qty",     label: "Qty" },
@@ -45,15 +46,19 @@ type Adjustment = {
   created_at: string;
   updated_at: string;
   created_by_user_id: string | null;
+  created_by_name?: string | null;
 };
 
 type Item = { id: string; sku_code: string | null; description?: string | null };
 type GlAccount = { id: string; code: string; name: string; is_postable: boolean; account_type?: string };
+type AdjReason = { id: string; code: string; name: string };
 
-const TYPES = [
-  "damage", "shrinkage", "found", "correction", "write_off", "return_to_vendor",
-] as const;
-type AdjustmentType = (typeof TYPES)[number];
+// adjustment_type is now sourced from the configurable Adjustment Type master
+// (adjustment_type_master). A type is a CATEGORY / reason for grouping only — it
+// does NOT drive the increase/decrease FIFO accounting (that's the qty sign +
+// unit cost). The stored value is the chosen type NAME (free text, no FK).
+type AdjType = { id: string; code: string; name: string; is_active: boolean };
+type AdjustmentType = string;
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -86,6 +91,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -97,15 +103,9 @@ const modalBg: React.CSSProperties = {
 };
 const modalCard: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-  padding: 24, width: 560, maxWidth: "90vw", maxHeight: "90vh", overflow: "auto",
+  padding: 24, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toISOString().slice(0, 10);
-}
 
 function fmtMoneyCents(cents: number | null): string {
   if (cents == null) return "-";
@@ -118,17 +118,28 @@ export default function InternalInventoryAdjustments() {
   const [rows, setRows] = useState<Adjustment[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [adjTypes, setAdjTypes] = useState<AdjType[]>([]);
+  const [adjustmentReasons, setAdjustmentReasons] = useState<AdjReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   // Filters
   const [filterType, setFilterType] = useState<string>("");
   const [filterItem, setFilterItem] = useState("");
+  const [filterUser, setFilterUser] = useState(""); // item 4 — who created the adjustment
   const [filterPosted, setFilterPosted] = useState<"" | "true" | "false">("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  // Item 4 — distinct creators present in the loaded rows → user-filter options.
+  const userOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) if (r.created_by_user_id) m.set(r.created_by_user_id, r.created_by_name || r.created_by_user_id.slice(0, 8));
+    return [{ value: "", label: "All users" }, ...[...m].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }))];
+  }, [rows]);
 
-  // Modal
+  // Add flow. "+ Add" is the single entry point; it first opens a small chooser
+  // (Single variant vs Matrix), which then opens the corresponding modal.
+  const [addChooserOpen, setAddChooserOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<Adjustment | null>(null);
   const [matrixModalOpen, setMatrixModalOpen] = useState(false);
@@ -146,7 +157,6 @@ export default function InternalInventoryAdjustments() {
     try {
       const params = new URLSearchParams();
       if (filterType) params.set("adjustment_type", filterType);
-      if (filterItem.trim()) params.set("item_id", filterItem.trim());
       if (filterPosted) params.set("posted", filterPosted);
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
@@ -159,13 +169,13 @@ export default function InternalInventoryAdjustments() {
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [filterType, filterItem, filterPosted, filterFrom, filterTo]);
+  useEffect(() => { void load(); }, [filterType, filterPosted, filterFrom, filterTo]);
 
   // Side-load items (for SKU display + picker) + gl_accounts (for picker).
   useEffect(() => {
     (async () => {
       try {
-        const itemsRes = await fetch(`/api/internal/style-master?limit=500`);
+        const itemsRes = await fetch(`/api/internal/style-master?limit=10000`);
         if (itemsRes.ok) {
           const data = await itemsRes.json();
           // style-master shape: depends on handler; fall back to flatMap-friendly
@@ -178,6 +188,22 @@ export default function InternalInventoryAdjustments() {
       try {
         const glRes = await fetch(`/api/internal/gl-accounts`);
         if (glRes.ok) setGlAccounts(await glRes.json());
+      } catch { /* non-fatal */ }
+      try {
+        // Adjustment Type master — drives the type picklist + filter (active only).
+        const atRes = await fetch(`/api/internal/adjustment-types`);
+        if (atRes.ok) {
+          const data = await atRes.json();
+          if (Array.isArray(data)) setAdjTypes(data as AdjType[]);
+        }
+      } catch { /* non-fatal */ }
+      try {
+        // Adjustment Reason master — drives the reason picker in add/edit modals.
+        const arRes = await fetch(`/api/internal/adjustment-reasons`);
+        if (arRes.ok) {
+          const data = await arRes.json();
+          if (Array.isArray(data)) setAdjustmentReasons(data as AdjReason[]);
+        }
       } catch { /* non-fatal */ }
     })();
   }, []);
@@ -195,17 +221,17 @@ export default function InternalInventoryAdjustments() {
 
   function itemLabel(id: string): string {
     const it = itemById.get(id);
-    if (it) return it.sku_code || id.slice(0, 8);
-    return id.slice(0, 8);
+    if (it) return it.sku_code || "—";
+    return "—";
   }
   function glLabel(id: string): string {
     const g = glById.get(id);
     if (g) return `${g.code} - ${g.name}`;
-    return id.slice(0, 8);
+    return "—";
   }
 
   async function handleDelete(row: Adjustment) {
-    if (!(await confirmDialog(`Delete adjustment ${row.id.slice(0, 8)}? Only unposted rows can be deleted.`))) return;
+    if (!(await confirmDialog(`Delete adjustment for ${itemLabel(row.item_id)}? Only unposted rows can be deleted.`))) return;
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}`, { method: "DELETE" });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -216,7 +242,7 @@ export default function InternalInventoryAdjustments() {
   }
 
   async function handlePost(row: Adjustment) {
-    if (!(await confirmDialog(`Post adjustment ${row.id.slice(0, 8)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
+    if (!(await confirmDialog(`Post adjustment for ${itemLabel(row.item_id)}? This will emit a journal entry${row.qty_delta < 0 ? " and consume FIFO layers" : " and create a FIFO layer"}.`))) return;
     const actor_user_id = getCachedAuthUserId();
     const r = await fetch(`/api/internal/inventory-adjustments/${row.id}/post`, {
       method: "POST",
@@ -229,9 +255,9 @@ export default function InternalInventoryAdjustments() {
       return;
     }
     if (out.requires_approval) {
-      notify(`Approval required (request_id=${out.request_id?.slice(0, 8) ?? "?"}). The adjustment stays draft until the request is decided.`, "info");
+      notify(`Approval required. The adjustment stays draft until the request is decided.`, "info");
     } else {
-      notify(`Posted. JE id=${out.accrual_je_id?.slice(0, 8) ?? "?"}.`, "success");
+      notify(`Posted.`, "success");
     }
     void load();
   }
@@ -245,15 +271,8 @@ export default function InternalInventoryAdjustments() {
         </span>
         <button
           type="button"
-          style={{ ...btnSecondary, marginLeft: "auto" }}
-          onClick={() => setMatrixModalOpen(true)}
-        >
-          ▦ Matrix adjustment
-        </button>
-        <button
-          type="button"
-          style={btnPrimary}
-          onClick={() => { setEditingRow(null); setModalOpen(true); }}
+          style={{ ...btnPrimary, marginLeft: "auto" }}
+          onClick={() => { setEditingRow(null); setAddChooserOpen(true); }}
         >
           + Add
         </button>
@@ -261,29 +280,43 @@ export default function InternalInventoryAdjustments() {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <select
-          style={{ ...inputStyle, width: 180 }}
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-        >
-          <option value="">All types</option>
-          {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={filterType || null}
+            onChange={(v) => setFilterType(v)}
+            options={[{ value: "", label: "All types" }, ...adjTypes.map((t) => ({ value: t.name, label: t.name }))]}
+            placeholder="All types"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
-          style={{ ...inputStyle, width: 320 }}
-          placeholder="Item ID (uuid)"
+          style={{ ...inputStyle, width: 280 }}
+          placeholder="Filter by SKU…"
           value={filterItem}
           onChange={(e) => setFilterItem(e.target.value)}
         />
-        <select
-          style={{ ...inputStyle, width: 140 }}
-          value={filterPosted}
-          onChange={(e) => setFilterPosted(e.target.value as "" | "true" | "false")}
-        >
-          <option value="">All statuses</option>
-          <option value="false">Draft (unposted)</option>
-          <option value="true">Posted</option>
-        </select>
+        <div style={{ width: 180 }} title="Filter by who created the adjustment">
+          <SearchableSelect
+            value={filterUser || null}
+            onChange={(v) => setFilterUser(v || "")}
+            options={userOptions}
+            placeholder="All users"
+            inputStyle={inputStyle}
+          />
+        </div>
+        <div style={{ width: 140 }}>
+          <SearchableSelect
+            value={filterPosted || null}
+            onChange={(v) => setFilterPosted(v as "" | "true" | "false")}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "false", label: "Draft (unposted)" },
+              { value: "true", label: "Posted" },
+            ]}
+            placeholder="All statuses"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           type="date"
           style={{ ...inputStyle, width: 140 }}
@@ -298,7 +331,7 @@ export default function InternalInventoryAdjustments() {
           onChange={(e) => setFilterTo(e.target.value)}
           placeholder="To"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={filterFrom}
           to={filterTo}
           onChange={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
@@ -336,11 +369,12 @@ export default function InternalInventoryAdjustments() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               <th style={th} hidden={!isVisible("when")}>When</th>
+              <th style={th} hidden={!isVisible("by")}>By</th>
               <th style={th} hidden={!isVisible("type")}>Type</th>
               <th style={th} hidden={!isVisible("style")}>Style</th>
               <th style={th} hidden={!isVisible("qty")}>Qty</th>
@@ -353,18 +387,24 @@ export default function InternalInventoryAdjustments() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td style={td} colSpan={9}>Loading…</td></tr>
+              <tr><td style={td} colSpan={10}>Loading…</td></tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td style={td} colSpan={9}>
+              <tr><td style={td} colSpan={10}>
                 <span style={{ color: C.textMuted }}>No adjustments. Use "+ Add" above.</span>
               </td></tr>
             )}
-            {rows.map((row) => {
+            {rows.filter((row) => {
+              const fq = filterItem.trim().toLowerCase();
+              if (fq && !itemLabel(row.item_id).toLowerCase().includes(fq)) return false;
+              if (filterUser && (row.created_by_user_id || "") !== filterUser) return false; // item 4
+              return true;
+            }).map((row) => {
               const isPositive = row.qty_delta > 0;
               return (
                 <tr key={row.id}>
-                  <td style={td} hidden={!isVisible("when")}>{fmtDate(row.created_at)}</td>
+                  <td style={{ ...td, whiteSpace: "nowrap" }} hidden={!isVisible("when")}>{row.created_at ? new Date(row.created_at).toLocaleString("en-US") : "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("by")}>{row.created_by_name || "—"}</td>
                   <td style={td} hidden={!isVisible("type")}>{row.adjustment_type}</td>
                   <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("style")}>{itemLabel(row.item_id)}</td>
                   <td style={{ ...td, color: isPositive ? C.success : C.danger, fontFamily: "monospace" }} hidden={!isVisible("qty")}>
@@ -396,10 +436,22 @@ export default function InternalInventoryAdjustments() {
         </table>
       </div>
 
+      {addChooserOpen && (
+        <AddModeChooser
+          onPick={(mode) => {
+            setAddChooserOpen(false);
+            if (mode === "single") setModalOpen(true);
+            else setMatrixModalOpen(true);
+          }}
+          onClose={() => setAddChooserOpen(false)}
+        />
+      )}
+
       {modalOpen && (
         <AdjustmentModal
-          glAccounts={glAccounts}
           items={items}
+          adjTypes={adjTypes}
+          adjustmentReasons={adjustmentReasons}
           existing={editingRow}
           onClose={() => { setModalOpen(false); setEditingRow(null); }}
           onSaved={() => { setModalOpen(false); setEditingRow(null); void load(); }}
@@ -408,7 +460,8 @@ export default function InternalInventoryAdjustments() {
 
       {matrixModalOpen && (
         <MatrixAdjustmentModal
-          glAccounts={glAccounts}
+          adjTypes={adjTypes}
+          adjustmentReasons={adjustmentReasons}
           onClose={() => setMatrixModalOpen(false)}
           onSaved={() => { setMatrixModalOpen(false); void load(); }}
         />
@@ -417,11 +470,53 @@ export default function InternalInventoryAdjustments() {
   );
 }
 
-function AdjustmentModal({
-  glAccounts, items, existing, onClose, onSaved,
+// ─────────────────────────────────────────────────────────────────────────
+// Add-mode chooser — the single "+ Add" entry point. The operator picks
+// whether to add a Single variant adjustment or a Matrix (color × size) batch.
+// ─────────────────────────────────────────────────────────────────────────
+function AddModeChooser({
+  onPick, onClose,
 }: {
-  glAccounts: GlAccount[];
+  onPick: (mode: "single" | "matrix") => void;
+  onClose: () => void;
+}) {
+  const tile: React.CSSProperties = {
+    flex: 1, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8,
+    padding: 20, cursor: "pointer", textAlign: "center", color: C.text,
+  };
+  return (
+    <div style={modalBg} onClick={onClose}>
+      <div style={{ ...modalCard, width: "min(480px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>New Inventory Adjustment</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+          Choose how to enter this adjustment.
+        </div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" style={tile} onClick={() => onPick("single")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>＋</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Single variant</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>One SKU, one signed qty.</div>
+          </button>
+          <button type="button" style={tile} onClick={() => onPick("matrix")}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>▦</div>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Matrix</div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>Color × size grid; one draft per non-zero cell.</div>
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" style={btnSecondary} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdjustmentModal({
+  items, adjTypes, adjustmentReasons, existing, onClose, onSaved,
+}: {
   items: Item[];
+  adjTypes: AdjType[];
+  adjustmentReasons: AdjReason[];
   existing: Adjustment | null;
   onClose: () => void;
   onSaved: () => void;
@@ -430,15 +525,11 @@ function AdjustmentModal({
   const [itemId, setItemId] = useState(existing?.item_id || "");
   const [itemQuery, setItemQuery] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
-    (existing?.adjustment_type as AdjustmentType) || "shrinkage"
-  );
-  const [qtyDelta, setQtyDelta] = useState<string>(
-    existing != null ? String(existing.qty_delta) : "-1"
+    existing?.adjustment_type || adjTypes[0]?.name || ""
   );
   const [unitCostCents, setUnitCostCents] = useState<string>(
     existing?.unit_cost_cents != null ? String(existing.unit_cost_cents) : ""
   );
-  const [glAccountId, setGlAccountId] = useState(existing?.gl_account_id || "");
   const [reason, setReason] = useState(existing?.reason || "");
   // P15 — for a positive (found/correction-up) adjustment, which brand pool the
   // new layer lands in (WS/EC). Single-pool brands ignore it.
@@ -446,9 +537,37 @@ function AdjustmentModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const qtyNum = Number(qtyDelta);
+  // Item 7 — explicit direction (add inventory / reduce inventory) + a positive
+  // magnitude, instead of a raw signed number, with a confirm before saving.
+  const [direction, setDirection] = useState<"add" | "reduce">(
+    existing != null ? (existing.qty_delta >= 0 ? "add" : "reduce") : "reduce",
+  );
+  const [magnitude, setMagnitude] = useState<string>(
+    existing != null ? String(Math.abs(existing.qty_delta)) : "1",
+  );
+  const mag = Math.abs(Number(magnitude));
+  const qtyNum = Number.isFinite(mag) ? (direction === "add" ? mag : -mag) : NaN;
   const isPositive = Number.isFinite(qtyNum) && qtyNum > 0;
   const isNegative = Number.isFinite(qtyNum) && qtyNum < 0;
+
+  // Item 1 — add an adjustment reason on the fly (admins only; others get a warn).
+  const isAdmin = !!getCachedAuthUserId();
+  const [extraReasons, setExtraReasons] = useState<AdjReason[]>([]);
+  const reasonOptions = useMemo(() => [...extraReasons, ...adjustmentReasons], [extraReasons, adjustmentReasons]);
+  async function addReasonOnTheFly(q: string) {
+    const name = q.trim();
+    if (!name) return;
+    if (!isAdmin) { notify("Only admins can add adjustment reasons. Ask an admin, or pick an existing reason.", "error"); return; }
+    try {
+      const r = await fetch("/api/internal/adjustment-reasons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const created = j as AdjReason;
+      setExtraReasons((p) => [created, ...p]);
+      setReason(created.name);
+      notify(`Reason "${created.name}" added.`, "success");
+    } catch (e) { notify(`Could not add reason: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+  }
 
   const itemMatches = useMemo(() => {
     const q = itemQuery.trim().toLowerCase();
@@ -483,11 +602,25 @@ function AdjustmentModal({
           body.unit_cost_cents = null;
         }
       } else {
+        // An adjustment TYPE (or reason) is REQUIRED — block + warn via the
+        // factored warn UI before any POST (#985).
+        if (!adjustmentType.trim()) {
+          notify("Pick an Adjustment Type before saving (add types in the Adjustment Types master).", "error");
+          setSaving(false);
+          return;
+        }
         if (!itemId) throw new Error("Pick an item first");
-        if (!glAccountId) throw new Error("Pick a counter GL account");
-        if (!reason.trim()) throw new Error("Reason required");
-        if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("qty_delta must be a non-zero number");
-        if (isPositive && !unitCostCents) throw new Error("unit_cost_cents required for positive qty_delta");
+        // Item 6 — reason required: warn + block (don't silently proceed).
+        if (!reason.trim()) { notify("Pick an adjustment reason before saving.", "error"); setSaving(false); return; }
+        if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("Enter a quantity greater than 0");
+        if (isPositive && !unitCostCents) throw new Error("Unit cost is required when adding inventory");
+
+        // Item 7 — confirm the direction before creating the adjustment. Posting it
+        // later debits/credits Inventory and the Inventory Adjustments account.
+        const ok = await confirmDialog(
+          `This will ${isPositive ? "ADD" : "SUBTRACT"} ${mag} unit(s) ${isPositive ? "to" : "from"} on-hand for ${selectedItem?.sku_code || "this item"}.\n\nWhen you Post it, it books a journal entry — ${isPositive ? "debit Inventory / credit Inventory Adjustments" : "credit Inventory / debit Inventory Adjustments"}.\n\nContinue?`,
+        );
+        if (!ok) { setSaving(false); return; }
 
         url = `/api/internal/inventory-adjustments`;
         method = "POST";
@@ -496,7 +629,7 @@ function AdjustmentModal({
           adjustment_type: adjustmentType,
           qty_delta: qtyNum,
           reason,
-          gl_account_id: glAccountId,
+          // gl_account_id is resolved server-side; not sent from client.
         };
         if (isPositive) { body.unit_cost_cents = Number(unitCostCents); body.receiving_channel = receivingChannel; }
         const actorUid = getCachedAuthUserId();
@@ -537,7 +670,7 @@ function AdjustmentModal({
             <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Style</label>
             {selectedItem ? (
               <div style={{ marginBottom: 12 }}>
-                <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || selectedItem.id.slice(0, 8)}</span>{" "}
+                <span style={{ fontFamily: "monospace", color: C.textSub }}>{selectedItem.sku_code || "—"}</span>{" "}
                 <button type="button" style={{ ...btnSecondary, fontSize: 11 }} onClick={() => setItemId("")}>change</button>
               </div>
             ) : (
@@ -558,46 +691,58 @@ function AdjustmentModal({
                         style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, fontFamily: "monospace", color: C.textSub, borderBottom: `1px solid ${C.cardBdr}` }}
                         onClick={() => setItemId(it.id)}
                       >
-                        {it.sku_code || it.id.slice(0, 8)} - {it.description || ""}
+                        {it.sku_code || "—"} - {it.description || ""}
                       </div>
                     ))
                   )}
                 </div>
-                <input
-                  style={{ ...inputStyle, marginBottom: 12 }}
-                  placeholder="Or paste item UUID directly"
-                  value={itemId}
-                  onChange={(e) => setItemId(e.target.value)}
-                />
               </>
             )}
 
             <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
-            <select
-              style={{ ...inputStyle, marginBottom: 12 }}
-              value={adjustmentType}
-              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
-            >
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <div style={{ marginBottom: 12 }}>
+              <SearchableSelect
+                value={adjustmentType || null}
+                onChange={(v) => setAdjustmentType(v || "")}
+                options={adjTypes.map((t) => ({
+                  value: t.name,
+                  label: t.name,
+                  searchHaystack: `${t.code} ${t.name}`,
+                }))}
+                placeholder="Search adjustment type…"
+                emptyText="No adjustment types — add some in the Adjustment Types master"
+              />
+            </div>
           </>
         )}
 
-        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>
-          Qty delta (signed) - {isPositive ? "increase" : isNegative ? "decrease (FIFO consume)" : "0 rejected"}
-        </label>
+        {/* Item 7 — explicit direction: add (increase on-hand) vs reduce (decrease). */}
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Direction</label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          {([["add", "+ Add inventory (increase on-hand)"], ["reduce", "− Reduce inventory (decrease on-hand)"]] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setDirection(v)}
+              style={{
+                flex: 1, padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+                border: `1px solid ${direction === v ? (v === "add" ? C.success : C.warn) : C.cardBdr}`,
+                background: direction === v ? (v === "add" ? "#0b2a1f" : "#3b2f0b") : "transparent",
+                color: direction === v ? (v === "add" ? C.success : C.warn) : C.textSub,
+              }}>{label}</button>
+          ))}
+        </div>
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Quantity (units)</label>
         <input
           style={{ ...inputStyle, marginBottom: 4 }}
           type="number"
           step="any"
-          value={qtyDelta}
-          onChange={(e) => setQtyDelta(e.target.value)}
+          min="0"
+          value={magnitude}
+          onChange={(e) => setMagnitude(e.target.value)}
         />
         {Number.isFinite(qtyNum) && qtyNum !== 0 && (
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: isPositive ? C.success : C.warn, marginBottom: 12 }}>
             {isPositive
-              ? `This will create a new FIFO layer of ${qtyNum} units at the unit cost below.`
-              : `This will consume ${Math.abs(qtyNum)} units via FIFO. Per-unit cost is FIFO-derived at post.`}
+              ? `This will ADD ${mag} unit(s) to on-hand — creates a new FIFO layer at the unit cost below.`
+              : `This will SUBTRACT ${mag} unit(s) from on-hand — consumes via FIFO (cost is FIFO-derived at post).`}
           </div>
         )}
 
@@ -617,47 +762,40 @@ function AdjustmentModal({
             {!isEdit && (
               <>
                 <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Receive into (brand pool)</label>
-                <select
-                  style={{ ...inputStyle, marginBottom: 12 }}
-                  value={receivingChannel}
-                  onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
-                >
-                  <option value="WS">Wholesale pool</option>
-                  <option value="EC">Ecom pool</option>
-                </select>
+                <div style={{ marginBottom: 12 }}>
+                  <SearchableSelect
+                    value={receivingChannel}
+                    onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+                    options={[
+                      { value: "WS", label: "Wholesale pool" },
+                      { value: "EC", label: "Ecom pool" },
+                    ]}
+                    inputStyle={inputStyle}
+                  />
+                </div>
               </>
             )}
           </>
         )}
 
-        {!isEdit && (
-          <>
-            <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
-            <select
-              style={{ ...inputStyle, marginBottom: 12 }}
-              value={glAccountId}
-              onChange={(e) => setGlAccountId(e.target.value)}
-            >
-              <option value="">-- Pick an account --</option>
-              {glAccounts
-                .filter((g) => g.is_postable)
-                .map((g) => (
-                  <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
-                ))}
-            </select>
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
-              Negative adjustments typically post to a shrinkage / damage / write-off expense account. Positive (found) adjustments post to inventory-found income or contra-shrinkage.
-            </div>
-          </>
-        )}
-
-        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason</label>
-        <textarea
-          style={{ ...inputStyle, marginBottom: 12, minHeight: 60, resize: "vertical" }}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Operator notes - flows into JE memo"
-        />
+        <label style={{ display: "block", marginBottom: 8, fontSize: 12, color: C.textMuted }}>Reason{!reason.trim() && <span style={{ color: C.warn }}> *</span>}</label>
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={reason || null}
+            onChange={(v) => setReason(v || "")}
+            options={reasonOptions.map((r) => ({
+              value: r.name,
+              label: r.name, // item 5 — name only (code stays searchable)
+              searchHaystack: `${r.code} ${r.name}`,
+            }))}
+            placeholder="Search adjustment reason…"
+            emptyText="No adjustment reasons — add some in the Adjustment Reason Master"
+            onAddNew={(q) => void addReasonOnTheFly(q)}
+            addNewLabel={(q) => `+ Add reason "${q.trim()}"`}
+          />
+          {/* Item 6 — a reason is required; warn inline until one is picked. */}
+          {!isEdit && !reason.trim() && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Pick a reason before saving.</div>}
+        </div>
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
@@ -709,15 +847,15 @@ function rowKeyOf(color: string | null, inseam: string | null): string {
 }
 
 function MatrixAdjustmentModal({
-  glAccounts, onClose, onSaved,
+  adjTypes, adjustmentReasons, onClose, onSaved,
 }: {
-  glAccounts: GlAccount[];
+  adjTypes: AdjType[];
+  adjustmentReasons: AdjReason[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   // Batch-level fields (applied to every created adjustment).
-  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("shrinkage");
-  const [glAccountId, setGlAccountId] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(adjTypes[0]?.name || "");
   const [reason, setReason] = useState("");
   // Brand pool for POSITIVE (increase) cells only — mirrors the single "+ Add"
   // modal's receiving_channel. Single-pool brands ignore it server-side.
@@ -740,11 +878,12 @@ function MatrixAdjustmentModal({
   const [err, setErr] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
 
-  // Load up to 200 styles for the picker (SearchableSelect filters locally).
+  // Load ALL styles for the picker (SearchableSelect filters locally) so the
+  // operator can find any style — not just the first 200.
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`/api/internal/style-master?limit=200`);
+        const r = await fetch(`/api/internal/style-master?limit=10000`);
         if (!r.ok) return;
         const data = await r.json();
         if (Array.isArray(data)) {
@@ -834,9 +973,11 @@ function MatrixAdjustmentModal({
 
   async function createAll() {
     setErr(null);
+    // An adjustment TYPE (or reason) is REQUIRED — block + warn via the
+    // factored warn UI before any POST (#985).
+    if (!adjustmentType.trim()) { notify("Pick an Adjustment Type before creating adjustments (add types in the Adjustment Types master).", "error"); return; }
     if (!matrix) { setErr("Pick a style first"); return; }
-    if (!glAccountId) { setErr("Pick a counter GL account"); return; }
-    if (!reason.trim()) { setErr("Reason required"); return; }
+    if (!reason.trim()) { await confirmDialog("Please select a Reason before creating adjustments."); return; }
     const cells = Object.entries(deltas).filter(([, v]) => Number.isFinite(v) && v !== 0);
     if (cells.length === 0) { setErr("No cells with a non-zero delta. Type a signed qty into a cell."); return; }
 
@@ -899,7 +1040,7 @@ function MatrixAdjustmentModal({
           adjustment_type: adjustmentType,
           qty_delta: qty,
           reason: reason.trim(),
-          gl_account_id: glAccountId,
+          // gl_account_id is resolved server-side; not sent from client.
         };
         if (qty > 0) {
           body.unit_cost_cents = Number((unitCostMap[rowKey] ?? "").trim());
@@ -943,10 +1084,10 @@ function MatrixAdjustmentModal({
 
   return (
     <div style={modalBg} onClick={onClose}>
-      <div style={{ ...modalCard, width: 820 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(820px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Adjustment</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
-          Pick type / counter account / reason once, choose a style, then type a signed qty into each cell:
+          Pick type / reason once, choose a style, then type a signed qty into each cell:
           negative = decrease (FIFO-consume), positive = increase (creates a FIFO layer). One draft adjustment is
           created per non-zero cell. Increase rows must carry a per-unit <b>Unit cost (¢)</b> — use the column's
           "set all" header to stamp one cost across every row.
@@ -961,47 +1102,46 @@ function MatrixAdjustmentModal({
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 200px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Adjustment Type</label>
-            <select
-              style={inputStyle}
-              value={adjustmentType}
-              onChange={(e) => setAdjustmentType(e.target.value as AdjustmentType)}
-            >
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: "2 1 320px" }}>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Counter GL Account</label>
-            <select
-              style={inputStyle}
-              value={glAccountId}
-              onChange={(e) => setGlAccountId(e.target.value)}
-            >
-              <option value="">-- Pick an account --</option>
-              {glAccounts.filter((g) => g.is_postable).map((g) => (
-                <option key={g.id} value={g.id}>{g.code} - {g.name} {g.account_type ? `(${g.account_type})` : ""}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={adjustmentType || null}
+              onChange={(v) => setAdjustmentType(v || "")}
+              options={adjTypes.map((t) => ({
+                value: t.name,
+                label: t.name,
+                searchHaystack: `${t.code} ${t.name}`,
+              }))}
+              placeholder="Search adjustment type…"
+              emptyText="No adjustment types — add some in the Adjustment Types master"
+            />
           </div>
           <div style={{ flex: "1 1 160px" }}>
             <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Receive into (increase rows)</label>
-            <select
-              style={inputStyle}
+            <SearchableSelect
               value={receivingChannel}
-              onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
-            >
-              <option value="WS">Wholesale pool</option>
-              <option value="EC">Ecom pool</option>
-            </select>
+              onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+              options={[
+                { value: "WS", label: "Wholesale pool" },
+                { value: "EC", label: "Ecom pool" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 
         <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Reason</label>
-        <input
-          style={{ ...inputStyle, marginBottom: 12 }}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Applies to every adjustment in this batch — flows into each JE memo"
-        />
+        <div style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            value={reason || null}
+            onChange={(v) => setReason(v || "")}
+            options={adjustmentReasons.map((r) => ({
+              value: r.name,
+              label: r.name, // item 5 — name only (code stays searchable)
+              searchHaystack: `${r.code} ${r.name}`,
+            }))}
+            placeholder="Search adjustment reason…"
+            emptyText="No adjustment reasons — add some in the Adjustment Reason Master"
+          />
+        </div>
 
         <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Style</label>
         <div style={{ marginBottom: 12 }}>
@@ -1055,7 +1195,7 @@ function MatrixAdjustmentModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", position: "sticky", bottom: 0, background: C.card, paddingTop: 12, marginTop: 8, borderTop: `1px solid ${C.cardBdr}` }}>
           {progress && <span style={{ color: C.textMuted, fontSize: 12, marginRight: "auto" }}>{progress}</span>}
           <button type="button" style={btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" style={btnPrimary} onClick={() => void createAll()} disabled={saving || enteredCount === 0}>

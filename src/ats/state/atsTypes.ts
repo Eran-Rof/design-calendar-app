@@ -26,6 +26,11 @@ export interface ATSState {
   // sub-cats are currently active so the dropdown stays manageable.
   filterStyle: string[];
   filterGender: string[];
+  // Multi-select on master_brand (the brand NAME resolved from
+  // ip_item_master.brand_id → brand_master). Empty array = no filter.
+  // Options are the full brand_master list (every brand the Tangerine
+  // app knows about), not just brands present in the loaded data.
+  filterBrand: string[];
   filterStatus: string;
   minATS: number | "";
   // On-Order date window (inclusive, ISO YYYY-MM-DD; "" = unbounded on
@@ -102,6 +107,12 @@ export interface ATSState {
   // hint with the unit-grain equivalent so the operator can flip
   // mental gears without losing the conversion.
   explodePpk: boolean;
+  // Toggles a per-row style image thumbnail inside the Style column.
+  // Defaults true. Thumbnails are fetched live from the PIM (Tangerine)
+  // by style code, so styles gain images automatically as they're added
+  // there. Click a thumbnail to open the full image gallery (enlarge /
+  // download / print). Styles without an image render a small blank tile.
+  showImages: boolean;
   // Rightmost sticky column when scrolling horizontally. null = no
   // freeze (all 8 leftmost columns stay sticky — historical default).
   // Otherwise the named column is the rightmost frozen one and
@@ -119,6 +130,16 @@ export interface ATSState {
   // fallback when a SKU is missing SO sale prices or cost basis,
   // so the header still produces a meaningful Sale / Cost / Mrgn.
   generalMarginPct: number;
+  // Operator-managed exclusion list. Each entry is a row SKU
+  // (style+color, the grid's row identity) marked via the "X" checkbox
+  // column. Excluded rows STAY VISIBLE in the grid (greyed, box checked,
+  // so they can be unchecked) but are dropped from EVERY aggregation —
+  // the totals row, the stat cards, On Hand / On SO / On PO / margin
+  // values, and from report/export data. Persisted globally to app_data
+  // (`ats_excluded_skus`) so the exclusions stick across reloads. Before
+  // a report runs, the operator is warned and can Continue (exclude),
+  // Cancel, or Include them for that one run.
+  excludedSkus: string[];
   // Phase 3: row collapse mode + per-group expand toggles. "none" = leaf
   // rows only (current behavior); other levels group + sum upward and
   // expandedGroups carries the keys of groups the user has drilled into.
@@ -144,16 +165,20 @@ export type ATSAction =
   | { type: "UPLOAD_FAIL"; error: string }
   | { type: "UPLOAD_RESET" };
 
-export function createInitialState(startDate: string): ATSState {
+export function createInitialState(startDate: string, initialSearch = ""): ATSState {
   return {
     startDate,
     rangeUnit: "months",
     rangeValue: 6,
-    search: "",
+    // Prefilled from a `?style=` deep-link (e.g. the Inventory Matrix "ATS ↗"
+    // link). The free-text search matches on row SKU, which carries the style
+    // code prefix, so seeding it focuses ATS on that style on first paint.
+    search: initialSearch,
     filterCategory: [],
     filterSubCategory: [],
     filterStyle: [],
     filterGender: [],
+    filterBrand: [],
     filterStatus: "All",
     minATS: "",
     soWinFrom: "",
@@ -207,6 +232,7 @@ export function createInitialState(startDate: string): ATSState {
     showTotalsRow: false,
     showStatsCards: true,
     explodePpk: true,
+    showImages: true,
     // Default "onPO" preserves the historical all-8-columns-sticky
     // behavior. Setting to null gives the planner an unfrozen scroll
     // experience; setting to a column earlier than On PO releases
@@ -216,5 +242,6 @@ export function createInitialState(startDate: string): ATSState {
     generalMarginPct: 21,
     collapseLevel: "none",
     expandedGroups: [],
+    excludedSkus: [],
   };
 }

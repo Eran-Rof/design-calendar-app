@@ -126,6 +126,48 @@ describe("resolvePerUnitCost", () => {
     expect(c).toBe(5);
   });
 
+  it("KEEPS per-unit master cost on a pack-grain sale when cost is plausible vs price (RCB* family)", () => {
+    // RCB1459W: pack_size=48 master row but unit_cost=4.45 is stored
+    // PER-UNIT (4.45/48 = $0.09/short is absurd). A pack sale of 24
+    // packs (1152 units) at $7920 → $6.875/unit. 4.45 <= 6.875*2 so the
+    // cost is already per-unit — DON'T divide. Pre-fix this returned
+    // 4.45/48 ≈ $0.093 → bogus 98.7% margin.
+    const c = resolvePerUnitCost({
+      masterUnitCost: 4.45, packSize: 48, grain: "pack",
+      netAmount: 7920, qtyUnits: 1152,
+    });
+    expect(c).toBeCloseTo(4.45, 5);
+  });
+
+  it("KEEPS per-unit master cost on a below-cost clearance pack sale (price under cost)", () => {
+    // RCB1459W-IRONGATE clearance: per-unit price $3.176 dips BELOW the
+    // $4.45 per-unit cost. The 2× gate (4.45 <= 3.176*2 = 6.35) still
+    // treats cost as per-unit → honest negative margin, not a fake 97%.
+    const c = resolvePerUnitCost({
+      masterUnitCost: 4.45, packSize: 48, grain: "pack",
+      netAmount: 3.176 * 1152, qtyUnits: 1152,
+    });
+    expect(c).toBeCloseTo(4.45, 5);
+  });
+
+  it("still DIVIDES a genuine per-pack master cost on a pack sale (RBB-PPK / ACMB-PPK)", () => {
+    // RBB1440N-PPK: unit_cost=264 IS per-pack (264/48 = 5.5/unit). Pack
+    // sale at ~$7/unit → 264 > 7*2 → divide. Unchanged by the fix.
+    const c = resolvePerUnitCost({
+      masterUnitCost: 264, packSize: 48, grain: "pack",
+      netAmount: 7 * 1152, qtyUnits: 1152,
+    });
+    expect(c).toBeCloseTo(5.5, 5);
+  });
+
+  it("falls back to legacy divide for a pack-grain sale when no sale price is available", () => {
+    const c = resolvePerUnitCost({
+      masterUnitCost: 240, packSize: 60, grain: "pack",
+      netAmount: null, qtyUnits: 0,
+    });
+    expect(c).toBeCloseTo(4, 5);
+  });
+
   it("divides per-pack master cost by pack_size for unit-grain sale when master cost > 2x unit price", () => {
     // Variant SKU mis-tagged with pack_size=24, master cost $158 (per-pack).
     // Sold at $8.75/unit. 158 > 8.75*2 -> divide.
@@ -655,6 +697,27 @@ describe("deriveSalesGrainFields — avgCostPerRawQty override", () => {
       });
       expect(r.unit_cost_at_sale).toBeCloseTo(5.6, 5);
     }
+  });
+
+  it("treats a per-EACH avg_cost on a PPK pack row as per-unit, not per-pack (RCB* mis-keyed cost)", () => {
+    // canonSku("RCB1459W-NAVY-PPK48") strips the PPK token → the avg_cost
+    // lookup hits the per-EACH row "RCB1459W-NAVY" = $4.45. Pre-fix this
+    // was multiplied by the native pack qty (cogs = 7 × 4.45 = $31.15 on
+    // a 336-unit / $2352 sale → fake 98.7% margin). The plausibility
+    // resolver keeps 4.45 as per-unit (4.45 <= 2× the $7/unit price).
+    const out = deriveSalesGrainFields({
+      rawItemNumber: "RCB1459W-NAVY-PPK48",
+      qty: 7,
+      netAmount: 2352,
+      master: { pack_size: 48, unit_cost: 4.45 },
+      avgCostPerRawQty: 4.45,
+    });
+    expect(out.qty_grain).toBe("pack");
+    expect(out.qty_units).toBe(336);
+    expect(out.unit_cost_at_sale).toBeCloseTo(4.45, 5);
+    expect(out.cogs_amount).toBeCloseTo(336 * 4.45, 2); // $1495.20, not $31.15
+    expect(out.margin_pct).toBeGreaterThan(0.30);
+    expect(out.margin_pct).toBeLessThan(0.40); // ~36%, not 98.7%
   });
 
   it("avgCostPerRawQty wins even when master.unit_cost is null (data-gap recovery)", () => {

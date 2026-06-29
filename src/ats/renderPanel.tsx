@@ -24,6 +24,7 @@ import type { AgedInvenResult } from "./exportAgedInven";
 import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
+import { StyleGalleryHost } from "../shared/ui/StyleImageGallery";
 import type { NormChange } from "./normalize";
 
 // Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
@@ -62,7 +63,24 @@ interface ATSDerivedCtx {
   eventIndex: Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>> | null;
   filtered: ATSRow[];
   statFiltered: ATSRow[];
+  // LEAF rows (collapse NOT applied), filtered + sorted. Feeds the Excel
+  // export, reports, and the AI snapshot so they're identical on any grid
+  // view — the grid's collapse is a display-only transform carried by
+  // pageRows. (ATS passes its `sortedLeaves` here.)
   sortedFiltered: ATSRow[];
+  // Calc sets = filtered/sortedFiltered MINUS excluded ("X") rows. Feed
+  // every aggregation + report; the grid display still uses filtered/pageRows
+  // so excluded rows stay visible (greyed) and can be unchecked.
+  // calcSortedFiltered is leaf-grain (see sortedFiltered above).
+  calcFiltered: ATSRow[];
+  calcSortedFiltered: ATSRow[];
+  // Distinct excluded rows currently loaded — drives the pre-report warning.
+  excludedReportRows: ATSRow[];
+  // Excluded SKU set + per-row toggle, threaded to the grid's "X" column.
+  excludedSet: ReadonlySet<string>;
+  onToggleExclude: (sku: string) => void;
+  // Bulk exclude/include for the "X" column header's select-all / clear-all.
+  onToggleExcludeAll: (skus: string[], exclude: boolean) => void;
   pageRows: ATSRow[];
   totalPages: number;
   categories: string[];
@@ -70,6 +88,9 @@ interface ATSDerivedCtx {
   // master_style values scoped to the active Category + Sub Cat filters
   // (see ATS.tsx). Drives the Style multi-select dropdown in the toolbar.
   styles: string[];
+  // Full brand_master name list (every brand the Tangerine app knows
+  // about). Drives the Brand multi-select dropdown in the toolbar.
+  brandOptions: string[];
   unmatchedRows: ATSRow[];
   filteredSkuSet: Set<string>;
   todayKey: string;
@@ -114,6 +135,9 @@ interface ATSDerivedCtx {
     salesAggregates?: import("./exportSalesFetch").SalesFetchResult,
     explodePpk?: boolean,
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
+    sizeMatrix?: import("./exportExcel").AtsSizeMatrixResponse,
+    bulkByStyleColor?: Map<string, { so: number; po: number }>,
+    periodMatrices?: Array<{ name: string; matrix: import("./exportExcel").AtsSizeMatrixResponse }>,
   ) => void;
   repositionCtxMenu: () => void;
   repositionSummaryCtx: () => void;
@@ -132,8 +156,8 @@ interface ATSDerivedCtx {
   // Both report handlers now return a payload (or sentinel) so the
   // NavBar can route them through the shared preview-before-download
   // modal.
-  onNegInven: () => ReportPayload | null;
-  onAgedInven: (days: number, category: string) => AgedInvenResult;
+  onNegInven: (includeExcluded?: boolean) => ReportPayload | null;
+  onAgedInven: (days: number, category: string, includeExcluded?: boolean) => AgedInvenResult;
   unreadNotifs: number;
   showingNotifications: boolean;
   onToggleNotifications: () => void;
@@ -143,12 +167,13 @@ interface ATSDerivedCtx {
 export type ATSRenderCtx = ATSState & ATSStateSetters & ATSDerivedCtx;
 
 export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
-  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
+  const { startDate, setStartDate, rangeUnit, setRangeUnit, rangeValue, setRangeValue, search, setSearch, filterCategory, setFilterCategory, filterSubCategory, setFilterSubCategory, filterStyle, setFilterStyle, styles, filterGender, setFilterGender, filterBrand, setFilterBrand, brandOptions, filterStatus, setFilterStatus, minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, soDropOpen, setSoDropOpen, rows, setRows, loading, mockMode, page, setPage, excelData, setExcelData, uploadingFile, uploadProgress, uploadSuccess, setUploadSuccess, uploadError, setUploadError, uploadWarnings, setUploadWarnings, pendingUploadData, setPendingUploadData, showUpload, setShowUpload, invFile, setInvFile, purFile, setPurFile, ordFile, setOrdFile, lastSync, hoveredCell, setHoveredCell, pinnedSku, setPinnedSku, ctxMenu, setCtxMenu, summaryCtx, setSummaryCtx, activeSort, setActiveSort, sortCol, setSortCol, sortDir, setSortDir, STORES, PAGE_SIZE, poStores, soStores, poDropRef, soDropRef, invRef, purRef, ordRef, ctxRef, summaryCtxRef, tableRef, dates, displayPeriods, eventIndex, filtered, statFiltered, sortedFiltered, calcFiltered, calcSortedFiltered, excludedReportRows, excludedSet, onToggleExclude, onToggleExcludeAll, pageRows, totalPages, categories, subCategories, unmatchedRows, filteredSkuSet, totalSoValue, totalPoValue, marginDollars, marginPct, handleFileUpload, handleThClick, loadFromSupabase, saveUploadData, toggleStore, exportToExcel, repositionCtxMenu, repositionSummaryCtx, cancelRef, abortRef, cancelUpload, openSummaryCtx, getEventsInPeriod, lowStock, negATSCount, zeroStock, totalSKUs, totalPoQty, totalSoQty, todayKey, normChanges, setNormChanges, applyNormReview, dismissNormReview, customerFilter, setCustomerFilter, customerDropOpen, setCustomerDropOpen, customerSearch, setCustomerSearch, dragSku, setDragSku, dragOverSku, setDragOverSku, pendingMerge, setPendingMerge, isAdmin, commitMerge, handleSkuDrop,
   mergeHistory, undoLastMerge, clearMergeAndNavigate,
   viewMode, setViewMode, onNegInven, onAgedInven,
   showTotalsRow, setShowTotalsRow,
   showStatsCards, setShowStatsCards,
   explodePpk, setExplodePpk,
+  showImages, setShowImages,
   freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
@@ -225,7 +250,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
       sub_category: r.master_sub_category ?? null,
       style: r.master_style ?? null,
       color: r.master_color ?? null,
-      gender: r.gender ?? null,
+      gender: r.master_gender ?? r.gender ?? null,
       store: r.store ?? null,
       onHand: r.onHand,
       onPO: r.onPO,
@@ -274,7 +299,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         categories:     distinctSet(rows.map(r => r.master_category ?? r.category)),
         sub_categories: distinctSet(rows.map(r => r.master_sub_category)),
         styles:         distinctSet(rows.map(r => r.master_style)),
-        genders:        distinctSet(rows.map(r => r.gender)),
+        genders:        distinctSet(rows.map(r => r.master_gender ?? r.gender)),
         stores:         distinctSet(rows.map(r => r.store)),
       },
       sample_rows: sample,
@@ -317,7 +342,9 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         purFile={purFile}
         ordFile={ordFile}
         exportToExcel={exportToExcel}
-        filtered={sortedFiltered}
+        filtered={calcSortedFiltered}
+        fullFiltered={sortedFiltered}
+        excludedRows={excludedReportRows}
         displayPeriods={displayPeriods}
         hiddenColumns={hiddenColumns ?? []}
         showTotalsRow={showTotalsRow ?? false}
@@ -330,8 +357,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         // downloading directly) so the NavBar can route them through
         // the shared preview-before-download modal. Excel output is
         // unchanged — the modal flushes the same workbook on Download.
-        onDownloadIncompleteSkus={() => exportIncompleteSkus(filtered, eventIndex)}
-        onDownloadStockVsSo={() => exportStockVsSo(filtered, eventIndex)}
+        onDownloadIncompleteSkus={(includeExcluded) => exportIncompleteSkus(includeExcluded ? filtered : calcFiltered, eventIndex)}
+        onDownloadStockVsSo={(includeExcluded) => exportStockVsSo(includeExcluded ? filtered : calcFiltered, eventIndex)}
         categories={categories}
         subCategories={subCategories}
         styles={styles ?? []}
@@ -435,6 +462,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={subCategories}
           filterStyle={filterStyle ?? []} setFilterStyle={setFilterStyle!} styles={styles ?? []}
           filterGender={filterGender} setFilterGender={setFilterGender}
+          filterBrand={filterBrand ?? []} setFilterBrand={setFilterBrand!} brandOptions={brandOptions ?? []}
           setFilterStatus={setFilterStatus}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}
           poDropOpen={poDropOpen} setPoDropOpen={setPoDropOpen} setSoDropOpen={setSoDropOpen}
@@ -453,6 +481,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
           viewMode={viewMode ?? "ats"} setViewMode={setViewMode!}
           showTotalsRow={showTotalsRow} setShowTotalsRow={setShowTotalsRow!}
           explodePpk={explodePpk ?? true} setExplodePpk={setExplodePpk!}
+          showImages={showImages ?? true} setShowImages={setShowImages!}
           freezeKey={freezeKey ?? null} setFreezeKey={setFreezeKey!}
           hiddenColumns={hiddenColumns ?? []} setHiddenColumns={setHiddenColumns!}
           generalMarginPct={generalMarginPct ?? 21} setGeneralMarginPct={setGeneralMarginPct!}
@@ -479,7 +508,8 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             loading={loading
               || (excelData != null && excelData.skus.length > 0 && rows.length === 0)
               || (excelData != null && excelData.skus.length > 0 && !masterReady && filtered.length === 0)
-            } filtered={filtered} pageRows={pageRows}
+            } filtered={filtered} totalsRows={calcFiltered} pageRows={pageRows}
+            excludedSet={excludedSet} onToggleExclude={onToggleExclude} onToggleExcludeAll={onToggleExcludeAll}
             displayPeriods={displayPeriods} tableRef={tableRef}
             sortCol={sortCol} sortDir={sortDir} handleThClick={handleThClick} rangeUnit={rangeUnit}
             pinnedSku={pinnedSku} setPinnedSku={setPinnedSku}
@@ -487,8 +517,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             dragOverSku={dragOverSku} setDragOverSku={setDragOverSku}
             hoveredCell={hoveredCell} setHoveredCell={setHoveredCell}
             todayKey={todayKey} viewMode={viewMode ?? "ats"}
+            negMode={activeSort === "negATS"}
             showTotalsRow={showTotalsRow}
             explodePpk={explodePpk ?? true}
+            showImages={showImages ?? true}
             freezeKey={freezeKey ?? null}
             hiddenColumns={hiddenColumns ?? []}
             generalMarginPct={generalMarginPct ?? 21}
@@ -558,6 +590,12 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
 
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. */}
       <GlobalSearchPaletteAuto />
+
+      {/* Image gallery host — openStyleGallery() (from the per-row style
+          thumbnails) renders its lightbox into this singleton. Mounted
+          here so the ATS app gets the same enlarge / download / print
+          gallery the Tangerine app uses. */}
+      <StyleGalleryHost />
     </div>
   );
 }

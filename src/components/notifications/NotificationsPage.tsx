@@ -51,29 +51,29 @@ const C = {
 // Visual metadata per known event_type. Anything not in the map falls
 // back to a neutral grey card.
 const EVENT_META: Record<string, { icon: string; label: string; color: string }> = {
-  phase_change_proposed:    { icon: "📝", label: "Phase change requests",   color: C.accent },
-  phase_change_approved:    { icon: "✅", label: "Phase changes approved",  color: C.success },
-  phase_change_rejected:    { icon: "❌", label: "Phase changes rejected",  color: C.danger },
+  phase_change_proposed:    { icon: "", label: "Phase change requests",   color: C.accent },
+  phase_change_approved:    { icon: "", label: "Phase changes approved",  color: C.success },
+  phase_change_rejected:    { icon: "", label: "Phase changes rejected",  color: C.danger },
   phase_change_reopened:    { icon: "↻",  label: "Phase changes reopened",  color: C.warn },
-  invoice_submitted:        { icon: "🧾", label: "New invoices",            color: C.primary },
-  invoice_approved:         { icon: "✅", label: "Invoices approved",       color: C.success },
-  invoice_discrepancy:      { icon: "⚠️", label: "Invoice discrepancies",   color: C.warn },
-  payment_sent:             { icon: "💸", label: "Payments sent",           color: C.success },
-  shipment_created:         { icon: "📦", label: "New shipments",           color: C.primary },
-  shipment_delivered:       { icon: "🚚", label: "Shipments delivered",     color: C.success },
-  po_issued:                { icon: "📄", label: "Purchase orders issued",  color: C.primary },
-  new_message:              { icon: "💬", label: "New messages",            color: C.primaryLt },
-  compliance_expiring_soon: { icon: "⏰", label: "Compliance expiring",     color: C.warn },
-  onboarding_submitted:     { icon: "🆕", label: "Onboarding submitted",    color: C.primary },
-  onboarding_approved:      { icon: "✅", label: "Onboarding approved",     color: C.success },
-  rfq_invited:              { icon: "📨", label: "RFQ invitations",         color: C.primary },
-  rfq_awarded:              { icon: "🏆", label: "RFQ awards",              color: C.success },
-  anomaly_detected:         { icon: "⚠️", label: "Anomalies detected",      color: C.danger },
-  discount_offer_made:      { icon: "💰", label: "Discount offers",         color: C.warn },
-  scf_funded:               { icon: "💵", label: "SCF funded",              color: C.success },
-  workspace_task_assigned:  { icon: "🗂", label: "Workspace tasks",         color: C.primary },
-  dispute_opened:           { icon: "⚠️", label: "Disputes",                color: C.danger },
-  contract_expiring_soon:   { icon: "📜", label: "Contracts expiring",      color: C.warn },
+  invoice_submitted:        { icon: "", label: "New invoices",            color: C.primary },
+  invoice_approved:         { icon: "", label: "Invoices approved",       color: C.success },
+  invoice_discrepancy:      { icon: "", label: "Invoice discrepancies",   color: C.warn },
+  payment_sent:             { icon: "", label: "Payments sent",           color: C.success },
+  shipment_created:         { icon: "", label: "New shipments",           color: C.primary },
+  shipment_delivered:       { icon: "", label: "Shipments delivered",     color: C.success },
+  po_issued:                { icon: "", label: "Purchase orders issued",  color: C.primary },
+  new_message:              { icon: "", label: "New messages",            color: C.primaryLt },
+  compliance_expiring_soon: { icon: "", label: "Compliance expiring",     color: C.warn },
+  onboarding_submitted:     { icon: "", label: "Onboarding submitted",    color: C.primary },
+  onboarding_approved:      { icon: "", label: "Onboarding approved",     color: C.success },
+  rfq_invited:              { icon: "", label: "RFQ invitations",         color: C.primary },
+  rfq_awarded:              { icon: "", label: "RFQ awards",              color: C.success },
+  anomaly_detected:         { icon: "", label: "Anomalies detected",      color: C.danger },
+  discount_offer_made:      { icon: "", label: "Discount offers",         color: C.warn },
+  scf_funded:               { icon: "", label: "SCF funded",              color: C.success },
+  workspace_task_assigned:  { icon: "", label: "Workspace tasks",         color: C.primary },
+  dispute_opened:           { icon: "", label: "Disputes",                color: C.danger },
+  contract_expiring_soon:   { icon: "", label: "Contracts expiring",      color: C.warn },
 };
 
 function prettify(eventType: string): string {
@@ -85,7 +85,7 @@ function prettify(eventType: string): string {
 }
 
 function eventIcon(eventType: string): string {
-  return EVENT_META[eventType]?.icon || "🔔";
+  return EVENT_META[eventType]?.icon || "";
 }
 
 function eventColor(eventType: string): string {
@@ -107,6 +107,11 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"unread" | "all">("unread");
   const [search, setSearch] = useState("");
+  // Multi-select for bulk delete. confirmDelete gates a two-click inline confirm
+  // (avoids window.confirm so this shared component stays portable to the vendor
+  // portal, which doesn't mount the internal warn UI).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const recipientColumn = kind === "vendor" ? "recipient_auth_id" : "recipient_internal_id";
 
@@ -128,6 +133,19 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     }
   }
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [userId, kind, appFilter]);
+
+  // Keep the list in sync with the bell badge. The bell polls every 30s and
+  // surfaces broadcast `rof_notif_changed` after a mark-read/delete; without
+  // refetching here the page goes stale — e.g. the bell shows "1 unread" from a
+  // notification that arrived after the last load, while the list still renders
+  // the old set ("nothing viewable"). Poll + listen so the two never disagree.
+  useEffect(() => {
+    const onChanged = () => { void load(); };
+    window.addEventListener("rof_notif_changed", onChanged);
+    const i = window.setInterval(() => { void load(); }, 30_000);
+    return () => { window.removeEventListener("rof_notif_changed", onChanged); window.clearInterval(i); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, kind, appFilter]);
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read_at).length, [items]);
 
@@ -186,6 +204,60 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
     if (n.link) window.location.href = n.link;
   }
 
+  // ── Selection + bulk delete ──────────────────────────────────────────────
+  // Prune selected ids that no longer exist (after a reload/delete).
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(items.map((n) => n.id));
+      const next = new Set<string>();
+      let changed = false;
+      for (const id of prev) { if (live.has(id)) next.add(id); else changed = true; }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setConfirmDelete(false);
+    // Optimistic removal; revert via reload on error. Vendors delete their own
+    // rows (RLS vendor_own_notifications_delete); internal apps use the anon key.
+    setItems((xs) => xs.filter((n) => !selected.has(n.id)));
+    setSelected(new Set());
+    const { error } = await supabase.from("notifications").delete().in("id", ids);
+    if (error) void load();
+    else emitChanged();
+  }
+
+  // One-click delete of a single notification (read or unread). Same RLS path as
+  // bulk delete: anon FOR ALL (internal) / vendor_own_notifications_delete (vendor).
+  async function deleteOne(id: string) {
+    setItems((xs) => xs.filter((n) => n.id !== id));
+    setSelected((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    const { error } = await supabase.from("notifications").delete().eq("id", id);
+    if (error) void load();
+    else emitChanged();
+  }
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every((n) => selected.has(n.id));
+  function toggleSelectAllVisible() {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (allVisibleSelected) for (const x of filtered) n.delete(x.id);
+      else for (const x of filtered) n.add(x.id);
+      return n;
+    });
+  }
+
   const outerStyle: React.CSSProperties = embed
     ? { color: C.text, fontFamily: "system-ui, -apple-system, sans-serif" }
     : { minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, -apple-system, sans-serif", padding: 24 };
@@ -235,6 +307,24 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
               </button>
             ))}
             <button onClick={() => void load()} title="Refresh" style={smallBtn}>↻</button>
+            {filtered.length > 0 && (
+              <button onClick={toggleSelectAllVisible} style={smallBtn} title="Select / deselect all shown">
+                {allVisibleSelected ? "Deselect all" : "Select all"}
+              </button>
+            )}
+            {selected.size > 0 && (
+              confirmDelete ? (
+                <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: C.textSub }}>Delete {selected.size}?</span>
+                  <button onClick={() => void deleteSelected()} style={{ ...smallBtn, color: "#fff", background: C.danger, borderColor: C.danger }}>Yes, delete</button>
+                  <button onClick={() => setConfirmDelete(false)} style={smallBtn}>Cancel</button>
+                </span>
+              ) : (
+                <button onClick={() => setConfirmDelete(true)} style={{ ...smallBtn, color: C.danger, borderColor: C.danger }} title="Delete the selected notifications">
+                  Delete ({selected.size})
+                </button>
+              )
+            )}
             {unreadCount > 0 && (
               <button onClick={markAllRead} style={{ ...smallBtn, color: C.primaryLt, borderColor: C.primary }}>
                 Mark all read
@@ -261,7 +351,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
             {items.length === 0
               ? "No notifications yet. You're all caught up."
               : filter === "unread"
-                ? "🎉 All caught up — no unread notifications."
+                ? "All caught up — no unread notifications."
                 : `No notifications match "${search.trim()}".`}
           </div>
         ) : (
@@ -329,6 +419,8 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                     {rows.slice(0, 12).map((n) => {
                       const unread = !n.read_at;
                       const clickable = !!n.link;
+                      const isSel = selected.has(n.id);
+                      const restBg = isSel ? C.primary + "22" : unread ? C.surfaceAlt : "transparent";
                       return (
                         <div
                           key={n.id}
@@ -336,18 +428,26 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                           style={{
                             padding: "10px 12px",
                             borderRadius: 8,
-                            background: unread ? C.surfaceAlt : "transparent",
-                            border: `1px solid ${unread ? color + "55" : C.surfaceHi}`,
+                            background: restBg,
+                            border: `1px solid ${isSel ? C.primary : unread ? color + "55" : C.surfaceHi}`,
                             cursor: clickable ? "pointer" : "default",
                             display: "grid",
-                            gridTemplateColumns: "1fr auto",
+                            gridTemplateColumns: "auto 1fr auto",
                             gap: 10,
                             alignItems: "start",
                             transition: "background 0.12s, transform 0.12s",
                           }}
                           onMouseEnter={(e) => { if (clickable) { (e.currentTarget as HTMLDivElement).style.background = C.surfaceHi; } }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = unread ? C.surfaceAlt : "transparent"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = restBg; }}
                         >
+                          <input
+                            type="checkbox"
+                            checked={isSel}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleSelect(n.id)}
+                            title="Select notification"
+                            style={{ marginTop: 2, cursor: "pointer", accentColor: C.primary, width: 15, height: 15, flexShrink: 0 }}
+                          />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: unread ? 700 : 500, color: unread ? C.text : C.textSub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {n.title}
@@ -377,6 +477,15 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                             {clickable && !unread && (
                               <span style={{ fontSize: 10, color: C.textMuted }}>→</span>
                             )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
+                              title="Delete this notification"
+                              style={{
+                                padding: "2px 8px", borderRadius: 4,
+                                border: `1px solid ${C.borderLt}`, background: "transparent",
+                                color: C.textMuted, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "inherit",
+                              }}
+                            >Delete</button>
                           </div>
                         </div>
                       );

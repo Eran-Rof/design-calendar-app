@@ -6,6 +6,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { IpDataQualityIssue, IpDataQualityReport, IpDqSeverity } from "../types/dataQuality";
 import { scanDataQuality } from "../services/dataQuality";
 import { loadPlanningSnapshot } from "../services/planningClient";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "ip.data_quality";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "severity", label: "Severity" },
+  { key: "category", label: "Category" },
+  { key: "message", label: "Message" },
+  { key: "entity", label: "Entity" },
+];
 
 const SEVERITY_COLOR: Record<IpDqSeverity, string> = {
   error: "#c53030",
@@ -19,12 +29,15 @@ export default function DataQualityReport() {
   const [error, setError] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<IpDqSeverity | "all">("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [truncated, setTruncated] = useState<string[]>([]);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function runScan() {
     setLoading(true);
     setError(null);
     try {
       const snap = await loadPlanningSnapshot();
+      setTruncated(snap.truncatedTables);
       const r = scanDataQuality(snap);
       setReport(r);
     } catch (e) {
@@ -70,6 +83,16 @@ export default function DataQualityReport() {
 
       {error && <div style={{ color: "#c53030", marginBottom: 16 }}>Error: {error}</div>}
 
+      {truncated.length > 0 && (
+        <div style={{
+          marginBottom: 16, padding: "8px 12px", borderRadius: 6,
+          background: "#fffbeb", border: "1px solid #f6e05e", color: "#744210", fontSize: 13,
+        }}>
+          Partial scan: {truncated.join(", ")} exceeded the row ceiling, so cross-row
+          checks (orphans, duplicates) may be incomplete. Treat results as indicative.
+        </div>
+      )}
+
       {report && (
         <>
           <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
@@ -82,27 +105,38 @@ export default function DataQualityReport() {
                 onClick={() => setFilterSeverity(filterSeverity === sev ? "all" : sev)}
               />
             ))}
-            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
-                    style={{ padding: 6 }}>
-              <option value="all">All categories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>{c} ({report.issue_count_by_category[c as keyof typeof report.issue_count_by_category] ?? 0})</option>
-              ))}
-            </select>
+            <div style={{ minWidth: 200 }}>
+              <SearchableSelect
+                value={filterCategory}
+                onChange={(v) => setFilterCategory(v)}
+                inputStyle={{ padding: 6 }}
+                options={[
+                  { value: "all", label: "All categories" },
+                  ...categories.map((c) => ({
+                    value: c,
+                    label: `${c} (${report.issue_count_by_category[c as keyof typeof report.issue_count_by_category] ?? 0})`,
+                  })),
+                ]}
+              />
+            </div>
+            <div style={{ marginLeft: "auto" }}>
+              <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                                onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            </div>
           </div>
 
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
-                <th style={{ padding: 8 }}>Severity</th>
-                <th style={{ padding: 8 }}>Category</th>
-                <th style={{ padding: 8 }}>Message</th>
-                <th style={{ padding: 8 }}>Entity</th>
+                <th hidden={!visibleColumns.has("severity")} style={{ padding: 8 }}>Severity</th>
+                <th hidden={!visibleColumns.has("category")} style={{ padding: 8 }}>Category</th>
+                <th hidden={!visibleColumns.has("message")} style={{ padding: 8 }}>Message</th>
+                <th hidden={!visibleColumns.has("entity")} style={{ padding: 8 }}>Entity</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((i) => (
-                <IssueRow key={i.entity_key ?? `${i.category}-${i.message}`} issue={i} />
+                <IssueRow key={i.entity_key ?? `${i.category}-${i.message}`} issue={i} visibleColumns={visibleColumns} />
               ))}
               {visible.length === 0 && (
                 <tr><td colSpan={4} style={{ padding: 16, color: "#718096" }}>No issues match the filter.</td></tr>
@@ -133,17 +167,16 @@ function SeverityPill({ severity, count, active, onClick }: {
   );
 }
 
-function IssueRow({ issue }: { issue: IpDataQualityIssue }) {
+function IssueRow({ issue, visibleColumns }: { issue: IpDataQualityIssue; visibleColumns: Set<string> }) {
   return (
     <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
-      <td style={{ padding: 8, color: SEVERITY_COLOR[issue.severity], fontWeight: 600 }}>
+      <td hidden={!visibleColumns.has("severity")} style={{ padding: 8, color: SEVERITY_COLOR[issue.severity], fontWeight: 600 }}>
         {issue.severity}
       </td>
-      <td style={{ padding: 8 }}>{issue.category}</td>
-      <td style={{ padding: 8 }}>{issue.message}</td>
-      <td style={{ padding: 8, color: "#4a5568" }}>
-        {issue.entity_type ?? "-"}
-        {issue.entity_id ? ` / ${issue.entity_id.slice(0, 8)}` : ""}
+      <td hidden={!visibleColumns.has("category")} style={{ padding: 8 }}>{issue.category}</td>
+      <td hidden={!visibleColumns.has("message")} style={{ padding: 8 }}>{issue.message}</td>
+      <td hidden={!visibleColumns.has("entity")} style={{ padding: 8, color: "#4a5568" }}>
+        {issue.entity_type ?? "—"}
       </td>
     </tr>
   );

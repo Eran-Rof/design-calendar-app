@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, aliases, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, carton_length_in, carton_width_in, carton_height_in, gross_weight_lb, cbm_confidence, cbm_note, cbm_inputs, carton_cbm_override, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -177,6 +177,20 @@ export default async function handler(req, res) {
       brand_id: v.data.brand_id || null,
       size_scale_id: v.data.size_scale_id || null,
       rise: v.data.rise || null,
+      hts_code: v.data.hts_code || null,
+      duty_rate_pct: v.data.duty_rate_pct ?? null,
+      additional_tariff_pct: v.data.additional_tariff_pct ?? null,
+      unit_weight_kg: v.data.unit_weight_kg ?? null,
+      units_per_carton: v.data.units_per_carton ?? null,
+      carton_cbm_m3: v.data.carton_cbm_m3 ?? null,
+      carton_length_in: v.data.carton_length_in ?? null,
+      carton_width_in: v.data.carton_width_in ?? null,
+      carton_height_in: v.data.carton_height_in ?? null,
+      gross_weight_lb: v.data.gross_weight_lb ?? null,
+      cbm_confidence: v.data.cbm_confidence ?? null,
+      cbm_note: v.data.cbm_note ?? null,
+      cbm_inputs: v.data.cbm_inputs ?? null,
+      carton_cbm_override: v.data.carton_cbm_override === true,
       attributes: v.data.attributes || {},
     };
 
@@ -195,7 +209,23 @@ export default async function handler(req, res) {
       }
       return res.status(500).json({ error: error.message });
     }
-    return res.status(201).json(data);
+
+    // Opt-in GS1 UPC minting (Style Master "Generate UPCs" checkbox). When the
+    // operator ticks it, mint one unique UPC-A per (style, color, size) from the
+    // company GS1 prefix using the atomic counter. Failure here is non-fatal —
+    // the style is already created; we surface the outcome on `upc_minting` so
+    // the UI can toast it. Existing Xoro/Excel UPCs are never touched.
+    let upcMinting = null;
+    if (v.data.generate_upcs === true) {
+      try {
+        const { mintUpcsForStyle } = await import("../../../_lib/gs1/mintForStyle.js");
+        upcMinting = await mintUpcsForStyle(admin, entityId, data);
+      } catch (e) {
+        upcMinting = { minted: 0, skipped: true, reason: `UPC minting failed: ${e?.message || String(e)}` };
+      }
+    }
+
+    return res.status(201).json(upcMinting ? { ...data, upc_minting: upcMinting } : data);
   }
 
   res.setHeader("Allow", "GET, POST");
@@ -248,13 +278,58 @@ export function validateInsert(body) {
   } else {
     body.size_scale_id = null;
   }
+  // Opt-in UPC minting flag — boolean, never persisted on the style row; the
+  // handler reads it after insert to mint GS1 UPC-A codes for the new style.
+  body.generate_upcs = body.generate_upcs === true || body.generate_upcs === "true";
   // Optional classifier fields — coerce empty strings to null so the
   // handler doesn't persist empty text.
-  for (const k of ["group_name", "category_name", "sub_category_name", "rise"]) {
+  for (const k of ["group_name", "category_name", "sub_category_name", "rise", "hts_code"]) {
     if (body[k] != null) {
       const trimmed = String(body[k]).trim();
       body[k] = trimmed === "" ? null : trimmed;
     }
   }
+  // HTS duty rate % — numeric or null (paired with hts_code).
+  if (body.duty_rate_pct != null && String(body.duty_rate_pct).trim() !== "") {
+    const n = Number(body.duty_rate_pct);
+    body.duty_rate_pct = Number.isFinite(n) ? n : null;
+  } else {
+    body.duty_rate_pct = null;
+  }
+  // Additional tariff % (Trump-administration flat +10%) — numeric or null.
+  if (body.additional_tariff_pct != null && String(body.additional_tariff_pct).trim() !== "") {
+    const n = Number(body.additional_tariff_pct);
+    body.additional_tariff_pct = Number.isFinite(n) ? n : null;
+  } else {
+    body.additional_tariff_pct = null;
+  }
+  // Logistics roll-up fields (PO total weight / cartons / CBM). Positive numbers
+  // or null; units_per_carton is a positive integer.
+  for (const k of ["unit_weight_kg", "carton_cbm_m3"]) {
+    if (body[k] != null && String(body[k]).trim() !== "") {
+      const n = Number(body[k]);
+      body[k] = Number.isFinite(n) && n >= 0 ? n : null;
+    } else body[k] = null;
+  }
+  if (body.units_per_carton != null && String(body.units_per_carton).trim() !== "") {
+    const n = Math.floor(Number(body.units_per_carton));
+    body.units_per_carton = Number.isFinite(n) && n > 0 ? n : null;
+  } else body.units_per_carton = null;
+  // AI carton-CBM estimate fields. Carton dims + gross weight = non-negative
+  // number or null; confidence/note = trimmed text; cbm_inputs = jsonb object;
+  // carton_cbm_override = boolean.
+  for (const k of ["carton_length_in", "carton_width_in", "carton_height_in", "gross_weight_lb"]) {
+    if (body[k] != null && String(body[k]).trim() !== "") {
+      const n = Number(body[k]);
+      body[k] = Number.isFinite(n) && n >= 0 ? n : null;
+    } else body[k] = null;
+  }
+  for (const k of ["cbm_confidence", "cbm_note"]) {
+    if (body[k] != null) { const t = String(body[k]).trim(); body[k] = t === "" ? null : t; }
+  }
+  if ("cbm_inputs" in body) {
+    body.cbm_inputs = body.cbm_inputs && typeof body.cbm_inputs === "object" ? body.cbm_inputs : null;
+  }
+  if ("carton_cbm_override" in body) body.carton_cbm_override = body.carton_cbm_override === true || body.carton_cbm_override === "true";
   return { data: body };
 }

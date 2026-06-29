@@ -5,7 +5,9 @@
 //
 // GET  ?q=&include_inactive=   → lists for the default entity (+ customer name,
 //                                + item_count). Active-only unless include_inactive.
-// POST { code, name, currency?, customer_id?, customer_tier?, is_default? }
+// POST { name, currency?, customer_id?, customer_tier?, is_default? }
+//        `code` is AUTO-GENERATED (PL-NNNNN) by a DB trigger and is immutable —
+//        any client-supplied code is ignored on create and frozen on update.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -28,19 +30,19 @@ async function resolveDefaultEntityId(admin) {
   return data?.id || null;
 }
 const SELECT_COLS =
-  "id, entity_id, code, name, currency, customer_id, customer_tier, is_default, is_active, created_at, updated_at, " +
-  "customer:customers!price_lists_customer_id_fkey(id, name, customer_code)";
+  "id, entity_id, code, name, currency, customer_id, customer_tier, brand_id, is_default, is_active, created_at, updated_at, " +
+  "customer:customers!price_lists_customer_id_fkey(id, name, customer_code), " +
+  "brand:brand_master!price_lists_brand_id_fkey(id, name, code)";
 
 // Validate the one-scope rule + shape. Returns {data} or {error}.
 function validate(body, { isCreate }) {
   const out = {};
+  // `code` is auto-generated (PL-NNNNN) + immutable (DB trigger) — never
+  // accepted on create, never patched on update.
   if (isCreate) {
-    if (!body.code || !String(body.code).trim()) return { error: "code is required" };
     if (!body.name || !String(body.name).trim()) return { error: "name is required" };
-    out.code = String(body.code).trim().toUpperCase();
     out.name = String(body.name).trim();
   } else {
-    if (body.code != null) out.code = String(body.code).trim().toUpperCase();
     if (body.name != null) out.name = String(body.name).trim();
   }
   if (body.currency != null) {
@@ -56,6 +58,12 @@ function validate(body, { isCreate }) {
     out.customer_id = custSet ? String(body.customer_id) : null;
   }
   if (body.customer_tier !== undefined) out.customer_tier = tierSet ? String(body.customer_tier).trim() : null;
+  // brand_id: set on a per-brand DEFAULT list; NULL on customer / tier / all-brand lists.
+  if (body.brand_id !== undefined) {
+    const brandSet = body.brand_id != null && body.brand_id !== "";
+    if (brandSet && !UUID_RE.test(String(body.brand_id))) return { error: "brand_id must be a uuid" };
+    out.brand_id = brandSet ? String(body.brand_id) : null;
+  }
   if (body.is_default !== undefined) out.is_default = !!body.is_default;
   if (body.is_active !== undefined) out.is_active = !!body.is_active;
   return { data: out };

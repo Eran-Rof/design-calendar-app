@@ -1,5 +1,22 @@
-// Vendor portal utility functions. Kept framework-agnostic so they're easy
+﻿// Vendor portal utility functions. Kept framework-agnostic so they're easy
 // to unit-test.
+
+/**
+ * Extract a human-readable message from a thrown value. Supabase/PostgREST
+ * rejections are plain objects with a `.message` (and often `.details`/`.hint`),
+ * NOT Error instances — so `String(e)` renders the useless "[object Object]".
+ * This pulls the real message out so the UI shows what actually failed.
+ */
+export function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object") {
+    const o = e as { message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [o.message, o.details, o.hint].filter((x) => typeof x === "string" && x.length > 0);
+    if (parts.length > 0) return parts.join(" — ");
+    try { return JSON.stringify(e); } catch { /* fall through */ }
+  }
+  return String(e);
+}
 
 /**
  * Parse a date string as **local midnight** when it has no time component,
@@ -7,7 +24,7 @@
  *
  * Why: `new Date("2026-05-15")` is spec'd to parse as UTC midnight. In
  * negative-offset timezones (US), that becomes the previous local day —
- * so `toLocaleDateString()` shows the wrong day, and day-diff math
+ * so `toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })` shows the wrong day, and day-diff math
  * computes the wrong "overdue" flag. Splitting the string and constructing
  * with `new Date(y, m-1, d)` anchors to local midnight and fixes both.
  */
@@ -48,15 +65,29 @@ export function fmtDate(d?: string | null): string {
   if (!d) return "—";
   const dt = parseLocalDate(d);
   if (!dt) return d;
-  return dt.toLocaleDateString();
+  return dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
+// Whole-dollar money — kept for the vendor-portal TOTALS (grand totals + summary
+// stat cards), which the operator wants left at no decimals.
 export function fmtMoney(n?: number | null): string {
   if (n == null || Number.isNaN(n)) return "—";
   return n.toLocaleString(undefined, {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
+  });
+}
+
+// Two-decimal money — for line-level figures (unit price, line amounts,
+// subtotals) so per-line money shows cents. Totals stay on fmtMoney().
+export function fmtMoney2(n?: number | null): string {
+  if (n == null || Number.isNaN(n)) return "—";
+  return n.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 

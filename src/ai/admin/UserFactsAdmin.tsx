@@ -1,4 +1,4 @@
-// Admin UI for ip_ai_user_facts (Tier 2H — operator-authored Ask AI notes).
+﻿// Admin UI for ip_ai_user_facts (Tier 2H — operator-authored Ask AI notes).
 //
 // Mounted at /ai-facts (see src/main.tsx). Internal staff only.
 // Each operator can add, edit, and remove facts that the Ask AI panel
@@ -10,6 +10,7 @@
 // Authorization header injected automatically by installInternalApiAuth.
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const PAL = {
   bg: "#0F172A",
@@ -203,9 +204,12 @@ export default function UserFactsAdmin() {
           onChange={e => setSearch(e.target.value)}
           style={input}
         />
-        <select value={filterApp} onChange={e => setFilterApp(e.target.value)} style={select}>
-          {APP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterApp || null}
+          onChange={v => setFilterApp(v)}
+          options={APP_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+          inputStyle={select}
+        />
         <button onClick={load} style={btnSecondary}>Refresh</button>
       </div>
 
@@ -238,16 +242,24 @@ export default function UserFactsAdmin() {
           <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 14 }}>
             <label style={{ ...label, marginBottom: 0 }}>
               Scope:
-              <select value={draftScope} onChange={e => setDraftScope(e.target.value as Scope)} style={{ ...select, marginLeft: 6 }}>
-                <option value="self">Just me</option>
-                <option value="global">Everyone</option>
-              </select>
+              <SearchableSelect
+                value={draftScope}
+                onChange={v => setDraftScope(v as Scope)}
+                options={[
+                  { value: "self", label: "Just me" },
+                  { value: "global", label: "Everyone" },
+                ]}
+                inputStyle={{ ...select, marginLeft: 6 }}
+              />
             </label>
             <label style={{ ...label, marginBottom: 0 }}>
               App:
-              <select value={draftApp} onChange={e => setDraftApp(e.target.value)} style={{ ...select, marginLeft: 6 }}>
-                {APP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+              <SearchableSelect
+                value={draftApp || null}
+                onChange={v => setDraftApp(v)}
+                options={APP_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+                inputStyle={{ ...select, marginLeft: 6 }}
+              />
             </label>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -276,7 +288,7 @@ export default function UserFactsAdmin() {
                   <span style={appChip}>{f.app}</span>
                 )}
                 <span style={{ marginLeft: "auto", color: PAL.textMuted, fontSize: 11 }}>
-                  updated {new Date(f.updated_at).toLocaleDateString()}
+                  updated {new Date(f.updated_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
                 </span>
               </div>
               <div style={{ color: PAL.text, fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{f.fact}</div>

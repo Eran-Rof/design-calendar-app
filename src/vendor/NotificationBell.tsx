@@ -73,6 +73,14 @@ export default function NotificationBell() {
     setItems((xs) => xs.map((n) => (n.read_at ? n : { ...n, read_at: now })));
   }
 
+  // Delete a single notification (RLS: vendor_own_notifications_delete). Optimistic;
+  // reload on error so the list stays in sync.
+  async function deleteOne(id: string) {
+    setItems((xs) => xs.filter((n) => n.id !== id));
+    const { error } = await supabaseVendor.from("notifications").delete().eq("id", id);
+    if (error) void load();
+  }
+
   async function onItemClick(n: Notification) {
     if (!n.read_at) await markRead(n.id);
     if (n.link) {
@@ -102,7 +110,7 @@ export default function NotificationBell() {
         aria-label="Notifications"
         title="Notifications"
       >
-        🔔
+        Alerts
         {unreadCount > 0 && (
           <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 999, background: TH.primary, color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -111,7 +119,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: 380, maxHeight: 480, background: TH.surface, color: TH.text, border: `1px solid ${TH.border}`, borderRadius: 10, boxShadow: `0 10px 25px ${TH.shadowMd}`, zIndex: 1000, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: "min(380px, 95vw)", maxHeight: "min(480px, 90vh)", boxSizing: "border-box", background: TH.surface, color: TH.text, border: `1px solid ${TH.border}`, borderRadius: 10, boxShadow: `0 10px 25px ${TH.shadowMd}`, zIndex: 1000, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: `1px solid ${TH.border}`, background: TH.surfaceHi }}>
             <strong style={{ fontSize: 14, color: TH.text }}>Notifications</strong>
             {unreadCount > 0 && (
@@ -134,12 +142,19 @@ export default function NotificationBell() {
                     padding: "12px 14px",
                     borderBottom: `1px solid ${TH.border}`,
                     cursor: n.link ? "pointer" : "default",
-                    background: n.read_at ? "#FFFFFF" : "#FFFBEB",
+                    background: n.read_at ? TH.surface : TH.surfaceHi,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                     <strong style={{ fontSize: 13, color: TH.text }}>{n.title}</strong>
-                    <span style={{ fontSize: 11, color: TH.textMuted, whiteSpace: "nowrap" }}>{timeAgo(n.created_at)}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 11, color: TH.textMuted }}>{timeAgo(n.created_at)}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
+                        title="Delete this notification"
+                        style={{ background: "none", border: "none", color: TH.textMuted, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
+                      >Delete</button>
+                    </span>
                   </div>
                   {n.body && <div style={{ fontSize: 12, color: TH.textSub2, lineHeight: 1.4 }}>{n.body}</div>}
                 </div>

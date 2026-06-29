@@ -8,7 +8,7 @@
 // POST — create a new fabric code. Body: {
 //          code, name, composition_text,
 //          composition_json?, fabric_weight_gsm?, country_of_origin_iso2?,
-//          hts_code?, care_instructions?, default_vendor_id?, is_active?
+//          care_instructions?, default_vendor_id?, is_active?
 //        }
 //
 // Tangerine P3 Chunk 11.
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("fabric_codes")
-      .select("id, code, name, composition_text, composition_json, fabric_weight_gsm, country_of_origin_iso2, hts_code, care_instructions, default_vendor_id, is_active, created_at, updated_at")
+      .select("id, code, name, composition_text, composition_json, fabric_weight_gsm, country_of_origin_iso2, care_instructions, default_vendor_id, is_active, created_at, updated_at")
       .eq("entity_id", entityId)
       .order("code", { ascending: true })
       .limit(limit);
@@ -101,7 +101,6 @@ export default async function handler(req, res) {
       composition_json: v.data.composition_json ?? null,
       fabric_weight_gsm: v.data.fabric_weight_gsm ?? null,
       country_of_origin_iso2: v.data.country_of_origin_iso2 ?? null,
-      hts_code: v.data.hts_code ?? null,
       care_instructions: v.data.care_instructions ?? null,
       default_vendor_id: v.data.default_vendor_id ?? null,
       is_active: v.data.is_active !== false,
@@ -164,9 +163,6 @@ export function validateInsert(body) {
     out.country_of_origin_iso2 = c;
   }
 
-  if (body.hts_code != null && body.hts_code !== "") {
-    out.hts_code = String(body.hts_code).trim();
-  }
 
   if (body.care_instructions != null && body.care_instructions !== "") {
     out.care_instructions = String(body.care_instructions).trim();

@@ -10,7 +10,7 @@
 // at the end to draw the thick outer rectangle + optional style-group
 // thick separators.
 
-import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, type ExcelJS, type AoaImage } from "../shared/excelLogo";
 
 // ── Palette ────────────────────────────────────────────────────────────────
 export const PALETTE = {
@@ -80,7 +80,11 @@ export function bodyNumStyle(fill: string): any {
   return {
     font:      { sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    // Numbers right-align (operator standard) so the total / qty / cost columns
+    // read consistently across every report that shares this theme (aged inven,
+    // neg inven, stock-vs-SO, incomplete, sales comps). The main ATS report
+    // uses its own local styles.
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -89,7 +93,7 @@ export function bodyTotalStyle(fill: string): any {
   return {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -128,7 +132,7 @@ export function subtotalNumStyle(fill: string = PALETTE.QTY_BAND): any {
   return {
     font:      { bold: true, sz: 12.1, color: { rgb: PALETTE.STYLE_TEXT }, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -148,7 +152,7 @@ export function totalNumStyle(fill: string = PALETTE.ZEBRA_EVEN): any {
   return {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_TOTAL,
   };
 }
@@ -214,8 +218,15 @@ export function autofitColumns({ headerRow, bodyRows, spacerCols }: AutofitInput
       if (!cell) continue;
       let s: string;
       if (cell.f) s = "999,999";
-      else if (typeof cell.v === "number") s = cell.v.toLocaleString();
-      else s = String(cell.v ?? "");
+      else if (typeof cell.v === "number") {
+        // Estimate the DISPLAYED length, honoring the cell's number format —
+        // currency ($ + grouping + decimals) and percent (×100 + "%") render
+        // longer than the raw value, so sizing off raw length would clip.
+        const nf: string = cell.s?.numFmt ?? "";
+        if (nf.includes("$")) s = "$" + Math.abs(cell.v).toLocaleString(undefined, { minimumFractionDigits: /\.0*0/.test(nf) ? 2 : 0, maximumFractionDigits: 2 }) + (cell.v < 0 ? "-" : "");
+        else if (nf.includes("%")) s = (cell.v * 100).toFixed(/0\.0/.test(nf) ? 1 : 0) + "%";
+        else s = cell.v.toLocaleString();
+      } else s = String(cell.v ?? "");
       if (s.length > maxLen) maxLen = s.length;
     }
     out.push({ wch: Math.min(AUTOFIT_MAX, maxLen + AUTOFIT_PAD) });
@@ -324,80 +335,75 @@ export interface DownloadInput {
   autofilter?: string;
   /** Frozen-pane split (row 1 → xSplit:0, ySplit:1). */
   freeze?: { xSplit: number; ySplit: number };
+  /** Embedded images, AoA-relative (banner offset applied by the renderer). */
+  images?: AoaImage[];
 }
 
-function buildSheet({ allRows, cols, rowHeights, merges, autofilter, freeze }: Omit<DownloadInput, "sheetName" | "filename">) {
-  const ws = (XLSXStyle.utils.aoa_to_sheet as any)(allRows, { skipHeader: true });
-  ws["!cols"] = cols;
-  ws["!rows"] = rowHeights;
-  if (merges && merges.length > 0) ws["!merges"] = merges;
-  if (autofilter) ws["!autofilter"] = { ref: autofilter };
-  if (freeze) ws["!freeze"] = freeze;
-  return ws;
+// Render one ATS-family sheet onto an ExcelJS workbook: stamps the Ring of
+// Fire logo banner on top, then translates the styled AOA (preserving every
+// dynamic column, fill, border, merge, formula and the autofilter/freeze) so
+// the workbook reads exactly as before — just branded.
+function renderSheet(wb: ExcelJS.Workbook, sheetName: string, spec: Omit<DownloadInput, "sheetName" | "filename">) {
+  const safe = sheetName.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
+  const colCount = spec.allRows.reduce((m, r) => Math.max(m, r?.length ?? 0), 0);
+  renderStyledAoa(wb, safe, spec.allRows, {
+    banner: { cols: colCount },               // logo only; AOA carries its own titles
+    cols: spec.cols.map((c) => c.wch),
+    rowHeights: spec.rowHeights.map((r) => r.hpt),
+    merges: spec.merges,
+    freeze: spec.freeze,
+    autofilter: spec.autofilter,
+    images: spec.images,
+  });
 }
 
-function triggerDownload(wb: any, filename: string) {
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export function downloadWorkbook({ sheetName, filename, ...sheetSpec }: DownloadInput) {
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, buildSheet(sheetSpec), sheetName);
-  triggerDownload(wb, filename);
+export function downloadWorkbook({ sheetName, filename, ...sheetSpec }: DownloadInput): Promise<void> {
+  const wb = newWorkbook();
+  renderSheet(wb, sheetName, sheetSpec);
+  return downloadExcelWorkbook(wb, filename);
 }
 
 // Multi-sheet variant — each entry produces one tab. Use the same
 // sheet spec shape minus the top-level filename.
 export interface MultiSheetSpec extends Omit<DownloadInput, "filename"> {}
-export function downloadMultiSheet(filename: string, sheets: MultiSheetSpec[]) {
-  const wb = XLSXStyle.utils.book_new();
+export function downloadMultiSheet(filename: string, sheets: MultiSheetSpec[]): Promise<void> {
+  const wb = newWorkbook();
   for (const sheet of sheets) {
     const { sheetName, ...spec } = sheet;
-    // Sanitize sheet name — Excel max 31 chars; no \\/*?:[]
-    const safe = sheetName.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
-    XLSXStyle.utils.book_append_sheet(wb, buildSheet(spec), safe);
+    renderSheet(wb, sheetName, spec);
   }
-  triggerDownload(wb, filename);
+  return downloadExcelWorkbook(wb, filename);
 }
 
 // ── Build-only variants (no download) ──────────────────────────────────
 // Same shape as downloadWorkbook / downloadMultiSheet but return the
-// styled workbook + filename instead of triggering a file download.
-// Used by the preview-modal flow: build the workbook once, render the
-// AOA in a preview, hand the same workbook to the modal so Download
+// styled (logo'd) ExcelJS workbook + filename instead of triggering a
+// download. Used by the preview-modal flow: build the workbook once, render
+// the AOA in a preview, hand the same workbook to the modal so Download
 // flushes the exact same bytes the legacy path produced.
 export interface BuiltWorkbook {
-  wb: any;
+  wb: ExcelJS.Workbook;
   filename: string;
 }
 
 export function buildWorkbook({ sheetName, filename, ...sheetSpec }: DownloadInput): BuiltWorkbook {
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, buildSheet(sheetSpec), sheetName);
+  const wb = newWorkbook();
+  renderSheet(wb, sheetName, sheetSpec);
   return { wb, filename };
 }
 
 export function buildMultiSheetWorkbook(filename: string, sheets: MultiSheetSpec[]): BuiltWorkbook {
-  const wb = XLSXStyle.utils.book_new();
+  const wb = newWorkbook();
   for (const sheet of sheets) {
     const { sheetName, ...spec } = sheet;
-    const safe = sheetName.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
-    XLSXStyle.utils.book_append_sheet(wb, buildSheet(spec), safe);
+    renderSheet(wb, sheetName, spec);
   }
   return { wb, filename };
 }
 
-// Public trigger-download — same code path used by every exporter when
-// it doesn't go through the preview modal. Exported so the preview
-// modal (and any future caller) can flush a pre-built workbook to a
-// file without re-importing XLSXStyle directly.
-export function writeWorkbookToFile(wb: any, filename: string) {
-  triggerDownload(wb, filename);
+// Public trigger-download — same code path used by every exporter when it
+// doesn't go through the preview modal. Exported so the preview modal (and
+// any future caller) can flush a pre-built workbook to a file.
+export function writeWorkbookToFile(wb: ExcelJS.Workbook, filename: string): Promise<void> {
+  return downloadExcelWorkbook(wb, filename);
 }

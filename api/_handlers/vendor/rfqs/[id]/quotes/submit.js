@@ -6,7 +6,9 @@
 // procurement team.
 
 import { createClient } from "@supabase/supabase-js";
-import { getInternalRecipients, resolveInternalRecipients } from "../../../../../_lib/internal-recipients.js";
+import { resolveInternalRecipientsDetailed } from "../../../../../_lib/internal-recipients.js";
+import { markLinesQuoted } from "../../../../../_lib/costingLineStatus.js";
+import { buildQuoteNotification, buildVendorQuoteReceipt } from "../../../../../_lib/rfqQuoteNotify.js";
 
 export const config = { maxDuration: 15 };
 
@@ -65,30 +67,68 @@ export default async function handler(req, res) {
   // Flip the invitation to 'submitted' so the internal view can see it clearly
   await admin.from("rfq_invitations").update({ status: "submitted" }).eq("rfq_id", rfqId).eq("vendor_id", caller.vendor_id);
 
-  // Internal notification
+  // Costing line lifecycle: promote every linked costing line sent -> quoted.
+  // Terminal states (awarded/lost/closed) are never downgraded; a line still in
+  // draft (publish ran pre-migration) is left for a later transition. Best-
+  // effort; never breaks the submit. Legacy / non-costing RFQs no-op.
   try {
-    const { emails } = await resolveInternalRecipients(admin, "procurement", { event: "rfq_quote_submitted" });
-    if (emails.length > 0) {
+    await markLinesQuoted(admin, rfqId, { changedBy: caller.display_name || caller.email || "vendor", note: "vendor_quote_submitted" });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[quote-submit] line status -> quoted issue rfq=${rfqId}: ${e && e.message ? e.message : String(e)}`);
+  }
+
+  const origin = `https://${req.headers.host}`;
+
+  // Internal notification — a resubmission of a reopened quote (revision > 1)
+  // notifies as a REVISION so procurement knows the figures changed, not a
+  // brand-new quote. Delivered to BOTH the in-app bell (for staff whose
+  // employees.metadata.plm_user_id is linked) and email.
+  try {
+    const probe = buildQuoteNotification({ quote, rfqTitle: rfq.title, vendorName: "A vendor" });
+    const { recipients } = await resolveInternalRecipientsDetailed(admin, "procurement", { event: probe.event_type });
+    if (recipients.length > 0) {
       const { data: vendor } = await admin.from("vendors").select("name").eq("id", caller.vendor_id).maybeSingle();
       const vendorName = vendor?.name || "A vendor";
-      const origin = `https://${req.headers.host}`;
-      await Promise.all(emails.map((email) =>
+      const n = buildQuoteNotification({ quote, rfqTitle: rfq.title, vendorName });
+      await Promise.all(recipients.map((rcp) =>
         fetch(`${origin}/api/send-notification`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            event_type: "rfq_quote_submitted",
-            title: `${vendorName} submitted a quote on ${rfq.title}`,
-            body: `Total ${quote.total_price != null ? Number(quote.total_price).toLocaleString(undefined, { style: "currency", currency: "USD" }) : "—"}${quote.lead_time_days != null ? ` · lead time ${quote.lead_time_days}d` : ""}.`,
+            event_type: n.event_type,
+            title: n.title,
+            body: n.body,
             link: "/",
-            metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, quote_id: quote.id },
-            recipient: { internal_id: "procurement", email },
-            dedupe_key: `rfq_quote_submitted_${quote.id}_${email}`,
+            metadata: { rfq_id: rfqId, vendor_id: caller.vendor_id, quote_id: quote.id, revision: n.revision, ...(rcp.apps ? { target_apps: rcp.apps } : {}) },
+            // plm_user_id (when linked) reaches the in-app bell; email always sends.
+            recipient: { internal_id: rcp.plm_user_id || "procurement", email: rcp.email },
+            dedupe_key: n.dedupeKeyFor(rcp.email),
             email: true,
           }),
         }).catch(() => {})
       ));
     }
+  } catch { /* swallow */ }
+
+  // Vendor-facing confirmation receipt — lands in the submitting vendor's own
+  // in-app bell (recipient.auth_id) + email, so they know it was received.
+  try {
+    const receipt = buildVendorQuoteReceipt({ quote, rfqTitle: rfq.title });
+    await fetch(`${origin}/api/send-notification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_type: receipt.event_type,
+        title: receipt.title,
+        body: receipt.body,
+        link: `/vendor/rfqs/${rfqId}`,
+        metadata: { rfq_id: rfqId, quote_id: quote.id, revision: receipt.revision },
+        recipient: { auth_id: caller.auth_id, email: caller.email },
+        dedupe_key: receipt.dedupeKey,
+        email: true,
+      }),
+    }).catch(() => {});
   } catch { /* swallow */ }
 
   return res.status(200).json({ ok: true, quote_id: quote.id, status: "submitted" });

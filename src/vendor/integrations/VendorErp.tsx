@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge from "../StatusBadge";
+import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Integration {
   id: string;
@@ -79,10 +81,10 @@ export default function VendorErp() {
   useEffect(() => { void load(); }, []);
 
   async function disconnect(id: string) {
-    if (!confirm("Pause this integration? Inbound EDI will stop being mapped until you reactivate.")) return;
+    if (!await showConfirm({ title: "Pause integration?", message: "Inbound EDI will stop being mapped until you reactivate.", tone: "warn", confirmLabel: "Pause" })) return;
     const t = await token();
     const r = await fetch(`/api/vendor/erp?id=${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -99,7 +101,7 @@ export default function VendorErp() {
       });
       if (!r.ok) throw new Error("Manual sync isn't wired up for vendor callers — contact your account team.");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     }
   }
 
@@ -204,7 +206,7 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
   const [saving, setSaving] = useState(false);
 
   async function submit() {
-    if (!partnerId.trim()) { alert("Partner ID is required."); return; }
+    if (!partnerId.trim()) { await showAlert({ title: "Missing field", message: "Partner ID is required.", tone: "warn" }); return; }
     setSaving(true);
     try {
       const t = await token();
@@ -223,7 +225,7 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
       if (!r.ok) throw new Error(await r.text());
       onSaved();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      await showAlert({ title: "Error", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -231,12 +233,15 @@ function ErpEditModal({ existing, onClose, onSaved }: { existing: Integration | 
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 520, maxWidth: "92vw", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: 520, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)" }}>
         <h3 style={{ margin: "0 0 14px", color: TH.text, fontSize: 16 }}>{existing ? "Update ERP connection" : "Connect ERP"}</h3>
         <Field label="System">
-          <select value={type} onChange={(e) => setType(e.target.value)} style={inp}>
-            {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <SearchableSelect
+            value={type || null}
+            onChange={(v) => setType(v)}
+            options={Object.entries(TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+            inputStyle={inp}
+          />
         </Field>
         <Field label="Partner / EDI ID (GS02)"><input value={partnerId} onChange={(e) => setPartnerId(e.target.value)} placeholder="e.g. ACME01" style={inp} /></Field>
         <Field label="Webhook URL (optional)"><input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://your-erp.example.com/webhook" style={inp} /></Field>

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Rule {
   id: string;
@@ -102,9 +104,10 @@ export default function InternalTax() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Rules, per-period roll-up, and filed remittance records.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <div style={{ minWidth: 180 }}>
+            <SearchableSelect value={entityId || null} onChange={(v) => setEntityId(v)}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))} inputStyle={selectSt} />
+          </div>
           <AppDatePicker value={periodStart} onCommit={setPeriodStart} style={selectSt} />
           <span style={{ color: C.textMuted }}>→</span>
           <AppDatePicker value={periodEnd} onCommit={setPeriodEnd} style={selectSt} />
@@ -114,8 +117,8 @@ export default function InternalTax() {
 
       {summary && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
-          <Stat label="Taxable amount" value={`$${Math.round(summary.total_taxable).toLocaleString()}`} />
-          <Stat label="Tax owed" value={`$${Math.round(summary.total_tax).toLocaleString()}`} color={C.warn} />
+          <Stat label="Taxable amount" value={`$${fmtMoney(summary.total_taxable)}`} />
+          <Stat label="Tax owed" value={`$${fmtMoney(summary.total_tax)}`} color={C.warn} />
           <Stat label="Jurisdictions" value={String(summary.by_jurisdiction.length)} color={C.primary} />
         </div>
       )}
@@ -161,7 +164,7 @@ export default function InternalTax() {
               <div style={{ color: C.textSub, textTransform: "uppercase", fontSize: 11 }}>{r.tax_type}</div>
               <div>{Number(r.rate_pct).toFixed(3)}%</div>
               <div style={{ color: C.textMuted, fontSize: 11, textTransform: "capitalize" }}>{r.applies_to}</div>
-              <div style={{ color: C.textMuted }}>{r.threshold_amount != null ? `$${Number(r.threshold_amount).toLocaleString()}` : "—"}</div>
+              <div style={{ color: C.textMuted }}>{r.threshold_amount != null ? `$${fmtMoney(r.threshold_amount)}` : "—"}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{r.effective_from}{r.effective_to ? ` → ${r.effective_to}` : ""}</div>
               <div style={{ color: C.textMuted, fontSize: 10 }}>{(r.vendor_type_exemptions || []).join(", ") || "—"}</div>
               <div>
@@ -208,7 +211,7 @@ export default function InternalTax() {
               <div style={{ fontWeight: 600 }}>{m.jurisdiction}</div>
               <div style={{ color: C.textSub, textTransform: "uppercase", fontSize: 11 }}>{m.tax_type}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{m.period_start} → {m.period_end}</div>
-              <div>${Math.round(Number(m.total_taxable_amount)).toLocaleString()}</div>
+              <div>${fmtMoney(Number(m.total_taxable_amount))}</div>
               <div style={{ color: C.warn }}>${Math.round(Number(m.total_tax_amount)).toLocaleString()}</div>
               <div>
                 <span style={{ fontSize: 10, color: "#fff", background: m.status === "paid" ? C.success : m.status === "filed" ? C.primary : C.textMuted, padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{m.status}</span>
@@ -262,18 +265,22 @@ function RuleModal({ entityId, onClose, onCreated }: { entityId: string; onClose
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
           <Row label="Jurisdiction"><input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="US-CA, GB, DE-BY" style={inp} /></Row>
           <Row label="Tax type">
-            <select value={taxType} onChange={(e) => setTaxType(e.target.value as "sales_tax")} style={inp}>
-              <option value="sales_tax">sales_tax</option>
-              <option value="vat">vat</option>
-              <option value="gst">gst</option>
-              <option value="withholding">withholding</option>
-            </select>
+            <SearchableSelect value={taxType} onChange={(v) => setTaxType(v as "sales_tax")}
+              options={[
+                { value: "sales_tax", label: "sales_tax" },
+                { value: "vat", label: "vat" },
+                { value: "gst", label: "gst" },
+                { value: "withholding", label: "withholding" },
+              ]} inputStyle={inp} />
           </Row>
           <Row label="Rate %"><input type="number" step="0.001" value={ratePct} onChange={(e) => setRatePct(e.target.value)} style={inp} /></Row>
           <Row label="Applies to">
-            <select value={appliesTo} onChange={(e) => setAppliesTo(e.target.value as "all")} style={inp}>
-              <option value="all">all</option><option value="goods">goods</option><option value="services">services</option>
-            </select>
+            <SearchableSelect value={appliesTo} onChange={(v) => setAppliesTo(v as "all")}
+              options={[
+                { value: "all", label: "all" },
+                { value: "goods", label: "goods" },
+                { value: "services", label: "services" },
+              ]} inputStyle={inp} />
           </Row>
           <Row label="Threshold $ (optional)"><input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} style={inp} /></Row>
           <Row label="Effective from"><AppDatePicker value={effectiveFrom} onCommit={setEffectiveFrom} style={inp} /></Row>
@@ -315,10 +322,13 @@ function RemittanceModal({ entityId, onClose, onCreated }: { entityId: string; o
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Record a remittance filing</h3>
         <Row label="Jurisdiction"><input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} style={inp} /></Row>
         <Row label="Tax type">
-          <select value={taxType} onChange={(e) => setTaxType(e.target.value as "sales_tax")} style={inp}>
-            <option value="sales_tax">sales_tax</option><option value="vat">vat</option>
-            <option value="gst">gst</option><option value="withholding">withholding</option>
-          </select>
+          <SearchableSelect value={taxType} onChange={(v) => setTaxType(v as "sales_tax")}
+            options={[
+              { value: "sales_tax", label: "sales_tax" },
+              { value: "vat", label: "vat" },
+              { value: "gst", label: "gst" },
+              { value: "withholding", label: "withholding" },
+            ]} inputStyle={inp} />
         </Row>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Row label="Period start"><AppDatePicker value={periodStart} onCommit={setPeriodStart} style={inp} /></Row>
@@ -355,8 +365,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthStart() { const d = new Date(); d.setUTCDate(1); return d.toISOString().slice(0, 10); }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };

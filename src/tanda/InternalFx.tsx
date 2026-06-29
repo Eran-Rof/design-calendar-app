@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -81,8 +82,8 @@ export default function InternalFx() {
       {analytics && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
           <Stat label="Intl. payments (12mo)" value={String(analytics.totals.international_payments_count)} />
-          <Stat label="Foreign volume" value={`$${Math.round(analytics.totals.foreign_volume).toLocaleString()}`} color={C.primary} />
-          <Stat label="FX fees paid" value={`$${Math.round(analytics.totals.fx_fee_amount).toLocaleString()}`} color={C.warn} />
+          <Stat label="Foreign volume" value={`$${fmtMoney(analytics.totals.foreign_volume)}`} color={C.primary} />
+          <Stat label="FX fees paid" value={`$${fmtMoney(analytics.totals.fx_fee_amount)}`} color={C.warn} />
         </div>
       )}
 
@@ -119,8 +120,8 @@ export default function InternalFx() {
               <div key={`${p.from}-${p.to}-${i}`} style={{ display: "grid", gridTemplateColumns: "120px 120px 120px 140px 100px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
                 <div>{p.from}</div><div>{p.to}</div>
                 <div style={{ color: C.textMuted }}>{p.count}</div>
-                <div>${Math.round(p.volume).toLocaleString()}</div>
-                <div style={{ color: C.warn }}>${Math.round(p.fee_total).toLocaleString()}</div>
+                <div>${fmtMoney(p.volume)}</div>
+                <div style={{ color: C.warn }}>${fmtMoney(p.fee_total)}</div>
               </div>
             ))}
           </div>

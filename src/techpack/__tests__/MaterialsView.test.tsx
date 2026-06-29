@@ -70,26 +70,26 @@ describe("<MaterialsView />", () => {
     expect(setMatForm).toHaveBeenCalled();
   });
 
-  it("✏️ on a row opens edit modal with that material's data + CSV-joined certifications", () => {
+  it("Edit on a row opens edit modal with that material's data + CSV-joined certifications", () => {
     const setEditingMaterial = vi.fn();
     const setMatForm = vi.fn();
     render(<MaterialsView {...defaultProps({
       materials: [mat({ id: "a", certifications: ["OEKO-TEX", "GOTS"] })],
       setEditingMaterial, setMatForm,
     })} />);
-    fireEvent.click(screen.getByText("✏️"));
+    fireEvent.click(screen.getByText("Edit"));
     expect(setEditingMaterial).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
     const formArg = setMatForm.mock.calls[0][0];
     expect(formArg.certifications).toBe("OEKO-TEX, GOTS");
   });
 
-  it("🗑️ on a row opens a confirm dialog with the right title/message", () => {
+  it("Delete on a row opens a confirm dialog with the right title/message", () => {
     const setConfirmDialog = vi.fn();
     render(<MaterialsView {...defaultProps({
       materials: [mat({ id: "a", name: "Cotton" })],
       setConfirmDialog,
     })} />);
-    fireEvent.click(screen.getByText("🗑️"));
+    fireEvent.click(screen.getByText("Delete"));
     const dialog = setConfirmDialog.mock.calls[0][0];
     expect(dialog.title).toBe("Delete Material");
     expect(dialog.message).toContain("Cotton");

@@ -6,18 +6,32 @@
 // selector (ACCRUAL | CASH | BOTH), and inline subledger entry per line.
 
 import React, { useEffect, useMemo, useState } from "react";
-import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
-// Cross-cutter T11-3 — audit-trail drop-in for the JE detail modal.
-import RowHistory from "./components/RowHistory";
+// Shared JE detail modal (extracted so GL-detail drill-down can reuse it).
+import JEDetailModal from "./components/JEDetailModal";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { readDrillParam } from "./scorecardDrill";
+
+const TABLE_KEY = "tanda.journal_entry";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "je_number",    label: "JE #" },
+  { key: "posting_date", label: "Posting Date" },
+  { key: "type",         label: "Type" },
+  { key: "basis",        label: "Basis" },
+  { key: "description",  label: "Description" },
+  { key: "source",       label: "Source" },
+  { key: "status",       label: "Status" },
+];
 
 type JELine = {
   id?: string;
@@ -37,47 +51,12 @@ type JELine = {
   subledger_id: string;
 };
 
-// Row shape returned by GET /api/internal/journal-entries/:id (lines table).
-// Numeric columns arrive as strings from PostgREST for `numeric` types.
-type JELineRow = {
-  id: string;
-  journal_entry_id: string;
-  line_number: number;
-  account_id: string;
-  debit: string;
-  credit: string;
-  memo: string | null;
-  memo_line_2: string | null;
-  subledger_type: string | null;
-  subledger_id: string | null;
-};
-
-type JEWithLines = JE & { lines: JELineRow[] };
-
-type ApprovalStep = {
-  id: string;
-  step_order: number;
-  mode: "any" | "all";
-  role_required: string;
-  fulfilled_at: string | null;
-  fulfilled_by_user_id: string | null;
-  notes: string | null;
-};
-
-type ApprovalRequest = {
-  id: string;
-  entity_id: string;
-  kind: string;
-  context_table: string;
-  context_id: string;
-  status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
-  final_decided_at: string | null;
-  created_at: string;
-  steps: ApprovalStep[];
-};
+// (JE line / approval / full-JE shapes now live in the shared
+// components/JEDetailModal.tsx, which self-fetches the full entry by id.)
 
 type JE = {
   id: string;
+  je_number: string | null;
   basis: "ACCRUAL" | "CASH";
   journal_type: string;
   posting_date: string;
@@ -133,6 +112,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -146,8 +126,14 @@ export default function InternalJournalEntry() {
   const [basisFilter, setBasisFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [includeDrafts, setIncludeDrafts] = useState(false);
+  // Scorecard drill-through: ?q=<vendor/customer code> seeds a client-side text
+  // filter over description + source ref. JE has no party column, so the
+  // scorecard passes the party code/name and we match it against the JE text.
+  const { value: search, debouncedValue: searchDebounced, setValue: setSearch } =
+    useDebouncedSearch(readDrillParam("q"), 200);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   // Universal row-click primitive (operator ask #4) — replaces the
   // hand-rolled onClick/setDetail on each <tr>. The hook handles
   // modifier-key fall-through, keyboard activation, and tracks the
@@ -156,7 +142,7 @@ export default function InternalJournalEntry() {
   const { getRowProps } = useRowClickEdit<JE>({
     onRowClick: (je) => setDetail(je),
     onBeforeRowClick: (id) => setHighlightedId(id),
-    ariaLabel: (je) => `Open journal entry ${je.id.slice(0, 8)}`,
+    ariaLabel: (je) => `Open journal entry ${je.description || "—"}`,
   });
 
   async function load() {
@@ -178,6 +164,18 @@ export default function InternalJournalEntry() {
   }
 
   useEffect(() => { void load(); }, [basisFilter, sourceFilter, includeDrafts]);
+
+  // Client-side free-text filter (drill-through `?q=` seed). Matches the party
+  // code/name against the JE description and source reference.
+  const filteredRows = useMemo(() => {
+    const needle = searchDebounced.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((je) =>
+      `${je.je_number || ""} ${je.description || ""} ${je.source_table || ""} ${je.source_id || ""}`
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [rows, searchDebounced]);
 
   async function reverse(je: JE) {
     if (je.status !== "posted") {
@@ -211,20 +209,37 @@ export default function InternalJournalEntry() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <select value={basisFilter} onChange={(e) => setBasisFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All bases</option>
-          <option value="ACCRUAL">ACCRUAL</option>
-          <option value="CASH">CASH</option>
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 180 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={basisFilter || null}
+            onChange={(v) => setBasisFilter(v)}
+            options={[
+              { value: "", label: "All bases" },
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+            placeholder="All bases"
+            inputStyle={inputStyle}
+          />
+        </div>
+        <div style={{ width: 180 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+            inputStyle={inputStyle}
+          />
+        </div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search JE # / description / source…"
+          style={{ ...inputStyle, width: 220 }}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeDrafts} onChange={(e) => setIncludeDrafts(e.target.checked)} />
           Include drafts
@@ -234,6 +249,7 @@ export default function InternalJournalEntry() {
           filename="journal-entries"
           sheetName="Journal Entries"
           columns={[
+            { key: "je_number",         header: "JE #" },
             { key: "posting_date",      header: "Posting Date", format: "date" },
             { key: "journal_type",      header: "Type" },
             { key: "basis",             header: "Basis" },
@@ -250,6 +266,14 @@ export default function InternalJournalEntry() {
             { key: "created_at",        header: "Created",         format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
       {err && (
@@ -258,26 +282,29 @@ export default function InternalJournalEntry() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No journal entries yet.</div>
+        ) : filteredRows.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
+            {searchDebounced.trim() ? "No journal entries match the filter." : "No journal entries yet."}
+          </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Posting Date</th>
-                <th style={th}>Type</th>
-                <th style={th}>Basis</th>
-                <th style={th}>Description</th>
-                <th style={th}>Source</th>
-                <th style={th}>Status</th>
+                <th style={th} hidden={!visibleColumns.has("je_number")}>JE #</th>
+                <th style={th} hidden={!visibleColumns.has("posting_date")}>Posting Date</th>
+                <th style={th} hidden={!visibleColumns.has("type")}>Type</th>
+                <th style={th} hidden={!visibleColumns.has("basis")}>Basis</th>
+                <th style={th} hidden={!visibleColumns.has("description")}>Description</th>
+                <th style={th} hidden={!visibleColumns.has("source")}>Source</th>
+                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
                 <th style={{ ...th, width: 120 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((je) => (
+              {filteredRows.map((je) => (
                 <ScrollHighlightRow
                   key={je.id}
                   rowId={je.id}
@@ -289,15 +316,16 @@ export default function InternalJournalEntry() {
                   }}
                   title="Click to view details"
                 >
-                  <td style={td}>{je.posting_date}</td>
-                  <td style={td}>{je.journal_type}</td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{je.basis}</td>
-                  <td style={td}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", fontWeight: 600 }} hidden={!visibleColumns.has("je_number")}>{je.je_number || "—"}</td>
+                  <td style={td} hidden={!visibleColumns.has("posting_date")}>{fmtDateDisplay(je.posting_date)}</td>
+                  <td style={td} hidden={!visibleColumns.has("type")}>{je.journal_type}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!visibleColumns.has("basis")}>{je.basis}</td>
+                  <td style={td} hidden={!visibleColumns.has("description")}>
                     {je.description}
                     <SourceBadge source={je.source} />
                   </td>
-                  <td style={{ ...td, fontSize: 12, color: C.textMuted }}>{je.source_table || "—"}{je.source_id ? ` / ${je.source_id.slice(0, 8)}…` : ""}</td>
-                  <td style={td}>
+                  <td style={{ ...td, fontSize: 12, color: C.textMuted }} hidden={!visibleColumns.has("source")}>{je.source_table || "—"}</td>
+                  <td style={td} hidden={!visibleColumns.has("status")}>
                     <span style={{ color: statusColor(je.status), fontWeight: 600 }}>● {je.status}</span>
                   </td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -326,7 +354,7 @@ export default function InternalJournalEntry() {
           je={detail}
           onClose={() => setDetail(null)}
           onReversed={() => { setDetail(null); void load(); }}
-          onReverseClick={(j) => void reverse(j)}
+          onReverseClick={() => { if (detail) void reverse(detail); }}
         />
       )}
     </div>
@@ -448,7 +476,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // unless the caller passes force=true (used after a successful post).
   async function requestClose(force = false) {
     if (!force && dirty) {
-      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444" });
+      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "", confirmText: "Discard", confirmColor: "#EF4444" });
       if (!ok) return;
     }
     onClose();
@@ -490,7 +518,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       const diffStr = totals.diff.toFixed(2);
       const proceed = await confirmDialog(
         `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
-        { title: "Out of balance", icon: "⚠️", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
+        { title: "Out of balance", icon: "", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
       );
       if (!proceed) return;
     }
@@ -555,23 +583,33 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>Post manual journal entry</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 16, marginBottom: 12 }}>
           <Field label="Basis">
-            <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
-              <option value="ACCRUAL">ACCRUAL</option>
-              <option value="CASH">CASH</option>
-              <option value="BOTH">BOTH (sibling pair)</option>
-            </select>
+            <SearchableSelect
+              value={basis}
+              onChange={(v) => { setDirty(true); setBasis(v as "ACCRUAL" | "CASH" | "BOTH"); }}
+              options={[
+                { value: "ACCRUAL", label: "ACCRUAL" },
+                { value: "CASH", label: "CASH" },
+                { value: "BOTH", label: "BOTH (sibling pair)" },
+              ]}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Journal type">
-            <select value={journalType} onChange={(e) => { setDirty(true); setJournalType(e.target.value as "manual" | "adjustment"); }} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
-              <option value="manual">MANUAL</option>
-              <option value="adjustment">ADJUSTMENT</option>
-            </select>
+            <SearchableSelect
+              value={journalType}
+              onChange={(v) => { setDirty(true); setJournalType(v as "manual" | "adjustment"); }}
+              options={[
+                { value: "manual", label: "MANUAL" },
+                { value: "adjustment", label: "ADJUSTMENT" },
+              ]}
+              inputStyle={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}
+            />
           </Field>
           <Field label="Posting date">
             <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
@@ -670,16 +708,18 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    <select
-                      value={l.subledger_type}
-                      onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
-                      style={inputStyle as React.CSSProperties}
-                    >
-                      <option value="">(select)</option>
-                      <option value="vendor">vendor</option>
-                      <option value="customer">customer</option>
-                      <option value="item">item</option>
-                    </select>
+                    <SearchableSelect
+                      value={l.subledger_type || null}
+                      onChange={(v) => updateLine(idx, { subledger_type: v, subledger_id: "" })}
+                      options={[
+                        { value: "", label: "(select)" },
+                        { value: "vendor", label: "vendor" },
+                        { value: "customer", label: "customer" },
+                        { value: "item", label: "item" },
+                      ]}
+                      placeholder="(select)"
+                      inputStyle={inputStyle as React.CSSProperties}
+                    />
                   </td>
                   <td style={td}>
                     {l.subledger_type === "vendor" || l.subledger_type === "customer" ? (
@@ -738,7 +778,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stagedDocs.length ? 8 : 0 }}>
             <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              📎 Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
+              Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
             </span>
             <label style={{ ...btnSecondary, cursor: "pointer", display: "inline-block" }}>
               + Add files
@@ -776,7 +816,9 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Post / Cancel stay reachable as the entry-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => requestClose()} style={btnSecondary} disabled={submitting}>Cancel</button>
           <button
             onClick={() => void submit()}
@@ -894,276 +936,3 @@ function AccountSearchInput({
   );
 }
 
-// JE detail view modal — opens on row click. Read-only header + line table.
-// Embeds DocumentAttachmentList for supporting docs (the only writable area).
-// Reverse button delegates back to the parent so the existing reverse flow
-// (prompt for posting_date + POST /reverse + reload) is reused unchanged.
-function JEDetailModal({
-  je, onClose, onReversed: _onReversed, onReverseClick,
-}: {
-  je: JE;
-  onClose: () => void;
-  onReversed: () => void;
-  onReverseClick: (je: JE) => void;
-}) {
-  const [data, setData] = useState<JEWithLines | null>(null);
-  const [accounts, setAccounts] = useState<Record<string, Account>>({});
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const r = await fetch(`/api/internal/journal-entries/${je.id}`);
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-        const full = await r.json() as JEWithLines;
-        if (cancelled) return;
-        setData(full);
-
-        // Look up account codes/names for the lines.
-        // Single fetch with a generous limit — COA is small.
-        try {
-          const ar = await fetch("/api/internal/gl-accounts?limit=1000");
-          if (ar.ok) {
-            const list = await ar.json() as Account[];
-            if (!cancelled) {
-              const idx: Record<string, Account> = {};
-              for (const a of list) idx[a.id] = a;
-              setAccounts(idx);
-            }
-          }
-        } catch { /* non-fatal — lines will fall back to raw account_id */ }
-
-        // Best-effort approval history lookup. If the approval-requests
-        // endpoint errors, swallow it and render a "no approval history" line.
-        try {
-          const params = new URLSearchParams();
-          params.set("context_table", "journal_entries");
-          params.set("context_id", je.id);
-          const pr = await fetch(`/api/internal/approval-requests?${params.toString()}`);
-          if (pr.ok) {
-            const list = await pr.json() as ApprovalRequest[];
-            if (!cancelled) setApprovals(Array.isArray(list) ? list : []);
-          }
-        } catch { /* non-fatal */ }
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [je.id]);
-
-  const totals = useMemo(() => {
-    let d = 0, c = 0;
-    for (const l of data?.lines || []) {
-      const dn = parseFloat(l.debit || "0"); if (Number.isFinite(dn)) d += dn;
-      const cn = parseFloat(l.credit || "0"); if (Number.isFinite(cn)) c += cn;
-    }
-    return { d, c };
-  }, [data]);
-
-  const canReverse = data?.status === "posted" && !data?.reversed_by_je_id;
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 100, paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 720, maxWidth: "95vw", color: C.text }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 18 }}>
-            Journal entry detail
-            <span style={{ marginLeft: 10, fontSize: 12, color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-              {je.id.slice(0, 8)}…
-            </span>
-          </h3>
-          <span style={{ color: statusColor(data?.status || je.status), fontWeight: 600, fontSize: 13 }}>
-            ● {data?.status || je.status}
-          </span>
-        </div>
-
-        {loading && <div style={{ color: C.textMuted, fontSize: 13, padding: "12px 0" }}>Loading…</div>}
-
-        {err && (
-          <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
-            {err}
-          </div>
-        )}
-
-        {data && (
-          <>
-            {/* Header section */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16, fontSize: 13 }}>
-              <DetailRow label="Posting date" value={data.posting_date} />
-              <DetailRow label="Journal type" value={data.journal_type} />
-              <DetailRow label="Basis" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.basis}</span>} />
-              <DetailRow label="Source module" value={data.source_module || "—"} />
-              <DetailRow
-                label="Source ref"
-                value={data.source_table
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{data.source_table}{data.source_id ? ` / ${data.source_id.slice(0, 8)}…` : ""}</span>
-                  : "—"}
-              />
-              <DetailRow
-                label="Posted at"
-                value={data.posted_at
-                  ? `${new Date(data.posted_at).toLocaleString()}${data.posted_by_name ? ` by ${data.posted_by_name}` : ""}`
-                  : "—"}
-              />
-              <DetailRow
-                label="Created"
-                value={`${new Date(data.created_at).toLocaleString()}${data.created_by_name ? ` by ${data.created_by_name}` : ""}`}
-              />
-              <DetailRow
-                label="Sibling JE"
-                value={data.sibling_je_id
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>{data.sibling_je_id.slice(0, 8)}…</span>
-                  : "—"}
-              />
-              <DetailRow
-                label="Reverses / reversed by"
-                value={data.reverses_je_id
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>reverses {data.reverses_je_id.slice(0, 8)}…</span>
-                  : data.reversed_by_je_id
-                    ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>reversed by {data.reversed_by_je_id.slice(0, 8)}…</span>
-                    : "—"}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Description</div>
-              <div style={{ fontSize: 13 }}>{data.description || "—"}</div>
-            </div>
-
-            {/* Lines section */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Lines</div>
-            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...th, width: 40 }}>#</th>
-                    <th style={th}>Account</th>
-                    <th style={{ ...th, width: 110, textAlign: "right" }}>Debit</th>
-                    <th style={{ ...th, width: 110, textAlign: "right" }}>Credit</th>
-                    <th style={th}>Memo</th>
-                    <th style={{ ...th, width: 140 }}>Subledger</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.lines || []).map((l) => {
-                    const acct = accounts[l.account_id];
-                    return (
-                      <tr key={l.id}>
-                        <td style={td}>{l.line_number}</td>
-                        <td style={{ ...td, fontSize: 12 }}>
-                          {acct
-                            ? <><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{acct.code}</span> — {acct.name}</>
-                            : <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>{l.account_id.slice(0, 8)}…</span>}
-                        </td>
-                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
-                          {parseFloat(l.debit || "0") > 0 ? parseFloat(l.debit).toFixed(2) : ""}
-                        </td>
-                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
-                          {parseFloat(l.credit || "0") > 0 ? parseFloat(l.credit).toFixed(2) : ""}
-                        </td>
-                        <td style={{ ...td, fontSize: 12, color: C.textSub }}>
-                          {l.memo || ""}
-                          {l.memo_line_2 && l.memo_line_2 !== l.memo ? (
-                            <div style={{ color: C.textMuted, fontSize: 11 }}>{l.memo_line_2}</div>
-                          ) : null}
-                        </td>
-                        <td style={{ ...td, fontSize: 11, color: C.textMuted }}>
-                          {l.subledger_type
-                            ? <>{l.subledger_type}{l.subledger_id ? ` / ${l.subledger_id.slice(0, 8)}…` : ""}</>
-                            : ""}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: "#0b1220" }}>
-                    <td style={td} colSpan={2}>
-                      <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Totals</span>
-                    </td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.d.toFixed(2)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, textAlign: "right" }}>{totals.c.toFixed(2)}</td>
-                    <td style={td} colSpan={2}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Approval history (optional, best-effort) */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Approval history</div>
-            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, marginBottom: 16, fontSize: 12 }}>
-              {approvals.length === 0 ? (
-                <div style={{ color: C.textMuted }}>No approval history.</div>
-              ) : (
-                approvals.map((a) => (
-                  <div key={a.id} style={{ paddingBottom: 6, marginBottom: 6, borderBottom: `1px solid ${C.cardBdr}` }}>
-                    <div>
-                      <span style={{ color: statusColor(a.status === "approved" ? "posted" : a.status === "rejected" ? "reversed" : "draft"), fontWeight: 600 }}>● {a.status}</span>
-                      <span style={{ color: C.textMuted, marginLeft: 8 }}>
-                        {a.kind} · created {new Date(a.created_at).toLocaleDateString()}
-                        {a.final_decided_at ? ` · decided ${new Date(a.final_decided_at).toLocaleDateString()}` : ""}
-                      </span>
-                    </div>
-                    {(a.steps || []).length > 0 && (
-                      <div style={{ marginTop: 4, color: C.textSub, fontSize: 11 }}>
-                        {a.steps.map((s) => (
-                          <div key={s.id}>
-                            step {s.step_order} ({s.mode} / {s.role_required}) — {s.fulfilled_at ? `fulfilled ${new Date(s.fulfilled_at).toLocaleDateString()}` : "pending"}
-                            {s.notes ? ` — ${s.notes}` : ""}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Documents — only writable area in this modal */}
-            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Supporting documents</div>
-            <div style={{ marginBottom: 16 }}>
-              <DocumentAttachmentList
-                contextTable="journal_entries"
-                contextId={je.id}
-                kinds={["supporting_doc", "approval_correspondence", "receipt", "other"]}
-              />
-            </div>
-
-            {/* Cross-cutter T11-3 — audit trail timeline */}
-            <RowHistory source_table="journal_entries" source_id={je.id} />
-          </>
-        )}
-
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          {canReverse && data && (
-            <button onClick={() => onReverseClick(data)} style={btnDanger}>Reverse</button>
-          )}
-          <button onClick={onClose} style={btnSecondary}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div>{value}</div>
-    </div>
-  );
-}

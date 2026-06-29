@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtMoney } from "../utils";
+import { fmtMoney2 } from "../utils";
+import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface CatalogItem {
   id: string;
@@ -65,9 +67,9 @@ export default function VendorCatalog() {
   }, [items, filter]);
 
   async function discontinue(id: string) {
-    if (!confirm("Mark this SKU as discontinued? It can be re-activated later.")) return;
+    if (!await showConfirm({ title: "Discontinue SKU?", message: "Mark this SKU as discontinued? It can be re-activated later.", tone: "warn", confirmLabel: "Discontinue" })) return;
     const { error } = await supabaseVendor.from("catalog_items").update({ status: "discontinued" }).eq("id", id);
-    if (error) { alert(error.message); return; }
+    if (error) { await showAlert({ title: "Error", message: error.message, tone: "danger" }); return; }
     await load();
   }
 
@@ -110,7 +112,7 @@ export default function VendorCatalog() {
             <div style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: TH.textSub2 }}>{it.sku}</div>
             <div style={{ color: TH.text, fontWeight: 500 }}>{it.name}</div>
             <div style={{ color: TH.textSub2 }}>{it.category || "—"}</div>
-            <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.unit_price != null ? fmtMoney(it.unit_price) : "—"}</div>
+            <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.unit_price != null ? fmtMoney2(it.unit_price) : "—"}</div>
             <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.lead_time_days ?? "—"}</div>
             <div style={{ textAlign: "right", color: TH.textSub2 }}>{it.min_order_quantity ?? "—"}</div>
             <div style={{ color: it.status === "active" ? "#276749" : TH.textMuted, fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>{it.status}</div>
@@ -146,7 +148,7 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!sku.trim() || !name.trim()) { alert("SKU and name are required."); return; }
+    if (!sku.trim() || !name.trim()) { await showAlert({ title: "Missing fields", message: "SKU and name are required.", tone: "warn" }); return; }
     setSaving(true);
     const payload = {
       vendor_id: vendorId,
@@ -162,7 +164,7 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
       ? await supabaseVendor.from("catalog_items").update(payload).eq("id", item.id)
       : await supabaseVendor.from("catalog_items").insert(payload);
     setSaving(false);
-    if (res.error) { alert(res.error.message); return; }
+    if (res.error) { await showAlert({ title: "Error", message: res.error.message, tone: "danger" }); return; }
     onSaved();
   }
 
@@ -175,11 +177,16 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inp} /></Field>
           <Field label="Category"><input value={category} onChange={(e) => setCategory(e.target.value)} style={inp} /></Field>
           <Field label="Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value as CatalogItem["status"])} style={inp}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="discontinued">Discontinued</option>
-            </select>
+            <SearchableSelect
+              value={status}
+              onChange={(v) => setStatus(v as CatalogItem["status"])}
+              options={[
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+                { value: "discontinued", label: "Discontinued" },
+              ]}
+              inputStyle={inp}
+            />
           </Field>
           <Field label="Unit price"><input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} type="number" step="0.01" style={inp} /></Field>
           <Field label="Lead time (days)"><input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={inp} /></Field>
@@ -214,10 +221,10 @@ function BulkUploadModal({ vendorId, onClose }: { vendorId: string; onClose: () 
         body: JSON.stringify({ type: "catalog_update", input_file_url: path, filename: file.name, total_rows: Math.max(rowCount, 0) }),
       });
       if (!r.ok) throw new Error(await r.text());
-      alert("Upload queued. Check Bulk operations for progress.");
+      await showAlert({ title: "Queued", message: "Upload queued. Check Bulk operations for progress.", tone: "success" });
       onClose();
     } catch (e: unknown) {
-      alert(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+      await showAlert({ title: "Upload failed", message: e instanceof Error ? e.message : String(e), tone: "danger" });
     } finally {
       setUploading(false);
     }

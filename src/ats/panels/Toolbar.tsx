@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import S from "../styles";
 import type { ExcelData } from "../types";
+// Shared app-wide dark calendar widget (same one every other app uses) so
+// ATS date fields don't pop the browser's light native calendar.
+import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 // Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
 // the planning grid's MultiSelectDropdown so a brief cursor flicker
@@ -231,6 +235,12 @@ interface ToolbarProps {
   styles: string[];
   filterGender: string[];
   setFilterGender: (v: string[]) => void;
+  // Multi-select Brand filter. brandOptions is the full brand_master
+  // name list (every brand the Tangerine app knows about), so the
+  // dropdown lists all brands regardless of what's loaded in the grid.
+  filterBrand: string[];
+  setFilterBrand: (v: string[]) => void;
+  brandOptions: string[];
   // Status filter — driven by the colored stat-card pills (Negative ATS,
   // Aged Inven, etc.). Cleared by the toolbar's Clear button so a stuck
   // pill doesn't keep the grid filtered after the planner expects a reset.
@@ -292,6 +302,10 @@ interface ToolbarProps {
   // the operator can flip mental gears without recomputing.
   explodePpk: boolean;
   setExplodePpk: (v: boolean) => void;
+  // Show per-row style image thumbnails inside the Style column. ON by
+  // default; OFF hides them for a denser grid.
+  showImages: boolean;
+  setShowImages: (v: boolean) => void;
   // Freeze through column: pin leftmost columns up through the
   // chosen one when scrolling horizontally. null = no freeze.
   freezeKey: "category" | "subCategory" | "style" | "description" | "color" | "onHand" | "onOrder" | "onPO" | null;
@@ -309,7 +323,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
   filterStyle, setFilterStyle, styles,
-  filterGender, setFilterGender, setFilterStatus,
+  filterGender, setFilterGender,
+  filterBrand, setFilterBrand, brandOptions,
+  setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
   poDropRef, toggleStore,
   minATS, setMinATS, soWinFrom, setSoWinFrom, soWinTo, setSoWinTo, startDate, setStartDate,
@@ -320,6 +336,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   viewMode, setViewMode,
   showTotalsRow, setShowTotalsRow,
   explodePpk, setExplodePpk,
+  showImages, setShowImages,
   freezeKey, setFreezeKey,
   hiddenColumns, setHiddenColumns,
   generalMarginPct, setGeneralMarginPct,
@@ -350,6 +367,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setFilterSubCategory([]);
     setFilterStyle([]);
     setFilterGender([]);
+    setFilterBrand([]);
     setFilterStatus("All");
     setStoreFilter(["ROF"]);
     setMinATS("");
@@ -440,14 +458,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       onChange={setFilterGender}
       getLabel={v => ({ M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>)[v] ?? v}
     />
+    <MultiSelectDropdown
+      label="Brand"
+      value={filterBrand}
+      options={brandOptions}
+      onChange={setFilterBrand}
+      placeholder="Search brands…"
+    />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
-      <select style={S.select} value={collapseLevel} onChange={e => setCollapseLevel(e.target.value as typeof collapseLevel)}>
-        <option value="none">None</option>
-        <option value="category">Category</option>
-        <option value="subCategory">Sub Cat</option>
-        <option value="style">Style</option>
-      </select>
+      <SearchableSelect
+        value={collapseLevel}
+        onChange={v => setCollapseLevel(v as typeof collapseLevel)}
+        options={[
+          { value: "none", label: "None" },
+          { value: "category", label: "Category" },
+          { value: "subCategory", label: "Sub Cat" },
+          { value: "style", label: "Style" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
     {/* Store filter */}
     <div ref={poDropRef} style={{ position: "relative" }} onMouseEnter={storeClose.cancel} onMouseLeave={storeClose.schedule}>
@@ -455,9 +485,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
         onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
       >
-        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Warehouse:</span>
         <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {storeFilter.includes("All") ? "All stores" : storeFilter.join(", ")}
+          {storeFilter.includes("All") ? "All warehouses" : storeFilter.join(", ")}
         </span>
         <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
       </button>
@@ -507,21 +537,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           <span style={{ color: active ? "#FCD34D" : "#10B981", fontSize: 11, fontWeight: 600 }}>On-Order</span>
           <label style={S.dateLabel}>from</label>
-          <input
-            type="date"
-            style={S.dateInput}
-            value={soWinFrom}
-            max={soWinTo || undefined}
-            onChange={e => setSoWinFrom(e.target.value)}
-          />
+          <AppDatePicker value={soWinFrom} onCommit={setSoWinFrom} style={S.dateInput} />
           <label style={S.dateLabel}>to</label>
-          <input
-            type="date"
-            style={S.dateInput}
-            value={soWinTo}
-            min={soWinFrom || undefined}
-            onChange={e => setSoWinTo(e.target.value)}
-          />
+          <AppDatePicker value={soWinTo} onCommit={setSoWinTo} style={S.dateInput} />
           {active && (
             <span
               role="button"
@@ -537,12 +555,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     <div style={S.datePicker}>
       <label style={S.dateLabel}>From</label>
-      <input
-        type="date"
-        style={S.dateInput}
-        value={startDate}
-        onChange={e => setStartDate(e.target.value)}
-      />
+      <AppDatePicker value={startDate} onCommit={setStartDate} style={S.dateInput} />
     </div>
 
     <div style={S.datePicker}>
@@ -555,18 +568,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         value={rangeValue}
         onChange={e => { const v = Math.max(1, Number(e.target.value)); if (v) setRangeValue(v); }}
       />
-      <select
-        style={{ ...S.select, minWidth: 96 }}
+      <SearchableSelect
         value={rangeUnit}
-        onChange={e => {
-          setRangeUnit(e.target.value as "days" | "weeks" | "months");
-          setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1);
+        onChange={v => {
+          setRangeUnit(v as "days" | "weeks" | "months");
+          setRangeValue(v === "days" ? 14 : v === "weeks" ? 2 : 1);
         }}
-      >
-        <option value="days">Days</option>
-        <option value="weeks">Weeks</option>
-        <option value="months">Months</option>
-      </select>
+        options={[
+          { value: "days", label: "Days" },
+          { value: "weeks", label: "Weeks" },
+          { value: "months", label: "Months" },
+        ]}
+        inputStyle={{ ...S.select, minWidth: 96 }}
+      />
     </div>
 
     {/* Customer / vendor dropdown */}
@@ -631,15 +645,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
        PO   → sum of PO qty whose receipt date falls in the cell's period */}
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>View:</span>
-      <select
-        style={S.select}
+      <SearchableSelect
         value={viewMode}
-        onChange={e => setViewMode(e.target.value as "ats" | "so" | "po")}
-      >
-        <option value="ats">ATS</option>
-        <option value="so">On SO</option>
-        <option value="po">On PO Receipt</option>
-      </select>
+        onChange={v => setViewMode(v as "ats" | "so" | "po")}
+        options={[
+          { value: "ats", label: "ATS" },
+          { value: "so", label: "On SO" },
+          { value: "po", label: "On PO Receipt" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
 
     {/* TOTALS row toggle */}
@@ -661,25 +676,38 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <span style={{ color: explodePpk ? "#C4B5FD" : "#9CA3AF", fontSize: 12, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
     </label>
 
+    {/* IMAGES toggle — ON shows a per-row style thumbnail inside the
+        Style column (click to open the full gallery: enlarge / download
+        / print). OFF hides them for a denser grid. */}
+    <label
+      title={showImages ? "Showing style image thumbnails in the Style column. Click a thumbnail to view all images. Click here to hide images." : "Style images hidden. Click to show per-row thumbnails."}
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 10px", borderRadius: 8, border: `1px solid ${showImages ? "#0EA5E9" : "#334155"}`, background: showImages ? "rgba(14,165,233,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}
+    >
+      <input type="checkbox" checked={showImages} onChange={e => setShowImages(e.target.checked)} style={{ accentColor: "#0EA5E9", cursor: "pointer", width: 14, height: 14 }} />
+      <span style={{ color: showImages ? "#7DD3FC" : "#9CA3AF", fontSize: 12, fontWeight: showImages ? 700 : 400 }}>IMAGES</span>
+    </label>
+
     {/* Freeze-through dropdown — pin leftmost columns when scrolling.
         Default "On PO" matches the historical all-8-sticky behavior;
         the planner can scale freeze back to fewer columns or off. */}
-    <select
-      value={freezeKey ?? ""}
-      onChange={e => setFreezeKey((e.target.value || null) as typeof freezeKey)}
-      title="Pin leftmost columns through the chosen one when scrolling horizontally"
-      style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-    >
-      <option value="">No freeze</option>
-      <option value="category">Freeze through Category</option>
-      <option value="subCategory">Freeze through Sub Cat</option>
-      <option value="style">Freeze through Style</option>
-      <option value="description">Freeze through Description</option>
-      <option value="color">Freeze through Color</option>
-      <option value="onHand">Freeze through On Hand</option>
-      <option value="onOrder">Freeze through On Order</option>
-      <option value="onPO">Freeze through On PO</option>
-    </select>
+    <div title="Pin leftmost columns through the chosen one when scrolling horizontally">
+      <SearchableSelect
+        value={freezeKey ?? ""}
+        onChange={v => setFreezeKey((v || null) as typeof freezeKey)}
+        options={[
+          { value: "", label: "No freeze" },
+          { value: "category", label: "Freeze through Category" },
+          { value: "subCategory", label: "Freeze through Sub Cat" },
+          { value: "style", label: "Freeze through Style" },
+          { value: "description", label: "Freeze through Description" },
+          { value: "color", label: "Freeze through Color" },
+          { value: "onHand", label: "Freeze through On Hand" },
+          { value: "onOrder", label: "Freeze through On Order" },
+          { value: "onPO", label: "Freeze through On PO" },
+        ]}
+        inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+      />
+    </div>
 
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears

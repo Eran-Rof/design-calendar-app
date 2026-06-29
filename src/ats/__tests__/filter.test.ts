@@ -88,6 +88,24 @@ describe("filterRows", () => {
     expect(out.map(r => r.sku)).toEqual(["C"]);
   });
 
+  it("gender filter prefers master_gender, falls back to feed gender, and is case/whitespace tolerant", () => {
+    const rows = [
+      // master_gender wins even though the feed gender column is blank
+      // (the RYB1477 case: item master says M, feed carries nothing).
+      row({ sku: "M1", master_gender: "M", gender: "" }),
+      // no master match → falls back to the feed's gender
+      row({ sku: "M2", master_gender: null, gender: "M" }),
+      // womens, via master (raw Xoro code "WMS"); dropdown picks "Wms"
+      row({ sku: "W1", master_gender: " wms ", gender: "" }),
+      // boys, should be excluded by a Mens filter
+      row({ sku: "B1", master_gender: "B", gender: "M" }),
+    ];
+    const mens = filterRows(rows, { ...defaults, filterGender: ["M"] });
+    expect(mens.map(r => r.sku)).toEqual(["M1", "M2"]);
+    const womens = filterRows(rows, { ...defaults, filterGender: ["Wms"] });
+    expect(womens.map(r => r.sku)).toEqual(["W1"]);
+  });
+
   it("store filter", () => {
     const out = filterRows(base, { ...defaults, storeFilter: ["ROF ECOM"] });
     expect(out.map(r => r.sku)).toEqual(["B"]);
@@ -102,6 +120,27 @@ describe("filterRows", () => {
     const r = row({ sku: "X", dates: {}, onHand: 7 });
     const out = filterRows([r], { ...defaults, filterStatus: "Low" });
     expect(out).toHaveLength(1);
+  });
+
+  describe("brand filter", () => {
+    const branded = [
+      row({ sku: "A", master_brand: "Ring of Fire", dates: { "2026-04-10": 5 }, onHand: 5 }),
+      row({ sku: "B", master_brand: "Psycho Tuna",  dates: { "2026-04-10": 5 }, onHand: 5 }),
+      row({ sku: "C", master_brand: null,           dates: { "2026-04-10": 5 }, onHand: 5 }),
+    ];
+    it("empty / absent filterBrand passes every row", () => {
+      expect(filterRows(branded, defaults).map(r => r.sku)).toEqual(["A", "B", "C"]);
+      expect(filterRows(branded, { ...defaults, filterBrand: [] }).map(r => r.sku)).toEqual(["A", "B", "C"]);
+    });
+    it("single brand narrows to that brand", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Psycho Tuna"] }).map(r => r.sku)).toEqual(["B"]);
+    });
+    it("multiple brands match any (set membership)", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Ring of Fire", "Psycho Tuna"] }).map(r => r.sku)).toEqual(["A", "B"]);
+    });
+    it("rows with no brand never match a brand filter", () => {
+      expect(filterRows(branded, { ...defaults, filterBrand: ["Ring of Fire"] }).map(r => r.sku)).toEqual(["A"]);
+    });
   });
 });
 

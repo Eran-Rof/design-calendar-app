@@ -21,6 +21,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../../_lib/auth.js";
+import { vendorTargetForMode } from "../../../../../_lib/costingVendorTarget.js";
+import { publishRfq } from "../../../../../_lib/rfqPublish.js";
 
 export const config = { maxDuration: 30 };
 
@@ -55,6 +57,9 @@ export default async function handler(req, res) {
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Server not configured" });
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  // Absolute base URL for reaching /api/send-notification from the auto-send
+  // publish step below (same derivation the manual publish handler uses).
+  const origin = `https://${req.headers.host}`;
 
   const projectId = getProjectId(req);
   if (!projectId) return res.status(400).json({ error: "Missing project id" });
@@ -70,10 +75,17 @@ export default async function handler(req, res) {
   // `currency` column — RFQs default to USD on the insert below. If a
   // multi-currency costing project lands later, add the column then.
   const { data: project, error: projectErr } = await admin.from("costing_projects")
-    .select("id, project_name, brand, request_date, due_date, projected_delivery_date")
+    .select("id, project_name, brand, request_date, due_date, projected_delivery_date, payment_terms_name")
     .eq("id", projectId).maybeSingle();
   if (projectErr) return res.status(500).json({ error: projectErr.message });
   if (!project) return res.status(404).json({ error: "Project not found" });
+
+  // Cost mode is derived from payment terms (mirrors completeness.ts
+  // isDdpProject). DDP projects quote a single delivered-duty-paid price
+  // (costing_lines.target_cost = "Tgt DDP Cost"); FOB/Landed projects quote the
+  // FOB unit price (costing_lines.fob_cost). The vendor's RFQ target must match
+  // the basis they're quoting against.
+  const isDdpProject = !!project.payment_terms_name && /DDP/i.test(project.payment_terms_name);
 
   const entityId = await resolveEntityId(admin, req);
   if (!entityId) return res.status(500).json({ error: "Could not resolve entity_id" });
@@ -81,7 +93,7 @@ export default async function handler(req, res) {
   // 2. Lines + their selected vendor (the picker writes a costing_line_vendors
   //    row with status='selected' and stamps costing_lines.selected_vendor_quote_id).
   const { data: lines, error: linesErr } = await admin.from("costing_lines")
-    .select("id, style_code, style_name, description, color, size_scale_label, fabric_code, fit, bottom_closure, waist_type, comment, remarks, target_qty, target_cost, selected_vendor_quote_id")
+    .select("id, style_code, style_name, description, color, size_scale_label, fabric_code, fit, bottom_closure, waist_type, comment, remarks, target_qty, target_cost, fob_cost, selected_vendor_quote_id")
     .eq("project_id", projectId)
     .in("id", lineIds);
   if (linesErr) return res.status(500).json({ error: linesErr.message });
@@ -224,7 +236,10 @@ export default async function handler(req, res) {
   for (const [vendorId, vendorLines] of linesByVendor.entries()) {
     const vendor = vendorById[vendorId];
     const vendorLabel = vendor?.legal_name || vendor?.code || "Vendor";
-    const title = `${project.project_name} — ${vendorLabel}`;
+    // Title is just the project/style name — the vendor is already shown in its
+    // own column (internal RFQ list + costing) and is implicit in the vendor
+    // portal, so the old "<project> — <vendor>" suffix was redundant noise.
+    const title = project.project_name;
     const totalQty = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0), 0);
     const totalBudget = vendorLines.reduce((s, l) => s + (Number(l.target_qty) || 0) * (Number(l.target_cost) || 0), 0);
 
@@ -310,6 +325,8 @@ export default async function handler(req, res) {
         ln.comment ? `Comment: ${ln.comment}` : null,
         ln.remarks ? `Remarks: ${ln.remarks}` : null,
       ].filter(Boolean);
+      // Vendor target = Tgt DDP cost (DDP projects) or FOB cost (FOB/Landed).
+      const vendorTarget = vendorTargetForMode(isDdpProject, ln.target_cost, ln.fob_cost);
       return {
         rfq_id: rfq.id,
         line_index: idx + 1,
@@ -322,15 +339,15 @@ export default async function handler(req, res) {
         unit_of_measure: "ea",
         specifications: specsParts.length > 0 ? specsParts.join(" · ") : null,
         // Mirror the costing-line attributes into first-class columns. Falls
-        // back to NULL when the source field is unset. target_price tracks
-        // costing_lines.target_cost (the per-unit cost the vendor is asked
-        // to quote against).
+        // back to NULL when the source field is unset. target_price = the
+        // per-unit cost the vendor quotes against: Tgt DDP cost (DDP) or FOB
+        // cost (FOB/Landed) — see vendorTarget above.
         fabric_code:      ln.fabric_code      || null,
         fit:              ln.fit              || null,
         bottom_closure:   ln.bottom_closure   || null,
         size_scale_label: ln.size_scale_label || null,
         waist_type:       ln.waist_type       || null,
-        target_price:     typeof ln.target_cost === "number" ? ln.target_cost : null,
+        target_price:     vendorTarget,
         // Mirrored for the duplicate-RFQ match key (migration 20260713060000).
         style_code:       ln.style_code       || null,
         color:            ln.color            || null,
@@ -360,10 +377,36 @@ export default async function handler(req, res) {
       // visible. Operator can re-run if line_items are missing.
     }
 
-    // NOTE: no rfq_invitations row is created here anymore. The vendor only
-    // sees the RFQ once an internal user clicks "Send to Vendor" (publish),
-    // which creates the invitation from intended_vendor_id. This keeps a
-    // freshly generated RFQ a private draft until it's deliberately sent.
+    // Auto-send (one step): immediately publish the freshly created RFQ so it
+    // lands in the vendor portal and the vendor gets the rfq_invited alert —
+    // no separate "Send to Vendor" click. This reuses the SAME publish path the
+    // manual send uses (status -> published, lazy rfq_invitations row from the
+    // intended vendor, costing-line draft -> sent, rfq_invited notification),
+    // so the two flows can't drift. Best-effort per RFQ: a publish failure is
+    // surfaced in `errors` (with the RFQ already created) instead of failing the
+    // whole batch, and a notify hiccup never fails the create. We pass the
+    // intended vendor + freshly inserted ids directly rather than re-selecting.
+    let sent = false;
+    try {
+      const pub = await publishRfq(
+        admin,
+        {
+          id: rfq.id,
+          status: "draft",
+          intended_vendor_id: vendorId,
+          title,
+          submission_deadline: null,
+        },
+        origin,
+      );
+      if (pub.ok) {
+        sent = true;
+      } else {
+        errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: `RFQ created but auto-send failed: ${pub.error}` });
+      }
+    } catch (e) {
+      errors.push({ vendor_id: vendorId, vendor: vendorLabel, error: `RFQ created but auto-send threw: ${e && e.message ? e.message : String(e)}` });
+    }
 
     created.push({
       rfq_id: rfq.id,
@@ -371,6 +414,7 @@ export default async function handler(req, res) {
       vendor: vendorLabel,
       line_count: vendorLines.length,
       total_qty: totalQty,
+      sent,
     });
   }
 

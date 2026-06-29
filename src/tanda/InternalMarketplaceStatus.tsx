@@ -48,6 +48,18 @@ import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const TABLE_KEY = "tanda.marketplace_status";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "channel",       label: "Channel" },
+  { key: "feed",          label: "Feed" },
+  { key: "last_sync",     label: "Last sync" },
+  { key: "rows_in_range", label: "Rows in range" },
+  { key: "unposted",      label: "Unposted" },
+  { key: "unmatched_dep", label: "Unmatched dep." },
+  { key: "errors_24h",    label: "Errors 24h" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Theme — match the Shadow Mirror / Bank Reconciliation palette.
@@ -71,13 +83,6 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   fba:     "Amazon FBA",
   walmart: "Walmart",
   faire:   "Faire",
-};
-
-export const CHANNEL_EMOJI: Record<Channel, string> = {
-  shopify: "🛍️",
-  fba:     "📦",
-  walmart: "🟦",
-  faire:   "🤝",
 };
 
 export type FeedKind = "orders" | "payouts" | "settlements" | "refunds" | "returns" | "inventory";
@@ -185,6 +190,8 @@ export default function InternalMarketplaceStatus() {
   const authUserId = getCachedAuthUserId();
   const isAdmin = !!authUserId;
 
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
   async function load() {
     setLoading(true); setErr(null);
     try {
@@ -279,7 +286,7 @@ export default function InternalMarketplaceStatus() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛒 Marketplace Status</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace Status</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             Shopify · FBA · Walmart · Faire
@@ -301,7 +308,6 @@ export default function InternalMarketplaceStatus() {
           return (
             <div key={ch} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{CHANNEL_EMOJI[ch]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{CHANNEL_LABEL[ch]}</span>
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Last sync</div>
@@ -341,7 +347,7 @@ export default function InternalMarketplaceStatus() {
           style={inputStyle}
           aria-label="To date"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { if (f) setFromDate(f); if (t) setToDate(t); }}
@@ -368,22 +374,30 @@ export default function InternalMarketplaceStatus() {
             { key: "errors_24h",          header: "Errors (24h)",       format: "number" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", marginBottom: 18 }}>
         {loading ? (
           <div style={{ padding: 20, color: C.textMuted, textAlign: "center" }}>Loading…</div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Channel</th>
-                <th style={th}>Feed</th>
-                <th style={th}>Last sync</th>
-                <th style={{ ...th, textAlign: "right" }}>Rows in range</th>
-                <th style={{ ...th, textAlign: "right" }}>Unposted</th>
-                <th style={{ ...th, textAlign: "right" }}>Unmatched dep.</th>
-                <th style={{ ...th, textAlign: "right" }}>Errors 24h</th>
+                <th style={th} hidden={!visibleColumns.has("channel")}>Channel</th>
+                <th style={th} hidden={!visibleColumns.has("feed")}>Feed</th>
+                <th style={th} hidden={!visibleColumns.has("last_sync")}>Last sync</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")}>Rows in range</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unposted")}>Unposted</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")}>Unmatched dep.</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")}>Errors 24h</th>
                 <th style={{ ...th, textAlign: "center" }}>Run now</th>
               </tr>
             </thead>
@@ -396,20 +410,19 @@ export default function InternalMarketplaceStatus() {
                 const busy = feed?.manualUrl === manualBusy;
                 return (
                   <tr key={`${s.channel}-${s.kind}`}>
-                    <td style={td}>
-                      <span style={{ marginRight: 6 }}>{CHANNEL_EMOJI[s.channel]}</span>
+                    <td style={td} hidden={!visibleColumns.has("channel")}>
                       {CHANNEL_LABEL[s.channel]}
                     </td>
-                    <td style={td}>{feed?.label ?? s.kind}</td>
-                    <td style={td}>{fmtDateTime(s.last_sync_at)}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.rows_in_range.toLocaleString()}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unposted_count ?? 0) > 0 ? C.warn : undefined }}>
+                    <td style={td} hidden={!visibleColumns.has("feed")}>{feed?.label ?? s.kind}</td>
+                    <td style={td} hidden={!visibleColumns.has("last_sync")}>{fmtDateTime(s.last_sync_at)}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!visibleColumns.has("rows_in_range")}>{s.rows_in_range.toLocaleString()}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unposted_count ?? 0) > 0 ? C.warn : undefined }} hidden={!visibleColumns.has("unposted")}>
                       {s.unposted_count ?? "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unmatched_deposits ?? 0) > 0 ? C.warn : undefined }}>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: (s.unmatched_deposits ?? 0) > 0 ? C.warn : undefined }} hidden={!visibleColumns.has("unmatched_dep")}>
                       {s.unmatched_deposits ?? "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: s.errors_24h > 0 ? C.danger : undefined }}>{s.errors_24h}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: s.errors_24h > 0 ? C.danger : undefined }} hidden={!visibleColumns.has("errors_24h")}>{s.errors_24h}</td>
                     <td style={{ ...td, textAlign: "center" }}>
                       {feed?.manualUrl ? (
                         <button
@@ -444,7 +457,7 @@ export default function InternalMarketplaceStatus() {
 
       <div style={{ background: C.card, border: `1px solid ${C.tangerine}55`, borderRadius: 10, padding: 14, fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>
         <div style={{ fontSize: 11, color: C.tangerine, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-          💡 Period close hook
+          Period close hook
         </div>
         Unmatched marketplace deposits (je_id IS NULL) landing in a period block its close — the P12-99
         pre-flight check <code>unmatched_marketplace_deposits</code> surfaces on the Periods panel. Run the
@@ -486,6 +499,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,

@@ -27,7 +27,7 @@ export default function StagedDocsPicker({
     <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: files.length ? 8 : 0 }}>
         <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          📎 Supporting documents {files.length > 0 && <span>({files.length})</span>}
+          Supporting documents {files.length > 0 && <span>({files.length})</span>}
         </span>
         <label style={{ ...btnSecondary, cursor: "pointer" }}>
           + Add files

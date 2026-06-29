@@ -1,4 +1,4 @@
-// Vendor-facing PO phase grid. Mirrors the layout of the internal
+﻿// Vendor-facing PO phase grid. Mirrors the layout of the internal
 // TandA Grid but is read-mostly: a vendor can only propose edits on
 // phases the ROF admin has flagged can_edit = true. Edits don't mutate
 // tanda_milestones directly — they're staged in
@@ -11,6 +11,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export type PhaseFilter = "all" | "overdue" | "this_week" | "next_30";
 
@@ -592,7 +593,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   </div>
                 )}
                 <div style={{ color: TH.text }}>
-                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " 🔒"}</div>
+                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " (locked)"}</div>
                   <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>{r.phase.category} · T−{r.phase.daysBeforeDDP}d</div>
                 </div>
                 <div>
@@ -612,20 +613,18 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#F87171" : r.daysFromToday <= 7 ? "#FBBF24" : TH.textSub2, fontWeight: 600 }}>
                   {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
                 </div>
-                <div>
-                  <select
+                <div title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}>
+                  <SearchableSelect
                     value={r.effectiveStatus}
                     disabled={!editable}
-                    onChange={(e) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, e.target.value)}
-                    title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}
-                    style={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
+                    onChange={(v) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, v)}
+                    options={STATUSES.map((s) => ({ value: s, label: s }))}
+                    inputStyle={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
                       border: `2px solid ${masterCellBorder}`,
                       background: sc.bg, color: sc.fg, cursor: editable ? "pointer" : "not-allowed",
                       fontWeight: 600, fontFamily: "inherit",
                     }}
-                  >
-                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  />
                 </div>
                 {/* Status date — when this phase's status field was most
                     recently changed. Approved request → reviewed_at;
@@ -634,7 +633,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   {(() => {
                     const sd = statusChangeDate(r.statusReq);
                     if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
-                    const dateStr = new Date(sd.date).toLocaleDateString();
+                    const dateStr = new Date(sd.date).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
                     return (
                       <div style={{ display: "grid", gap: 1 }} title={sd.label === "pending" ? "Status change pending review" : "Status last changed (approved)"}>
                         <span>{dateStr}</span>
@@ -646,8 +645,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   })()}
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
-                  {pending && <div style={{ color: "#FCD34D" }}>⏳ Pending review</div>}
-                  {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
+                  {pending && <div style={{ color: "#FCD34D" }}>Pending review</div>}
+                  {hasMismatch && <div style={{ color: "#7C3AED" }}>Lines differ</div>}
 
                   {/* Stack all reviewed history for this phase (across status +
                       expected_date fields) newest-first, so the vendor sees the
@@ -670,7 +669,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                       const label = approved
                         ? hasComment ? "Approved w/ note" : "Approved"
                         : "Rejected";
-                      const date = h.reviewed_at ? new Date(h.reviewed_at).toLocaleDateString() : "";
+                      const date = h.reviewed_at ? new Date(h.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                       const tooltip = [
                         `${h.field_name} → ${h.new_value ?? "(cleared)"}`,
                         h.reviewed_by_internal_id ? `Reviewed by ${h.reviewed_by_internal_id}` : null,
@@ -693,7 +692,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                     const color = approved ? "#6EE7B7" : "#FCA5A5";
                     const icon = approved ? "✓" : "✗";
                     const label = approved ? "Line item approved" : "Line item rejected";
-                    const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString() : "";
+                    const date = sum.latestDate ? new Date(sum.latestDate).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                     const countSuffix = sum.count > 1 ? ` (${sum.count})` : "";
                     return (
                       <div
@@ -750,23 +749,22 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                             <div></div>{/* Expected date placeholder */}
                             <div></div>{/* Days placeholder */}
                             <div>
-                              <select
+                              <SearchableSelect
                                 value={lineStatus}
                                 disabled={!editable}
-                                onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
-                                style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
+                                onChange={(v) => void proposeChange(r.po, r.phase.name, "status", lineStatus, v, l.id)}
+                                options={STATUSES.map((s) => ({ value: s, label: s }))}
+                                inputStyle={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
                                   border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : TH.border}`,
                                   background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
                                   fontWeight: 600, fontFamily: "inherit",
                                 }}
-                              >
-                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              />
                               {differs && (
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
                               {linePending && (
-                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
+                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>Pending</div>
                               )}
                             </div>
                             {/* Status date — same logic as the master row
@@ -775,7 +773,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                               {(() => {
                                 const sd = statusChangeDate(lineStatusReq);
                                 if (!sd) return <span style={{ color: TH.textMuted }}>—</span>;
-                                const dateStr = new Date(sd.date).toLocaleDateString();
+                                const dateStr = new Date(sd.date).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
                                 return (
                                   <div style={{ display: "grid", gap: 1 }}>
                                     <span>{dateStr}</span>
@@ -798,7 +796,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                                 const label = approved
                                   ? hasComment ? "Approved w/ note" : "Approved"
                                   : "Rejected";
-                                const date = rv.reviewed_at ? new Date(rv.reviewed_at).toLocaleDateString() : "";
+                                const date = rv.reviewed_at ? new Date(rv.reviewed_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "";
                                 const tooltip = [
                                   `${rv.field_name} → ${rv.new_value ?? "(cleared)"}`,
                                   rv.reviewed_by_internal_id ? `Reviewed by ${rv.reviewed_by_internal_id}` : null,
@@ -895,7 +893,7 @@ function NotesButton({
           fontSize: 11, fontWeight: 700,
         }}
       >
-        💬{count + reviewCount > 0 ? count + reviewCount : ""}
+        Notes{count + reviewCount > 0 ? ` ${count + reviewCount}` : ""}
       </button>
 
       {open && (

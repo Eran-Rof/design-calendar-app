@@ -19,7 +19,11 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import SearchableSelect from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CYCLE_COUNTS_TABLE_KEY = "tangerine:cyclecounts:columns";
@@ -91,6 +95,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -110,12 +115,7 @@ function statusBadge(s: Status): React.CSSProperties {
   };
 }
 
-function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toISOString().slice(0, 10);
-}
+const fmtDate = fmtDateDisplay;
 
 function fmtVariance(v: number | null): { text: string; color: string } {
   if (v == null) return { text: "—", color: C.textMuted };
@@ -142,6 +142,11 @@ export default function InternalCycleCounts() {
     CYCLE_COUNT_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:cyclecounts:sort",
+    accessors: { created: (cc) => cc.created_at },
+  });
 
   async function load() {
     setLoading(true);
@@ -179,16 +184,17 @@ export default function InternalCycleCounts() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <select
-          style={{ ...inputStyle, width: 180 }}
+        <SearchableSelect
+          inputStyle={{ ...inputStyle, width: 180 }}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "" | Status)}
-        >
-          <option value="">All statuses</option>
-          <option value="in_progress">In progress</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+          onChange={(v) => setStatusFilter(v as "" | Status)}
+          options={[
+            { value: "", label: "All statuses" },
+            { value: "in_progress", label: "In progress" },
+            { value: "completed", label: "Completed" },
+            { value: "cancelled", label: "Cancelled" },
+          ]}
+        />
         <input
           style={{ ...inputStyle, width: 160 }}
           type="date"
@@ -203,7 +209,7 @@ export default function InternalCycleCounts() {
           onChange={(e) => setToDate(e.target.value)}
           placeholder="To date"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
@@ -238,15 +244,15 @@ export default function InternalCycleCounts() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("count_date")}>Count date</th>
-              <th style={th} hidden={!isVisible("location")}>Location</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
-              <th style={th} hidden={!isVisible("created")}>Created</th>
-              <th style={th} hidden={!isVisible("id")}>ID</th>
+              <SortableTh label="Count date" sortKey="count_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("count_date")} />
+              <SortableTh label="Location" sortKey="location" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("location")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
+              <SortableTh label="ID" sortKey="id" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("id")} />
             </tr>
           </thead>
           <tbody>
@@ -258,7 +264,7 @@ export default function InternalCycleCounts() {
                 <span style={{ color: C.textMuted }}>No cycle counts yet. Start one above.</span>
               </td></tr>
             )}
-            {rows.map((cc) => (
+            {sorted.map((cc) => (
               <tr
                 key={cc.id}
                 style={{ cursor: "pointer" }}
@@ -268,7 +274,7 @@ export default function InternalCycleCounts() {
                 <td style={td} hidden={!isVisible("location")}>{cc.location}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={statusBadge(cc.status)}>{cc.status}</span></td>
                 <td style={td} hidden={!isVisible("created")}>{fmtDate(cc.created_at)}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: C.textSub }} hidden={!isVisible("id")}>{cc.id.slice(0, 8)}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("id")}>{"—"}</td>
               </tr>
             ))}
           </tbody>
@@ -372,7 +378,7 @@ function StartCountModal({
           onChange={(e) => setScopeText(e.target.value)}
         />
       </Field>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+      <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
         <button type="button" style={btnSecondary} onClick={onClose} disabled={submitting}>Cancel</button>
         <button type="button" style={btnPrimary} onClick={submit} disabled={submitting}>
           {submitting ? "Starting…" : "Start count"}
@@ -396,6 +402,8 @@ function DetailModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editingDrafts, setEditingDrafts] = useState<Record<string, string>>({});
+  // Resolve line item_id → human sku_code (no raw UUIDs in the lines table).
+  const [skuById, setSkuById] = useState<Record<string, string>>({});
 
   async function load() {
     setLoading(true);
@@ -411,6 +419,28 @@ function DetailModal({
     }
   }
   useEffect(() => { void load(); }, [cycleCountId]);
+
+  // Resolve the line item ids to sku_code labels via the shared items endpoint.
+  useEffect(() => {
+    const ids = Array.from(new Set((data?.lines || []).map((ln) => ln.item_id).filter(Boolean)))
+      .filter((id) => !(id in skuById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`);
+        if (!r.ok) return;
+        const rows = (await r.json()) as Array<{ id: string; sku_code: string | null }>;
+        if (cancelled) return;
+        setSkuById((prev) => {
+          const next = { ...prev };
+          for (const it of rows) next[it.id] = it.sku_code || "—";
+          return next;
+        });
+      } catch { /* leave as "—" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function saveLine(lineId: string) {
     const raw = editingDrafts[lineId];
@@ -491,7 +521,7 @@ function DetailModal({
   }, [data]);
 
   return (
-    <ModalShell onClose={onClose} title={`Cycle count ${cycleCountId.slice(0, 8)}`} width={900}>
+    <ModalShell onClose={onClose} title={data ? `Cycle count · ${fmtDate(data.count_date)} · ${data.location}` : "Cycle count"} width={900}>
       {loading && <div style={{ color: C.textMuted }}>Loading…</div>}
       {err && (
         <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>
@@ -515,7 +545,7 @@ function DetailModal({
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={th}>Item (uuid)</th>
+                  <th style={th}>Item</th>
                   <th style={th}>System</th>
                   <th style={th}>Counted</th>
                   <th style={th}>Variance</th>
@@ -531,7 +561,7 @@ function DetailModal({
                   const canEdit = data.status === "in_progress";
                   return (
                     <tr key={ln.id}>
-                      <td style={{ ...td, fontFamily: "monospace", color: C.textSub, fontSize: 11 }}>{ln.item_id}</td>
+                      <td style={{ ...td, color: C.textSub, fontSize: 11 }}>{skuById[ln.item_id] || "—"}</td>
                       <td style={td}>{ln.system_qty}</td>
                       <td style={td}>
                         {canEdit ? (
@@ -550,8 +580,8 @@ function DetailModal({
                         )}
                       </td>
                       <td style={{ ...td, color: v.color, fontWeight: 600 }}>{v.text}</td>
-                      <td style={{ ...td, fontFamily: "monospace", color: C.textSub, fontSize: 11 }}>
-                        {ln.adjustment_id ? ln.adjustment_id.slice(0, 8) : "—"}
+                      <td style={{ ...td, color: C.textSub, fontSize: 11 }}>
+                        {ln.adjustment_id ? "Posted" : "—"}
                       </td>
                       <td style={td}>
                         {canEdit && isDirty && (
@@ -565,7 +595,7 @@ function DetailModal({
             </table>
           </div>
 
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+          <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
             <button type="button" style={btnSecondary} onClick={onClose}>Close</button>
             {data.status === "in_progress" && (
               <>
@@ -603,7 +633,7 @@ function ModalShell({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-          padding: 24, width, maxHeight: "90vh", overflow: "auto",
+          padding: 24, width: `min(${width}px, 95vw)`, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
         }}
       >
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>{title}</h2>

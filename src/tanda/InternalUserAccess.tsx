@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 const ACTIONS = ["read", "write", "post", "void", "export"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -69,6 +70,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13,
@@ -82,6 +84,7 @@ export default function InternalUserAccess() {
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyCell, setBusyCell] = useState<string | null>(null);
+  const [busyGroup, setBusyGroup] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +173,56 @@ export default function InternalUserAccess() {
     }
   }
 
+  // Select-all (or clear-all) every supported action across every module in a
+  // group. Mirrors toggleCell's grant/revoke-vs-role-default logic per cell, but
+  // batches the writes and reloads ONCE at the end (a group can be 50+ cells).
+  async function selectGroup(group: string, on: boolean) {
+    if (!selected) return;
+    const mods = grouped.find((g) => g.group === group)?.modules || [];
+    setBusyGroup(group);
+    setErr(null);
+    try {
+      for (const m of mods) {
+        for (const action of ACTIONS) {
+          if (!m.available_actions.includes(action)) continue;
+          const k = key(m.key, action);
+          if (effectiveSet.has(k) === on) continue; // already in desired state
+          const roleDefault = roleGrantSet.has(k);
+          const r = on === roleDefault
+            ? await fetch("/api/internal/users-access/override", {
+                method: "DELETE", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ user_id: selected.user_id, module_key: m.key, action }),
+              })
+            : await fetch("/api/internal/users-access/override", {
+                method: "PUT", headers: { "content-type": "application/json" },
+                body: JSON.stringify({ user_id: selected.user_id, module_key: m.key, action, allowed: on }),
+              });
+          if (!r.ok && r.status !== 204) {
+            throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+          }
+        }
+      }
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusyGroup(null);
+    }
+  }
+
+  // Is every supported (module, action) in the group effectively ON?
+  function groupAllOn(modules: ModuleDef[]): boolean {
+    let any = false;
+    for (const m of modules) {
+      for (const action of ACTIONS) {
+        if (!m.available_actions.includes(action)) continue;
+        any = true;
+        if (!effectiveSet.has(key(m.key, action))) return false;
+      }
+    }
+    return any;
+  }
+
   // Modules grouped by group_name, preserving sort_order.
   const grouped = useMemo(() => {
     const groups: { group: string; modules: ModuleDef[] }[] = [];
@@ -198,7 +251,7 @@ export default function InternalUserAccess() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>🔐 User Access</h1>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>User Access</h1>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Per-module × per-action permissions. Pick a user, set their role, tick cells to override.
         </span>
@@ -231,7 +284,7 @@ export default function InternalUserAccess() {
       {!loading && data && (
         <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, alignItems: "start" }}>
           {/* ── Left: user list ─────────────────────────────────────────── */}
-          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ ...th, padding: "10px 12px" }}>Users ({data.users.length})</div>
             {data.users.length === 0 && (
               <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>No members in this entity.</div>
@@ -250,7 +303,7 @@ export default function InternalUserAccess() {
                   }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {u.email || <span style={{ fontFamily: "monospace", color: C.textMuted }}>{u.user_id.slice(0, 8)}…</span>}
+                    {u.email || <span style={{ color: C.textMuted }}>(unknown user)</span>}
                   </div>
                   <div style={{ fontSize: 11, color: C.textMuted }}>
                     {u.role_name || <span style={{ color: C.warn }}>no role</span>}
@@ -270,16 +323,15 @@ export default function InternalUserAccess() {
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{selected.email || selected.user_id}</div>
                   <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
                     Role
-                    <select
-                      style={{ ...inputStyle, padding: "5px 8px" }}
+                    <SearchableSelect
+                      inputStyle={{ ...inputStyle, padding: "5px 8px" }}
                       value={selected.role_id || ""}
-                      onChange={(e) => void changeRole(e.target.value)}
-                    >
-                      {!selected.role_id && <option value="">(select)</option>}
-                      {data.roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => void changeRole(v)}
+                      options={[
+                        ...(!selected.role_id ? [{ value: "", label: "(select)" }] : []),
+                        ...data.roles.map((r) => ({ value: r.id, label: r.name })),
+                      ]}
+                    />
                   </label>
                   <Legend />
                 </div>
@@ -294,7 +346,14 @@ export default function InternalUserAccess() {
                     </thead>
                     <tbody>
                       {grouped.map((g) => (
-                        <GroupBlock key={g.group} group={g.group}>
+                        <GroupBlock
+                          key={g.group}
+                          group={g.group}
+                          allOn={groupAllOn(g.modules)}
+                          busy={busyGroup === g.group}
+                          disabled={!selected || busyGroup != null}
+                          onToggleAll={(on) => void selectGroup(g.group, on)}
+                        >
                           {g.modules.map((m) => (
                             <tr key={m.key}>
                               <td style={td}>
@@ -373,14 +432,33 @@ function Legend() {
   );
 }
 
-function GroupBlock({ group, children }: { group: string; children: React.ReactNode }) {
+function GroupBlock({ group, children, allOn, busy, disabled, onToggleAll }: {
+  group: string;
+  children: React.ReactNode;
+  allOn: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onToggleAll: (on: boolean) => void;
+}) {
   return (
     <>
       <tr>
         <td colSpan={1 + ACTIONS.length} style={{
           background: "#0b1220", color: C.textMuted, fontSize: 10, fontWeight: 700,
           textTransform: "uppercase", letterSpacing: 0.5, padding: "5px 10px",
-        }}>{group}</td>
+        }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1 }}
+                 title="Select / clear every action for every module in this group">
+            <input
+              type="checkbox"
+              checked={allOn}
+              disabled={disabled}
+              onChange={(e) => onToggleAll(e.target.checked)}
+              style={{ cursor: disabled ? "default" : "pointer" }}
+            />
+            {group}{busy ? " — saving…" : ""}
+          </label>
+        </td>
       </tr>
       {children}
     </>

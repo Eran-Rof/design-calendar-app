@@ -3,6 +3,8 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -75,13 +77,22 @@ export default function InternalWorkspaces() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Cross-team collab space with vendors — pin items, assign tasks, chat.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "active" | "archived")} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select>
+          <div style={{ width: 200 }}>
+            <SearchableSelect
+              value={entityId || null}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))}
+              inputStyle={selectSt}
+              onChange={(v) => setEntityId(v)}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <SearchableSelect
+              value={statusFilter}
+              options={[{ value: "active", label: "Active" }, { value: "archived", label: "Archived" }]}
+              inputStyle={selectSt}
+              onChange={(v) => setStatusFilter(v as "active" | "archived")}
+            />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New workspace</button>
           <ExportButton
             rows={rows.map((w) => ({
@@ -118,9 +129,9 @@ export default function InternalWorkspaces() {
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>Vendor: {w.vendor?.name || "—"}</div>
               {w.description && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{w.description}</div>}
               <div style={{ display: "flex", gap: 8, fontSize: 11, color: C.textMuted, marginTop: 10 }}>
-                <span>📌 {w.pin_count || 0}</span>
-                <span>✅ {w.open_task_count || 0} open / {w.task_count || 0}</span>
-                <span style={{ marginLeft: "auto" }}>{new Date(w.created_at).toLocaleDateString()}</span>
+                <span>Pins {w.pin_count || 0}</span>
+                <span>{w.open_task_count || 0} open / {w.task_count || 0}</span>
+                <span style={{ marginLeft: "auto" }}>{fmtDateDisplay(w.created_at)}</span>
               </div>
             </button>
           ))}
@@ -175,10 +186,13 @@ function CreateWorkspaceModal({ entityId, onClose, onCreated }: { entityId: stri
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New workspace</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select a vendor…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={vendorId || null}
+            options={vendors.map((v) => ({ value: v.id, label: v.name }))}
+            placeholder="Select a vendor…"
+            inputStyle={inp}
+            onChange={(v) => setVendorId(v)}
+          />
         </Row>
         <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q3 capacity planning" style={inp} /></Row>
         <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>
@@ -278,7 +292,7 @@ function WorkspaceDetail({ workspace, onBack }: { workspace: Workspace; onBack: 
                     </div>
                     {t.description && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{t.description}</div>}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, fontSize: 10, color: C.textMuted }}>
-                      <div>{t.due_date ? `Due ${t.due_date}` : "No due date"}{t.assigned_to ? ` · @${t.assigned_to}` : ""}</div>
+                      <div>{t.due_date ? `Due ${fmtDateDisplay(t.due_date)}` : "No due date"}{t.assigned_to ? ` · @${t.assigned_to}` : ""}</div>
                       <div style={{ display: "flex", gap: 4 }}>
                         {t.status !== "in_progress" && t.status !== "complete" && <button onClick={() => void setTaskStatus(t.id, "in_progress")} style={miniBtn}>Start</button>}
                         {t.status !== "complete" && <button onClick={() => void setTaskStatus(t.id, "complete")} style={{ ...miniBtn, color: C.success }}>Done</button>}
@@ -338,13 +352,18 @@ function PinModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onCl
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 480 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Pin an item</h3>
         <Row label="Entity type">
-          <select value={entityType} onChange={(e) => setEntityType(e.target.value)} style={inp}>
-            <option value="po">PO</option>
-            <option value="invoice">Invoice</option>
-            <option value="contract">Contract</option>
-            <option value="rfq">RFQ</option>
-            <option value="document">Compliance doc</option>
-          </select>
+          <SearchableSelect
+            value={entityType}
+            options={[
+              { value: "po", label: "PO" },
+              { value: "invoice", label: "Invoice" },
+              { value: "contract", label: "Contract" },
+              { value: "rfq", label: "RFQ" },
+              { value: "document", label: "Compliance doc" },
+            ]}
+            inputStyle={inp}
+            onChange={(v) => setEntityType(v)}
+          />
         </Row>
         <Row label="Entity ID (UUID)"><input value={entityId} onChange={(e) => setEntityId(e.target.value)} placeholder="00000000-..." style={inp} /></Row>
         <Row label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Auto-generated if blank" style={inp} /></Row>
@@ -419,8 +438,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const miniBtn = { padding: "2px 8px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "inherit" } as const;

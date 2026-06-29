@@ -1,11 +1,13 @@
 import React, { useMemo } from "react";
 import S from "../styles";
-import { getQtyColor, getQtyBg, displayColor } from "../helpers";
+import { getQtyColor, getQtyBg, displayColor, pickColorImage } from "../helpers";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, CtxMenu } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { periodAvail } from "../compute";
+import { StyleThumb } from "../../shared/ui/StyleThumb";
+import { useStyleThumbsByCode } from "../hooks/useStyleThumbsByCode";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
 // number based on the EXPLODE PPK toggle, with a small faded hint
@@ -78,6 +80,9 @@ const TOTALS_ROW_HEIGHT = 120;
 const STICKY_COL_META = [
   { key: "category",    label: "Category",    charType: "text", autoFit: false, minPx:  90, fixedPx:  90 },
   { key: "subCategory", label: "Sub Cat",     charType: "text", autoFit: false, minPx: 100, fixedPx: 100 },
+  // "X" exclude checkbox column — between Sub Cat and Style. Narrow,
+  // fixed width; checked rows are dropped from every aggregation + report.
+  { key: "exclude",     label: "X",           charType: "text", autoFit: false, minPx:  34, fixedPx:  34 },
   { key: "style",       label: "Style",       charType: "mono", autoFit: false, minPx:  90, fixedPx:  90 },
   { key: "description", label: "Description", charType: "text", autoFit: false, minPx: 160, fixedPx: 160 },
   { key: "color",       label: "Color",       charType: "text", autoFit: false, minPx: 110, fixedPx: 110 },
@@ -93,6 +98,12 @@ type StickyKey = typeof STICKY_COL_META[number]["key"];
 const TEXT_CHAR_PX = 7;
 const MONO_CHAR_PX = 8.5;
 const PAD_CHARS = 4;
+
+// Pixel size of the per-row style thumbnail + the widened Style column
+// width that hosts it. Style is normally 90px (fixedPx); when images are
+// on it grows to fit the 32px tile beside the style code.
+const STYLE_THUMB_PX = 32;
+const STYLE_COL_IMG_PX = 138;
 
 // Compute left offset for a given column given the visible widths
 // map and the current hidden set. Hidden columns drop their width
@@ -131,7 +142,18 @@ interface Period {
 interface GridTableProps {
   loading: boolean;
   filtered: ATSRow[];
+  // Rows that feed the TOTALS row — the filtered set MINUS excluded ("X")
+  // rows. Display (pageRows) still includes excluded rows; only the
+  // aggregation excludes them. Falls back to `filtered` when omitted.
+  totalsRows?: ATSRow[];
   pageRows: ATSRow[];
+  // SKUs the operator has excluded via the "X" column. Excluded rows render
+  // greyed with the box checked, and drop out of every total.
+  excludedSet: ReadonlySet<string>;
+  onToggleExclude: (sku: string) => void;
+  // Bulk toggle from clicking the "X" column header — select-all / clear-all
+  // the currently-filtered (visible, non-aggregate) rows.
+  onToggleExcludeAll: (skus: string[], exclude: boolean) => void;
   displayPeriods: Period[];
   tableRef: React.RefObject<HTMLDivElement>;
 
@@ -160,11 +182,20 @@ interface GridTableProps {
   // shows the SO (or PO receipt) qty falling in March across the
   // filtered SKUs. The totals-row Qty mirrors this.
   viewMode: "ats" | "so" | "po";
+  // Negative-ATS card active (activeSort === "negATS"). When on, the ATS
+  // period cells render the TRUE running balance (row.dates, which can go
+  // negative) instead of the clamped periodAvail — so the oversold sizes the
+  // card filtered to are actually visible (red). Off → normal clamped view.
+  negMode: boolean;
   showTotalsRow: boolean;
   // Whether to render prepack qtys as units (exploded) or as packs.
   // ON shows packs × units-per-pack; OFF shows pack count + faded
   // "PPKn = N" hint with the unit-grain equivalent.
   explodePpk: boolean;
+  // Show a per-row style image thumbnail inside the Style column.
+  // Thumbnails are fetched live (by style code) from the PIM; click one
+  // to open the full image gallery. OFF hides them for a denser grid.
+  showImages: boolean;
   // Rightmost column that should remain sticky-left when scrolling
   // horizontally. null = no freeze (no sticky columns); a key from
   // STICKY_COL_META = freeze through that column inclusive.
@@ -189,11 +220,11 @@ interface GridTableProps {
 }
 
 export const GridTable: React.FC<GridTableProps> = ({
-  loading, filtered, pageRows, displayPeriods, tableRef,
+  loading, filtered, totalsRows, pageRows, excludedSet, onToggleExclude, onToggleExcludeAll, displayPeriods, tableRef,
   sortCol, sortDir, handleThClick, rangeUnit,
   pinnedSku, setPinnedSku, dragSku, setDragSku, dragOverSku, setDragOverSku,
   hoveredCell, setHoveredCell,
-  todayKey, viewMode, showTotalsRow, explodePpk, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
+  todayKey, viewMode, negMode, showTotalsRow, explodePpk, showImages, freezeKey, hiddenColumns, generalMarginPct, eventIndex, getEventsInPeriod,
   ctxMenu, setCtxMenu, setSummaryCtx,
   openSummaryCtx, handleSkuDrop, toggleExpandGroup, expandedGroupSet,
 }) => {
@@ -201,10 +232,34 @@ export const GridTable: React.FC<GridTableProps> = ({
   // no input has focus. See useArrowKeyScroll above.
   useArrowKeyScroll(tableRef);
 
+  // Per-row style thumbnails. Fetch primary thumbs for the styles on the
+  // CURRENT PAGE only (page size is bounded, so the request stays small)
+  // keyed by style code. Gated on showImages so the toggle-off path makes
+  // no network call. Re-fetches only when the visible style set changes.
+  const visibleStyleCodes = useMemo(
+    () => (showImages ? pageRows.map(r => r.master_style).filter((s): s is string => !!s) : []),
+    [showImages, pageRows],
+  );
+  const styleThumbs = useStyleThumbsByCode(visibleStyleCodes);
+
   // Convert hiddenColumns to a Set for O(1) lookups in colLeft + the
   // per-cell render guards below.
   const hidden = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
   const isHidden = (key: StickyKey) => hidden.has(key);
+
+  // "X" header select-all / clear-all. Operates on every currently-FILTERED
+  // leaf row (not just the page, and skipping aggregate roll-ups). If they're
+  // all already excluded, clicking the header includes them all; otherwise it
+  // excludes them all.
+  const excludableLeafSkus = useMemo(
+    () => filtered.filter(r => !r.__collapsed).map(r => r.sku),
+    [filtered],
+  );
+  const allVisibleExcluded = excludableLeafSkus.length > 0 && excludableLeafSkus.every(s => excludedSet.has(s));
+  const someVisibleExcluded = excludableLeafSkus.some(s => excludedSet.has(s));
+  const toggleAllExclude = () => {
+    if (excludableLeafSkus.length > 0) onToggleExcludeAll(excludableLeafSkus, !allVisibleExcluded);
+  };
 
   // Derived freeze guard + override. Columns past the freeze line
   // get an inline override that disables sticky positioning while
@@ -227,13 +282,16 @@ export const GridTable: React.FC<GridTableProps> = ({
   // Totals across the filtered set (not just the current page). The
   // computation lives in ./computeTotals so the Excel export can reuse
   // it — the two views always see the same numbers.
+  // Totals exclude the "X"-marked rows: use totalsRows (filtered minus
+  // excluded) when provided, falling back to the full filtered set.
+  const rowsForTotals = totalsRows ?? filtered;
   const sums = useMemo(() => computeGridTotals({
-    filtered,
+    filtered: rowsForTotals,
     displayPeriods,
     viewMode,
     eventIndex,
     generalMarginPct: generalMarginPct ?? 50,
-  }), [filtered, displayPeriods, viewMode, eventIndex, generalMarginPct]);
+  }), [rowsForTotals, displayPeriods, viewMode, eventIndex, generalMarginPct]);
 
   // Per-column widths. Auto-fit columns (numeric: onHand/onOrder/onPO)
   // compute width from the largest content + 2 char-widths padding on
@@ -245,7 +303,10 @@ export const GridTable: React.FC<GridTableProps> = ({
     const w: Record<StickyKey, number> = {} as Record<StickyKey, number>;
     for (const meta of STICKY_COL_META) {
       if (!meta.autoFit) {
-        w[meta.key] = meta.fixedPx;
+        // The Style column hosts the per-row image thumbnail; widen it
+        // when images are on so the 32px tile sits beside the style code
+        // (+ optional expand triangle / store badge) without crowding.
+        w[meta.key] = (meta.key === "style" && showImages) ? STYLE_COL_IMG_PX : meta.fixedPx;
         continue;
       }
       let maxLen = meta.label.length;
@@ -292,7 +353,7 @@ export const GridTable: React.FC<GridTableProps> = ({
       w[meta.key] = Math.max(meta.minPx, Math.ceil((maxLen + PAD_CHARS) * charPx));
     }
     return w;
-  }, [filtered, showTotalsRow, sums]);
+  }, [filtered, showTotalsRow, sums, showImages]);
 
   // Slim status bar instead of the centered "no SKUs" card. The card
   // dominated the page on initial load (when data hadn't streamed in
@@ -431,8 +492,8 @@ export const GridTable: React.FC<GridTableProps> = ({
              siblings reflow consistently. */}
           {showTotalsRow && (
           <tr>
-            {/* Empty placeholders for the four ID columns + Color */}
-            {(["category","subCategory","style","description","color"] as const).map(k => {
+            {/* Empty placeholders for the ID columns (incl. the X column) + Color */}
+            {(["category","subCategory","exclude","style","description","color"] as const).map(k => {
               if (isHidden(k)) return null;
               const left = colLeftFrom(k, stickyWidths, hidden) ?? 0;
               return <th key={k} style={{ ...totalsThBase, ...S.stickyCol, left, minWidth: stickyWidths[k], zIndex: 4, ...unfreezeStyle(k) }} />;
@@ -442,24 +503,33 @@ export const GridTable: React.FC<GridTableProps> = ({
                 inventory state across all three:
                   • B Inven = sum(onHand_qty × avg_cost)  per the
                     planner's rule (= sums.onHand.cost)
-                  • E Inven = B + open-POs $ − total period COGS $
-                    Receipts side uses the static open-PO commitment $
-                    (sums.onPO.cost); deductions use the actual SO
-                    event flows totalled across every displayed period
-                    (sum of periodCogsValue across the horizon), not
-                    sums.onOrder.cost — open-SO qty isn't quite the
-                    same as the SO-events that ship during the visible
-                    window.
+                  • E Inven = B + receipts$ − COGS$, both totalled over
+                    the SAME displayed window as the period chain below.
+                    Receipts$ = sum of periodReceiptsValue (PO arrivals
+                    DATED INSIDE the visible window), NOT sums.onPO.cost
+                    (the entire open-PO book). Using the full open-PO
+                    commitment over-stated the badge by the $ of POs
+                    arriving AFTER the window while only subtracting the
+                    in-window COGS — so the sticky E never matched the
+                    last period column's cumulative E. Now they tie out
+                    exactly: stickyE == E of the final displayed period.
+                    Deductions use periodCogsValue summed over the
+                    horizon (not sums.onOrder.cost — open-SO qty isn't
+                    the same as the SO-events shipping in the window).
                 Period cells below each carry their own per-period B/E
                 via the running chain — first period inherits B from
-                the sticky's E. */}
+                the sticky's B. */}
             {(() => {
               const stickyB = sums.onHand.cost;
               let totalPeriodCogs = 0;
+              let totalPeriodReceipts = 0;
               for (const p of displayPeriods) {
                 totalPeriodCogs += sums.periodCogsValue[p.key] ?? 0;
+                totalPeriodReceipts += sums.periodReceiptsValue[p.key] ?? 0;
               }
-              const stickyE = stickyB + sums.onPO.cost - totalPeriodCogs;
+              // Mirror the period chain (B + Σreceipts − Σcogs) so the
+              // badge equals the end-of-window column to the dollar.
+              const stickyE = stickyB + totalPeriodReceipts - totalPeriodCogs;
               return (
                 <>
                   {!isHidden("onHand") && (
@@ -560,28 +630,42 @@ export const GridTable: React.FC<GridTableProps> = ({
                 via the Toolbar's "Columns" dropdown) are dropped here
                 and their widths fall out of the cumulative `left`
                 offset, so visible siblings shift left to fill the gap. */}
-            {STICKY_COL_META.map((c, ci) => {
+            {STICKY_COL_META.map((c) => {
               if (isHidden(c.key)) return null;
               const left = colLeftFrom(c.key, stickyWidths, hidden) ?? 0;
               const isActive = sortCol === c.key;
+              // Numeric buckets + the X checkbox column center; text cols left.
+              const centered = c.key === "exclude" || c.key === "onHand" || c.key === "onOrder" || c.key === "onPO";
+              // The X column header is a select-all / clear-all toggle, not a sort key.
+              const isExcludeCol = c.key === "exclude";
+              const sortable = !isExcludeCol;
+              // X header reflects + flips the exclusion of every visible row.
+              const excludeTitle = allVisibleExcluded
+                ? `Click to INCLUDE all ${excludableLeafSkus.length} visible row(s) — they're all excluded from totals & reports right now`
+                : `Click to EXCLUDE all ${excludableLeafSkus.length} visible row(s) from every total, calculation & report${someVisibleExcluded ? " (some already excluded)" : ""}`;
+              const excludeColor = allVisibleExcluded ? "#F87171" : someVisibleExcluded ? "#FBBF24" : "#6B7280";
               return (
                 <th
                   key={c.key}
+                  title={isExcludeCol ? excludeTitle : undefined}
                   style={{
                     ...S.th, ...S.stickyCol,
                     top: headerRowTop,
                     left, minWidth: stickyWidths[c.key], zIndex: 3,
-                    textAlign: ci >= 5 ? "center" : "left",
-                    cursor: "pointer",
+                    textAlign: centered ? "center" : "left",
+                    cursor: (sortable || isExcludeCol) ? "pointer" : "default",
                     color: isActive ? "#F1F5F9" : "#6B7280",
                     // backgroundColor (not shorthand) so S.stickyCol's
                     // gradient stripe survives — see styles.ts:stickyCol.
                     backgroundColor: isActive ? "#243048" : "#1E293B",
+                    userSelect: isExcludeCol ? "none" : undefined,
                     ...unfreezeStyle(c.key),
                   }}
-                  onClick={() => handleThClick(c.key)}
+                  onClick={isExcludeCol ? () => toggleAllExclude() : (sortable ? () => handleThClick(c.key) : undefined)}
                 >
-                  {c.label}{isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  {isExcludeCol
+                    ? <span style={{ color: excludeColor, fontWeight: 800, fontSize: 13 }}>X</span>
+                    : <>{c.label}{sortable && isActive ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</>}
                 </th>
               );
             })}
@@ -619,6 +703,9 @@ export const GridTable: React.FC<GridTableProps> = ({
             const isDragging = dragSku === row.sku;
             const isDropTarget = dragOverSku === row.sku && dragSku !== row.sku;
             const isAggregate = !!row.__collapsed;
+            // Excluded ("X") leaf rows stay visible but greyed, so the
+            // operator can see + uncheck them. Aggregates can't be excluded.
+            const isExcluded = !isAggregate && excludedSet.has(row.sku);
             const aggLevel = row.__collapsed?.level ?? null;
             const aggKey = row.__collapsed?.key ?? "";
             const isExpanded = aggKey ? expandedGroupSet.has(aggKey) : false;
@@ -675,7 +762,8 @@ export const GridTable: React.FC<GridTableProps> = ({
                 }}
                 style={{
                   background: isDropTarget ? "#1e3a2a" : stickyBg,
-                  opacity: isDragging ? 0.45 : 1,
+                  // Excluded rows dim to read as "not counted"; dragging also dims.
+                  opacity: isDragging ? 0.45 : isExcluded ? 0.4 : 1,
                   outline: isDropTarget ? "2px solid #10B981" : "none",
                   transition: "background 0.1s, opacity 0.1s",
                   cursor: isAggregate ? "default" : "grab",
@@ -723,6 +811,27 @@ export const GridTable: React.FC<GridTableProps> = ({
                   )}
                 </td>
                 )}
+                {/* X — exclude checkbox. Aggregate rows can't be excluded
+                    (they're synthetic roll-ups). Full opacity even on a
+                    greyed (excluded) row so the operator can always see +
+                    click it to re-include. Stops propagation so toggling
+                    doesn't also pin/expand the row. */}
+                {!isHidden("exclude") && (
+                <td
+                  style={{ ...S.td, ...S.stickyCol, left: colLeftFrom("exclude", stickyWidths, hidden) ?? 0, minWidth: stickyWidths.exclude, backgroundColor: stickyBg, textAlign: "center", padding: "4px 2px", opacity: 1, ...unfreezeStyle("exclude") }}
+                  onClick={e => e.stopPropagation()}
+                  title={isAggregate ? undefined : (isExcluded ? "Excluded from all totals & reports — click to include" : "Exclude this row from all totals, calculations, and reports")}
+                >
+                  {!isAggregate && (
+                    <input
+                      type="checkbox"
+                      checked={isExcluded}
+                      onChange={e => { e.stopPropagation(); onToggleExclude(row.sku); }}
+                      style={{ accentColor: "#EF4444", cursor: "pointer", width: 14, height: 14 }}
+                    />
+                  )}
+                </td>
+                )}
                 {/* Style — primary identifier; raw SKU on hover for traceability;
                    store badge stays here */}
                 {!isHidden("style") && (
@@ -741,6 +850,31 @@ export const GridTable: React.FC<GridTableProps> = ({
                           {isExpanded ? "▼" : "▶"}
                         </button>
                       )}
+                      {/* Per-row style thumbnail. Color-matched (uses the
+                          row's color image when the style has one, else the
+                          style default). A blank tile reserves the same
+                          space for styles with no image so the column stays
+                          aligned. Click opens the full gallery. */}
+                      {showImages && (() => {
+                        const code = (row.master_style ?? "").toUpperCase();
+                        const info = code ? styleThumbs.get(code) : undefined;
+                        // Tolerant per-color match (PIM "Black Camo" ↔ Xoro "Blk Camo").
+                        const url = info ? pickColorImage(info.byColor, displayColor(row), info.default) : null;
+                        // Fixed-width wrapper so StyleThumb's `margin: 0 auto`
+                        // resolves within the tile's own width instead of
+                        // absorbing the flex row's free space (which would
+                        // shove the style code to the right).
+                        return (
+                          <span style={{ width: STYLE_THUMB_PX, flexShrink: 0, display: "block" }}>
+                            <StyleThumb
+                              styleId={info?.style_id ?? ""}
+                              label={row.master_style ?? ""}
+                              url={url}
+                              size={STYLE_THUMB_PX}
+                            />
+                          </span>
+                        );
+                      })()}
                       <span style={{ fontFamily: "monospace", color: "#60A5FA", fontSize: 12, fontWeight: 700 }}>
                         {row.master_style ?? "—"}
                       </span>
@@ -808,7 +942,13 @@ export const GridTable: React.FC<GridTableProps> = ({
                   // renders as "—".
                   let qty: number | undefined;
                   if (viewMode === "ats") {
-                    qty = periodAvail(row, displayPeriods, periodIdx);
+                    // Neg ATS card active → show the true running balance
+                    // (signed, can be negative) so the oversold cells the
+                    // card filtered to actually render in red. Otherwise the
+                    // clamped per-period availability (periodAvail).
+                    qty = negMode
+                      ? (row.dates[p.endDate] ?? undefined)
+                      : periodAvail(row, displayPeriods, periodIdx);
                   } else if (!row.__collapsed && ev) {
                     const list = viewMode === "so" ? ev.sos : ev.pos;
                     qty = list.reduce((a, e) => a + (e.qty || 0), 0);

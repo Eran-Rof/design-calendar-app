@@ -2,7 +2,8 @@
 //
 // GET  — list country_master rows. By default returns is_active=true rows
 //        only; ?include_inactive=true returns all. ?q=<search> ilike on
-//        iso2 or name. Ordered sort_order, name.
+//        iso2 or name. Ordered alphabetically by name (countries have no
+//        manual sort-order concept in the UI).
 // POST — create one country_master row. Body:
 //          { iso2 (required, 2-char, uppercased), name (required),
 //            sort_order (>=0, optional, default 0), is_active (default true) }
@@ -42,7 +43,6 @@ export default async function handler(req, res) {
     let query = admin
       .from("country_master")
       .select("*")
-      .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
 
     if (!includeInactive) query = query.eq("is_active", true);
@@ -111,12 +111,21 @@ export function validateInsert(body) {
     typeof body.is_active === "boolean" ? body.is_active :
       body.is_active === "true" || body.is_active === 1;
 
+  let phoneCode = null;
+  if (body.phone_code != null && body.phone_code !== "") {
+    phoneCode = typeof body.phone_code === "number" ? body.phone_code : parseInt(String(body.phone_code).replace(/\D/g, ""), 10);
+    if (!Number.isInteger(phoneCode) || phoneCode < 0) {
+      return { error: "phone_code must be a non-negative integer" };
+    }
+  }
+
   return {
     data: {
       iso2,
       name:       String(body.name).trim(),
       sort_order: sortOrder,
       is_active:  isActive,
+      ...(phoneCode != null ? { phone_code: phoneCode } : {}),
     },
   };
 }

@@ -1,4 +1,4 @@
-// src/tanda/InternalCases.tsx
+﻿// src/tanda/InternalCases.tsx
 //
 // Tangerine P7-9 — Cases admin panel (Customer Service / M47).
 // List + filters + detail modal with comment thread + create-new modal.
@@ -12,6 +12,7 @@ import SearchableSelect from "./components/SearchableSelect";
 // Cross-cutter T11-3 — audit-trail drop-in for the case detail modal.
 import RowHistory from "./components/RowHistory";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CASES_TABLE_KEY = "tangerine:cases:columns";
@@ -104,11 +105,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -128,7 +131,7 @@ function fmtDate(iso: string | null | undefined): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-US", {
-      month: "short", day: "2-digit", year: "numeric",
+      month: "2-digit", day: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
@@ -147,6 +150,16 @@ export default function InternalCases() {
   const [rows, setRows] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const assigneeName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<string>("");
@@ -192,7 +205,7 @@ export default function InternalCases() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data)
@@ -227,7 +240,7 @@ export default function InternalCases() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          🎫 Cases
+          Cases
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Customer service tickets (M47)
@@ -276,13 +289,13 @@ export default function InternalCases() {
           <Select label="Severity" value={severityFilter} onChange={setSeverityFilter} options={[...SEVERITY_VALUES]} />
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Assignee user id</label>
-          <input
-            type="text"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Assignee</label>
+          <SearchableSelect
+            value={assigneeFilter || null}
+            onChange={(v) => setAssigneeFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
@@ -317,7 +330,7 @@ export default function InternalCases() {
 
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`,
-        borderRadius: 8, overflow: "hidden",
+        borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -352,8 +365,8 @@ export default function InternalCases() {
                 <td style={td} hidden={!isVisible("customer")}>{r.customer ? `${r.customer.code ?? ""} ${r.customer.name}`.trim() : (r.external_email || "—")}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={pill(r.status, STATUS_COLOR[r.status])}>{r.status.replace("_", " ")}</span></td>
                 <td style={td} hidden={!isVisible("severity")}><span style={pill(r.severity, SEVERITY_COLOR[r.severity])}>{r.severity}</span></td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
-                  {r.assignee_user_id ? truncate(r.assignee_user_id, 12) : "—"}
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
+                  {r.assignee_user_id ? (assigneeName[r.assignee_user_id] || truncate(r.assignee_user_id, 12)) : "—"}
                 </td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("last_activity")}>{fmtDate(r.last_activity_at || r.updated_at)}</td>
@@ -396,14 +409,13 @@ function Select({ label, value, onChange, options, placeholder }: {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        <option value="">{placeholder || "All"}</option>
-        {options.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
-      </select>
+      <SearchableSelect
+        value={value || null}
+        onChange={(v) => onChange(v)}
+        options={[{ value: "", label: placeholder || "All" }, ...options.map((o) => ({ value: o, label: o.replace("_", " ") }))]}
+        placeholder={placeholder || "All"}
+        inputStyle={inputStyle}
+      />
     </div>
   );
 }
@@ -420,6 +432,7 @@ function CaseDetailModal({ id, onClose, customers }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
   const [newComment, setNewComment] = useState("");
   const [commentInternal, setCommentInternal] = useState(true);
 
@@ -532,17 +545,29 @@ function CaseDetailModal({ id, onClose, customers }: {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
             <Field label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value as Case["status"])} style={inputStyle}>
-                {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-              </select>
+              <SearchableSelect
+                value={status}
+                onChange={(v) => setStatus(v as Case["status"])}
+                options={STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Severity">
-              <select value={severity} onChange={(e) => setSeverity(e.target.value as Case["severity"])} style={inputStyle}>
-                {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={severity}
+                onChange={(v) => setSeverity(v as Case["severity"])}
+                options={SEVERITY_VALUES.map((s) => ({ value: s, label: s }))}
+                inputStyle={inputStyle}
+              />
             </Field>
-            <Field label="Assignee user id">
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+            <Field label="Assignee">
+              <SearchableSelect
+                value={assignee || null}
+                onChange={(v) => setAssignee(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
+              />
             </Field>
             <Field label="Customer">
               <div style={{ ...inputStyle, padding: "6px 10px", color: C.textSub, fontSize: 12 }}>
@@ -641,6 +666,7 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [customerId, setCustomerId] = useState("");
@@ -717,12 +743,21 @@ function CreateCaseModal({ customers, onClose, onCreated }: {
           />
         </Field>
         <Field label="Severity">
-          <select value={severity} onChange={(e) => setSeverity(e.target.value as Case["severity"])} style={inputStyle}>
-            {SEVERITY_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={severity}
+            onChange={(v) => setSeverity(v as Case["severity"])}
+            options={SEVERITY_VALUES.map((s) => ({ value: s, label: s }))}
+            inputStyle={inputStyle}
+          />
         </Field>
-        <Field label="Assignee user id">
-          <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Assignee">
+          <SearchableSelect
+            value={assignee || null}
+            onChange={(v) => setAssignee(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
@@ -756,8 +791,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 760, maxHeight: "90vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(760px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>

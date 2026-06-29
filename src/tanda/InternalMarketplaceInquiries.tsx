@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Inquiry {
   id: string;
@@ -65,7 +66,7 @@ export default function InternalMarketplaceInquiries() {
         <ExportButton
           rows={rows.map((q) => ({
             ...q,
-            listing_title: q.listing?.title || q.listing_id,
+            listing_title: q.listing?.title || "—",
           })) as unknown as Array<Record<string, unknown>>}
           filename="marketplace-inquiries"
           sheetName="Inquiries"
@@ -91,21 +92,21 @@ export default function InternalMarketplaceInquiries() {
           {rows.map((q) => (
             <div key={q.id} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontWeight: 700 }}>{q.listing?.title || q.listing_id}</div>
+                <div style={{ fontWeight: 700 }}>{q.listing?.title || "—"}</div>
                 <StatusChip status={q.status} />
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>{new Date(q.created_at).toLocaleString()} · by {q.inquired_by}</div>
               <div style={{ fontSize: 12, color: C.textSub, marginTop: 8, padding: 8, background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 6 }}>{q.message}</div>
               {q.response && (
                 <div style={{ fontSize: 12, color: C.text, marginTop: 8, padding: 8, background: "rgba(16,185,129,0.08)", border: `1px solid ${C.success}`, borderRadius: 6 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: C.success, marginBottom: 4, textTransform: "uppercase" }}>Vendor response · {q.responded_at ? new Date(q.responded_at).toLocaleDateString() : ""}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.success, marginBottom: 4, textTransform: "uppercase" }}>Vendor response · {q.responded_at ? fmtDateDisplay(q.responded_at) : ""}</div>
                   {q.response}
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
                 {q.status !== "converted_to_rfq"
                   ? <button onClick={() => void convert(q)} style={btnPrimary}>Convert to RFQ</button>
-                  : <span style={{ fontSize: 11, color: C.success }}>→ RFQ {q.rfq_id?.slice(0, 8)}…</span>
+                  : <span style={{ fontSize: 11, color: C.success }}>→ Converted to RFQ</span>
                 }
               </div>
             </div>

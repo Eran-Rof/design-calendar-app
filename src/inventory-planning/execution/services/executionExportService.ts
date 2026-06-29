@@ -1,40 +1,19 @@
 // Export a batch to xlsx. Default, safest execution path.
 
-import XLSXStyle from "xlsx-js-style";
 import type { IpCategory, IpItem } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type { IpExecutionAction, IpExecutionBatch } from "../types/execution";
 import { mapActionToXoroPayload } from "../utils/payloadMappers";
 import { executionRepo } from "./executionRepo";
+import { newWorkbook, addObjectGridSheet, addMetaSheet, downloadExcelWorkbook } from "../../../shared/excelLogo";
 
 function slug(s: string): string { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
 function today(): string { return new Date().toISOString().slice(0, 10); }
 
-const HDR: XLSXStyle.CellStyle = {
-  font: { bold: true, color: { rgb: "FFFFFF" } },
-  fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
-  alignment: { horizontal: "center" },
-};
+const QTY_KEYS = ["suggested_qty", "approved_qty"];
 
-function sheet(rows: Record<string, unknown>[]): XLSXStyle.WorkSheet {
-  if (rows.length === 0) return XLSXStyle.utils.aoa_to_sheet([["(no rows)"]]);
-  const headers = Object.keys(rows[0]);
-  const aoa: unknown[][] = [headers, ...rows.map((r) => headers.map((h) => r[h]))];
-  const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
-  for (let c = 0; c < headers.length; c++) {
-    const cell = XLSXStyle.utils.encode_cell({ r: 0, c });
-    if (ws[cell]) ws[cell].s = HDR;
-  }
-  ws["!cols"] = headers.map((h) => ({ wch: Math.min(40, Math.max(12, h.length + 2)) }));
-  return ws;
-}
-
-function metaSheet(args: {
-  batch: IpExecutionBatch;
-  run: IpPlanningRun;
-  rowCount: number;
-}): XLSXStyle.WorkSheet {
-  return XLSXStyle.utils.aoa_to_sheet([
+function metaPairs(args: { batch: IpExecutionBatch; run: IpPlanningRun; rowCount: number }): Array<[string, unknown]> {
+  return [
     ["Generated at", new Date().toISOString()],
     ["Batch id", args.batch.id],
     ["Batch name", args.batch.batch_name],
@@ -48,16 +27,16 @@ function metaSheet(args: {
     ["Horizon", `${args.run.horizon_start} → ${args.run.horizon_end}`],
     ["Actions", args.rowCount],
     ["Export note", "Export-first execution — manual ERP entry unless a writeback run was submitted."],
-  ]);
+  ];
 }
 
-function download(wb: XLSXStyle.WorkBook, fileName: string): void {
-  const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  const blob = new Blob([buf], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = fileName; a.click();
-  URL.revokeObjectURL(url);
+// id → name lookups for the vendor / customer / channel export columns. The
+// caller (ExecutionBatchManager) already loads these; pass them in. Falls back
+// to fetching from the repo so the export is never left showing raw UUIDs.
+export interface ExecutionExportNameMaps {
+  vendor: Map<string, string>;
+  customer: Map<string, string>;
+  channel: Map<string, string>;
 }
 
 export async function exportExecutionBatch(args: {
@@ -66,22 +45,26 @@ export async function exportExecutionBatch(args: {
   run: IpPlanningRun;
   items: IpItem[];
   categories: IpCategory[];
+  names?: ExecutionExportNameMaps;
   actor?: string | null;
 }): Promise<{ file_name: string; row_count: number }> {
   const { batch, actions, run, items } = args;
   const itemById = new Map(items.map((i) => [i.id, i]));
+  const names = args.names ?? (await executionRepo.listNameMaps());
+  // Resolve an id through a name map, never surfacing a raw UUID. Empty/missing → "—".
+  const nameOf = (map: Map<string, string>, id: string | null): string =>
+    (id ? map.get(id) : "") || "—";
   const rows = actions.map((a) => {
     const item = itemById.get(a.sku_id);
     const payload = mapActionToXoroPayload(a);
     return {
-      action_id: a.id.slice(0, 8),
       action_type: a.action_type,
-      sku_code: item?.sku_code ?? "",
+      sku_code: item?.sku_code ?? "—",
       description: item?.description ?? "",
+      vendor: nameOf(names.vendor, a.vendor_id),
+      customer: nameOf(names.customer, a.customer_id),
+      channel: nameOf(names.channel, a.channel_id),
       po_number: a.po_number ?? "",
-      vendor_id: a.vendor_id ?? "",
-      customer_id: a.customer_id ?? "",
-      channel_id: a.channel_id ?? "",
       period: a.period_start ?? "",
       suggested_qty: a.suggested_qty,
       approved_qty: a.approved_qty ?? "",
@@ -92,12 +75,16 @@ export async function exportExecutionBatch(args: {
     };
   });
 
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Actions");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ batch, run, rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addObjectGridSheet(wb, "Actions", rows, {
+    title: "Execution Batch",
+    subtitle: `${batch.batch_name} · ${run.name}`,
+    qtyKeys: QTY_KEYS,
+  });
+  addMetaSheet(wb, "Meta", metaPairs({ batch, run, rowCount: rows.length }));
 
   const fileName = `execution_${batch.batch_type}_${slug(batch.batch_name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await downloadExcelWorkbook(wb, fileName);
 
   // Audit the export.
   await executionRepo.insertAudit({

@@ -24,6 +24,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   { key: "finance",      label: "Finance",             description: "Supply-chain-finance requests and accepted discount offers" },
   { key: "vendor_alert", label: "Vendor alerts",       description: "A vendor is flagged or its health score drops" },
   { key: "edi",          label: "EDI errors",          description: "An EDI / ERP-sync transaction fails processing" },
+  { key: "style_review", label: "Style Master review", description: "Inventory Planning promotes a new style that needs its master details completed" },
 ];
 
 export const NOTIFICATION_CATEGORY_KEYS: string[] = NOTIFICATION_CATEGORIES.map((c) => c.key);

@@ -4,7 +4,7 @@
 // planner can hand off each "buy" sheet to the right team without
 // losing context on which planning slice it came from.
 
-import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, addObjectGridSheet, downloadExcelWorkbook } from "../../shared/excelLogo";
 import { wholesaleRepo } from "./wholesalePlanningRepository";
 import { scenarioRepo } from "../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../scenarios/types/scenarios";
@@ -85,7 +85,7 @@ export async function loadReconcile(scenarioIds: string[]): Promise<ReconcileBui
       const key = vid ?? "__unassigned__";
       let g = byVendor.get(key);
       if (!g) {
-        const vname = vid ? (vendorById.get(vid)?.name ?? `Vendor ${vid.slice(0, 8)}`) : "(unassigned)";
+        const vname = vid ? (vendorById.get(vid)?.name ?? "—") : "(unassigned)";
         g = { vendor_id: vid, vendor_name: vname, rows: [], total_qty: 0, total_cost: 0 };
         byVendor.set(key, g);
       }
@@ -142,9 +142,9 @@ export async function loadReconcile(scenarioIds: string[]): Promise<ReconcileBui
 // Excel layout: one summary sheet ("Overview") + one sheet per
 // (saved build × vendor). Sheet names are tab-truncated to 31 chars
 // per Excel's spec.
-export function exportReconcileWorkbook(outputs: ReconcileBuildOutput[]): void {
+export async function exportReconcileWorkbook(outputs: ReconcileBuildOutput[]): Promise<void> {
   if (outputs.length === 0) return;
-  const wb = XLSXStyle.utils.book_new();
+  const wb = newWorkbook();
 
   // Overview sheet — totals per (build, vendor).
   const summaryRows: Record<string, unknown>[] = [];
@@ -160,7 +160,7 @@ export function exportReconcileWorkbook(outputs: ReconcileBuildOutput[]): void {
     }
     summaryRows.push({ Build: `${o.scenario.scenario_name} — TOTAL`, Vendor: "", SKUs: o.rec_count, "Total Qty": o.total_qty, "Total Cost": o.total_cost.toFixed(2) });
   }
-  XLSXStyle.utils.book_append_sheet(wb, sheet(summaryRows), "Overview");
+  addObjectGridSheet(wb, "Overview", summaryRows, { title: "Build Reconcile — Overview", qtyKeys: ["SKUs", "Total Qty"] });
 
   // One sheet per (build × vendor).
   const usedNames = new Set<string>();
@@ -182,39 +182,12 @@ export function exportReconcileWorkbook(outputs: ReconcileBuildOutput[]): void {
         "Extended Cost": r.extended_cost != null ? r.extended_cost.toFixed(2) : "",
         Action: r.action,
       }));
-      XLSXStyle.utils.book_append_sheet(wb, sheet(rows), name);
+      addObjectGridSheet(wb, name, rows, { title: `${o.scenario.scenario_name} — ${g.vendor_name}`, qtyKeys: ["Qty"] });
     }
   }
 
   const fileName = `build_reconcile_${today()}.xlsx`;
-  const buf = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  const blob = new Blob([buf], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── helpers ───────────────────────────────────────────────────────────────
-const HDR: XLSXStyle.CellStyle = {
-  font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-  fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
-  alignment: { horizontal: "center", vertical: "center" },
-};
-
-function sheet(rows: Record<string, unknown>[]): XLSXStyle.WorkSheet {
-  if (rows.length === 0) return XLSXStyle.utils.aoa_to_sheet([["(no rows)"]]);
-  const headers = Object.keys(rows[0]);
-  const aoa: unknown[][] = [headers, ...rows.map((r) => headers.map((h) => r[h]))];
-  const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
-  for (let c = 0; c < headers.length; c++) {
-    const cell = XLSXStyle.utils.encode_cell({ r: 0, c });
-    if (ws[cell]) ws[cell].s = HDR;
-  }
-  ws["!cols"] = headers.map((h) => ({ wch: Math.min(40, Math.max(10, h.length + 2)) }));
-  return ws;
+  await downloadExcelWorkbook(wb, fileName);
 }
 
 function slug(s: string, max: number): string {

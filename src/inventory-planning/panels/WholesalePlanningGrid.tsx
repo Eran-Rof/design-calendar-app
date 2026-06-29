@@ -10,6 +10,7 @@ import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { StatCell } from "../components/StatCell";
 import { BuyCell } from "../components/cells/BuyCell";
 import { IntCell } from "../components/cells/IntCell";
@@ -89,6 +90,9 @@ export interface WholesalePlanningGridProps {
   // Delete a planner-added TBD row. Hidden on auto-synthesized rows
   // (the workbench enforces this server-side too).
   onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // Promote a planner-added new style+color into the company masters.
+  onPromoteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  promotedTbdKeys?: Set<string>;
   // Undo the most recent + Add row from the toolbar — distinct from
   // the row-level ✕ so the planner can hit it without hunting for
   // the row when they realize they added the wrong thing.
@@ -112,8 +116,13 @@ export interface WholesalePlanningGridProps {
   // "truly new, not in master at all" (orange badge).
   masterColorsByStyleLower?: Map<string, Set<string>>;
   // (style_code, group_name, sub_category_name) tuples from item
-  // master. Drives the TBD style picker's category-wide list.
+  // master. Drives the TBD style picker's category-wide list AND lets
+  // the Category / Sub Cat filters populate before a build.
   masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
+  // Full customer master (id + name). Seeds the Customer filter so it's
+  // usable before a build — without it the dropdown was empty until the
+  // run's forecast was built (rows are the only other source).
+  masterCustomers?: Array<{ id: string; name: string }>;
   // Reassign a TBD row's customer. Picking a real customer promotes
   // the stock-buy line into that customer's committed demand; the
   // grid re-loads after save and the row shows under the new
@@ -215,7 +224,7 @@ export interface WholesalePlanningGridProps {
 // import block above. Pure-helper unit tests live alongside in
 // wholesale-planning/__tests__/gridUtils.test.ts.
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -425,34 +434,47 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
 
   const customers = useMemo(() => {
     const s = new Map<string, string>();
-    // Pull from rows so any planner-added customer that has been
-    // assigned to a TBD line shows up in the filter dropdown — the
-    // memo intentionally walks every row (TBD + non-TBD) so freshly
-    // created customers don't have to wait for a build to surface.
+    // Seed from the customer master so the filter is usable BEFORE a
+    // build — an unbuilt run has no rows, so a rows-only memo left the
+    // Customer dropdown empty until the planner built the forecast. The
+    // master list lets them pre-scope the build by customer.
+    for (const c of masterCustomers ?? []) s.set(c.id, c.name);
+    // Then pull from rows so any planner-added customer that has been
+    // assigned to a TBD line shows up too — the memo intentionally walks
+    // every row (TBD + non-TBD) so freshly created customers don't have
+    // to wait for a build to surface.
     for (const r of rows) s.set(r.customer_id, r.customer_name);
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+  }, [rows, masterCustomers]);
 
-  // Categories are now sourced from the item master GroupName attribute
+  // Categories are sourced from the item master GroupName attribute
   // (text, no FK), so the filter operates on the string directly.
+  // masterStyles carries the same group_name per style straight from the
+  // item master, so the Category filter populates before a build too.
   const groupNames = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) if (r.group_name) s.add(r.group_name);
+    for (const m of masterStyles ?? []) if (m.group_name) s.add(m.group_name);
     return Array.from(s).sort();
-  }, [rows]);
+  }, [rows, masterStyles]);
 
   // Sub cat options are scoped to the selected Category — picking
   // "Joggers" in the Category dropdown narrows the Sub Cat list to
   // only the sub cats found under Joggers. When no category is chosen,
-  // every sub cat is offered.
+  // every sub cat is offered. Merges master styles so sub cats are
+  // pickable pre-build (same rationale as the Category filter above).
   const subCategoryNames = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
       if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) continue;
       if (r.sub_category_name) s.add(r.sub_category_name);
     }
+    for (const m of masterStyles ?? []) {
+      if (filterCategory.length > 0 && !filterCategory.includes(m.group_name ?? "—")) continue;
+      if (m.sub_category_name) s.add(m.sub_category_name);
+    }
     return Array.from(s).sort();
-  }, [rows, filterCategory]);
+  }, [rows, masterStyles, filterCategory]);
 
   // When category changes and the current sub cat selection is no
   // longer valid in the new scope, clear it so the user doesn't see
@@ -1877,6 +1899,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               background: PAL.panel, color: PAL.text,
               border: `1px solid ${PAL.yellow}`, borderRadius: 12,
               padding: 20, width: "min(480px, 90vw)",
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
             }}
           >
@@ -1916,6 +1939,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               background: PAL.panel, color: PAL.text,
               border: `1px solid ${PAL.red}`, borderRadius: 12,
               padding: 20, width: "min(480px, 90vw)",
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
             }}
           >
@@ -2113,17 +2137,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
             create a 0-width freeze line. */}
-        <select
-          value={freezeKey}
-          onChange={(e) => setFreezeKey(e.target.value)}
-          title="Pin leftmost columns through the chosen one when scrolling horizontally"
-          style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
-        >
-          <option value="">No freeze</option>
-          {FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
-            <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
-          ))}
-        </select>
+        <div title="Pin leftmost columns through the chosen one when scrolling horizontally" style={{ minWidth: 180 }}>
+          <SearchableSelect
+            value={freezeKey || null}
+            onChange={(v) => setFreezeKey(v)}
+            inputStyle={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
+            options={[
+              { value: "", label: "No freeze" },
+              ...FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
+                { value: k, label: `Freeze through ${FREEZE_LABELS[k]}` }
+              )),
+            ]}
+          />
+        </div>
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
@@ -2272,7 +2298,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   cursor: displayRows.length === 0 ? "not-allowed" : "pointer",
                 }}
               >
-                ⎘ Copy top row
+                Copy top row
               </button>
               <MultiSelectDropdown
                 compact
@@ -2522,6 +2548,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th widths={dynamicColWidths} label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
               <Th widths={dynamicColWidths} label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
               <Th widths={dynamicColWidths} label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
+              <Th widths={dynamicColWidths} label="Inseam"      k="inseam"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Inseam length (denim/pants) from the item master — each inseam is its own planning line" hidden={hiddenColumns.has("inseam")} />
               <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th widths={dynamicColWidths} label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
@@ -2579,6 +2606,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   onUpdateTbdCustomer={onUpdateTbdCustomer}
                   onAddTbdNewCustomer={onAddTbdNewCustomer}
                   onDeleteTbdRow={onDeleteTbdRow}
+                  onPromoteTbdRow={onPromoteTbdRow}
+                  promotedTbdKeys={promotedTbdKeys}
                   onUpdateSystemOverride={onUpdateSystemOverride}
                   onUpdateUnitCost={onUpdateUnitCost}
                   saveAggBuyerOrOverride={saveAggBuyerOrOverride}
@@ -2590,14 +2619,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               );
             })}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={28} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
                   : "No rows match your filters."}
               </td></tr>
             )}
             {loading && (
-              <tr><td colSpan={27} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+              <tr><td colSpan={28} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 Loading…
               </td></tr>
             )}
@@ -2610,9 +2639,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span>Rows per page:</span>
-              <select style={S.select} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-                {[100, 250, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
+              <div style={{ minWidth: 90 }}>
+                <SearchableSelect
+                  value={String(pageSize)}
+                  onChange={(v) => setPageSize(Number(v))}
+                  inputStyle={S.select}
+                  options={[100, 250, 500, 1000, 2000].map((n) => ({ value: String(n), label: String(n) }))}
+                />
+              </div>
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage(0)}>« First</button>
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</button>
               <span>Page {page + 1} / {Math.max(1, Math.ceil(filtered.length / pageSize))}</span>

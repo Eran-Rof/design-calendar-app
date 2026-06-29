@@ -6,6 +6,7 @@ import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { supabaseClient } from "./utils/supabase";
 import { useIdleLogout } from "./hooks/useIdleLogout";
+import { collapseTabsToLogin } from "./utils/plmSessionTabs";
 import { canAccessAppFromSession } from "./permissions";
 import { useAppStore } from "./store";
 import { sbLoad as sbLoadSvc, sbSaveTask as sbSaveTaskSvc, sbLoadTasks as sbLoadTasksSvc, sbLoadCollections as sbLoadCollectionsSvc } from "./store/supabaseService";
@@ -20,7 +21,6 @@ import { fmtDays, ROFLogoFull, S } from "./utils/styles";
 import { SB_URL, SB_KEY, supabaseClient } from "./utils/supabase";
 
 // ─── Components ───────────────────────────────────────────────────────────────
-import Avatar from "./components/Avatar";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { Modal, ConfirmModal } from "./components/Modal";
 import ContextMenu from "./components/ContextMenu";
@@ -46,13 +46,15 @@ const OrderTypeManager = lazy(() => import("./components/OrderTypeManager"));
 const RoleManager = lazy(() => import("./components/RoleManager"));
 const GenderManager = lazy(() => import("./components/GenderManager"));
 import type { AppStore } from "./store";
-import FavoritesMenu from "./components/FavoritesMenu";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
 import AutoLandingToast from "./components/AutoLandingToast";
 import { useAutoLanding } from "./hooks/useAutoLanding";
 import { usePersonalization } from "./hooks/usePersonalization";
 import { dcViewToMenuKey } from "./lib/dcViewToMenuKey";
+import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import { DC_MODULES, DC_SECTIONS } from "./dcModules";
+import { useDocumentTitle, humanizeView } from "./shared/useDocumentTitle";
 import { DashboardPanel } from "./dc/dashboardPanel";
 import TaskCard from "./components/TaskCard";
 import { TimelinePanel } from "./dc/timelinePanel";
@@ -75,6 +77,15 @@ function App() {
   // ── Confirm modal state ────────────────────────────────────────────────
   const [confirmState, setConfirmState] = useState<{ message: string; action: string; onConfirm: () => void } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  // Left NavDrawer collapse — local + localStorage, mirroring the GS1 shell.
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem("dc:nav:collapsed:v1") === "1"; } catch { return false; }
+  });
+  const toggleNav = () => setNavCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem("dc:nav:collapsed:v1", next ? "1" : "0"); } catch {}
+    return next;
+  });
   setConfirmHandler((opts) => setConfirmState(opts));
 
   // ── Supabase persistence ─────────────────────────────────────────────────
@@ -108,6 +119,8 @@ function App() {
   const _setCollRaw = useAppStore.getState().setCollectionsRaw;
   // ── View/UI state → useAppStore (see store/index.ts) ──
   const view = s.view;
+  // Reflect the active view in the browser tab.
+  useDocumentTitle(`${humanizeView(view)} · Design Calendar`);
   const listView = s.listView;
   const expandedColl = s.expandedColl;
   const filterBrand = s.filterBrand;
@@ -308,11 +321,12 @@ function App() {
     idleMs: 60 * 60 * 1000,
     onWarning: setIdleWarning,
     onLogout: () => {
-      sessionStorage.removeItem("plm_user");
-      setCurrentUser(null);
       setIdleWarning(false);
-      setTeamsToken(null);
-      setView("dashboard");
+      // Collapse all idle PLM tabs to a single login tab (this one navigates to
+      // login or retires if another tab already holds it). Owns navigation, so
+      // don't null currentUser here — that would trigger the redirect guard and
+      // race the cross-tab coordination.
+      collapseTabsToLogin();
     },
   });
 
@@ -331,7 +345,6 @@ function App() {
   if (!dbxLoaded)
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
-        <div style={{ fontSize: 32 }}>🔄</div>
         <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Supabase…</div>
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Syncing your data</div>
       </div>
@@ -470,6 +483,11 @@ function App() {
 
   const dashboardCtx = { TaskCard };
 
+  // Width consumed by the fixed left NavDrawer — content shifts right by this.
+  const navOffset = navCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
+
+  // User identity for the drawer (mirrors GS1App.readPlmUser shape).
+  const onDrawerSignOut = () => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; };
 
   return (
     <div
@@ -480,8 +498,65 @@ function App() {
         color: TH.text,
       }}
     >
+      {/* Shared left navigation drawer (de-iconed, collapsible) — replaces the
+          old horizontal top-bar nav. Selecting a module swaps the `view`. */}
+      <NavDrawer
+        appKey="dc"
+        appLabel="Design Calendar"
+        logoText="DC"
+        moduleParam="view"
+        modules={DC_MODULES}
+        sections={DC_SECTIONS}
+        activeModule={view}
+        onSelectModule={(k) => { if (k) { setView(k); setStatFilter(null); if (k !== "dashboard") setFocusCollKey(null); } else { setView("dashboard"); } }}
+        userEmail={(currentUser as any)?.email ?? null}
+        userName={currentUser?.name ?? null}
+        onSignOut={onDrawerSignOut}
+        collapsed={navCollapsed}
+        onToggleCollapsed={toggleNav}
+        // Split the app-name + user box evenly across the 64px top-menu line
+        // (32 + 32 = 64 under the app's global border-box).
+        headerHeight={32}
+        userBoxHeight={32}
+        // Tools moved off the top bar into the drawer (List/Grid · Activity · Settings).
+        toolsSlot={currentUser ? (
+          <>
+            {(view === "dashboard" || view === "timeline") && (
+              <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.06)", borderRadius: 7, padding: 3, border: "1px solid rgba(255,255,255,0.1)" }}>
+                {([["⊞", "Grid", false], ["☰", "List", true]] as Array<[string, string, boolean]>).map(([icon, label, isList]) => (
+                  <button key={String(isList)} title={`${label} view`} onClick={() => setListView(isList)}
+                    style={{ flex: 1, padding: "5px 8px", borderRadius: 5, border: "none", background: listView === isList ? "rgba(255,255,255,0.16)" : "transparent", color: listView === isList ? "#fff" : "#94a3b8", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                    <span style={{ fontSize: 14 }}>{icon}</span>{label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowActivity(!showActivity)} title="Activity Log"
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: showActivity ? "rgba(59,130,246,0.18)" : "transparent", border: "none", color: showActivity ? "#fff" : "#94a3b8", cursor: "pointer", borderRadius: 5, padding: "7px 10px", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>
+              Activity
+            </button>
+            <SettingsDropdown
+              openUp
+              block
+              isAdmin={isAdmin}
+              onTeam={() => setShowTeam(true)}
+              onVendors={() => setShowVendors(true)}
+              onSizes={() => setShowSizeLib(true)}
+              onCategories={() => setShowCatLib(true)}
+              onUsers={() => setShowUsers(true)}
+              onBrands={() => setShowBrands(true)}
+              onSeasons={() => setShowSeasons(true)}
+              onCustomers={() => setShowCustomers(true)}
+              onPOTypes={() => setShowOrderTypes(true)}
+              onRoles={() => setShowRoles(true)}
+              onTasks={() => setShowTaskManager(true)}
+              onGenders={() => setShowGenders(true)}
+            />
+          </>
+        ) : undefined}
+      />
       {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}/* App-colored native <select> option popups everywhere (was a light override that leaked into the dark apps). */select option{background:#0b1220;color:#F1F5F9;}`}</style>
 
       {/* ── SAVE ERROR TOAST ── */}
       {saveErr && (
@@ -493,7 +568,6 @@ function App() {
           fontSize: 14, maxWidth: 360,
           display: "flex", alignItems: "center", gap: 10,
         }}>
-          <span>⚠</span>
           <span>{saveErr}</span>
           <button onClick={() => setSaveErr("")} style={{ marginLeft: "auto", background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
@@ -520,7 +594,6 @@ function App() {
           letterSpacing: "0.01em",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>⏱</span>
             <span>You've been inactive for 55 minutes. You'll be automatically logged out in 5 minutes.</span>
           </div>
           <button
@@ -539,13 +612,15 @@ function App() {
           padding: "0 22px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-start",
           height: 64,
           position: "sticky",
           top: 0,
           zIndex: 100,
           gap: 12,
           boxShadow: "0 2px 16px rgba(0,0,0,0.25)",
+          marginLeft: navOffset,
+          transition: "margin-left 0.2s ease",
         }}
       >
         <div
@@ -585,9 +660,6 @@ function App() {
             alignItems: "center",
           }}
         >
-          {[["dashboard","Dashboard"],["timeline","Timeline"],["calendar","Calendar"],["trend-briefs","Trend Briefs"]].map(([v,label]) =>
-            navBtn(v, label)
-          )}
           {currentUser && (
             <button
               onClick={() => setAiOpen(true)}
@@ -604,7 +676,7 @@ function App() {
                 display: "inline-flex", alignItems: "center", gap: 6,
               }}
             >
-              ✨ Ask AI
+              Ask AI
             </button>
           )}
           {currentUser && (
@@ -623,7 +695,7 @@ function App() {
                 display: "inline-flex", alignItems: "center", gap: 6,
               }}
             >
-              🔔 Notifications
+              Notifications
               {unreadDesignNotifs > 0 && (
                 <span style={{
                   minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999,
@@ -633,157 +705,12 @@ function App() {
               )}
             </button>
           )}
-          {currentUser && canAccessAppFromSession("tanda") && (
-            <a
-              href="/tanda"
-              style={{
-                padding: "7px 12px", borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.7)", fontWeight: 600,
-                fontFamily: "inherit", fontSize: 12,
-                textDecoration: "none", whiteSpace: "nowrap",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              T&A
-            </a>
-          )}
-          {currentUser && canAccessAppFromSession("costing") && (
-            <a
-              href="/costing"
-              style={{
-                padding: "7px 12px", borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.7)", fontWeight: 600,
-                fontFamily: "inherit", fontSize: 12,
-                textDecoration: "none", whiteSpace: "nowrap",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              Costing
-            </a>
-          )}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexShrink: 0,
-            alignItems: "center",
-          }}
-        >
-          {/* Favorites — first action icon (consistent across all apps). */}
-          <FavoritesMenu />
-          {/* Undo button — always visible, disabled when nothing to undo */}
-          <button
-            onClick={useAppStore.getState().handleUndo}
-            disabled={undoStack.length === 0}
-            title={undoStack.length > 0 ? `Undo last change (${undoStack.length} available)` : "Nothing to undo"}
-            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${undoStack.length > 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)"}`, background: undoStack.length > 0 ? "rgba(255,255,255,0.12)" : "transparent", color: undoStack.length > 0 ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.3)", fontWeight: 600, cursor: undoStack.length > 0 ? "pointer" : "default", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}
-          >
-            ↩ Undo{undoStack.length > 1 ? ` (${undoStack.length})` : ""}
-          </button>
-          {/* List view toggle — shown for dashboard and timeline */}
-          {(view === "dashboard" || view === "timeline") && (
-            <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px", border: "1px solid rgba(255,255,255,0.15)" }}>
-              {[["⊞", false, "Grid view"], ["☰", true, "List view"]].map(([icon, isListMode, title]) => (
-                <button key={String(isListMode)} title={title as string} onClick={() => setListView(isListMode as boolean)}
-                  style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: listView === isListMode ? "rgba(255,255,255,0.18)" : "none", color: listView === isListMode ? "#fff" : "rgba(255,255,255,0.55)", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, transition: "all 0.15s" }}>
-                  {icon}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Activity log button */}
-          <button
-            onClick={() => setShowActivity(!showActivity)}
-            title="Activity Log"
-            style={{ padding: "7px 13px", borderRadius: 8, border: `1px solid ${showActivity ? TH.primary : "rgba(255,255,255,0.15)"}`, background: showActivity ? TH.primary + "33" : "none", color: showActivity ? "#fff" : "rgba(255,255,255,0.8)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-            📋 Activity
-          </button>
-          {/* Settings master dropdown */}
-          <SettingsDropdown
-            isAdmin={isAdmin}
-            onTeam={() => setShowTeam(true)}
-            onVendors={() => setShowVendors(true)}
-            onSizes={() => setShowSizeLib(true)}
-            onCategories={() => setShowCatLib(true)}
-            onUsers={() => setShowUsers(true)}
-            onBrands={() => setShowBrands(true)}
-            onSeasons={() => setShowSeasons(true)}
-            onCustomers={() => setShowCustomers(true)}
-            onPOTypes={() => setShowOrderTypes(true)}
-            onRoles={() => setShowRoles(true)}
-            onTasks={() => setShowTaskManager(true)}
-            onGenders={() => setShowGenders(true)}
-          />
-          <div
-            style={{
-              width: 1,
-              height: 24,
-              background: "rgba(255,255,255,0.15)",
-            }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Avatar member={currentUser} size={30} />
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <span
-                style={{
-                  fontSize: 12,
-                  color: "rgba(255,255,255,0.85)",
-                  fontWeight: 600,
-                  lineHeight: 1.2,
-                }}
-              >
-                {currentUser.name}
-              </span>
-              {teamsToken && (
-                <span style={{ fontSize: 9, color: "#6EE7B7", fontWeight: 700, display: "flex", alignItems: "center", gap: 3 }}>
-                  💬 Teams
-                </span>
-              )}
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                {currentUser.role}
-              </span>
-            </div>
-            <button
-              onClick={() => window.location.href = "/"}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "none",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-              }}
-            >
-              ← PLM
-            </button>
-            <button
-              onClick={() => { sessionStorage.removeItem("plm_user"); window.location.href = "/"; }}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 6,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "none",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 11,
-              }}
-            >
-              Sign Out
-            </button>
-          </div>
         </div>
       </div>
 
+      {/* Drawer-offset wrapper — shifts the filter bar + main content right of
+          the fixed left NavDrawer (header & fixed bars are offset separately). */}
+      <div style={{ marginLeft: navOffset, transition: "margin-left 0.2s ease" }}>
       {/* Filter bar — only on views where it applies */}
       {["dashboard", "timeline", "calendar"].includes(view) && <FilterBar
         brands={brands}
@@ -799,6 +726,8 @@ function App() {
         filterVendor={filterVendor}
         setFilterVendor={setFilterVendor}
         canViewAll={canViewAll}
+        onUndo={useAppStore.getState().handleUndo}
+        undoCount={undoStack.length}
       />}
 
       <div
@@ -850,6 +779,7 @@ function App() {
           />
           </Suspense>
         )}
+      </div>
       </div>
 
       {showAddTask && (
@@ -1006,7 +936,7 @@ function App() {
             ...(isAdmin
               ? [
                   {
-                    icon: "✏️",
+                    icon: "",
                     label: "Edit Collection",
                     onClick: () => setEditCollKey(ctxMenu.collKey),
                   },
@@ -1014,7 +944,7 @@ function App() {
                 ]
               : []),
             {
-              icon: "📊",
+              icon: "",
               label: "Open Timeline",
               onClick: () => {
                 setFocusCollKey(ctxMenu.collKey);
@@ -1022,7 +952,7 @@ function App() {
               },
             },
             {
-              icon: "📅",
+              icon: "",
               label: "Open Calendar",
               onClick: () => {
                 setFocusCollKey(ctxMenu.collKey);
@@ -1033,7 +963,7 @@ function App() {
               ? [
                   "---",
                   {
-                    icon: "🗑️",
+                    icon: "",
                     label: "Delete Collection",
                     danger: true,
                     onClick: () => {
@@ -1116,7 +1046,7 @@ function App() {
         style={{
           position: "fixed",
           bottom: 0,
-          left: 0,
+          left: navOffset,
           right: 0,
           zIndex: 200,
           background:
@@ -1127,7 +1057,7 @@ function App() {
           alignItems: "stretch",
           height: 66,
           backdropFilter: "blur(12px)",
-          transition: "transform 0.3s ease",
+          transition: "transform 0.3s ease, left 0.2s ease",
           transform: showNav ? "translateY(0)" : "translateY(100%)",
         }}
       >
@@ -1318,7 +1248,6 @@ function App() {
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>💬</span>
             Teams
           </button>
           <button
@@ -1340,7 +1269,6 @@ function App() {
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>📧</span>
             Email
           </button>
         </div>

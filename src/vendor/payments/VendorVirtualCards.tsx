@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Card {
   id: string;
@@ -60,9 +61,9 @@ export default function VendorVirtualCards() {
   }
 
   async function confirmSpent(cardId: string) {
-    if (!confirm("Mark this card as fully spent? Use this when you've charged the card for the full amount.")) return;
+    if (!await showConfirm({ title: "Mark as fully spent?", message: "Use this when you've charged the card for the full amount.", tone: "warn", confirmLabel: "Mark spent" })) return;
     const r = await api(`/api/vendor/virtual-cards/${cardId}/confirm-spent`, { method: "POST" });
-    if (!r.ok) { alert(await r.text()); return; }
+    if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
   }
 
@@ -89,7 +90,7 @@ export default function VendorVirtualCards() {
                   <StatusChip status={cd.status} />
                 </div>
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-                  Exp {String(cd.expiry_month).padStart(2, "0")}/{cd.expiry_year} · {cd.provider} · issued {new Date(cd.issued_at).toLocaleDateString()}
+                  Exp {String(cd.expiry_month).padStart(2, "0")}/{cd.expiry_year} · {cd.provider} · issued {new Date(cd.issued_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 10 }}>
                   <Mini label="Limit" value={`$${Number(cd.credit_limit).toLocaleString()}`} />
@@ -105,7 +106,7 @@ export default function VendorVirtualCards() {
                   <div style={{ marginTop: 10, padding: 10, background: C.bg, border: `1px solid ${reveal ? C.success : C.danger}`, borderRadius: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
                     {revealErr ? <span style={{ color: C.danger }}>{revealErr}</span> : reveal && (
                       <>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.warn, textTransform: "uppercase", marginBottom: 6 }}>⚠ {reveal.warning}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.warn, textTransform: "uppercase", marginBottom: 6 }}>{reveal.warning}</div>
                         <div>Number: <strong>{reveal.card_number}</strong></div>
                         <div>CVV: <strong>{reveal.cvv}</strong></div>
                         <div>Exp: {String(reveal.expiry_month).padStart(2, "0")}/{reveal.expiry_year}</div>

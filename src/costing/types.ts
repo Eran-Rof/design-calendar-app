@@ -9,6 +9,20 @@ export type CostingStatus =
   | "closed"
   | "cancelled";
 
+// Per-line STORED lifecycle status. Event-driven states (sent/quoted/awarded/
+// lost) are written server-side by the RFQ publish/submit/award handlers;
+// draft/closed are operator-settable; revised is reserved for Stage B.
+export type CostingLineStatus =
+  | "draft"
+  | "sent"
+  | "quoted"
+  | "awarded"
+  | "lost"
+  | "revised"
+  | "closed";
+// Effective status mirrors the stored lifecycle exactly.
+export type CostingLineEffectiveStatus = CostingLineStatus;
+
 export type CostingQuoteStatus =
   | "pending"
   | "received"
@@ -44,6 +58,9 @@ export interface CostingProject {
    *  matches /DDP/i against this to hide cost-component cols + rename Tgt Cost. */
   payment_terms_name: string | null;
   grid_state: Record<string, unknown>;
+  /** Per-line status breakdown from the projects-list GET (status is per line
+   *  now). Drives the list's status column + tab counts. */
+  _status_counts?: { draft: number; sent: number; quoted: number; awarded: number; lost: number; revised: number; closed: number; total: number };
   user_id: string | null;
   created_at: string;
   updated_at: string;
@@ -89,6 +106,9 @@ export interface CostingLine {
   /** T3 weighted-avg sales price, stamped by /api/internal/costing/comp/t3. */
   t3_unit_price: number | null;
   sell_target: number | null;
+  /** Target gross-margin % the operator typed to derive sell_target. NULL when
+   *  sell_target was overridden directly (the "Sell Tgt Frm Mrgn" cell blanks). */
+  sell_target_margin_pct: number | null;
   sell_price: number | null;
   priced_date: string | null;
   fob_cost: number | null;
@@ -99,6 +119,12 @@ export interface CostingLine {
   landed_cost: number | null;
   margin_pct: number | null;
   selected_vendor_quote_id: string | null;
+  /** Stored per-line lifecycle status: draft|sent|quoted|awarded|lost|revised|
+   *  closed. Event-driven states are written server-side (publish/submit/award);
+   *  the operator can manually set draft or closed. */
+  status: CostingLineStatus | null;
+  /** Derived (read-only, from the lines GET): the line is on a generated RFQ. */
+  _on_rfq?: boolean;
   ly_qty: number | null;
   ly_unit_cost: number | null;
   ly_total_margin: number | null;
@@ -127,7 +153,7 @@ export interface CostingLineVendor {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  vendor?: { id: string; code: string | null; legal_name: string | null } | null;
+  vendor?: { id: string; code: string | null; name: string | null; legal_name: string | null } | null;
 }
 
 export interface CostingLineCompliance {
@@ -212,6 +238,9 @@ export type RfqStatus = "draft" | "published" | "closed" | "awarded";
 export interface RfqListRow {
   id: string;
   entity_id: string;
+  /** Human-readable auto-generated RFQ code, format RFQ-00001. Null on rows
+   *  predating the 20260812000000_rfq_code.sql backfill / pre-migration deploys. */
+  code: string | null;
   title: string;
   description: string | null;
   category: string | null;
@@ -258,6 +287,10 @@ export interface RfqLineItem {
   specifications: string | null;
   /** Mirror of costing_lines.fabric_code at generate-rfqs time. NULL on legacy rows. */
   fabric_code: string | null;
+  /** Server-resolved label: "CODE — Description" (or "CODE1 — Desc1, CODE2 — Desc2" for
+   *  multi-fabric lines). Falls back to the bare code when fabric_codes has no matching row.
+   *  NULL when fabric_code is NULL. Added by api/internal/costing/rfqs/:id GET. */
+  fabric_label?: string | null;
   /** Mirror of costing_lines.fit. NULL on legacy rows. */
   fit: string | null;
   /** Mirror of costing_lines.bottom_closure. NULL on legacy rows. */
@@ -268,6 +301,11 @@ export interface RfqLineItem {
   waist_type: string | null;
   /** Per-unit cost target the vendor is asked to quote against (= costing_lines.target_cost). */
   target_price: number | null;
+  /** Style/color snapshot mirrored from the source costing line (present in DB; returned by the detail GET). */
+  style_code?: string | null;
+  color?: string | null;
+  /** Back-pointer to the source costing line (for per-line award write-back). */
+  costing_line_id?: string | null;
   created_at: string;
 }
 
@@ -285,10 +323,32 @@ export interface RfqInvitation {
   } | null;
 }
 
+export interface RfqQuoteLine {
+  quote_id: string;
+  rfq_line_item_id: string;
+  unit_price: number | null;
+  quantity: number | null;
+  notes: string | null;
+}
+export interface RfqQuoteSummary {
+  id: string;
+  vendor_id: string;
+  vendor_name: string | null;
+  status: string;
+  total_price: number | null;
+  lead_time_days: number | null;
+  valid_until: string | null;
+  submitted_at: string | null;
+  notes: string | null;
+  lines: RfqQuoteLine[];
+}
+
 export interface RfqDetail {
   rfq: RfqListRow;
   line_items: RfqLineItem[];
   invitations: RfqInvitation[];
+  /** Vendor quotes + per-line prices (RFQ-list inline expand). */
+  quotes?: RfqQuoteSummary[];
   // The destined vendor on a not-yet-sent draft (no invitation row exists yet).
   intended_vendor?: {
     id: string;

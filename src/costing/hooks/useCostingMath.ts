@@ -38,7 +38,8 @@ export function useCostingMath(line: CostingLine | null | undefined): CostingMat
       otherCosts: toNum(line.other_costs),
       landedCost: 0,
       wholesalePrice: 0,
-      retailPrice: toNum(line.sell_price),
+      // Sell column was removed — margin/retail now keys off Sell Tgt.
+      retailPrice: toNum(line.sell_target),
       margin: 0,
       notes: "",
     };
@@ -54,7 +55,7 @@ export function useCostingMath(line: CostingLine | null | undefined): CostingMat
     line?.freight,
     line?.insurance,
     line?.other_costs,
-    line?.sell_price,
+    line?.sell_target,
   ]);
 }
 
@@ -69,7 +70,7 @@ export function computeLineMath(line: CostingLine): CostingMathResult {
     otherCosts: toNum(line.other_costs),
     landedCost: 0,
     wholesalePrice: 0,
-    retailPrice: toNum(line.sell_price),
+    retailPrice: toNum(line.sell_target),
     margin: 0,
     notes: "",
   };

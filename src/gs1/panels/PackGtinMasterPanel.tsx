@@ -5,6 +5,25 @@ import { formatGtin14Display, validateGtin14 } from "../services/gtinService";
 import { KNOWN_SCALE_CODES } from "../types";
 import type { PackGtin, PackGtinBom, PackGtinBomIssue, BomStatus } from "../types";
 import * as db from "../services/supabaseGs1";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "gs1.pack_gtin_master";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "style_no", label: "Style No" },
+  { key: "color", label: "Color" },
+  { key: "scale", label: "Scale" },
+  { key: "pack_gtin", label: "Pack GTIN" },
+  { key: "units_per_pack", label: "Units/Pack" },
+  { key: "bom_status", label: "BOM Status" },
+  { key: "missing_upcs", label: "Missing UPCs" },
+  { key: "last_built", label: "Last Built" },
+  { key: "status", label: "Status" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -48,7 +67,7 @@ function BomDrawer({ gtin, onClose }: { gtin: PackGtin; onClose: () => void }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 560, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div>
             <h3 style={{ margin: "0 0 4px", fontSize: 16, fontFamily: "monospace" }}>{gtin.pack_gtin}</h3>
@@ -126,6 +145,8 @@ export default function PackGtinMasterPanel() {
     bomBuilding, bomBuildError, buildBomForGtin, buildBomForAllMissing,
   } = useGS1Store();
 
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
   const [searchStyle, setSearchStyle] = useState("");
   const [searchColor, setSearchColor] = useState("");
   const [searchScale, setSearchScale] = useState("");
@@ -189,6 +210,19 @@ export default function PackGtinMasterPanel() {
 
   const notBuiltCount = packGtins.filter(g => g.bom_status === "not_built" || g.bom_status === "error").length;
 
+  // Additive per-column sort over the GTIN list. Sortable columns map to
+  // direct scalar fields or a trivially-correct accessor (Scale → scale_code,
+  // Missing UPCs → bom_issue_summary count, Last Built → bom_last_built_at).
+  // BOM Status renders a badge but backs onto the direct bom_status enum.
+  const { sorted: sortedGtins, sortKey, sortDir, onHeaderClick } = useSort(packGtins, {
+    persistKey: "gs1:pack_gtin_master:sort",
+    accessors: {
+      scale: (g) => g.scale_code ?? "",
+      missing_upcs: (g) => (g.bom_issue_summary?.missing_upcs as number | undefined) ?? 0,
+      last_built: (g) => (g.bom_last_built_at ? new Date(g.bom_last_built_at) : null),
+    },
+  });
+
   return (
     <div style={{ padding: "24px 16px", maxWidth: 1200, margin: "0 auto" }}>
       <h2 style={{ margin: "0 0 4px", fontSize: 20, color: TH.text }}>Pack GTIN Master</h2>
@@ -202,7 +236,7 @@ export default function PackGtinMasterPanel() {
         if (incomplete.length === 0) return null;
         return (
           <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 700 }}>⚠ {incomplete.length} incomplete BOM{incomplete.length > 1 ? "s" : ""}</span>
+            <span style={{ fontWeight: 700 }}>{incomplete.length} incomplete BOM{incomplete.length > 1 ? "s" : ""}</span>
             — These pack GTINs are missing UPC mappings and cannot be used for label export. Click the BOM icon on each row to review.
           </div>
         );
@@ -240,11 +274,19 @@ export default function PackGtinMasterPanel() {
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Scale Code</label>
             <div style={{ display: "flex", gap: 6 }}>
-              <select value={manualScale} onChange={e => setManualScale(e.target.value)}
-                style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-                <option value="">— select —</option>
-                {Array.from(KNOWN_SCALE_CODES).sort().map(c => <option key={c}>{c}</option>)}
-              </select>
+              <div style={{ width: 140 }}>
+                <SearchableSelect
+                  theme="light"
+                  value={manualScale || null}
+                  onChange={v => setManualScale(v)}
+                  inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+                  placeholder="— select —"
+                  options={[
+                    { value: "", label: "— select —" },
+                    ...Array.from(KNOWN_SCALE_CODES).sort().map(c => ({ value: c, label: c })),
+                  ]}
+                />
+              </div>
               <input value={manualScale} onChange={e => setManualScale(e.target.value.toUpperCase())} placeholder="custom"
                 style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 80 }} />
             </div>
@@ -277,6 +319,14 @@ export default function PackGtinMasterPanel() {
             style={{ background: TH.header, color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, cursor: "pointer" }}>
             {gtinLoading ? "…" : "Search"}
           </button>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
           {notBuiltCount > 0 && (
             <button onClick={handleBuildAllMissing} disabled={bomBuilding}
               style={{ background: "#276749", color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
@@ -305,35 +355,42 @@ export default function PackGtinMasterPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Style No", "Color", "Scale", "Pack GTIN", "Units/Pack", "BOM Status", "Missing UPCs", "Last Built", "Status", "Actions"].map(h => (
-                        <th key={h} style={TH_STYLE}>{h}</th>
-                      ))}
+                      <SortableTh label="Style No" sortKey="style_no" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("style_no")} />
+                      <SortableTh label="Color" sortKey="color" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("color")} />
+                      <SortableTh label="Scale" sortKey="scale" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("scale")} />
+                      <SortableTh label="Pack GTIN" sortKey="pack_gtin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("pack_gtin")} />
+                      <SortableTh label="Units/Pack" sortKey="units_per_pack" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("units_per_pack")} />
+                      <SortableTh label="BOM Status" sortKey="bom_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("bom_status")} />
+                      <SortableTh label="Missing UPCs" sortKey="missing_upcs" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("missing_upcs")} />
+                      <SortableTh label="Last Built" sortKey="last_built" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("last_built")} />
+                      <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} hidden={!visibleColumns.has("status")} />
+                      <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {packGtins.map(g => {
+                    {sortedGtins.map(g => {
                       const isBuilding = buildingId === g.id;
                       const missingUpcs = (g.bom_issue_summary?.missing_upcs as number | undefined) ?? 0;
                       const lastBuilt = g.bom_last_built_at
-                        ? new Date(g.bom_last_built_at).toLocaleDateString()
+                        ? fmtDateDisplay(g.bom_last_built_at)
                         : "—";
                       const hasExistingBom = g.bom_status !== "not_built";
                       return (
                         <tr key={g.id}>
-                          <td style={TD_STYLE}>{g.style_no}</td>
-                          <td style={TD_STYLE}>{g.color}</td>
-                          <td style={{ ...TD_STYLE, fontWeight: 700 }}>{g.scale_code}</td>
-                          <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em" }}>{g.pack_gtin}</td>
-                          <td style={{ ...TD_STYLE, fontWeight: 600 }}>{g.units_per_pack ?? "—"}</td>
-                          <td style={TD_STYLE}><BomStatusBadge status={g.bom_status} /></td>
-                          <td style={{ ...TD_STYLE, color: missingUpcs > 0 ? TH.primary : TH.textMuted, fontWeight: missingUpcs > 0 ? 700 : 400 }}>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("style_no")}>{g.style_no}</td>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("color")}>{g.color}</td>
+                          <td style={{ ...TD_STYLE, fontWeight: 700 }} hidden={!visibleColumns.has("scale")}>{g.scale_code}</td>
+                          <td style={{ ...TD_STYLE, fontFamily: "monospace", fontWeight: 600, fontSize: 12, letterSpacing: "0.04em" }} hidden={!visibleColumns.has("pack_gtin")}>{g.pack_gtin}</td>
+                          <td style={{ ...TD_STYLE, fontWeight: 600 }} hidden={!visibleColumns.has("units_per_pack")}>{g.units_per_pack ?? "—"}</td>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("bom_status")}><BomStatusBadge status={g.bom_status} /></td>
+                          <td style={{ ...TD_STYLE, color: missingUpcs > 0 ? TH.primary : TH.textMuted, fontWeight: missingUpcs > 0 ? 700 : 400 }} hidden={!visibleColumns.has("missing_upcs")}>
                             {missingUpcs > 0 ? missingUpcs : "—"}
                           </td>
-                          <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }}>{lastBuilt}</td>
-                          <td style={{ ...TD_STYLE, color: g.status === "active" ? "#276749" : TH.textMuted, fontSize: 12 }}>
+                          <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("last_built")}>{lastBuilt}</td>
+                          <td style={{ ...TD_STYLE, color: g.status === "active" ? "#276749" : TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("status")}>
                             {validateGtin14(g.pack_gtin) ? g.status : "✗ invalid GTIN"}
                           </td>
-                          <td style={TD_STYLE}>
+                          <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                             <div style={{ display: "flex", gap: 6 }}>
                               <button
                                 onClick={() => handleBuildBom(g)}

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Payment {
   id: string;
@@ -80,17 +82,21 @@ export default function InternalPayments() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Outbound payments register. Create, track, and transition through the status machine.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="">All</option>
-            <option value="initiated">Initiated</option>
-            <option value="processing">Processing</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div style={{ minWidth: 180 }}>
+            <SearchableSelect value={entityId || null} onChange={(v) => setEntityId(v)}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))} inputStyle={selectSt} />
+          </div>
+          <div style={{ minWidth: 140 }}>
+            <SearchableSelect value={status || null} onChange={(v) => setStatus(v)}
+              options={[
+                { value: "", label: "All" },
+                { value: "initiated", label: "Initiated" },
+                { value: "processing", label: "Processing" },
+                { value: "completed", label: "Completed" },
+                { value: "failed", label: "Failed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]} placeholder="All" inputStyle={selectSt} />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New payment</button>
           <ExportButton
             rows={rows.map((p) => ({
@@ -133,8 +139,8 @@ export default function InternalPayments() {
               <div><strong>{p.currency} {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div>
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{p.method}</div>
               <div><StatusChip status={p.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(p.initiated_at).toLocaleDateString()}</div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{p.completed_at ? new Date(p.completed_at).toLocaleDateString() : "—"}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(p.initiated_at)}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{p.completed_at ? fmtDateDisplay(p.completed_at) : "—"}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 4, justifyContent: "flex-end" }}>
                 {p.status === "initiated" && <>
                   <button onClick={() => void transition(p.id, "cancelled")} style={{ ...btnMini, color: C.danger }}>Cancel</button>
@@ -164,6 +170,8 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
   const [reference, setReference] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
   const [saving, setSaving] = useState(false);
+  // AP invoices for the picker (scoped to the chosen vendor) — no raw UUID box.
+  const [invoiceOpts, setInvoiceOpts] = useState<Array<{ id: string; invoice_number: string | null }>>([]);
 
   useEffect(() => {
     (async () => {
@@ -175,6 +183,21 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       }
     })();
   }, []);
+
+  // Reload invoice options whenever the vendor changes; clear any prior pick
+  // that no longer belongs to the selected vendor.
+  useEffect(() => {
+    setInvoiceId("");
+    void (async () => {
+      try {
+        const qs = vendorId ? `?vendor_id=${encodeURIComponent(vendorId)}` : "";
+        const r = await fetch(`/api/internal/ap-invoices${qs}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) setInvoiceOpts(data);
+      } catch { /* non-fatal */ }
+    })();
+  }, [vendorId]);
 
   async function save() {
     if (!vendorId || !amount) { notify("Vendor and amount are required.", "error"); return; }
@@ -200,23 +223,36 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New payment</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+            options={[{ value: "", label: "Select…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+            placeholder="Select…" inputStyle={inp} />
         </Row>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
           <Row label="Amount"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inp} /></Row>
           <Row label="Currency"><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} style={inp} /></Row>
         </div>
         <Row label="Method">
-          <select value={method} onChange={(e) => setMethod(e.target.value)} style={inp}>
-            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <SearchableSelect value={method || null} onChange={(v) => setMethod(v)}
+            options={METHODS.map((m) => ({ value: m, label: m }))} inputStyle={inp} />
         </Row>
-        <Row label="Invoice ID (optional)"><input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} placeholder="UUID" style={inp} /></Row>
+        <Row label="Invoice (optional)">
+          <SearchableSelect
+            value={invoiceId || null}
+            onChange={(v) => setInvoiceId(v || "")}
+            options={[
+              { value: "", label: "None" },
+              ...invoiceOpts.map((iv) => ({
+                value: iv.id,
+                label: iv.invoice_number || "(no number)",
+                searchHaystack: `${iv.invoice_number || ""}`,
+              })),
+            ]}
+            placeholder={vendorId ? "Search invoice by number…" : "Pick a vendor first"}
+            emptyText={vendorId ? "No invoices for this vendor" : "Pick a vendor first"}
+          />
+        </Row>
         <Row label="Reference (optional)"><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="ACH batch ref, check #, etc." style={inp} /></Row>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div style={{ position: "sticky", bottom: -22, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -22px -22px", padding: "14px 22px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={() => void save()} disabled={saving} style={btnPrimary}>{saving ? "Creating…" : "Create"}</button>
         </div>
@@ -241,8 +277,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

@@ -15,6 +15,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const TABLE_KEY = "tanda.bank_recon_report";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -78,6 +82,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -196,6 +201,31 @@ export default function InternalBankReconReport() {
 
   const reconciledCount = useMemo(() => runs.filter((r) => r.status === "reconciled").length, [runs]);
 
+  // Export rows mirror the displayed recon table — account label resolved,
+  // cents kept in cents for currency formatting.
+  const exportRows = useMemo(
+    () =>
+      runs.map((r) => ({
+        account: `${r.bank_accounts.name}${r.bank_accounts.mask ? ` ••${r.bank_accounts.mask}` : ""}`,
+        gl_balance_cents: r.gl_balance_cents,
+        uncleared_cents: r.uncleared_txn_cents,
+        bank_statement_cents: r.bank_statement_balance_cents,
+        diff_cents: r.reconciled_diff_cents,
+        status: r.status,
+        reconciled_at: r.reconciled_at || "",
+      })),
+    [runs],
+  );
+  const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
+    { key: "account",              header: "Account" },
+    { key: "gl_balance_cents",     header: "GL Balance", format: "currency_cents" },
+    { key: "uncleared_cents",      header: "+ Uncleared", format: "currency_cents" },
+    { key: "bank_statement_cents", header: "Bank Statement", format: "currency_cents" },
+    { key: "diff_cents",           header: "Diff", format: "currency_cents" },
+    { key: "status",               header: "Status" },
+    { key: "reconciled_at",        header: "Reconciled At", format: "date" },
+  ];
+
   return (
     <div style={{ color: C.text }}>
       <h2 style={{ margin: "0 0 16px", fontSize: 22 }}>Bank Reconciliation Report</h2>
@@ -203,14 +233,19 @@ export default function InternalBankReconReport() {
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Period</div>
-          <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} style={inputStyle}>
-            <option value="">— pick a period —</option>
-            {periods.map((p) => (
-              <option key={p.id} value={p.id}>
-                FY{p.fiscal_year} P{String(p.period_number).padStart(2, "0")} · {p.starts_on} → {p.ends_on} · {p.status}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={periodId || null}
+            onChange={(v) => setPeriodId(v)}
+            options={[
+              { value: "", label: "— pick a period —" },
+              ...periods.map((p) => ({
+                value: p.id,
+                label: `FY${p.fiscal_year} P${String(p.period_number).padStart(2, "0")} · ${p.starts_on} → ${p.ends_on} · ${p.status}`,
+              })),
+            ]}
+            placeholder="— pick a period —"
+            inputStyle={inputStyle}
+          />
         </div>
         {periodId && (
           <div style={{ fontSize: 13, color: C.textSub }}>
@@ -227,6 +262,9 @@ export default function InternalBankReconReport() {
             onReset={resetToDefault}
             onSetAll={setAllVisible}
           />
+        )}
+        {periodId && runs.length > 0 && (
+          <ExportButton rows={exportRows} filename="bank-reconciliation" sheetName="Bank Reconciliation" columns={exportColumns} />
         )}
       </div>
 
@@ -245,7 +283,7 @@ export default function InternalBankReconReport() {
           No active bank accounts. Link one via Bank Reconciliation → Accounts tab.
         </div>
       ) : (
-        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
               <th style={th} hidden={!visibleColumns.has("account")}>Account</th>
@@ -306,7 +344,7 @@ export default function InternalBankReconReport() {
                       {isReconciled && (
                         <>
                           <span style={{ fontSize: 11, color: C.textMuted, marginRight: 8 }}>
-                            ✓ {r.reconciled_at ? new Date(r.reconciled_at).toLocaleDateString() : ""}
+                            ✓ {r.reconciled_at ? fmtDateDisplay(r.reconciled_at) : ""}
                           </span>
                           <button style={btnSecondary} onClick={() => void reopenRun(r)}>Reopen</button>
                         </>

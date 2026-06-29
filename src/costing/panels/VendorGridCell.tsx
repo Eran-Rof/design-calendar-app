@@ -37,6 +37,7 @@ export default function VendorGridCell({ lineId }: Props) {
   const loadQuotes = useCostingStore((s) => s.loadVendorQuotes);
   const loadVendorsForPicker = useCostingStore((s) => s.loadVendorsForPicker);
   const setNotice = useCostingStore((s) => s.setNotice);
+  const addExtraVendor = useCostingStore((s) => s.addExtraVendor);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -80,10 +81,14 @@ export default function VendorGridCell({ lineId }: Props) {
   const lookup = selected?.vendor_id
     ? vendors.find((v) => v.id === selected.vendor_id)
     : null;
+  // Prefer the human-readable NAME over the code. vendors.legal_name is often
+  // NULL on backfilled rows, so fall through legal_name → name → the picker's
+  // already-resolved label BEFORE ever showing the raw code.
   const selectedName =
     selected?.vendor?.legal_name
-    || selected?.vendor?.code
+    || selected?.vendor?.name
     || lookup?.legal_name
+    || selected?.vendor?.code
     || lookup?.code
     || "";
 
@@ -142,7 +147,12 @@ export default function VendorGridCell({ lineId }: Props) {
           status: "received",
         });
         if (created) await selectQuote(lineId, created.id);
-        else setNotice("Could not record vendor pick — see console for details.", "error");
+        else {
+          // addQuote swallowed the server error into the store — surface the
+          // real reason (FK/constraint message) instead of a generic toast.
+          const reason = useCostingStore.getState().error || "see console for details";
+          setNotice(`Could not record vendor pick: ${reason}`, "error");
+        }
       }
       setOpen(false);
     } catch (e) {
@@ -157,6 +167,10 @@ export default function VendorGridCell({ lineId }: Props) {
     setBusy(true);
     try {
       const created = await addVendor(name);
+      // Mirror to the operator-only freeform vendor master so the entry is
+      // editable/deletable from Settings (and auto-pruned when ip_vendor_master
+      // gets the same name via the Xoro nightly sync).
+      addExtraVendor(name).catch(() => { /* non-blocking */ });
       // Reload the vendor list so the popover knows about the new vendor
       // (also picks it up for any sibling grid cells the operator opens next).
       await loadVendorsForPicker();

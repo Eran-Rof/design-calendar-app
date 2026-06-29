@@ -13,6 +13,7 @@
 // styles, SearchableSelect, notify/confirmDialog, Field helper, ExportButton).
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
@@ -23,7 +24,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -110,7 +111,7 @@ export default function InternalBrokerInvoices() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🚢 Broker Invoices</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Broker Invoices</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New broker invoice</button>
       </div>
 
@@ -122,7 +123,7 @@ export default function InternalBrokerInvoices() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Broker invoice #</th><th style={th}>Vendor</th><th style={th}>Date</th>
@@ -138,7 +139,7 @@ export default function InternalBrokerInvoices() {
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(r); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.broker_invoice_number}</td>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>—</span>}</td>
-                <td style={td}>{r.invoice_date}</td>
+                <td style={td}>{fmtDateDisplay(r.invoice_date)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.freight_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.brokerage_fee_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.duty_advance_cents)}</td>
@@ -147,7 +148,7 @@ export default function InternalBrokerInvoices() {
                 <td style={td} onClick={(e) => e.stopPropagation()}>
                   {r.allocation_je_id
                     ? <span style={{ color: C.success, fontSize: 12 }}>✓ Posted</span>
-                    : <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }} onClick={() => setPostFor(r)}>💲 Post landed cost</button>}
+                    : <button style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }} onClick={() => setPostFor(r)}>Post landed cost</button>}
                 </td>
               </tr>
             ))}
@@ -204,19 +205,23 @@ function PostLandedCostModal({ invoice, onClose, onPosted }: { invoice: BrokerIn
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 560, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Post landed cost — {invoice.broker_invoice_number}</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
           Allocates <b>{fmtCents(invoice.total_cents)}</b> across the chosen posted receipt&apos;s accepted units (by value):
           in-stock units have their FIFO layer cost revalued up; the share on units already sold is expensed to Landed Cost Variance (5150). Books the broker AP bill. This cannot be undone here.
         </div>
         <Field label="Posted receipt to allocate onto">
-          <select value={receiptId} onChange={(e) => setReceiptId(e.target.value)} style={inputStyle}>
-            <option value="">— pick a posted receipt —</option>
-            {receipts.map((rc) => (
-              <option key={rc.id} value={rc.id}>{rc.receipt_date} · {rc.id.slice(0, 8)} · landed {fmtCents(rc.landed_cost_cents)}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={receiptId || null}
+            onChange={(v) => setReceiptId(v)}
+            options={[
+              { value: "", label: "— pick a posted receipt —" },
+              ...receipts.map((rc) => ({ value: rc.id, label: `${rc.receipt_date} · landed ${fmtCents(rc.landed_cost_cents)}` })),
+            ]}
+            placeholder="— pick a posted receipt —"
+            inputStyle={inputStyle}
+          />
         </Field>
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, margin: "12px 0", fontSize: 13 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
@@ -316,7 +321,7 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 820, maxWidth: 980, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(980px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New broker invoice" : `Broker invoice — ${invoice?.broker_invoice_number}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -346,9 +351,12 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "end" }}>
           <Field label="Allocation method">
-            <select value={allocationMethod} onChange={(e) => setAllocationMethod(e.target.value)} style={inputStyle}>
-              {ALLOCATION_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <SearchableSelect
+              value={allocationMethod || null}
+              onChange={(v) => setAllocationMethod(v)}
+              options={ALLOCATION_METHODS.map((m) => ({ value: m, label: m }))}
+              inputStyle={inputStyle}
+            />
           </Field>
           <div style={{ textAlign: "right", fontSize: 13, color: C.textSub }}>
             Total (computed): <b style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCents(componentSum)}</b>
@@ -358,7 +366,7 @@ function BrokerInvoiceModal({ invoice, onClose, onSaved }: { invoice: BrokerInvo
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
         <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
-          Save the charges here, then use <b>💲 Post landed cost</b> in the list to allocate them onto a posted receipt&apos;s FIFO layers (in-stock units revalued up, sold-units&apos; share expensed to Landed Cost Variance) and book the broker AP bill.
+          Save the charges here, then use <b>Post landed cost</b> in the list to allocate them onto a posted receipt&apos;s FIFO layers (in-stock units revalued up, sold-units&apos; share expensed to Landed Cost Variance) and book the broker AP bill.
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>

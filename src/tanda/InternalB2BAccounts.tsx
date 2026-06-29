@@ -1,4 +1,4 @@
-// src/tanda/InternalB2BAccounts.tsx
+﻿// src/tanda/InternalB2BAccounts.tsx
 //
 // Tangerine P18-F — internal B2B Buyers admin panel.
 // Authorize a buyer (pre-authorization step): map a customer + email to a
@@ -7,6 +7,7 @@
 // Wraps /api/internal/b2b-accounts and /api/internal/b2b-accounts/:id.
 
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -46,6 +47,10 @@ type B2BAccount = {
 
 type Customer = { id: string; name: string; customer_code?: string | null };
 
+// Customer codes/names carry a legacy Xoro "EXCEL:" prefix from the Excel ingest
+// (e.g. EXCEL:MACYS). Strip it for display — mirrors costingApi's stripExcelTag.
+const stripExcel = (s: string | null | undefined): string => (s || "").replace(/^EXCEL:/i, "").trim();
+
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "buyer", label: "Buyer" },
   { value: "approver", label: "Approver" },
@@ -75,6 +80,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -93,7 +99,7 @@ export default function InternalB2BAccounts() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<B2BAccount | null>(null);
@@ -123,7 +129,7 @@ export default function InternalB2BAccounts() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/b2b-accounts?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -135,10 +141,10 @@ export default function InternalB2BAccounts() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500")
+    fetch("/api/internal/customer-master?limit=5000")
       .then((r) => r.json())
       .then((arr: unknown) => { if (Array.isArray(arr)) setCustomers(arr as Customer[]); })
       .catch(() => {});
@@ -157,8 +163,10 @@ export default function InternalB2BAccounts() {
 
   function customerName(id: string): string {
     const c = customerMap[id];
-    if (!c) return id.slice(0, 8);
-    return c.customer_code ? `${c.name} (${c.customer_code})` : c.name;
+    if (!c) return "—";
+    const name = stripExcel(c.name);
+    const code = stripExcel(c.customer_code);
+    return code ? `${name} (${code})` : name;
   }
 
   return (
@@ -174,7 +182,6 @@ export default function InternalB2BAccounts() {
           placeholder="Search email or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -223,7 +230,7 @@ export default function InternalB2BAccounts() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -325,11 +332,15 @@ function B2BAccountFormModal({ mode, account, customers, onClose, onSaved }: Mod
     }
   }
 
-  const customerOptions = customers.map((c) => ({
-    value: c.id,
-    label: c.customer_code ? `${c.name} (${c.customer_code})` : c.name,
-    searchHaystack: `${c.name} ${c.customer_code || ""}`,
-  }));
+  const customerOptions = customers.map((c) => {
+    const name = stripExcel(c.name);
+    const code = stripExcel(c.customer_code);
+    return {
+      value: c.id,
+      label: code ? `${name} (${code})` : name,
+      searchHaystack: `${name} ${code}`,
+    };
+  });
 
   return (
     <div
@@ -338,7 +349,7 @@ function B2BAccountFormModal({ mode, account, customers, onClose, onSaved }: Mod
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Authorize buyer" : `Edit ${account!.email}`}

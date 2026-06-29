@@ -103,6 +103,26 @@ export default async function handler(req, res) {
   return res.status(405).json({ error: "Method not allowed" });
 }
 
+// Up to 3 additional contacts, each {name,phone,email,title} (strings only).
+// Blank rows dropped; anything beyond 3 truncated.
+export function sanitizeFactorContacts(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) return { error: "contacts must be an array" };
+  const keys = ["name", "phone", "email", "title"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) {
+      const val = c[k];
+      if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
+    }
+    if (Object.keys(row).length) out.push(row);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 // Shared field coercion used by both index POST and [id] PATCH.
 export function normalizeContactFields(body, out) {
   for (const f of ["contact_name", "phone", "email", "website", "notes"]) {
@@ -120,6 +140,11 @@ export function normalizeContactFields(body, out) {
     } else {
       return { error: "address must be an object" };
     }
+  }
+  if ("contacts" in body) {
+    const c = sanitizeFactorContacts(body.contacts);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c;
   }
   if ("api_enabled" in body) {
     const v = body.api_enabled;

@@ -83,10 +83,92 @@ export default async function handler(req, res) {
     li.fabric_name = li.fabric_code ? (nameByCode.get(li.fabric_code) || null) : null;
   }
 
+  // Documents attached to the RFQ's source costing lines (tech packs, spec
+  // sheets, reference images) so the vendor actually receives what the buyer
+  // attached when costing the style. The costing-line attach UI writes these to
+  // the generic `documents` table keyed (context_table='costing_lines',
+  // context_id=<costing_line_id>); rfq_line_items.costing_line_id back-points to
+  // that line. Images are surfaced as a product-image strip; everything else as
+  // downloadable files. Signed URLs are minted here (1h TTL) so <img>/download
+  // links work without a second authenticated round-trip.
+  const documents = await resolveLineDocuments(admin, lineItems);
+
+  // The vendor's OWN quote revision history (read-only). rfq_quote_revisions is
+  // service-role only; we scope strictly to this vendor's quote so a vendor can
+  // only ever see THEIR prior versions — never another vendor's, never ROF
+  // internals. Snapshots hold the prior header + per-line figures.
+  let quoteRevisions = [];
+  if (qtRes.data?.id) {
+    const { data: revs } = await admin
+      .from("rfq_quote_revisions")
+      .select("id, revision, snapshot, submitted_at, created_at")
+      .eq("quote_id", qtRes.data.id)
+      .eq("vendor_id", caller.vendor_id)
+      .order("revision", { ascending: false });
+    quoteRevisions = revs || [];
+  }
+
   return res.status(200).json({
     rfq: rfqRes.data,
     line_items: lineItems,
     invitation,
-    quote: qtRes.data || null,
+    quote: qtRes.data ? { ...qtRes.data, revisions: quoteRevisions } : null,
+    documents,
   });
+}
+
+const DOCUMENTS_BUCKET = "tangerine-documents";
+
+async function resolveLineDocuments(admin, lineItems) {
+  const costingLineIds = Array.from(
+    new Set(lineItems.map((li) => li.costing_line_id).filter(Boolean)),
+  );
+  if (costingLineIds.length === 0) return [];
+
+  const lineIndexByCostingId = new Map(
+    lineItems.filter((li) => li.costing_line_id).map((li) => [li.costing_line_id, li.line_index]),
+  );
+
+  // Active documents on those costing lines, with the current version's
+  // storage path + mime. Tolerate the join failing (returns [] → no docs).
+  const { data: docs, error } = await admin
+    .from("documents")
+    .select("id, title, kind, context_id, current_version:document_versions!documents_current_version_fk(storage_path, mime_type, byte_size)")
+    .eq("context_table", "costing_lines")
+    .in("context_id", costingLineIds)
+    .eq("is_archived", false)
+    .order("created_at", { ascending: true });
+  if (error || !docs || docs.length === 0) return [];
+
+  const withPaths = docs.filter((d) => d.current_version?.storage_path);
+  if (withPaths.length === 0) return [];
+
+  // Batch-sign every path in one call (1h TTL — covers a quoting session).
+  let signedByPath = new Map();
+  try {
+    const { data: signed } = await admin.storage
+      .from(DOCUMENTS_BUCKET)
+      .createSignedUrls(withPaths.map((d) => d.current_version.storage_path), 3600);
+    signedByPath = new Map((signed || []).map((s) => [s.path, s.signedUrl || s.signedURL || null]));
+  } catch {
+    return [];
+  }
+
+  return withPaths
+    .map((d) => {
+      const mime = d.current_version.mime_type || "";
+      const url = signedByPath.get(d.current_version.storage_path) || null;
+      if (!url) return null;
+      return {
+        id: d.id,
+        title: d.title,
+        kind: d.kind,
+        mime,
+        is_image: mime.startsWith("image/"),
+        byte_size: d.current_version.byte_size || null,
+        line_index: lineIndexByCostingId.get(d.context_id) || null,
+        url,
+      };
+    })
+    .filter(Boolean);
 }

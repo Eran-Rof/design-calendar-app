@@ -49,8 +49,9 @@ From the **AP Invoices** panel, click **+ New invoice**.
 | Kind | yes | `vendor_bill` / `vendor_credit_memo` / `expense_report` |
 | Posting date | yes | The date the GL JE will land on (must be inside an open period at posting time) |
 | Due date | optional | Defaults to posting date if blank — set explicitly per vendor terms |
-| Default expense account | optional | Used when a line has no per-line override |
-| AP account | optional | Defaults to `entities.default_ap_account_id` (code `2010`) |
+| Payment terms | optional | **Auto-fills from the vendor master's `payment_terms_id`** when you pick a vendor. On a new invoice the vendor's preset is adopted; on an existing invoice it only fills if the field is still empty (an explicit edit is never clobbered). Pick from the M-Payment-Terms master or leave `(none)`. |
+| Default expense account | optional | Used when a line has no per-line override (also auto-fills from the vendor master) |
+| AP account | optional | Defaults to `entities.default_ap_account_id` (code `2010`) (also auto-fills from the vendor master) |
 | Description | optional | Free text |
 | Lines (≥ 1) | yes | Mix of expense lines and inventory lines |
 
@@ -61,6 +62,10 @@ From the **AP Invoices** panel, click **+ New invoice**.
 **Inventory line:** `inventory_item_id` + `quantity` + `unit_cost_cents` (unit cost in dollars in the UI). At post time, inventory lines feed M5 FIFO layer creation (wired in P3-4 — until then they post against the default inventory GL account `1310`).
 
 The trigger `invoice_line_items_total_trg` (from P3-1) recomputes `invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
+
+### ☰ List / ▦ Matrix view
+
+The Lines section has a **☰ List / ▦ Matrix** toggle. **List** is the editable default (mix of expense + inventory lines). **Matrix** shows the **inventory** lines as a read-only **color × size grid** (rows = color, columns = size, with row/column totals) by resolving each inventory line's item id to its SKU's color/size — useful for checking the size breakdown of a goods bill against the PO. **Expense lines** (and any inventory item missing a color/size) can't go in the grid; they're listed under a **"Non-matrix lines"** section beneath the matrix.
 
 ## Posting — Approval gate
 
@@ -112,6 +117,8 @@ Click **Void** on any non-void row. The handler:
 
 Voids are non-destructive — the original JEs stay in the GL with `status='reversed'`, and the reversing JEs net them to zero. The invoice row is preserved (you can re-open the modal in read-only mode to see lines + linked JEs).
 
+> **Frozen Save/Close footer.** The AP Invoice edit modal keeps its **Save / Close** (and **Record payment**) buttons pinned to the bottom as the modal scrolls, so they stay reachable on tall invoices with many lines + attachments. Same behaviour across the AR Receipts, Journal Entry, Receiving, QC Inspection, Cycle Count and Customs Entry modals.
+
 ## Document attachments
 
 Inside the AP Invoice edit modal, the **Supporting documents** section embeds `<DocumentAttachmentList>` (M29) scoped to `contextTable='invoices'` and the invoice's id. Supported kinds:
@@ -136,8 +143,23 @@ Files upload to the `tangerine-documents` Supabase storage bucket. Signed URLs a
 | POST | `/api/internal/ap-invoices/:id/pay` | Record a payment |
 | POST | `/api/internal/ap-invoices/:id/void` | Void + reverse JEs |
 | GET  | `/api/internal/ap-payments` | Read-only ledger |
+| POST | `/api/ap/sync-bills` | Bulk ingest of real Xoro vendor bills (CSV) — see below |
 
 Money is in BigInt cents on the wire. The UI converts dollars ↔ cents at the form boundary.
+
+## Xoro real-bill feed (`source='xoro_ap'`)
+
+While Xoro remains the system of record (pre-Tangerine go-live), the actual posted vendor bills flow in automatically from Xoro's `bill/getbill` endpoint. The nightly `rof_xoro_project/scripts/rest_ap_sync.py` downloads the bills and POSTs the gzipped `BillDetail*.csv` to **`POST /api/ap/sync-bills`** (multipart field `bills`, `design-calendar-api` Bearer token — same upload shape as `/api/master/sync`). Each bill lands as one `invoices` row (`source='xoro_ap'`, `invoice_kind='vendor_bill'`) plus its `invoice_line_items`.
+
+**Supersede rule.** These real bills are authoritative. On a `(vendor_id, invoice_number)` collision:
+
+| Existing `source` | Action |
+|---|---|
+| `manual` (or any non-xoro source) | **Skipped** — an operator-typed bill is never overwritten |
+| `xoro_mirror` (T10 PO-derived synthetic) | **Updated in place** — the real bill supersedes the mirror-derived one |
+| `xoro_ap` | **Updated in place** — idempotent re-sync |
+
+This is the *operational* AP record. It is deliberately **not** wired into the T10 shadow-mirror GL engine, whose summary JEs sum only `source='xoro_mirror'` (see [22. Shadow Mirror](22-shadow-mirror.md)). Vendors are matched by **Vendor Name** against `vendors.code` / `vendors.aliases` (the CSV "Vendor Code" is the Xoro internal id and does not map); unmatched vendors are skipped and returned in the response so the operator can add a vendor or alias. At Tangerine go-live, native AP entry takes over and this feed is retired.
 
 ## Sub-decisions defaults (P3-1 → P3-2)
 
@@ -187,3 +209,5 @@ Recipients can opt out per (kind, channel) via the **Notification preferences** 
 - `api/_lib/accounting/posting/rules/apInvoiceReceived.js` — posting rule (P3-1)
 - `api/_lib/accounting/posting/rules/apInvoicePaid.js` — payment rule (P3-1)
 - `api/_lib/accounting/posting/rules/apInvoiceVoided.js` — void/reverse rule (P3-1)
+- `api/_handlers/ap/sync-bills.js` — Xoro real-bill ingest (`source='xoro_ap'`, supersede)
+- `api/_lib/ap-bill-sync.js` — pure CSV→bill parsing/mapping core (+ `__tests__/ap-bill-sync.test.js`)

@@ -7,6 +7,18 @@ import type { AIDemandPrediction, AIDemandResult } from "../types/aiDemand";
 import { runAIDemandPrediction } from "../services/aiDemandService";
 import { S, PAL, formatQty } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+
+const TABLE_KEY = "ip.ai_demand";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "sku", label: "SKU" },
+  { key: "dir", label: "Dir" },
+  { key: "predicted", label: "Predicted" },
+  { key: "vs_forecast", label: "vs Forecast" },
+  { key: "confidence", label: "Confidence" },
+  { key: "flag", label: "Flag" },
+  { key: "top_signal", label: "Top Signal" },
+];
 
 const FLAG_COLOR: Record<string, string> = {
   review_urgently:   PAL.red,
@@ -34,6 +46,7 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
   const [search, setSearch] = useState("");
   const [flagFilter, setFlagFilter] = useState<string>("all");
   const [selected, setSelected] = useState<AIDemandPrediction | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   async function run() {
     if (!planningRunId) { onToast({ text: "Select a planning run first", kind: "error" }); return; }
@@ -114,13 +127,16 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
           <div style={S.toolbar}>
             <input style={{ ...S.input, width: 220 }} placeholder="Search SKU" value={search} onChange={e => setSearch(e.target.value)} />
             <span style={{ fontSize: 12, color: PAL.textMuted }}>{filtered.length} of {predictions.length} SKUs</span>
+            <div style={{ marginLeft: "auto" }}>
+              <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                                onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            </div>
           </div>
         )}
 
         {/* Idle state */}
         {!result && !running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>No prediction run yet</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Select a planning run and click "Run AI Prediction" to analyze demand using Claude.
@@ -130,7 +146,6 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
 
         {running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>Analyzing demand data…</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Claude is reviewing your sales history, inventory, and market context. This takes ~15–30 seconds.
@@ -144,13 +159,13 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
             <table style={S.table}>
               <thead>
                 <tr>
-                  <th style={S.th}>SKU</th>
-                  <th style={{ ...S.th, textAlign: "center" }}>Dir</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Predicted</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>vs Forecast</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Confidence</th>
-                  <th style={S.th}>Flag</th>
-                  <th style={S.th}>Top Signal</th>
+                  <th hidden={!visibleColumns.has("sku")} style={S.th}>SKU</th>
+                  <th hidden={!visibleColumns.has("dir")} style={{ ...S.th, textAlign: "center" }}>Dir</th>
+                  <th hidden={!visibleColumns.has("predicted")} style={{ ...S.th, textAlign: "right" }}>Predicted</th>
+                  <th hidden={!visibleColumns.has("vs_forecast")} style={{ ...S.th, textAlign: "right" }}>vs Forecast</th>
+                  <th hidden={!visibleColumns.has("confidence")} style={{ ...S.th, textAlign: "right" }}>Confidence</th>
+                  <th hidden={!visibleColumns.has("flag")} style={S.th}>Flag</th>
+                  <th hidden={!visibleColumns.has("top_signal")} style={S.th}>Top Signal</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,25 +175,25 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
                     style={{ cursor: "pointer", background: selected?.sku_id === p.sku_id ? PAL.panel : undefined }}
                     onClick={() => setSelected(p.sku_id === selected?.sku_id ? null : p)}
                   >
-                    <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, fontWeight: 600 }}>{p.sku_code}</td>
-                    <td style={{ ...S.td, textAlign: "center", color: DIR_COLOR[p.direction], fontWeight: 700, fontSize: 16 }}>
+                    <td hidden={!visibleColumns.has("sku")} style={{ ...S.td, fontFamily: "monospace", color: PAL.accent, fontWeight: 600 }}>{p.sku_code}</td>
+                    <td hidden={!visibleColumns.has("dir")} style={{ ...S.td, textAlign: "center", color: DIR_COLOR[p.direction], fontWeight: 700, fontSize: 16 }}>
                       {DIR_ICON[p.direction]}
                     </td>
-                    <td style={S.tdNum}>{formatQty(p.predicted_qty)}</td>
-                    <td style={{ ...S.tdNum, color: p.vs_current_forecast_pct === null ? PAL.textMuted : p.vs_current_forecast_pct > 0 ? PAL.green : PAL.red, fontWeight: 600 }}>
+                    <td hidden={!visibleColumns.has("predicted")} style={S.tdNum}>{formatQty(p.predicted_qty)}</td>
+                    <td hidden={!visibleColumns.has("vs_forecast")} style={{ ...S.tdNum, color: p.vs_current_forecast_pct === null ? PAL.textMuted : p.vs_current_forecast_pct > 0 ? PAL.green : PAL.red, fontWeight: 600 }}>
                       {p.vs_current_forecast_pct === null ? "—" : `${p.vs_current_forecast_pct > 0 ? "+" : ""}${p.vs_current_forecast_pct}%`}
                     </td>
-                    <td style={{ ...S.tdNum, color: p.confidence_score >= 0.7 ? PAL.green : p.confidence_score >= 0.45 ? PAL.yellow : PAL.red }}>
+                    <td hidden={!visibleColumns.has("confidence")} style={{ ...S.tdNum, color: p.confidence_score >= 0.7 ? PAL.green : p.confidence_score >= 0.45 ? PAL.yellow : PAL.red }}>
                       {Math.round(p.confidence_score * 100)}%
                     </td>
-                    <td style={S.td}>
+                    <td hidden={!visibleColumns.has("flag")} style={S.td}>
                       {p.flag ? (
                         <span style={{ background: FLAG_COLOR[p.flag] + "33", color: FLAG_COLOR[p.flag], borderRadius: 4, padding: "2px 6px", fontSize: 11, fontWeight: 600 }}>
                           {FLAG_LABEL[p.flag]}
                         </span>
                       ) : <span style={{ color: PAL.textMuted, fontSize: 11 }}>—</span>}
                     </td>
-                    <td style={{ ...S.td, color: PAL.textMuted, fontSize: 11, maxWidth: 200 }}>
+                    <td hidden={!visibleColumns.has("top_signal")} style={{ ...S.td, color: PAL.textMuted, fontSize: 11, maxWidth: 200 }}>
                       {p.key_signals?.[0] ?? "—"}
                     </td>
                   </tr>

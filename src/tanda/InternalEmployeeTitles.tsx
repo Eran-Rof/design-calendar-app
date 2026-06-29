@@ -10,12 +10,15 @@
 // off any employee that held it.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const EMPLOYEE_TITLES_TABLE_KEY = "tangerine:employeetitles:columns";
 const EMPLOYEE_TITLE_COLUMNS: ColumnDef[] = [
@@ -57,6 +60,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -67,7 +71,7 @@ export default function InternalEmployeeTitles() {
   const [rows, setRows] = useState<EmployeeTitle[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeTitle | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -77,6 +81,10 @@ export default function InternalEmployeeTitles() {
     EMPLOYEE_TITLE_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:employeetitles:sort",
+  });
 
   const { getRowProps } = useRowClickEdit<EmployeeTitle>({
     onRowClick: (r) => setEditing(r),
@@ -89,7 +97,7 @@ export default function InternalEmployeeTitles() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       const r = await fetch(`/api/internal/employee-titles?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as EmployeeTitle[]);
@@ -100,7 +108,7 @@ export default function InternalEmployeeTitles() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [qDebounced]);
 
   async function del(t: EmployeeTitle) {
     if (!(await confirmDialog(`Delete title "${t.name}"?\nAny employee currently assigned this title will have it cleared.`))) return;
@@ -126,7 +134,6 @@ export default function InternalEmployeeTitles() {
           placeholder="Search title name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -157,7 +164,7 @@ export default function InternalEmployeeTitles() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -168,14 +175,14 @@ export default function InternalEmployeeTitles() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("name")}>Title</th>
-                <th style={th} hidden={!isVisible("is_sales_role")}>Sales role</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("sort_order")}>Sort</th>
+                <SortableTh label="Title" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Sales role" sortKey="is_sales_role" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_sales_role")} />
+                <SortableTh label="Sort" sortKey="sort_order" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sort_order")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
+              {sorted.map((t) => (
                 <ScrollHighlightRow
                   key={t.id}
                   rowId={t.id}
@@ -183,7 +190,7 @@ export default function InternalEmployeeTitles() {
                   {...getRowProps(t)}
                 >
                   <td style={td} hidden={!isVisible("name")}>{t.name}</td>
-                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
+                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "yes" : "—"}</td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{t.sort_order}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} style={btnSecondary}>Edit</button>
@@ -250,7 +257,7 @@ function TitleFormModal({ mode, title, onClose, onSaved }: ModalProps) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 460, maxWidth: 560, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add title" : `Edit ${title!.name}`}

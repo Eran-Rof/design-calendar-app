@@ -6,11 +6,16 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
-import { fmtDateDisplay, statusLabel, statusColor, navigate, defaultProjectDates } from "../helpers";
+import { fmtDateDisplay, navigate, defaultProjectDates } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import ExportButton from "../../tanda/exports/ExportButton";
 import { stripExcelPrefix } from "../services/costingApi";
-import type { CostingProject } from "../types";
+import { tabStyle } from "./tabStyle";
+import { stageColor, stageLabel, stageIcon } from "../hooks/usePlanFlow";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
+import type { CostingProject, CostingLineStatus } from "../types";
+import { PLAN_FLOW_STAGES } from "../hooks/usePlanFlow";
 
 // Canonical dark-slate palette (matches the Tangerine Internal* modals).
 const C = {
@@ -18,6 +23,28 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", inputBg: "#0b1220",
 };
+
+// Status is per LINE — list tabs bucket by lifecycle status.
+// Use the authoritative PLAN_FLOW_STAGES order so tabs and the Plan Flow
+// strip always match.
+const LINE_STATUSES: CostingLineStatus[] = PLAN_FLOW_STAGES;
+type TabKey = "all" | CostingLineStatus;
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "all",     label: "All" },
+  { key: "draft",   label: "Draft" },
+  { key: "sent",    label: "Sent" },
+  { key: "quoted",  label: "Quoted" },
+  { key: "awarded", label: "Awarded" },
+  { key: "lost",    label: "Lost" },
+  { key: "revised", label: "Revised" },
+  { key: "closed",  label: "Closed" },
+];
+
+// A project matches a status tab if it has ≥1 line in that status.
+function projectHasStatus(p: CostingProject, key: TabKey): boolean {
+  if (key === "all") return true;
+  return (p._status_counts?.[key as CostingLineStatus] || 0) > 0;
+}
 
 export default function ProjectListView() {
   const projects = useCostingStore((s) => s.projects);
@@ -33,7 +60,33 @@ export default function ProjectListView() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Active WIP tab — filters the grid by status bucket.
+  const [tab, setTab] = useState<TabKey>("all");
+
   useEffect(() => { list(); }, [list]);
+
+  // Per-tab counts (number of PROJECTS having ≥1 line in that status) + the
+  // rows the active tab shows.
+  const tabCounts = React.useMemo(() => {
+    const counts = {} as Record<TabKey, number>;
+    for (const t of TABS) counts[t.key] = projects.filter((p) => projectHasStatus(p, t.key)).length;
+    return counts;
+  }, [projects]);
+
+  const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
+  const filtered = React.useMemo(
+    () => projects.filter((p) => projectHasStatus(p, activeTab.key)),
+    [projects, activeTab],
+  );
+
+  // Additive per-column sort — only reorders the already-filtered rows on a
+  // header click; leaves the natural order otherwise. Sortable columns map to
+  // direct scalar fields (or a trivially-correct accessor); Customer + Line
+  // Status are computed/JSX and stay inert.
+  const { sorted: visible, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "costing:projects:sort",
+    accessors: { sales_rep: (p) => p.sales_rep?.display_name ?? "" },
+  });
 
   const onNew = React.useCallback(() => { setNewName(""); setNewModalOpen(true); }, []);
 
@@ -74,13 +127,14 @@ export default function ProjectListView() {
     );
   };
 
-  const exportRows = projects.map((p) => ({
+  // Export follows the active tab — what you see is what you export.
+  const exportRows = visible.map((p) => ({
     project_name: p.project_name,
     brand: p.brand || "",
     gender_code: p.gender_code || "",
     customer_code: (p.customer as { display_name?: string | null } | null | undefined)?.display_name || stripExcelPrefix(p.customer?.code) || "",
     sales_rep: p.sales_rep?.display_name || "",
-    status: statusLabel(p.status),
+    line_status: statusSummaryText(p),
     request_date: p.request_date ? fmtDateDisplay(p.request_date) : "",
     due_date: p.due_date ? fmtDateDisplay(p.due_date) : "",
     projected_delivery_date: p.projected_delivery_date ? fmtDateDisplay(p.projected_delivery_date) : "",
@@ -91,6 +145,12 @@ export default function ProjectListView() {
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Costing Projects</h2>
+        <button
+          onClick={onNew}
+          style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#3B82F6", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+        >
+          + Add New
+        </button>
         <div style={{ marginLeft: "auto" }}>
           <ExportButton rows={exportRows} filename="costing-projects" sheetName="Projects" />
         </div>
@@ -99,27 +159,43 @@ export default function ProjectListView() {
       {loading && <div style={{ color: "#94A3B8", fontSize: 13 }}>Loading…</div>}
       {error && <div style={{ color: "#F87171", fontSize: 13, padding: 8, background: "#7F1D1D33", borderRadius: 4 }}>{error}</div>}
 
-      <div style={{ overflowX: "auto", border: "1px solid #334155", borderRadius: 6, background: "#1E293B" }}>
+      {/* WIP tab strip — fused into the panel below (Tanda PO-detail model). */}
+      <div style={{ display: "flex", gap: 2, marginBottom: 0 }}>
+        {TABS.map((t) => (
+          <button key={t.key} style={tabStyle(t.key === tab)} onClick={() => setTab(t.key)}>
+            {t.label}
+            <span style={{
+              marginLeft: 8, fontSize: 12, fontWeight: 700, fontFamily: "monospace",
+              color: t.key === tab ? "#93C5FD" : "#64748B",
+            }}>{tabCounts[t.key]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ border: "1px solid #334155", borderTop: "none", borderRadius: "0 0 10px 10px", background: "#1E293B", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead style={{ background: "#0F172A" }}>
             <tr>
-              <Th>Project</Th>
-              <Th>Brand</Th>
-              <Th>Gender</Th>
+              <SortableTh label="Project" sortKey="project_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Brand" sortKey="brand" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Gender" sortKey="gender_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
               <Th>Customer</Th>
-              <Th>Sales Rep</Th>
-              <Th>Status</Th>
-              <Th>Due</Th>
-              <Th>Created</Th>
+              <SortableTh label="Sales Rep" sortKey="sales_rep" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <Th>Line Status</Th>
+              <SortableTh label="Due" sortKey="due_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
+              <SortableTh label="Created" sortKey="created_at" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={TH_STYLE} />
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {projects.length === 0 && !loading && (
-              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>No projects yet — click "+ New" in the top nav to get started.</td></tr>
+            {visible.length === 0 && !loading && (
+              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+                {projects.length === 0
+                  ? 'No projects yet — click "+ Add New" above to get started.'
+                  : `No ${activeTab.label.toLowerCase()} projects.`}
+              </td></tr>
             )}
-            {projects.map((p) => {
-              const sc = statusColor(p.status);
+            {visible.map((p) => {
               return (
                 <tr
                   key={p.id}
@@ -136,11 +212,7 @@ export default function ProjectListView() {
                   <Td>{p.gender_code || "—"}</Td>
                   <Td>{(p.customer as { display_name?: string | null } | null | undefined)?.display_name || stripExcelPrefix(p.customer?.code) || "—"}</Td>
                   <Td>{p.sales_rep?.display_name || "—"}</Td>
-                  <Td>
-                    <span style={{ background: sc.bg, color: sc.fg, padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                      {statusLabel(p.status)}
-                    </span>
-                  </Td>
+                  <Td><StatusBreakdown counts={p._status_counts} /></Td>
                   <Td>{p.due_date ? fmtDateDisplay(p.due_date) : "—"}</Td>
                   <Td>{p.created_at ? fmtDateDisplay(p.created_at.slice(0, 10)) : "—"}</Td>
                   <Td>
@@ -170,6 +242,7 @@ export default function ProjectListView() {
             style={{
               background: C.card, border: `1px solid ${C.cardBdr}`,
               borderRadius: 10, padding: 0, width: "100%", maxWidth: 480,
+              maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
               color: C.text, boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
             }}
           >
@@ -230,8 +303,9 @@ export default function ProjectListView() {
   );
 }
 
+const TH_STYLE: React.CSSProperties = { textAlign: "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" };
 function Th({ children }: { children: React.ReactNode }) {
-  return <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" }}>{children}</th>;
+  return <th style={TH_STYLE}>{children}</th>;
 }
 function Td({ children }: { children: React.ReactNode }) {
   return <td style={{ padding: "8px 12px", color: "#E2E8F0" }}>{children}</td>;
@@ -241,4 +315,43 @@ function rowBtn(color: string): React.CSSProperties {
     background: "transparent", color, border: `1px solid ${color}`,
     padding: "3px 10px", borderRadius: 3, cursor: "pointer", fontSize: 11, marginRight: 4,
   };
+}
+
+type StatusCounts = CostingProject["_status_counts"];
+
+// Per-project line-status breakdown — a chip per non-zero status showing
+// "<count>/<total>" (e.g. 1/5 Awarded · 4/5 Draft), colored by status.
+function StatusBreakdown({ counts }: { counts: StatusCounts }) {
+  if (!counts || counts.total === 0) {
+    return <span style={{ color: "#64748B", fontSize: 11 }}>— no lines —</span>;
+  }
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+      {LINE_STATUSES.filter((s) => (counts[s] || 0) > 0).map((s) => {
+        const sc = stageColor(s);
+        return (
+          <span
+            key={s}
+            title={`${stageLabel(s)}: ${counts[s]} of ${counts.total} line${counts.total === 1 ? "" : "s"}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              background: sc.bg, color: sc.fg, border: `1px solid ${sc.bar}`,
+              borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 700,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {stageIcon(s)} {counts[s]}/{counts.total} {stageLabel(s)}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function statusSummaryText(p: CostingProject): string {
+  const c = p._status_counts;
+  if (!c || c.total === 0) return "no lines";
+  return LINE_STATUSES.filter((s) => (c[s] || 0) > 0)
+    .map((s) => `${c[s]}/${c.total} ${stageLabel(s)}`)
+    .join(", ");
 }

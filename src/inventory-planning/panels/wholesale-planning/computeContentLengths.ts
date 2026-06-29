@@ -39,6 +39,7 @@ export function computeContentLengths(rows: IpPlanningGridRow[]): Record<string,
     set("style",       r.sku_style ?? r.sku_code);
     set("description", r.sku_description);
     set("color",       r.sku_color);
+    set("inseam",      r.sku_inseam ?? null);
     set("customer",    r.customer_name);
     set("period",      formatPeriodCode(r.period_code));
     set("class",       `${r.abc_class ?? ""}${r.xyz_class ?? ""}`);

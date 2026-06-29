@@ -2,7 +2,7 @@
 //
 // Chunk E — Customer drill-through scorecard (operator item 1).
 //
-// A wide fixed-overlay modal opened from the ℹ️ button on each Customer Master
+// A wide fixed-overlay modal opened from the info button on each Customer Master
 // row. Fetches /api/internal/customer-scorecard?customer_id=… and renders:
 //   • header: customer + assigned sales rep(s)
 //   • scorecard metric tiles (balance, avg days-to-pay, brand/gender breakdown)
@@ -16,9 +16,11 @@
 // from the server's `notes` map ("needs X"); we never fabricate a number.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
+import { drillToModule } from "./scorecardDrill";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -95,12 +97,149 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = { padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 12 };
 const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "SFMono-Regular, Menlo, monospace" };
 
-function Metric({ label, value, caption }: { label: string; value: string; caption?: string }) {
+function Metric({ label, value, caption, onClick, drillLabel }: { label: string; value: string; caption?: string; onClick?: () => void; drillLabel?: string }) {
+  const clickable = !!onClick;
   return (
-    <div style={card}>
+    <div
+      style={{ ...card, ...(clickable ? { cursor: "pointer", transition: "border-color 120ms, background 120ms" } : {}) }}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick!(); } } : undefined}
+      onMouseEnter={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.primary; } : undefined}
+      onMouseLeave={clickable ? (e) => { (e.currentTarget as HTMLDivElement).style.borderColor = C.cardBdr; } : undefined}
+      title={clickable ? drillLabel : undefined}
+    >
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
       {caption && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{caption}</div>}
+      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open ↗"}</div>}
+    </div>
+  );
+}
+
+function openTab(url: string) { window.open(url, "_blank", "noopener"); }
+const fmtMoneyNum = (n: number | null | undefined) =>
+  n == null ? "—" : Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
+type DocKind = "invoice" | "so" | "je";
+const DOC_CFG: Record<DocKind, { path: string; editModule: string; numField: string; dateField: string; statusField: string; totalCentsField: string | null; title: string }> = {
+  invoice: { path: "ar-invoices", editModule: "ar_invoices", numField: "invoice_number", dateField: "invoice_date", statusField: "gl_status", totalCentsField: "total_amount_cents", title: "Invoice" },
+  so:      { path: "sales-orders", editModule: "sales_orders", numField: "so_number", dateField: "order_date", statusField: "status", totalCentsField: "total_cents", title: "Sales Order" },
+  je:      { path: "journal-entries", editModule: "journal_entries", numField: "je_number", dateField: "posting_date", statusField: "status", totalCentsField: null, title: "Journal Entry" },
+};
+
+// In-scorecard detail popup for an invoice / sales order / journal entry. Opens
+// over the scorecard; ✕ (or backdrop / Esc) returns to the scorecard unchanged;
+// ✎ Edit opens the full record in a NEW TAB so the scorecard stays put.
+function DocDetailModal({ kind, id, fallbackNumber, party, onClose }: {
+  kind: DocKind; id: string; fallbackNumber: string | null; party: string | null; onClose: () => void;
+}) {
+  const cfg = DOC_CFG[kind];
+  const [doc, setDoc] = useState<Record<string, unknown> | null>(null);
+  const [accts, setAccts] = useState<Map<string, string>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false; setLoading(true); setErr(null);
+    fetch(`/api/internal/${cfg.path}/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((j) => { if (!cancelled) setDoc(j); })
+      .catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [cfg.path, id]);
+  // JE lines reference account_id (uuid) — resolve to "code — name" (no-UUID rule).
+  useEffect(() => {
+    if (kind !== "je") return;
+    let cancelled = false;
+    fetch(`/api/internal/gl-accounts`).then((r) => (r.ok ? r.json() : [])).then((rows) => {
+      if (cancelled) return;
+      const arr = Array.isArray(rows) ? rows : ((rows?.accounts || rows?.data || []) as Record<string, unknown>[]);
+      setAccts(new Map(arr.map((a) => [String(a.id), a.code ? `${a.code} — ${a.name || ""}`.trim() : String(a.name || "")])));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [kind]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const number = (doc?.[cfg.numField] as string) || fallbackNumber || "—";
+  const lines = (doc?.lines as Record<string, unknown>[]) || [];
+  const editUrl = `?m=${cfg.editModule}&q=${encodeURIComponent(number)}`;
+  const totalCents = cfg.totalCentsField && doc ? Number(doc[cfg.totalCentsField]) : null;
+
+  const thL: React.CSSProperties = { ...th };
+  const thR: React.CSSProperties = { ...th, textAlign: "right" };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(840px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{cfg.title} {number}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => openTab(editUrl)} style={{ background: "transparent", color: C.primary, border: `1px solid ${C.primary}`, borderRadius: 6, padding: "5px 14px", fontSize: 13, cursor: "pointer" }}>✎ Edit (new tab)</button>
+            <button onClick={onClose} title="Close" style={{ background: "none", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+        {loading ? <div style={{ color: C.textMuted, padding: 16 }}>Loading…</div> : err ? <div style={{ background: "#7f1d1d", color: "#fff", padding: 10, borderRadius: 6 }}>{err}</div> : doc && (
+          <>
+            <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 12, color: C.textSub, marginBottom: 14 }}>
+              {party && <div><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Customer</span><br />{party}</div>}
+              <div><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Date</span><br />{doc[cfg.dateField] ? fmtDateDisplay(String(doc[cfg.dateField])) : "—"}</div>
+              <div><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Status</span><br />{String(doc[cfg.statusField] ?? "—")}</div>
+              {kind === "je" && <div><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Type</span><br />{String(doc.journal_type ?? "—")}</div>}
+              {totalCents != null && <div><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Total</span><br />{fmtCents(totalCents)}</div>}
+              {kind === "je" && doc.description ? <div style={{ flex: "1 1 100%" }}><span style={{ color: C.textMuted, textTransform: "uppercase", fontSize: 10 }}>Description</span><br />{String(doc.description)}</div> : null}
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              {kind === "je" ? (
+                <>
+                  <thead><tr><th style={thL}>#</th><th style={thL}>Account</th><th style={thL}>Memo</th><th style={thR}>Debit</th><th style={thR}>Credit</th></tr></thead>
+                  <tbody>
+                    {lines.map((l, i) => (
+                      <tr key={i}>
+                        <td style={td}>{String(l.line_number ?? i + 1)}</td>
+                        <td style={td}>{accts.get(String(l.account_id)) || "—"}</td>
+                        <td style={td}>{String(l.memo ?? "—")}</td>
+                        <td style={tdR}>{Number(l.debit) ? fmtMoneyNum(Number(l.debit)) : "—"}</td>
+                        <td style={tdR}>{Number(l.credit) ? fmtMoneyNum(Number(l.credit)) : "—"}</td>
+                      </tr>
+                    ))}
+                    {lines.length === 0 && <tr><td style={td} colSpan={5}>No lines.</td></tr>}
+                  </tbody>
+                </>
+              ) : (
+                <>
+                  <thead><tr><th style={thL}>#</th><th style={thL}>Item / Description</th><th style={thR}>Qty</th><th style={thR}>Unit</th><th style={thR}>Line Total</th></tr></thead>
+                  <tbody>
+                    {lines.map((l, i) => {
+                      const item = kind === "so"
+                        ? ([l.style_code, l.color, l.size].filter(Boolean).join(" ") || String(l.description ?? "—"))
+                        : String(l.description ?? "—");
+                      const qty = Number(l.quantity ?? l.qty_ordered) || 0;
+                      const unit = l.unit_price_cents != null ? Number(l.unit_price_cents) / 100 : null;
+                      const lineTotal = l.line_total_cents != null ? Number(l.line_total_cents) / 100 : (unit != null ? unit * qty : null);
+                      return (
+                        <tr key={i}>
+                          <td style={td}>{String(l.line_number ?? i + 1)}</td>
+                          <td style={td}>{item}</td>
+                          <td style={tdR}>{fmtNum(qty)}</td>
+                          <td style={tdR}>{fmtMoneyNum(unit)}</td>
+                          <td style={tdR}>{fmtMoneyNum(lineTotal)}</td>
+                        </tr>
+                      );
+                    })}
+                    {lines.length === 0 && <tr><td style={td} colSpan={5}>No lines.</td></tr>}
+                  </tbody>
+                </>
+              )}
+            </table>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -110,6 +249,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<"invoices" | "sales_orders" | "je">("invoices");
+  // In-scorecard detail popup (invoice / SO / JE). Closing returns here.
+  const [openDoc, setOpenDoc] = useState<{ kind: DocKind; id: string; number: string | null } | null>(null);
 
   // Filters
   const [brandId, setBrandId] = useState("");
@@ -178,7 +319,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1100px, 95vw)", maxHeight: "92vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1100px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>
@@ -208,10 +349,13 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
           </div>
           <div>
             <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 2 }}>INVOICE STATUS</div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}>
-              <option value="">(all)</option>
-              {invStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={statusFilter || null}
+              onChange={setStatusFilter}
+              options={[{ value: "", label: "(all)" }, ...invStatuses.map((s) => ({ value: s, label: s }))]}
+              placeholder="(all)"
+              inputStyle={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}
+            />
           </div>
         </div>
 
@@ -223,7 +367,13 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
           <>
             {/* Top metric tiles */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-              <Metric label="Customer Balance (open AR)" value={fmtCents(data.metrics.balance_cents)} caption={data.notes.balance} />
+              <Metric
+                label="Customer Balance (open AR)"
+                value={fmtCents(data.metrics.balance_cents)}
+                caption={data.notes.balance}
+                onClick={() => drillToModule("ar_invoices", { customer: data.header.customer_id })}
+                drillLabel="Open AR Invoices ↗"
+              />
               <Metric label="Avg Days to Pay" value={data.metrics.avg_days_to_pay == null ? "—" : `${data.metrics.avg_days_to_pay} d`} caption={data.notes.avg_days_to_pay} />
               <Metric label="Commission % / $" value={`${data.metrics.commission_pct}% / ${fmtCents(data.metrics.commission_cents)}`} caption={data.notes.commission} />
               <Metric label="Net Profitability (YTD)" value={fmtCents(data.metrics.net_profit_cents)} caption={data.metrics.net_profit_basis} />
@@ -329,16 +479,19 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "invoices" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
                   <ExportButton rows={filteredInvoices as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-invoices`} sheetName="Invoices" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>Invoice #</th><th style={th}>Date</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Total</th><th style={{ ...th, textAlign: "right" }}>Paid</th><th style={{ ...th, textAlign: "right" }}>Open</th></tr></thead>
                   <tbody>
                     {filteredInvoices.map((i) => (
-                      <tr key={i.id}>
-                        <td style={td}>{i.invoice_number}</td>
-                        <td style={td}>{i.invoice_date}</td>
+                      <tr key={i.id} onClick={() => setOpenDoc({ kind: "invoice", id: i.id, number: i.invoice_number })}
+                        style={{ cursor: "pointer" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                        <td style={{ ...td, color: C.primary }}>{i.invoice_number}</td>
+                        <td style={td}>{fmtDateDisplay(i.invoice_date)}</td>
                         <td style={td}>{i.gl_status}</td>
                         <td style={tdR}>{fmtCents(i.total_amount_cents)}</td>
                         <td style={tdR}>{fmtCents(i.paid_amount_cents)}</td>
@@ -360,17 +513,20 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "sales_orders" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
                   <ExportButton rows={(data.sales_orders || []) as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-sales-orders`} sheetName="SalesOrders" />
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr><th style={th}>SO #</th><th style={th}>Order date</th><th style={th}>Ship date</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Total</th></tr></thead>
                   <tbody>
                     {(data.sales_orders || []).map((s) => (
-                      <tr key={s.id}>
-                        <td style={td}>{s.so_number || "—"}</td>
-                        <td style={td}>{s.order_date}</td>
-                        <td style={td}>{s.requested_ship_date || "—"}</td>
+                      <tr key={s.id} onClick={() => setOpenDoc({ kind: "so", id: s.id, number: s.so_number })}
+                        style={{ cursor: "pointer" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                        <td style={{ ...td, color: C.primary }}>{s.so_number || "—"}</td>
+                        <td style={td}>{fmtDateDisplay(s.order_date)}</td>
+                        <td style={td}>{s.requested_ship_date ? fmtDateDisplay(s.requested_ship_date) : "—"}</td>
                         <td style={td}>{s.status}</td>
                         <td style={tdR}>{fmtCents(s.total_cents)}</td>
                       </tr>
@@ -388,7 +544,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
 
             {tab === "je" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
                   <ExportButton rows={(data.journal_entries || []) as unknown as Array<Record<string, unknown>>} filename={`customer-${data.header.customer_code || data.header.customer_id}-je`} sheetName="JournalEntries" />
                 </div>
                 <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 8 }}>Journal entries sourced from this customer's AR invoices (source_table=ar_invoices).</div>
@@ -396,8 +552,11 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                   <thead><tr><th style={th}>Posting date</th><th style={th}>Type</th><th style={th}>Basis</th><th style={th}>Status</th><th style={th}>Description</th></tr></thead>
                   <tbody>
                     {(data.journal_entries || []).map((j) => (
-                      <tr key={j.id}>
-                        <td style={td}>{j.posting_date}</td>
+                      <tr key={j.id} onClick={() => setOpenDoc({ kind: "je", id: j.id, number: null })}
+                        style={{ cursor: "pointer" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                        <td style={{ ...td, color: C.primary }}>{fmtDateDisplay(j.posting_date)}</td>
                         <td style={td}>{j.journal_type}</td>
                         <td style={td}>{j.basis}</td>
                         <td style={td}>{j.status}</td>
@@ -411,6 +570,16 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
           </>
         )}
       </div>
+
+      {openDoc && (
+        <DocDetailModal
+          kind={openDoc.kind}
+          id={openDoc.id}
+          fallbackNumber={openDoc.number}
+          party={data?.header.customer_name ?? null}
+          onClose={() => setOpenDoc(null)}
+        />
+      )}
     </div>
   );
 }

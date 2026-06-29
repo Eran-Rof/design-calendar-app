@@ -6,6 +6,7 @@
 // failed QC. Reads GET /api/internal/procurement/recon-inbox.
 
 import { useEffect, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -14,7 +15,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
 
@@ -59,7 +60,7 @@ export default function InternalProcurementRecon() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Procurement Reconciliation</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Procurement Reconciliation</h2>
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
       </div>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -93,7 +94,7 @@ export default function InternalProcurementRecon() {
               <tbody>
                 {data.three_way_issues.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>None.</td></tr>}
                 {data.three_way_issues.map((t) => (
-                  <tr key={t.id}><td style={td}>{t.vendor?.name || "—"}</td><td style={td}>{t.vendor_invoice_number}</td><td style={td}>{t.invoice_date}</td><td style={{ ...td, textAlign: "right" }}>{fmt(t.total_cents)}</td><td style={{ ...td, textAlign: "right", color: C.warn }}>{fmt(t.variance_cents)}</td><td style={td}>{t.three_way_match_status}</td></tr>
+                  <tr key={t.id}><td style={td}>{t.vendor?.name || "—"}</td><td style={td}>{t.vendor_invoice_number}</td><td style={td}>{fmtDateDisplay(t.invoice_date)}</td><td style={{ ...td, textAlign: "right" }}>{fmt(t.total_cents)}</td><td style={{ ...td, textAlign: "right", color: C.warn }}>{fmt(t.variance_cents)}</td><td style={td}>{t.three_way_match_status}</td></tr>
                 ))}
               </tbody>
             </table>
@@ -117,7 +118,7 @@ export default function InternalProcurementRecon() {
               <tbody>
                 {data.qc_fails.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={3}>None.</td></tr>}
                 {data.qc_fails.map((q) => (
-                  <tr key={q.id}><td style={td}>{q.inspection_date}</td><td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{String(q.receipt_id).slice(0, 8)}</td><td style={td}>{q.status}</td></tr>
+                  <tr key={q.id}><td style={td}>{q.inspection_date}</td><td style={td}>{"—"}</td><td style={td}>{q.status}</td></tr>
                 ))}
               </tbody>
             </table>

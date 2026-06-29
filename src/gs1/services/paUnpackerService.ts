@@ -76,10 +76,20 @@ export interface PARecord {
   indc_date: string;    // R7:1, the delivery date string
 }
 
+// Verification runs silently on every parse. Three independent layers:
+//   "channel"        — Σ units per channel vs the reported TOTALS row.
+//   "row_total"      — Σ units per source row vs the row's "TOTAL UNITS" col 3
+//                      (independent of how rows are grouped into colors).
+//   "color_coverage" — every color anchored in the sheet yields its own records
+//                      (catches a color block swallowed by its neighbour).
+export type PACheckKind = "channel" | "row_total" | "color_coverage";
+
 export interface PASheetCheck {
   file: string;
   sheet: string;
-  channel: PAChannel;
+  kind: PACheckKind;
+  label: string;          // human-readable; doubles as the on-screen mismatch line
+  channel?: PAChannel;    // set when kind === "channel"
   computed: number;
   reported: number;
   ok: boolean;
@@ -117,6 +127,18 @@ function asString(v: Cell): string {
 
 function isNum(v: Cell): v is number {
   return typeof v === "number" && Number.isFinite(v);
+}
+
+// Parse a units cell that may arrive as a number, or as a thousands-formatted
+// string ("1,098"). Returns null when there's no usable number (so the caller
+// can skip the check rather than report a false mismatch).
+function looseNum(v: Cell): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string") {
+    const n = parseFloat(v.replace(/,/g, "").trim());
+    if (Number.isFinite(n)) return Math.trunc(n);
+  }
+  return null;
 }
 
 function getCell(aoa: AoA, r: number, c: number): Cell {
@@ -218,9 +240,21 @@ function parseSheet(aoa: AoA, fileName: string, sheetName: string): ParsedSheetR
   // --- color blocks ---
   // Block starts where col 0 begins with the master item (or "100"…) and col 1
   // is a non-empty color name. Block extends until next color row, capped at row 46.
+  // The left-hand color table runs from row 13 down to the "TOTALS" summary
+  // row. Anchor the scan on that row instead of a fixed row index — otherwise a
+  // color that starts on the very last data row is never seen, and its units
+  // get folded into the preceding color (the DULL GOLD / SIMPLE SAGE bug).
+  let endRow = nrows;
+  for (let r = 13; r < nrows; r++) {
+    const c1 = trimVal(getCell(aoa, r, 1));
+    if (typeof c1 === "string" && c1.trim().toUpperCase().startsWith("TOTALS")) {
+      endRow = r;
+      break;
+    }
+  }
+
   const color_starts: Array<{ row: number; color: string }> = [];
-  const lastDataRow = Math.min(nrows, 45);
-  for (let r = 13; r < lastDataRow; r++) {
+  for (let r = 13; r < endRow; r++) {
     const c0 = trimVal(getCell(aoa, r, 0));
     const c1 = trimVal(getCell(aoa, r, 1));
     if (c0 == null || c1 == null) continue;
@@ -235,12 +269,13 @@ function parseSheet(aoa: AoA, fileName: string, sheetName: string): ParsedSheetR
   const blocks: Array<{ rStart: number; rEnd: number; color: string }> = [];
   for (let i = 0; i < color_starts.length; i++) {
     const { row, color } = color_starts[i];
-    const rEnd = i + 1 < color_starts.length ? color_starts[i + 1].row : 46;
+    const rEnd = i + 1 < color_starts.length ? color_starts[i + 1].row : endRow;
     blocks.push({ rStart: row, rEnd, color });
   }
 
   // --- accumulate units per (color, channel, size) ---
   const records: PARecord[] = [];
+  const rowComputed = new Map<number, number>(); // source row -> Σ computed units (all channels)
   for (const { rStart, rEnd, color } of blocks) {
     const agg = new Map<string, number>(); // "channel|size" -> units
     for (let r = rStart; r < rEnd; r++) {
@@ -257,7 +292,9 @@ function parseSheet(aoa: AoA, fileName: string, sheetName: string): ParsedSheetR
         if (!comp) continue;
         for (const [size, units_per_pack] of comp) {
           const k = `${ch_name}|${size}`;
-          agg.set(k, (agg.get(k) ?? 0) + prepack_count * units_per_pack);
+          const add = prepack_count * units_per_pack;
+          agg.set(k, (agg.get(k) ?? 0) + add);
+          rowComputed.set(r, (rowComputed.get(r) ?? 0) + add);
         }
       }
     }
@@ -278,18 +315,19 @@ function parseSheet(aoa: AoA, fileName: string, sheetName: string): ParsedSheetR
     }
   }
 
-  // --- verification check vs R46 ---
+  // --- self-check: three independent reconciliation layers ---
+  const checks: PASheetCheck[] = [];
+
+  // (1) Channel totals vs the reported TOTALS row.
   const computedTotals = new Map<PAChannel, number>();
   for (const rec of records) {
     computedTotals.set(rec.channel, (computedTotals.get(rec.channel) ?? 0) + rec.units);
   }
   const reportedTotals = new Map<PAChannel, number>();
   for (const [c, name] of channel_cols) {
-    const v = getCell(aoa, 46, c);
+    const v = getCell(aoa, endRow, c);
     if (isNum(v)) reportedTotals.set(name, Math.trunc(v));
   }
-
-  const checks: PASheetCheck[] = [];
   const allChannels = new Set<PAChannel>([
     ...computedTotals.keys(),
     ...reportedTotals.keys(),
@@ -298,12 +336,35 @@ function parseSheet(aoa: AoA, fileName: string, sheetName: string): ParsedSheetR
     const computed = computedTotals.get(ch) ?? 0;
     const reported = reportedTotals.get(ch) ?? 0;
     checks.push({
-      file: fileName,
-      sheet: sheetName,
-      channel: ch,
-      computed,
-      reported,
-      ok: computed === reported,
+      file: fileName, sheet: sheetName, kind: "channel",
+      label: `${ch} channel total`, channel: ch,
+      computed, reported, ok: computed === reported,
+    });
+  }
+
+  // (2) Per-row line totals vs the file's "TOTAL UNITS" column (col 3). This is
+  // independent of color grouping, so it validates the pack-composition math
+  // line by line and guarantees no row's units are silently wrong.
+  for (const [r, computed] of [...rowComputed.entries()].sort((a, b) => a[0] - b[0])) {
+    const reported = looseNum(getCell(aoa, r, 3));
+    if (reported == null) continue;
+    checks.push({
+      file: fileName, sheet: sheetName, kind: "row_total",
+      label: `row ${r + 1} line total`,
+      computed, reported, ok: computed === reported,
+    });
+  }
+
+  // (3) Color coverage: every color anchored in the sheet must produce records
+  // under its own name. Catches a color block being absorbed by a neighbour —
+  // e.g. a single-row color landing on the last data row.
+  const producedColors = new Set(records.map(r => r.color));
+  for (const { color } of color_starts) {
+    const present = producedColors.has(color);
+    checks.push({
+      file: fileName, sheet: sheetName, kind: "color_coverage",
+      label: `color "${color}" has no records — rows likely merged into an adjacent color`,
+      computed: present ? 1 : 0, reported: 1, ok: present,
     });
   }
 
@@ -401,22 +462,32 @@ export function sizesPresent(records: PARecord[]): string[] {
   return [...set].sort(comparePaSizes);
 }
 
-export function aggregateVerifyAllOk(parsed: PAParsedFile[]): {
+export interface PAVerifySummary {
   total: number;
   passed: number;
   mismatches: PASheetCheck[];
-} {
+  byKind: Record<PACheckKind, { total: number; passed: number }>;
+}
+
+export function aggregateVerifyAllOk(parsed: PAParsedFile[]): PAVerifySummary {
   let total = 0;
   let passed = 0;
   const mismatches: PASheetCheck[] = [];
+  const byKind: PAVerifySummary["byKind"] = {
+    channel: { total: 0, passed: 0 },
+    row_total: { total: 0, passed: 0 },
+    color_coverage: { total: 0, passed: 0 },
+  };
   for (const f of parsed) {
     for (const c of f.checks) {
       total += 1;
-      if (c.ok) passed += 1;
+      const k = byKind[c.kind] ?? (byKind[c.kind] = { total: 0, passed: 0 });
+      k.total += 1;
+      if (c.ok) { passed += 1; k.passed += 1; }
       else mismatches.push(c);
     }
   }
-  return { total, passed, mismatches };
+  return { total, passed, mismatches, byKind };
 }
 
 export function flattenRecords(parsed: PAParsedFile[]): PARecord[] {

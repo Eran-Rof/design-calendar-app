@@ -13,8 +13,9 @@
 // styles, SearchableSelect, notify/confirmDialog, mandatory ExportButton, Field).
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 import SearchableSelect from "./components/SearchableSelect";
-import { notify, confirmDialog } from "../shared/ui/warn";
+import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -23,7 +24,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -106,22 +107,25 @@ export default function InternalThreeWayMatch() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>⚖️ 3-Way Match</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>3-Way Match</h2>
         <button style={btnPrimary} onClick={() => { setCreating(true); setEditingId(null); setModalOpen(true); }}>+ New vendor invoice</button>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All statuses</option>
-          {["pending", "matched", "variance", "exception", "posted", "rejected"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 200 }}
+          placeholder="All statuses"
+          options={[
+            { value: "", label: "All statuses" },
+            ...["pending", "matched", "variance", "exception", "posted", "rejected"].map((s) => ({ value: s, label: s })),
+          ]}
+        />
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <ExportButton rows={exportRows} columns={EXPORT_COLUMNS} filename="three-way-match" sheetName="3-Way Match" />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Vendor</th><th style={th}>Invoice #</th><th style={th}>Date</th>
@@ -134,7 +138,7 @@ export default function InternalThreeWayMatch() {
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setCreating(false); setEditingId(r.id); setModalOpen(true); }}>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>(vendor)</span>}</td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.vendor_invoice_number}</td>
-                <td style={td}>{r.invoice_date}</td>
+                <td style={td}>{fmtDateDisplay(r.invoice_date)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.total_cents)}</td>
                 <td style={td}><span style={{ color: STATUS_COLORS[r.three_way_match_status] || C.text, fontWeight: 600 }}>● {r.three_way_match_status}</span></td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: Number(r.variance_cents) !== 0 ? C.warn : C.textSub }}>{fmtCents(r.variance_cents)}</td>
@@ -288,7 +292,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
     await patch({ action: "approve" }, "AP invoice draft created — post it from the AP panel.", "success");
   }
   async function reject() {
-    const reason = window.prompt("Reason for rejecting this vendor invoice?");
+    const reason = await promptDialog("Reason for rejecting this vendor invoice?", { title: "Reject invoice", icon: "", multiline: true, required: true });
     if (reason === null) return;
     if (!reason.trim()) { notify("A reason is required to reject.", "error"); return; }
     if (!(await confirmDialog(`Reject this invoice?\n\n${reason.trim()}`, { confirmText: "Reject", title: "Reject invoice" }))) return;
@@ -305,7 +309,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
       {draft && (
         <div style={{ marginBottom: 16, fontSize: 13, color: C.textSub }}>
           <span style={{ color: STATUS_COLORS[status] || C.text, fontWeight: 600 }}>● {status}</span>
-          {" · "}{draft.invoice_date}{draft.due_date ? ` · due ${draft.due_date}` : ""}
+          {" · "}{fmtDateDisplay(draft.invoice_date)}{draft.due_date ? ` · due ${fmtDateDisplay(draft.due_date)}` : ""}
         </div>
       )}
 
@@ -329,7 +333,7 @@ function DetailModal({ draftId, onClose, onChanged }: { draftId: string; onClose
                   ? <span style={{ color: C.danger, fontWeight: 600 }}>Exception — no posted receipt found for the linked PO.</span>
                   : m.within_tolerance
                     ? <span style={{ color: C.success, fontWeight: 600 }}>✓ Within tolerance — matched.</span>
-                    : <span style={{ color: C.warn, fontWeight: 600 }}>⚠ Variance exceeds tolerance.</span>
+                    : <span style={{ color: C.warn, fontWeight: 600 }}>Variance exceeds tolerance.</span>
               ) : <span style={{ color: C.textMuted }}>No PO linked — re-match is unavailable.</span>}
             </div>
             {draft.variance_reason && <div style={{ marginTop: 6, fontSize: 12, color: C.textMuted }}>{draft.variance_reason}</div>}
@@ -388,7 +392,7 @@ function Stat({ label, value, color, mono }: { label: string; value: string; col
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 720, maxWidth: 920, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(920px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         {children}
       </div>
     </div>

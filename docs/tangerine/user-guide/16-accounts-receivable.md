@@ -51,7 +51,7 @@ From the **AR Invoices** panel, click **+ New invoice**.
 
 | Field | Required? | Notes |
 |---|---|---|
-| Customer | yes | Sourced from M36 Customer Master (must already exist). UUID paste fallback is offered. |
+| Customer | yes | Sourced from M36 Customer Master. Type an unknown name → a **"+ Add customer '<name>'"** typeahead row opens the Add-customer popup pre-filled, creates it on the fly, selects it here, and sends a complete-the-info reminder (item 8). UUID paste fallback is offered. |
 | Invoice number | optional | Auto-generated as `AR-YYYY-NNNNN` if blank. Must be unique per entity. |
 | Kind | yes | `customer_invoice` / `customer_credit_memo` |
 | Invoice date | yes | The date the GL JE will land on (must be inside an open period at post time). `posting_date` is kept in lockstep with this field. |
@@ -69,11 +69,20 @@ From the **AR Invoices** panel, click **+ New invoice**.
 Each line must resolve to a positive `line_total_cents`. There are two paths:
 
 1. **Quantity + unit price path** — supply `quantity` and `unit_price_cents` (UI: dollars). The DB trigger `ar_invoice_lines_compute_total_trg` computes `line_total_cents = quantity * unit_price_cents`.
-2. **Flat total path** — supply only `line_total_cents` (UI: "Or total $") when no per-unit breakdown applies (e.g. a flat service line). The trigger preserves the explicit value.
+2. **Flat total path** — supply only `line_total_cents` (UI: the **Amount $** column on a non-matrix line) when no per-unit breakdown applies (e.g. a flat service / freight line). The trigger preserves the explicit value.
 
 **Inventory contract:** if a line carries `inventory_item_id` (uuid into `ip_item_master`), it **must** use the quantity + unit price path. The unit price is the **selling price** (not the cost) — the COGS amount is derived at post time from the FIFO layer consumption (see next section). A line without `inventory_item_id` is treated as a service / non-inventory line and never generates a COGS entry.
 
 The trigger `ar_invoice_lines_maintain_total` rebuilds `ar_invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
+
+### The line body is the size matrix (shared with Sales Orders)
+
+The invoice line body is the **same editable size-matrix body the Sales Order modal uses** (`LineMatrixBody`, `mode="ar"`), open by default:
+- **Always opens in matrix format.** Whether you create a new invoice, open one created from **Allocations** (SO → invoice), or open any existing invoice, the body shows the color × size grids by default. On open, each existing inventory line is resolved back to its style / color / size (via the item master, including now-inactive SKUs) and **regrouped into a per-style matrix**; only lines that can't be matrixed (amount-only charges, non-apparel SKUs, or SKUs that can't be resolved) fall back to a flat row.
+- **➕ Add style (matrix)** — pick a style → fill its color × size grid inline, with a per-row **Unit $**; new pickers insert on top.
+- **+ Add non-matrix line** — a flat row that doubles as an **amount-only charge** (freight / fees / discounts): enter a **Description** + **Amount $** with no SKU, or a SKU + Qty + Unit $.
+- **Revenue routing:** inventory/style (matrix) lines route revenue **server-side** (header → customer → entity default); added flat lines default server-side too but expose an optional per-line **Revenue acct** override.
+- Save / Close sit in a **frozen footer**. (The old ☰ List / ▦ Matrix read-only toggle and the per-line price-suggest were removed in favour of this unified editable body.)
 
 ## Posting — Approval gate + FIFO consume
 
@@ -86,6 +95,10 @@ Click **Post** on a draft row (or on a pending-approval row to re-emit the gate)
    - **Inventory asset** (only when an inventory line exists): `invoice.inventory_asset_account_id` → `entity.default_inventory_account_id` → COA code `1300`
 
    If any required leg is unresolvable, the handler returns **400** with a clear error message before any DB writes occur.
+
+   > **Per-style revenue + COGS routing (operator #6).** Each invoice **line** can carry its own `revenue_account_id` and `cogs_account_id`. When an invoice is created from a sales order, each line's accounts are resolved **style → customer default → entity default** — the style's `style_master.revenue_account_id` / `cogs_account_id` win (these are set per brand bucket: ROF Brands / Boys / PT / Private Label, from the Xoro item GL export). So a single invoice spanning several brands books **each line's revenue and COGS to that brand's accounts**; the invoice-level account is only the fallback for styles with no account set. The `arInvoiceSent` rule applies the per-line account when present, else the invoice default.
+   >
+   > **Per-style returns routing.** Customer **credit memos** (returns, M23) route the same way: each return line's revenue reversal posts to the style's **`returns_account_id`** (the brand's Sales Returns account — 4236 ROF / 4234 Boys / 4235 PT / 4201 Private Label) → customer `default_returns_account_id` → entity Sales Returns (4100). So returns show up against the right brand's contra-revenue line.
 
 2. Calls `approvalsAPI.requestIfRequired({ kind: 'ar_invoice', amount_cents: total, payload: { customer_id, customer_code } })`.
    - If a rule matches (e.g. amount > $10k, or a `customer_credit_extension` rule fires for over-limit customers — see arch §5.1):

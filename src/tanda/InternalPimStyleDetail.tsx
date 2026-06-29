@@ -19,6 +19,7 @@
 // Spec: docs/tangerine/P8-data-crm-architecture.md §5 + §6.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
@@ -32,6 +33,7 @@ type Style = {
   lifecycle_status: string;
   season: string | null;
   design_year: number | null;
+  shopify_product_id: string | null;
 };
 
 type AttributeDef = {
@@ -87,6 +89,11 @@ type ImageRow = {
   width: number | null;
   height: number | null;
   created_at: string;
+  source?: string | null;
+  shopify_image_id?: string | null;
+  // Signed URLs for each derivative, attached by the composite GET. The
+  // storage_path* fields are bucket-relative and not directly renderable.
+  signed_urls?: { thumb: string | null; web: string | null; print: string | null } | null;
 };
 
 type Composite = {
@@ -121,6 +128,7 @@ const btnSuccess: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const textareaStyle: React.CSSProperties = {
   ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical",
@@ -145,7 +153,7 @@ function fmtDateTime(iso: string | null | undefined): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-US", {
-      month: "short", day: "2-digit", year: "numeric",
+      month: "2-digit", day: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
@@ -270,6 +278,7 @@ export default function InternalPimStyleDetail({
         <ImagesTab
           styleId={styleId}
           images={data.images}
+          shopifyProductId={data.style.shopify_product_id}
           onReload={load}
         />
       )}
@@ -449,18 +458,16 @@ function AttributeRowEditor({
     if (def.value_type === "enum") {
       const opts = def.options?.options || [];
       return (
-        <select
+        <SearchableSelect
           value={draft == null ? "" : String(draft)}
-          onChange={(e) => {
-            const v = e.target.value || null;
+          onChange={(val) => {
+            const v = val || null;
             setDraft(v);
             void patch(v);
           }}
-          style={inputStyle as React.CSSProperties}
-        >
-          <option value="">— none —</option>
-          {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
+          options={[{ value: "", label: "— none —" }, ...opts.map((o) => ({ value: o, label: o }))]}
+          inputStyle={inputStyle as React.CSSProperties}
+        />
       );
     }
     if (def.value_type === "date") {
@@ -659,13 +666,12 @@ function DescriptionTab({
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <label style={{ fontSize: 12, color: C.textMuted }}>Locale</label>
-        <select
-          value={locale}
-          onChange={(e) => setLocale(e.target.value)}
-          style={{ ...inputStyle, maxWidth: 140 } as React.CSSProperties}
-        >
-          {LOCALE_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
+        <SearchableSelect
+          value={locale || null}
+          onChange={(v) => setLocale(v)}
+          options={LOCALE_OPTIONS.map((l) => ({ value: l, label: l }))}
+          inputStyle={{ ...inputStyle, maxWidth: 140 } as React.CSSProperties}
+        />
 
         <div style={{ flex: 1 }} />
 
@@ -831,10 +837,12 @@ function ConfirmPublishModal({ locale, onCancel, onConfirm }: {
 function ImagesTab({
   styleId,
   images,
+  shopifyProductId,
   onReload,
 }: {
   styleId: string;
   images: ImageRow[];
+  shopifyProductId: string | null;
   onReload: () => Promise<void>;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -842,6 +850,57 @@ function ImagesTab({
   const [dragOver, setDragOver] = useState(false);
   const [openImage, setOpenImage] = useState<ImageRow | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Shopify link + pull state. `shopifyProductId` is the mirror uuid FK
+  // (truthy = linked); the input takes the NUMERIC Shopify product id.
+  const isLinked = !!shopifyProductId;
+  const [shopId, setShopId] = useState("");
+  const [shopBusy, setShopBusy] = useState<"link" | "pull" | null>(null);
+
+  async function linkShopify(unlink = false) {
+    setShopBusy("link");
+    setErr(null);
+    try {
+      const r = await fetch(`/api/internal/pim/styles/${styleId}/link-shopify`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ shopify_product_id: unlink ? null : (shopId.trim() || null) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.linked ? `Linked to Shopify product ${j.shopify_numeric_id}${j.title ? ` (${j.title})` : ""}` : "Unlinked from Shopify", "success");
+      if (j.linked) setShopId("");
+      await onReload();
+    } catch (e: unknown) {
+      setErr(`Link failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setShopBusy(null);
+    }
+  }
+
+  async function pullShopify() {
+    setShopBusy("pull");
+    setErr(null);
+    try {
+      const r = await fetch(`/api/internal/pim/styles/${styleId}/pull-shopify-images`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const parts = [`${j.pulled} pulled`];
+      if (j.skipped) parts.push(`${j.skipped} already present`);
+      if (j.failed) parts.push(`${j.failed} failed`);
+      notify(`Shopify images: ${parts.join(", ")}`, j.failed ? "error" : "success");
+      if (Array.isArray(j.errors) && j.errors.length) setErr(j.errors.join("\n"));
+      await onReload();
+    } catch (e: unknown) {
+      setErr(`Pull failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setShopBusy(null);
+    }
+  }
 
   async function handleFiles(files: FileList | File[]) {
     const list = Array.from(files);
@@ -964,6 +1023,54 @@ function ImagesTab({
         </div>
       )}
 
+      {/* Shopify: link a product, then re-host its images into this style. */}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.textSub, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          Shopify product images
+          {isLinked && (
+            <span style={{ background: C.tangerine, color: "#000", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>
+              ✓ LINKED
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <input
+            type="text"
+            value={shopId}
+            onChange={(e) => setShopId(e.target.value)}
+            placeholder={isLinked ? "Enter a new Shopify product ID to re-link" : "Shopify product ID (digits)"}
+            style={{ ...inputStyle, width: 240 }}
+          />
+          <button
+            onClick={() => void linkShopify(false)}
+            disabled={shopBusy != null || shopId.trim() === ""}
+            style={{ ...btnSecondary, opacity: (shopBusy != null || shopId.trim() === "") ? 0.6 : 1 }}
+          >
+            {shopBusy === "link" ? "Saving…" : isLinked ? "Re-link" : "Link product"}
+          </button>
+          {isLinked && (
+            <button
+              onClick={() => void linkShopify(true)}
+              disabled={shopBusy != null}
+              style={{ ...btnSecondary, opacity: shopBusy != null ? 0.6 : 1 }}
+            >
+              Unlink
+            </button>
+          )}
+          <button
+            onClick={() => void pullShopify()}
+            disabled={shopBusy != null || !isLinked}
+            title={!isLinked ? "Link a Shopify product first" : "Re-host this product's Shopify images"}
+            style={{ ...btnPrimary, opacity: (shopBusy != null || !isLinked) ? 0.6 : 1 }}
+          >
+            {shopBusy === "pull" ? "Pulling…" : "Pull from Shopify"}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6 }}>
+          Images are copied into your own storage, so they stay even if the product changes on Shopify.
+        </div>
+      </div>
+
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -1065,7 +1172,7 @@ function ImagesTab({
 }
 
 function ImageTile({ img, onClick }: { img: ImageRow; onClick: () => void }) {
-  const thumb = img.storage_path_web || img.storage_path_thumb || img.storage_path;
+  const thumb = img.signed_urls?.web || img.signed_urls?.thumb || img.signed_urls?.print || null;
   return (
     <div
       onClick={onClick}
@@ -1085,7 +1192,7 @@ function ImageTile({ img, onClick }: { img: ImageRow; onClick: () => void }) {
             style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: C.textMuted, fontSize: 24 }}>🖼️</span>
+          <span style={{ color: C.textMuted, fontSize: 12 }}>No image</span>
         )}
         {img.is_primary && (
           <div style={{
@@ -1133,7 +1240,7 @@ function ImageDetailModal({
   const [kind, setKind] = useState<ImageRow["image_kind"]>(img.image_kind);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const printSrc = img.storage_path_print || img.storage_path_web || img.storage_path_thumb || img.storage_path;
+  const printSrc = img.signed_urls?.print || img.signed_urls?.web || img.signed_urls?.thumb || null;
 
   // sort_order arrows: move to a relative neighbour.
   const sorted = useMemo(() => [...allImages].sort((a, b) => a.sort_order - b.sort_order), [allImages]);
@@ -1195,17 +1302,16 @@ function ImageDetailModal({
           </FieldBlock>
 
           <FieldBlock label="Image kind">
-            <select
+            <SearchableSelect
               value={kind}
-              onChange={(e) => {
-                const v = e.target.value as ImageRow["image_kind"];
+              onChange={(val) => {
+                const v = val as ImageRow["image_kind"];
                 setKind(v);
                 void withSave("Image kind", () => onPatch({ image_kind: v }));
               }}
-              style={inputStyle as React.CSSProperties}
-            >
-              {IMAGE_KIND_OPTIONS.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+              options={IMAGE_KIND_OPTIONS.map((k) => ({ value: k, label: k }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </FieldBlock>
 
           <FieldBlock label="Primary">

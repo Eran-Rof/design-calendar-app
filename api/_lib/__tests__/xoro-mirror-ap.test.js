@@ -74,9 +74,13 @@ function makeTandaPosBuilder(rows, errors) {
 function makeVendorsBuilder(rows, errors) {
   let codeFilter = null;
   let aliasFilter = null;
+  let nameFilter = null;  // ilike name match (step 4)
+  let skipDeleted = false;
   const builder = {
     select() { return builder; },
     eq(col, val) { if (col === "code") codeFilter = val; return builder; },
+    ilike(col, val) { if (col === "name") nameFilter = val?.toLowerCase(); return builder; },
+    is(col, val) { if (col === "deleted_at" && val === null) skipDeleted = true; return builder; },
     contains(col, arr) {
       if (col === "aliases") aliasFilter = arr[0];
       return builder;
@@ -90,13 +94,18 @@ function makeVendorsBuilder(rows, errors) {
       return Promise.resolve({ data: hit || null, error: null });
     },
     then(resolve) {
-      // alias path returns an array
       if (errors["vendors:select"]) {
         return resolve({ data: null, error: { message: errors["vendors:select"] } });
       }
-      const hits = aliasFilter
-        ? rows.filter((r) => Array.isArray(r.aliases) && r.aliases.includes(aliasFilter))
-        : [];
+      let hits = [];
+      if (aliasFilter) {
+        hits = rows.filter((r) => Array.isArray(r.aliases) && r.aliases.includes(aliasFilter));
+      } else if (nameFilter) {
+        hits = rows.filter((r) => {
+          if (skipDeleted && r.deleted_at) return false;
+          return (r.name || "").toLowerCase() === nameFilter;
+        });
+      }
       return resolve({ data: hits, error: null });
     },
   };
@@ -262,6 +271,21 @@ describe("resolveVendorId", () => {
     const sb = makeSupabase({ vendors: [{ id: "v-2", code: "ACME" }] });
     const cache = new Map([["ACME", "cached-id"]]);
     expect(await resolveVendorId(sb, { vendor: "ACME" }, cache)).toBe("cached-id");
+  });
+  it("matches by vendors.name when code and aliases are empty (AP bill case)", async () => {
+    // vendors.code=null + aliases=[] is the real prod state for Xoro-synced vendors.
+    // The AP bill CSV "Vendor Name" must still resolve via the name column.
+    const sb = makeSupabase({ vendors: [{ id: "v-fd", code: null, aliases: [], name: "FASHION DESIGN, LLC", deleted_at: null }] });
+    const cache = new Map();
+    expect(await resolveVendorId(sb, { vendor: "FASHION DESIGN, LLC" }, cache)).toBe("v-fd");
+  });
+  it("name match skips soft-deleted vendors", async () => {
+    const sb = makeSupabase({ vendors: [
+      { id: "v-old", code: null, aliases: [], name: "FASHION DESIGN, LLC", deleted_at: "2026-01-01" },
+      { id: "v-live", code: null, aliases: [], name: "FASHION DESIGN, LLC", deleted_at: null },
+    ]});
+    const cache = new Map();
+    expect(await resolveVendorId(sb, { vendor: "FASHION DESIGN, LLC" }, cache)).toBe("v-live");
   });
 });
 

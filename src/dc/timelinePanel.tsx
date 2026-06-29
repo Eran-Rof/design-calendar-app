@@ -1,6 +1,6 @@
 import React, { Fragment } from "react";
 import { S, TH, fmtDays } from "./styles";
-import { formatDate, getDaysUntil, getDaysUntilForPhase, getBusinessDaysUntil, addDays, diffDaysForPhase, parseLocalDate, snapToBusinessDay, toDateStr, isPostPO } from "../utils/dates";
+import { formatDate, getDaysUntil, getDaysUntilForPhase, getBusinessDaysUntil, addDays, diffDaysForPhase, parseLocalDate, snapToBusinessDay, toDateStr, isPostPO, collCreatedDate } from "../utils/dates";
 import { STATUS_CONFIG, PHASE_KEYS } from "../utils/constants";
 import Avatar from "../components/Avatar";
 import { useAppStore } from "../store";
@@ -255,6 +255,11 @@ function TimelinePanelInner(): React.ReactElement | null {
                 {focusCollKey.split("||")[1]}
               </strong>
             </span>
+            {collCreatedDate(collections[focusCollKey] || {}) && (
+              <span style={{ fontSize: 12, color: TH.textMuted }}>
+                Created: {formatDate(collCreatedDate(collections[focusCollKey] || {}))}
+              </span>
+            )}
             <button
               onClick={() => setFocusCollKey(null)}
               style={{
@@ -359,6 +364,12 @@ function TimelinePanelInner(): React.ReactElement | null {
                         {collData.gender ? ` · ${collData.gender}` : ""}
                         {ctasks[0]?.category ? ` · ${ctasks[0].category}` : ""}
                       </span>
+                      {/* Created date */}
+                      {collCreatedDate(collData) && (
+                        <span style={{ fontWeight: 400, color: TH.textMuted }}>
+                          · Created: {formatDate(collCreatedDate(collData))}
+                        </span>
+                      )}
                       {/* Line 2: Vendor · DDP · Exit Factory */}
                       {(() => {
                         const shipTask = sorted.find((t) => t.phase === "Ship Date");

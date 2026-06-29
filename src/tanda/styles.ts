@@ -3,7 +3,7 @@ import type React from "react";
 const S: Record<string, React.CSSProperties> = {
   app:        { minHeight: "100vh", background: "#0F172A", color: "#F1F5F9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
   loginBg:    { minHeight: "100vh", background: "#0F172A", display: "flex", alignItems: "center", justifyContent: "center" },
-  loginCard:  { background: "#1E293B", borderRadius: 16, padding: 40, width: 360, boxShadow: "0 24px 64px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 14 },
+  loginCard:  { background: "#1E293B", borderRadius: 16, padding: 40, width: "min(360px, 95vw)", boxSizing: "border-box", boxShadow: "0 24px 64px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 14 },
   loginLogo:  { width: 56, height: 56, borderRadius: 14, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 22, alignSelf: "center" },
   loginTitle: { margin: 0, textAlign: "center", fontSize: 22, fontWeight: 700, color: "#F1F5F9" },
   loginSub:   { margin: 0, textAlign: "center", fontSize: 13, color: "#6B7280" },
@@ -47,7 +47,7 @@ const S: Record<string, React.CSSProperties> = {
 
   // Modal
   modalOverlay:{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
-  modal:       { background: "#1E293B", borderRadius: 16, width: 480, maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" },
+  modal:       { background: "#1E293B", borderRadius: 16, width: "min(480px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column" },
   modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #334155" },
   modalTitle:  { margin: 0, fontSize: 18, fontWeight: 700, color: "#F1F5F9" },
   modalBody:   { padding: 20, overflowY: "auto" },

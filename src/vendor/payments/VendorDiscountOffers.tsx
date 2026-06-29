@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Offer {
   id: string;
@@ -54,8 +55,8 @@ export default function VendorDiscountOffers() {
   useEffect(() => { void load(); }, [status]);
 
   async function act(offer: Offer, action: "accept" | "reject") {
-    if (action === "reject" && !confirm("Reject this offer? The invoice will be paid on its original due date.")) return;
-    if (action === "accept" && !confirm(`Accept? You'll receive $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (${offer.days_early} days early).`)) return;
+    if (action === "reject" && !await showConfirm({ title: "Reject offer?", message: "The invoice will be paid on its original due date.", tone: "warn", confirmLabel: "Reject" })) return;
+    if (action === "accept" && !await showConfirm({ title: "Accept offer?", message: `You'll receive $${Number(offer.net_payment_amount).toFixed(2)} on ${offer.early_payment_date} (${offer.days_early} days early).`, tone: "info", confirmLabel: "Accept" })) return;
     const r = await api(`/api/vendor/discount-offers/${offer.id}/${action}`, { method: "POST" });
     if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
     await load();
@@ -72,14 +73,20 @@ export default function VendorDiscountOffers() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Early-payment offers</h2>
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>Get paid sooner in exchange for a discount. Accept or reject — rejecting means you're paid on the original due date.</div>
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-          <option value="">All</option>
-          <option value="offered">Active offers</option>
-          <option value="accepted">Accepted</option>
-          <option value="rejected">Rejected</option>
-          <option value="expired">Expired</option>
-          <option value="paid">Paid</option>
-        </select>
+        <SearchableSelect
+          value={status || null}
+          onChange={(v) => setStatus(v)}
+          placeholder="All"
+          options={[
+            { value: "", label: "All" },
+            { value: "offered", label: "Active offers" },
+            { value: "accepted", label: "Accepted" },
+            { value: "rejected", label: "Rejected" },
+            { value: "expired", label: "Expired" },
+            { value: "paid", label: "Paid" },
+          ]}
+          inputStyle={selectSt}
+        />
       </div>
 
       {!loading && rows.length > 0 && (
@@ -101,7 +108,7 @@ export default function VendorDiscountOffers() {
           {rows.map((o) => (
             <div key={o.id} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderLeft: `4px solid ${o.status === "offered" ? C.primary : o.status === "accepted" || o.status === "paid" ? C.success : C.textMuted}`, borderRadius: 8, padding: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>Invoice {o.invoice?.invoice_number || o.invoice_id.slice(0, 8)}</div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Invoice {o.invoice?.invoice_number || "—"}</div>
                 <StatusChip status={o.status} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 12 }}>
@@ -111,7 +118,7 @@ export default function VendorDiscountOffers() {
                 <Mini label="You receive" value={`$${Number(o.net_payment_amount).toLocaleString()}`} />
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10 }}>
-                Original due: {o.original_due_date} · Discount {Number(o.discount_pct).toFixed(2)}% · Expires {new Date(o.expires_at).toLocaleDateString()}
+                Original due: {o.original_due_date} · Discount {Number(o.discount_pct).toFixed(2)}% · Expires {new Date(o.expires_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
               </div>
               {o.status === "offered" && (
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>

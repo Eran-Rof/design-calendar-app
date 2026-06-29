@@ -30,6 +30,10 @@ import { inventoryAdjustment } from "./rules/inventoryAdjustment.js";
 import { apInvoiceGrirMatch } from "./rules/apInvoiceGrirMatch.js";
 import { landedCostRevaluation } from "./rules/landedCostRevaluation.js";
 import { qcVendorCredit } from "./rules/qcVendorCredit.js";
+import { partAdjustment } from "./rules/partAdjustment.js";
+import { mfgBuildIssue } from "./rules/mfgBuildIssue.js";
+import { mfgServiceCapitalized } from "./rules/mfgServiceCapitalized.js";
+import { mfgBuildComplete } from "./rules/mfgBuildComplete.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -43,6 +47,10 @@ import {
   createLayer as createInventoryLayer,
   consume as consumeInventory,
 } from "../../inventory/fifo.js";
+import {
+  createPartLayer,
+  consumePart,
+} from "../../inventory/partFifo.js";
 
 export { reverseJournalEntry } from "./reverse.js";
 
@@ -58,6 +66,14 @@ const RULE_BY_KIND = {
   ap_invoice_grir_match: apInvoiceGrirMatch,
   landed_cost_revaluation: landedCostRevaluation,
   qc_vendor_credit:      qcVendorCredit,
+  // Manufacturing — parts have their OWN FIFO pool (partConsumePlan /
+  // partInventoryLayers drains below), separate from style inventory.
+  part_adjustment:       partAdjustment,
+  // Manufacturing build orders (M4): issue components → WIP, capitalize a
+  // conversion service → WIP, complete a build (WIP → finished goods).
+  mfg_build_issue:       mfgBuildIssue,
+  mfg_service_capitalized: mfgServiceCapitalized,
+  mfg_build_complete:    mfgBuildComplete,
 };
 
 export class PostingError extends Error {
@@ -236,6 +252,73 @@ export async function postEvent(supabase, event) {
     }
   }
 
+  // 2a-bis. partConsumePlan drain — the parts analogue of the consumePlan drain
+  //   above, but routed through part_fifo_consume (part_inventory_layers) so
+  //   parts are drawn from their OWN FIFO pool. Same two modes:
+  //     LEGACY 2-LINE  — part_adjustment negative (DR counter / CR 1360 parts).
+  //     INDEXED        — future mfg_build_issue (M4): one CR-parts line per part
+  //                      consumed into WIP, each entry carrying dr_line_ix/cr_line_ix.
+  //   consumer_kind whitelist: build_issue | adjustment_decrease | transfer_out |
+  //   write_off (enforced in partFifo.js + the SQL CHECK).
+  let partConsumeResults = [];
+  if (Array.isArray(ruleOutput.partConsumePlan) && ruleOutput.partConsumePlan.length > 0) {
+    const isIndexed = ruleOutput.partConsumePlan.some(
+      (p) => p.dr_line_ix != null || p.cr_line_ix != null,
+    );
+    const perEntryCogs = [];
+    let totalCogs = 0n;
+    for (const plan of ruleOutput.partConsumePlan) {
+      const { cogs_cents } = await consumePart(supabase, {
+        entity_id: event.entity_id,
+        part_id: plan.part_id,
+        qty: plan.qty,
+        consumer_kind: plan.consumer_kind,
+        consumer_ref_id: plan.consumer_ref_id,
+        location_id: plan.location_id || null,
+        user_id: event.created_by_user_id || null,
+      });
+      perEntryCogs.push(cogs_cents);
+      partConsumeResults.push({ part_id: plan.part_id, qty: plan.qty, cogs_cents });
+      totalCogs += cogs_cents;
+    }
+
+    if (isIndexed) {
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand || !Array.isArray(cand.lines)) continue;
+        const linesToDrop = new Set();
+        ruleOutput.partConsumePlan.forEach((plan, i) => {
+          const cogs = perEntryCogs[i];
+          if (plan.dr_line_ix == null || plan.cr_line_ix == null) {
+            throw new PostingError("part_consume_plan_shape", `indexed partConsumePlan entry ${i} missing dr_line_ix/cr_line_ix`);
+          }
+          if (plan.dr_line_ix >= cand.lines.length || plan.cr_line_ix >= cand.lines.length) {
+            throw new PostingError("part_consume_plan_shape", `indexed partConsumePlan entry ${i} line index out of range`);
+          }
+          if (cogs === 0n) { linesToDrop.add(plan.dr_line_ix); linesToDrop.add(plan.cr_line_ix); return; }
+          const amountStr = bigintCentsToDecimal(cogs);
+          cand.lines[plan.dr_line_ix].debit = amountStr;
+          cand.lines[plan.cr_line_ix].credit = amountStr;
+        });
+        if (linesToDrop.size > 0) {
+          cand.lines = cand.lines.filter((_, ix) => !linesToDrop.has(ix));
+          cand.lines.forEach((l, i) => { l.line_number = i + 1; });
+        }
+      }
+    } else {
+      const amountStr = bigintCentsToDecimal(totalCogs);
+      for (const side of ["accrual", "cash"]) {
+        const cand = ruleOutput[side];
+        if (!cand) continue;
+        if (!Array.isArray(cand.lines) || cand.lines.length < 2) {
+          throw new PostingError("part_consume_plan_shape", `partConsumePlan path expects 2-line ${side} candidate (got ${cand.lines?.length ?? 0})`);
+        }
+        cand.lines[0].debit = amountStr;
+        cand.lines[1].credit = amountStr;
+      }
+    }
+  }
+
   // 2b. Run guards on each non-null candidate
   const ctx = { supabase, entity_id: event.entity_id };
 
@@ -304,6 +387,53 @@ export async function postEvent(supabase, event) {
     result.inventory_layer_ids = layerIds;
     if (layerErrors.length > 0) {
       result.inventory_layer_errors = layerErrors;
+    }
+  }
+
+  // 3b. Expose part consume results (manufacturing audit trail).
+  if (partConsumeResults.length > 0) {
+    result.part_consume_results = partConsumeResults.map((c) => ({
+      part_id: c.part_id,
+      qty: c.qty,
+      cogs_cents: c.cogs_cents.toString(),
+    }));
+  }
+
+  // 4b. partInventoryLayers drain — the parts analogue of step 4. Fires AFTER
+  //     the JE persists; failures are logged + surfaced on
+  //     result.part_inventory_layer_errors (GL truth already correct).
+  if (Array.isArray(ruleOutput.partInventoryLayers) && ruleOutput.partInventoryLayers.length > 0) {
+    const partLayerIds = [];
+    const partLayerErrors = [];
+    for (const pending of ruleOutput.partInventoryLayers) {
+      const sourceKind = pending.source_kind || "ap_invoice";
+      try {
+        const { layer } = await createPartLayer(supabase, {
+          entity_id: event.entity_id,
+          part_id: pending.part_id,
+          qty: pending.qty,
+          unit_cost_cents: pending.unit_cost_cents,
+          source_kind: sourceKind,
+          source_invoice_id: pending.source_invoice_id || null,
+          source_adjustment_id: pending.source_adjustment_id || null,
+          location_id: pending.location_id || null,
+          received_at: pending.received_at || null,
+          notes: pending.notes || null,
+          created_by_user_id: event.created_by_user_id ?? null,
+        });
+        partLayerIds.push(layer?.id);
+      } catch (err) {
+        const message = err?.message || String(err);
+        // eslint-disable-next-line no-console
+        console.error(
+          `[posting] ${event.kind}: part FIFO layer create failed for part ${pending.part_id}: ${message}`,
+        );
+        partLayerErrors.push({ part_id: pending.part_id, error: message });
+      }
+    }
+    result.part_inventory_layer_ids = partLayerIds;
+    if (partLayerErrors.length > 0) {
+      result.part_inventory_layer_errors = partLayerErrors;
     }
   }
 

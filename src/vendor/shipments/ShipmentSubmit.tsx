@@ -4,6 +4,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney, todayLocalIso } from "../utils";
 import { isValidContainerNumber } from "./shipmentUtils";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 type SubmitMode = "asn_only" | "asn_and_invoice";
 
@@ -38,6 +39,8 @@ interface POOption {
   uuid_id: string;
   po_number: string;
   data: { BuyerName?: string; TotalAmount?: number } | null;
+  /** "xoro" = tanda_pos; "tangerine" = purchase_orders (new ERP). */
+  source?: "xoro" | "tangerine";
 }
 
 interface LineItem {
@@ -98,13 +101,37 @@ export default function ShipmentSubmit() {
           setVendorId((vu as { vendor_id: string }).vendor_id);
         }
 
+        const vendorIdLocal = (vu as { vendor_id?: string } | null)?.vendor_id || null;
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
           .select("uuid_id, po_number, data")
           .order("date_order", { ascending: false });
         if (error) throw error;
-        const active = (data ?? []).filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived);
-        setPOs(active as POOption[]);
+        const xoro = (data ?? [])
+          .filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived)
+          .map((r) => ({ ...(r as POOption), source: "xoro" as const }));
+
+        // Tangerine-native POs (purchase_orders) — union them so the vendor can
+        // submit an ASN against either source. Additive + fail-safe.
+        let tangerine: POOption[] = [];
+        try {
+          if (vendorIdLocal) {
+            const { data: tpos } = await supabaseVendor
+              .from("purchase_orders")
+              .select("id, po_number, total_cents")
+              .eq("vendor_id", vendorIdLocal)
+              .in("status", ["issued", "in_transit", "received"])
+              .order("order_date", { ascending: false });
+            tangerine = (tpos ?? []).map((p: { id: string; po_number: string; total_cents: number | null }) => ({
+              uuid_id: p.id,
+              po_number: p.po_number,
+              data: { TotalAmount: typeof p.total_cents === "number" ? p.total_cents / 100 : undefined },
+              source: "tangerine" as const,
+            }));
+          }
+        } catch { /* additive — ignore so the Xoro list still works */ }
+
+        setPOs([...xoro, ...tangerine]);
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : String(e));
       }
@@ -113,14 +140,35 @@ export default function ShipmentSubmit() {
 
   useEffect(() => {
     if (!selectedPoId) { setPoLines([]); setLineInputs([]); return; }
+    const isTangerine = pos.find((p) => p.uuid_id === selectedPoId)?.source === "tangerine";
     (async () => {
-      const { data, error } = await supabaseVendor
-        .from("po_line_items")
-        .select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price")
-        .eq("po_id", selectedPoId)
-        .order("line_index");
-      if (error) { setErr(error.message); return; }
-      const lines = (data ?? []) as LineItem[];
+      let lines: LineItem[] = [];
+      if (isTangerine) {
+        // Tangerine PO lines live in purchase_order_lines (cents → dollars).
+        const { data, error } = await supabaseVendor
+          .from("purchase_order_lines")
+          .select("id, line_number, description, qty_ordered, qty_received, unit_cost_cents")
+          .eq("purchase_order_id", selectedPoId)
+          .order("line_number");
+        if (error) { setErr(error.message); return; }
+        lines = ((data ?? []) as Array<Record<string, unknown>>).map((l) => ({
+          id: l.id as string,
+          line_index: (l.line_number as number) ?? 0,
+          item_number: null,
+          description: (l.description as string | null) ?? null,
+          qty_ordered: (l.qty_ordered as number | null) ?? null,
+          qty_received: (l.qty_received as number | null) ?? null,
+          unit_price: typeof l.unit_cost_cents === "number" ? (l.unit_cost_cents as number) / 100 : null,
+        }));
+      } else {
+        const { data, error } = await supabaseVendor
+          .from("po_line_items")
+          .select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price")
+          .eq("po_id", selectedPoId)
+          .order("line_index");
+        if (error) { setErr(error.message); return; }
+        lines = (data ?? []) as LineItem[];
+      }
       setPoLines(lines);
       setLineInputs(
         lines.map((l) => {
@@ -139,7 +187,7 @@ export default function ShipmentSubmit() {
         })
       );
     })();
-  }, [selectedPoId]);
+  }, [selectedPoId, pos]);
 
   const totalLines = useMemo(() => lineInputs.filter((l) => l.include && (Number(l.qty_shipped) || 0) > 0).length, [lineInputs]);
 
@@ -261,14 +309,20 @@ export default function ShipmentSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Purchase Order</label>
-            <select value={selectedPoId} onChange={(e) => setSelectedPoId(e.target.value)} style={inputStyle} required>
-              <option value="">— Select PO —</option>
-              {pos.map((p) => (
-                <option key={p.uuid_id} value={p.uuid_id}>
-                  {p.po_number}{p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""}{p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={selectedPoId || null}
+              onChange={(v) => setSelectedPoId(v)}
+              required
+              placeholder="— Select PO —"
+              options={[
+                { value: "", label: "— Select PO —" },
+                ...pos.map((p) => ({
+                  value: p.uuid_id,
+                  label: `${p.po_number}${p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""}${p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}`,
+                })),
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>ASN reference number</label>
@@ -285,24 +339,28 @@ export default function ShipmentSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Carrier</label>
-            <select value={carrier} onChange={(e) => setCarrier(e.target.value)} style={inputStyle}>
-              {CARRIER_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
-                </optgroup>
-              ))}
-            </select>
+            <SearchableSelect
+              value={carrier || null}
+              onChange={(v) => setCarrier(v)}
+              options={CARRIER_GROUPS.flatMap((g) => g.carriers.map((c) => ({ value: c, label: c, group: g.label })))}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Ship via</label>
-            <select value={shipVia} onChange={(e) => setShipVia(e.target.value)} style={inputStyle}>
-              <option value="Ocean">Ocean</option>
-              <option value="Air">Air</option>
-              <option value="Truck">Truck</option>
-              <option value="Rail">Rail</option>
-              <option value="Ocean/Rail">Ocean/Rail</option>
-              <option value="Ocean/Air">Ocean/Air</option>
-            </select>
+            <SearchableSelect
+              value={shipVia || null}
+              onChange={(v) => setShipVia(v)}
+              options={[
+                { value: "Ocean", label: "Ocean" },
+                { value: "Air", label: "Air" },
+                { value: "Truck", label: "Truck" },
+                { value: "Rail", label: "Rail" },
+                { value: "Ocean/Rail", label: "Ocean/Rail" },
+                { value: "Ocean/Air", label: "Ocean/Air" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 
@@ -326,12 +384,18 @@ export default function ShipmentSubmit() {
             Tracking (optional — add later if not known yet)
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 12 }}>
-            <select value={trackingType} onChange={(e) => setTrackingType(e.target.value as TrackingType)} style={inputStyle}>
-              <option value="">— Type —</option>
-              <option value="CT">Container (ISO 6346)</option>
-              <option value="BL">Bill of Lading</option>
-              <option value="BK">Booking</option>
-            </select>
+            <SearchableSelect
+              value={trackingType}
+              onChange={(v) => setTrackingType(v as TrackingType)}
+              placeholder="— Type —"
+              options={[
+                { value: "", label: "— Type —" },
+                { value: "CT", label: "Container (ISO 6346)" },
+                { value: "BL", label: "Bill of Lading" },
+                { value: "BK", label: "Booking" },
+              ]}
+              inputStyle={inputStyle}
+            />
             <input
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}

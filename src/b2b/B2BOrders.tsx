@@ -5,6 +5,7 @@ import { formatMoney } from "./useCart";
 import type {
   B2BSession, CartLine, OrderSummary, OrderDetail, ShipToLocation,
 } from "./types";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // P18-D — Cart review + place order, plus the buyer's order history with a
 // Reorder action. Cart lives in the parent (App) so it persists across tabs;
@@ -174,12 +175,16 @@ export default function B2BOrders({
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16, alignItems: "flex-end" }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <label style={label}>Ship to</label>
-                <select value={shipTo} onChange={(e) => setShipTo(e.target.value)} style={{ ...input, width: "100%" }}>
-                  <option value="">(no specific location)</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>{l.name}{l.is_default ? " (default)" : ""}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  theme="light"
+                  value={shipTo || null}
+                  onChange={(v) => setShipTo(v)}
+                  options={[
+                    { value: "", label: "(no specific location)" },
+                    ...locations.map((l) => ({ value: l.id, label: `${l.name}${l.is_default ? " (default)" : ""}` })),
+                  ]}
+                  inputStyle={{ ...input, width: "100%" }}
+                />
               </div>
               <div style={{ flex: 2, minWidth: 220 }}>
                 <label style={label}>Notes (optional)</label>
@@ -236,7 +241,7 @@ export default function B2BOrders({
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id}>
-                  <td style={td}>{o.so_number || `Draft ${o.id.slice(0, 8)}`}</td>
+                  <td style={td}>{o.so_number || "Draft"}</td>
                   <td style={td}>{(o.order_date || o.created_at || "").slice(0, 10)}</td>
                   <td style={td}><StatusBadge status={o.status} /></td>
                   <td style={tdR}>{formatMoney(o.total_cents, o.currency)}</td>

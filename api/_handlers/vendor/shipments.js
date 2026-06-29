@@ -61,9 +61,24 @@ export default async function handler(req, res) {
   const hasShippable = line_items.some((l) => (Number(l.quantity_shipped) || 0) > 0);
   if (!hasShippable) return send(400, { error: "At least one line_item must have quantity_shipped > 0" });
 
-  const { data: po } = await admin
-    .from("tanda_pos").select("uuid_id, po_number, vendor_id")
-    .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+  // PO ownership check across BOTH sources: legacy Xoro (tanda_pos.uuid_id) and
+  // Tangerine-native (purchase_orders.id). The po_id FK was dropped (migration
+  // 20260896130000) so either id can be stored; we still verify the PO belongs
+  // to the caller here.
+  let po = null;
+  {
+    const { data: xpo } = await admin
+      .from("tanda_pos").select("uuid_id, po_number, vendor_id")
+      .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+    if (xpo) {
+      po = { po_number: xpo.po_number };
+    } else {
+      const { data: tpo } = await admin
+        .from("purchase_orders").select("id, po_number, vendor_id")
+        .eq("id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+      if (tpo) po = { po_number: tpo.po_number };
+    }
+  }
   if (!po) return send(403, { error: "PO not found or not yours" });
 
   // Path-injection guard — both URLs must live under the caller's folder

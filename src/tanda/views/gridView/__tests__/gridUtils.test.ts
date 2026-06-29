@@ -12,6 +12,8 @@ import {
   styleColorKey,
   itemSizeLabel,
   sizeSort,
+  normSizeToken,
+  buildSizeVocab,
 } from "../gridUtils";
 
 describe("normDateISO", () => {
@@ -75,11 +77,35 @@ describe("isSizeToken", () => {
     expect(isSizeToken("34L")).toBe(true);
     expect(isSizeToken("30R")).toBe(true);
   });
+  it("matches XXS, one-size and full-word alpha", () => {
+    expect(isSizeToken("XXS")).toBe(true);
+    expect(isSizeToken("OS")).toBe(true);
+    expect(isSizeToken("OSFA")).toBe(true);
+    expect(isSizeToken("ONE SIZE")).toBe(true); // spaces stripped
+    expect(isSizeToken("Medium")).toBe(true);
+  });
+  it("matches kids / plus / youth sizes", () => {
+    expect(isSizeToken("2T")).toBe(true);   // toddler
+    expect(isSizeToken("12M")).toBe(true);  // infant months
+    expect(isSizeToken("0-3M")).toBe(true); // month range
+    expect(isSizeToken("1X")).toBe(true);   // women's plus
+    expect(isSizeToken("3X")).toBe(true);
+    expect(isSizeToken("YL")).toBe(true);   // youth
+    expect(isSizeToken("10.5")).toBe(true); // half size
+  });
+  it("matches Xoro month (MO) spelling and prepack tokens", () => {
+    expect(isSizeToken("12MO")).toBe(true);  // the reported "12M scale" form
+    expect(isSizeToken("18MO")).toBe(true);
+    expect(isSizeToken("PPK48")).toBe(true); // prepack
+    expect(isSizeToken("PPK24")).toBe(true);
+  });
   it("rejects non-size tokens", () => {
     expect(isSizeToken("RED")).toBe(false);
     expect(isSizeToken("ABC")).toBe(false);
     expect(isSizeToken("")).toBe(false);
     expect(isSizeToken("1234")).toBe(false); // > 3 digits
+    expect(isSizeToken("NAVY")).toBe(false);
+    expect(isSizeToken("7X")).toBe(false);   // out of plus range
   });
 });
 
@@ -87,6 +113,17 @@ describe("styleColorKey", () => {
   it("strips trailing size token", () => {
     expect(styleColorKey("RYB059430-BLUE-32W", "")).toBe("RYB059430-BLUE");
     expect(styleColorKey("RYB059430-RED-XL", "")).toBe("RYB059430-RED");
+    expect(styleColorKey("RYB0412-NAVY-2T", "")).toBe("RYB0412-NAVY");   // toddler
+    expect(styleColorKey("RYB0412-BLACK-1X", "")).toBe("RYB0412-BLACK"); // plus
+    expect(styleColorKey("RYB0412-WHITE-OS", "")).toBe("RYB0412-WHITE"); // one-size
+  });
+  it("strips parenthesised sizes that embed a dash", () => {
+    // Real PO-WIP format: "S(7-8)" contains a dash, so a naive split shatters it.
+    // All sizes of a style+color must collapse to the SAME group.
+    expect(styleColorKey("100206796GK-Millie Wash-S(7-8)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100206796GK-Millie Wash-M(10-12)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100206796GK-Millie Wash-XL(18-20)", "")).toBe("100206796GK-Millie Wash");
+    expect(styleColorKey("100221820BK-DRESS BLUES-L(14-16)", "")).toBe("100221820BK-DRESS BLUES");
   });
   it("leaves item number alone if no trailing size", () => {
     expect(styleColorKey("RYB059430-BLUE-FOO", "")).toBe("RYB059430-BLUE-FOO");
@@ -103,10 +140,42 @@ describe("itemSizeLabel", () => {
     expect(itemSizeLabel("RYB-BLUE-32W")).toBe("32W");
     expect(itemSizeLabel("RYB-RED-XL")).toBe("XL");
   });
+  it("extracts a parenthesised size whole (dash and all)", () => {
+    expect(itemSizeLabel("100206796GK-Millie Wash-S(7-8)")).toBe("S(7-8)");
+    expect(itemSizeLabel("100206796GK-Millie Wash-XL(18-20)")).toBe("XL(18-20)");
+  });
   it("returns empty when no trailing size", () => {
     expect(itemSizeLabel("RYB-BLUE-FOO")).toBe("");
     expect(itemSizeLabel("STANDALONE")).toBe("");
     expect(itemSizeLabel("")).toBe("");
+  });
+});
+
+describe("normSizeToken", () => {
+  it("normalises month and alpha spellings to the scale form", () => {
+    expect(normSizeToken("12MO")).toBe("12M");   // Xoro spelling → scale spelling
+    expect(normSizeToken("18mo")).toBe("18M");
+    expect(normSizeToken("LRG")).toBe("L");
+    expect(normSizeToken("LARGE")).toBe("L");
+    expect(normSizeToken("XXL")).toBe("2XL");
+    expect(normSizeToken(" m ")).toBe("M");
+    expect(normSizeToken("32")).toBe("32");
+  });
+});
+
+describe("buildSizeVocab + scale-driven detection", () => {
+  const vocab = buildSizeVocab([
+    { sizes: ["XS(5-6)", "S(7-8)", "12M", "OS"], inseams: ["30", "32"] },
+    { sizes: ["WEIRDSCALE"], inseams: null },
+  ]);
+  it("treats any token in a Tangerine scale as a size", () => {
+    expect(isSizeToken("WEIRDSCALE", vocab)).toBe(true);       // only known via the scale
+    expect(isSizeToken("12MO", vocab)).toBe(true);             // 12MO → 12M ∈ vocab
+    expect(isSizeToken("WEIRDSCALE")).toBe(false);             // not without the vocab
+  });
+  it("a scale-only size is stripped from the group key", () => {
+    expect(styleColorKey("RYB0001-NAVY-WEIRDSCALE", "", vocab)).toBe("RYB0001-NAVY");
+    expect(styleColorKey("RYB0001-NAVY-WEIRDSCALE", "")).toBe("RYB0001-NAVY-WEIRDSCALE"); // unchanged w/o vocab
   });
 });
 

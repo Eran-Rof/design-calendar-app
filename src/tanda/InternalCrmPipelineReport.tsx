@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmPipelineReport.tsx
+﻿// src/tanda/InternalCrmPipelineReport.tsx
 //
 // Tangerine P8-3 — CRM Pipeline aggregate report (M25, arch §3 + §4).
 // Renders 5 stage cards: count + total_cents + weighted_cents. Visual stage bar
@@ -8,6 +8,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -53,6 +55,7 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const labelStyle: React.CSSProperties = {
   display: "block", fontSize: 11, color: C.textMuted, marginBottom: 4,
@@ -68,6 +71,7 @@ export default function InternalCrmPipelineReport() {
   const [data, setData] = useState<PipelineReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [customerFilter, setCustomerFilter] = useState<string>("");
@@ -98,7 +102,7 @@ export default function InternalCrmPipelineReport() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const j = await r.json();
       const list = Array.isArray(j) ? j : (j?.rows ?? []);
@@ -135,7 +139,7 @@ export default function InternalCrmPipelineReport() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          📊 Pipeline Report
+          Pipeline Report
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Per-stage count + weighted value (M25)
@@ -159,23 +163,26 @@ export default function InternalCrmPipelineReport() {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 18 }}>
         <div style={{ minWidth: 240 }}>
-          <label style={labelStyle}>Owner user id</label>
-          <input
-            type="text"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Owner</label>
+          <SearchableSelect
+            value={ownerFilter || null}
+            onChange={(v) => setOwnerFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 260 }}>
           <label style={labelStyle}>Customer</label>
-          <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            inputStyle={inputStyle}
+          />
         </div>
       </div>
 

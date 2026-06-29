@@ -190,6 +190,10 @@ export default async function handler(req, res) {
     .eq("id", lineId).select("*").maybeSingle();
   if (lineErr) return res.status(500).json({ error: lineErr.message });
 
+  // Vendor selection records the intended vendor for RFQ generation only.
+  // Awarded status is set exclusively by the formal RFQ award handler
+  // (api/_handlers/internal/rfqs/:id/award/:vendor_id.js). Do NOT auto-award here.
+
   const response = {
     line,
     selected_quote_id: quote_id,

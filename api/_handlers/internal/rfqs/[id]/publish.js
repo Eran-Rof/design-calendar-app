@@ -7,6 +7,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../../_lib/auth.js";
+import { publishRfq } from "../../../../_lib/rfqPublish.js";
 
 export const config = { maxDuration: 30 };
 
@@ -39,52 +40,20 @@ export default async function handler(req, res) {
 
   const { data: rfq } = await admin.from("rfqs").select("*").eq("id", id).maybeSingle();
   if (!rfq) return res.status(404).json({ error: "RFQ not found" });
-  if (rfq.status === "awarded" || rfq.status === "closed") return res.status(409).json({ error: `Cannot publish an RFQ in status ${rfq.status}` });
 
-  if (rfq.status !== "published") {
-    const { error } = await admin.from("rfqs").update({ status: "published", updated_at: new Date().toISOString() }).eq("id", id);
-    if (error) return res.status(500).json({ error: error.message });
-  }
-
-  // Send gate: costing-generated RFQs carry intended_vendor_id but have NO
-  // invitation until the first send. Create it lazily here so the vendor only
-  // gains portal visibility at the moment "Send to Vendor" is clicked.
-  if (rfq.intended_vendor_id) {
-    const { data: existingInv } = await admin.from("rfq_invitations")
-      .select("id").eq("rfq_id", id).eq("vendor_id", rfq.intended_vendor_id).maybeSingle();
-    if (!existingInv) {
-      const { error: invErr } = await admin.from("rfq_invitations").insert({
-        rfq_id: id, vendor_id: rfq.intended_vendor_id, status: "invited",
-      });
-      if (invErr) return res.status(500).json({ error: `Could not create invitation: ${invErr.message}` });
-    }
-  }
-
-  const [{ data: invitations }, { data: lineItems }] = await Promise.all([
-    admin.from("rfq_invitations").select("vendor_id").eq("rfq_id", id).eq("status", "invited"),
-    admin.from("rfq_line_items").select("id").eq("rfq_id", id),
-  ]);
+  // The full publish/send flow (status flip, lazy invitation, costing-line
+  // promotion, vendor rfq_invited notification) lives in the shared helper so
+  // the costing "Vendor RFQ" generate flow can auto-send in one step too.
   const origin = `https://${req.headers.host}`;
-  const lineCount = (lineItems || []).length;
-
-  for (const inv of invitations || []) {
-    try {
-      await fetch(`${origin}/api/send-notification`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_type: "rfq_invited",
-          title: `New RFQ: ${rfq.title}`,
-          body: `You're invited to quote on ${rfq.title}. ${lineCount} line item${lineCount === 1 ? "" : "s"}${rfq.submission_deadline ? ` · deadline ${rfq.submission_deadline.slice(0, 10)}` : ""}.`,
-          link: "/vendor/rfqs",
-          metadata: { rfq_id: id, vendor_id: inv.vendor_id },
-          recipient: { vendor_id: inv.vendor_id },
-          dedupe_key: `rfq_invited_${id}_${inv.vendor_id}`,
-          email: true,
-        }),
-      }).catch(() => {});
-    } catch { /* swallow */ }
+  const out = await publishRfq(admin, rfq, origin);
+  if (!out.ok) {
+    return res.status(out.conflict ? 409 : 500).json({ error: out.error });
   }
-
-  return res.status(200).json({ ok: true, id, status: "published", notified: (invitations || []).length });
+  return res.status(200).json({
+    ok: true,
+    id: out.id,
+    status: out.status,
+    notified: out.notified,
+    lines_sent: out.lines_sent,
+  });
 }

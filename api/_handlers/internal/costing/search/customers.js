@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   const entityId = url.searchParams.get("entity_id") || req.headers["x-entity-id"];
 
   let query = admin.from("customers")
-    .select("id, entity_id, code, customer_type, default_currency, status, billing_address, payment_terms")
+    .select("id, entity_id, code, customer_code, customer_type, default_currency, status, billing_address, payment_terms")
     .eq("status", "active")
     .is("deleted_at", null)
     .limit(25);
@@ -53,10 +53,14 @@ export default async function handler(req, res) {
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  // Enrich with ip_customer_master.name (the friendly name Xoro syncs)
-  // keyed by customer_code = customers.code. Single bulk fetch.
+  // Enrich with ip_customer_master.name (the friendly name Xoro syncs),
+  // keyed by ip_customer_master.customer_code = customers.customer_code (the
+  // Xoro ref, e.g. "EXCEL:ROSSPROCUREMENT"). NOTE: since #1187, customers.code
+  // is the clean "CUST-NNNNN" form and the Xoro ref lives in
+  // customers.customer_code — joining on .code here silently missed every row
+  // and the picker fell back to showing the bare code. Single bulk fetch.
   const rows = data || [];
-  const codes = Array.from(new Set(rows.map((r) => r.code).filter((c) => typeof c === "string" && c.length > 0)));
+  const codes = Array.from(new Set(rows.map((r) => r.customer_code).filter((c) => typeof c === "string" && c.length > 0)));
   const nameByCode = new Map();
   if (codes.length > 0) {
     try {
@@ -71,6 +75,6 @@ export default async function handler(req, res) {
       console.warn("[costing/search/customers] ip_customer_master enrichment failed:", e.message);
     }
   }
-  const enriched = rows.map((r) => ({ ...r, display_name: nameByCode.get(r.code) || null }));
+  const enriched = rows.map((r) => ({ ...r, display_name: nameByCode.get(r.customer_code) || null }));
   return res.status(200).json({ rows: enriched });
 }

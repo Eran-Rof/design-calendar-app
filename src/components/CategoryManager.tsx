@@ -10,7 +10,6 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
   const [newCat, setNewCat] = useState("");
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
       <div>Only admins can manage this section.</div>
     </div>
@@ -159,7 +158,7 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
                       fontSize: 12,
                     }}
                   >
-                    ✏️ Rename
+                    Rename
                   </button>
                   <button
                     onClick={() => deleteCategory(cat.id)}
@@ -174,7 +173,7 @@ function CategoryManager({ categories, setCategories, isAdmin = false }) {
                       fontSize: 12,
                     }}
                   >
-                    🗑️ Delete
+                    Delete
                   </button>
                 </>
               )}

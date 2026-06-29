@@ -10,6 +10,7 @@ import type { SpecSheet, SpecTemplate } from "../types";
 import type { SpecSheetFormValues } from "../factories";
 import { subCategoriesFor, type CategoryLike } from "../listLogic";
 import { SIZE_PRESETS } from "../constants";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 interface DCBrand { name: string; }
@@ -90,10 +91,13 @@ export function SpecSheetModal({
             <div>
               <label style={S.label}>Brand</label>
               {dcBrands.length > 0 ? (
-                <select style={selectStyle} value={ssForm.brand} onChange={e => setSsForm(f => ({ ...f, brand: e.target.value }))}>
-                  <option value="">— select brand —</option>
-                  {dcBrands.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.brand || null}
+                  onChange={v => setSsForm(f => ({ ...f, brand: v }))}
+                  options={dcBrands.map(b => ({ value: b.name, label: b.name }))}
+                  placeholder="— select brand —"
+                  inputStyle={selectStyle}
+                />
               ) : (
                 <input style={S.input} value={ssForm.brand} onChange={e => setSsForm(f => ({ ...f, brand: e.target.value }))} />
               )}
@@ -101,10 +105,13 @@ export function SpecSheetModal({
             <div>
               <label style={S.label}>Season</label>
               {dcSeasons.length > 0 ? (
-                <select style={selectStyle} value={ssForm.season} onChange={e => setSsForm(f => ({ ...f, season: e.target.value }))}>
-                  <option value="">— select season —</option>
-                  {dcSeasons.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.season || null}
+                  onChange={v => setSsForm(f => ({ ...f, season: v }))}
+                  options={dcSeasons.map(s => ({ value: s, label: s }))}
+                  placeholder="— select season —"
+                  inputStyle={selectStyle}
+                />
               ) : (
                 <input style={S.input} value={ssForm.season} onChange={e => setSsForm(f => ({ ...f, season: e.target.value }))} />
               )}
@@ -114,10 +121,13 @@ export function SpecSheetModal({
             <div>
               <label style={S.label}>Category</label>
               {dcCategories.length > 0 ? (
-                <select style={selectStyle} value={ssForm.category} onChange={e => setSsForm(f => ({ ...f, category: e.target.value, subCategory: "" }))}>
-                  <option value="">— select category —</option>
-                  {dcCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.category || null}
+                  onChange={v => setSsForm(f => ({ ...f, category: v, subCategory: "" }))}
+                  options={dcCategories.map(c => ({ value: c.name, label: c.name }))}
+                  placeholder="— select category —"
+                  inputStyle={selectStyle}
+                />
               ) : (
                 <input style={S.input} value={ssForm.category} onChange={e => setSsForm(f => ({ ...f, category: e.target.value }))} />
               )}
@@ -125,10 +135,13 @@ export function SpecSheetModal({
             {subCats.length > 0 && (
               <div>
                 <label style={S.label}>Sub-Category</label>
-                <select style={selectStyle} value={ssForm.subCategory} onChange={e => setSsForm(f => ({ ...f, subCategory: e.target.value }))}>
-                  <option value="">— select sub-category —</option>
-                  {subCats.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.subCategory || null}
+                  onChange={v => setSsForm(f => ({ ...f, subCategory: v }))}
+                  options={subCats.map(sc => ({ value: sc, label: sc }))}
+                  placeholder="— select sub-category —"
+                  inputStyle={selectStyle}
+                />
               </div>
             )}
           </div>
@@ -136,10 +149,13 @@ export function SpecSheetModal({
             <div>
               <label style={S.label}>Gender</label>
               {dcGenders.length > 0 ? (
-                <select style={selectStyle} value={ssForm.gender} onChange={e => setSsForm(f => ({ ...f, gender: e.target.value }))}>
-                  <option value="">— select gender —</option>
-                  {dcGenders.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.gender || null}
+                  onChange={v => setSsForm(f => ({ ...f, gender: v }))}
+                  options={dcGenders.map(g => ({ value: g, label: g }))}
+                  placeholder="— select gender —"
+                  inputStyle={selectStyle}
+                />
               ) : (
                 <input style={S.input} value={ssForm.gender} onChange={e => setSsForm(f => ({ ...f, gender: e.target.value }))} />
               )}
@@ -147,10 +163,13 @@ export function SpecSheetModal({
             <div>
               <label style={S.label}>Vendor</label>
               {dcVendors.length > 0 ? (
-                <select style={selectStyle} value={ssForm.vendor} onChange={e => setSsForm(f => ({ ...f, vendor: e.target.value }))}>
-                  <option value="">— select vendor —</option>
-                  {dcVendors.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={ssForm.vendor || null}
+                  onChange={v => setSsForm(f => ({ ...f, vendor: v }))}
+                  options={dcVendors.map(v => ({ value: v.name, label: v.name }))}
+                  placeholder="— select vendor —"
+                  inputStyle={selectStyle}
+                />
               ) : (
                 <input style={S.input} value={ssForm.vendor} onChange={e => setSsForm(f => ({ ...f, vendor: e.target.value }))} />
               )}

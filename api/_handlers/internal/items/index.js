@@ -2,10 +2,13 @@
 //
 // GET — searchable item (ip_item_master) lookup for invoice line pickers.
 //   Query: ?vendor_id=<uuid>  — scope to a vendor's items (AP invoice lines)
+//          ?ids=<uuid,uuid…>  — resolve a specific set of item ids (matrix view
+//                               on RMA / AR / AP details; returns inactive too so
+//                               historical lines still resolve to color/size)
 //          ?q=<text>          — ILIKE filter on sku_code / style_code / description
 //          ?limit=<n>         — default 200, max 500
-//   Returns: [{ id, sku_code, style_code, description, color, size }]
-//   Active items only, ordered by sku_code.
+//   Returns: [{ id, sku_code, style_code, description, color, size, inseam }]
+//   Active items only (except the ?ids= lookup), ordered by sku_code.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -35,9 +38,29 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const vendorId = (url.searchParams.get("vendor_id") || "").trim();
   const q = (url.searchParams.get("q") || "").trim();
-  let limit = parseInt(url.searchParams.get("limit") || "200", 10);
-  if (!Number.isFinite(limit) || limit <= 0) limit = 200;
-  limit = Math.min(limit, 500);
+  const idsParam = (url.searchParams.get("ids") || "").trim();
+
+  // ?ids= resolves an explicit set of item ids for the matrix views. We skip the
+  // active-only filter here so that lines referencing now-inactive items still
+  // resolve to color/size (a matrix would otherwise drop historical rows).
+  if (idsParam) {
+    const ids = idsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => UUID_RE.test(s))
+      .slice(0, 1000);
+    if (ids.length === 0) return res.status(200).json([]);
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("id, sku_code, style_code, description, color, size, inseam")
+      .in("id", ids);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json(data || []);
+  }
+
+  let limit = parseInt(url.searchParams.get("limit") || "1000", 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 1000;
+  limit = Math.min(limit, 5000);
 
   let query = admin
     .from("ip_item_master")

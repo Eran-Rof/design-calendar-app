@@ -133,6 +133,7 @@ export function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "
       return cmpStr(a.sku_color, b.sku_color, sign);
     }
     case "color":       return cmpStr(a.sku_color, b.sku_color, sign);
+    case "inseam":      return cmpStr(a.sku_inseam ?? null, b.sku_inseam ?? null, sign);
     case "description": return cmpStr(a.sku_description, b.sku_description, sign);
     case "customer":    return cmpStr(a.customer_name, b.customer_name, sign);
     case "period":      return cmpStr(a.period_start, b.period_start, sign);

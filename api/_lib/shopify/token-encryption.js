@@ -107,6 +107,19 @@ export function decryptToken(ciphertext, iv, tag) {
   return out.toString("utf8");
 }
 
+/**
+ * Encode a Buffer for insertion into a Postgres `bytea` column via PostgREST /
+ * supabase-js, which expects the `\xHEX` hex-string form — NOT a raw JS Buffer
+ * (a Buffer JSON-serializes to {"type":"Buffer",...} and the insert is rejected
+ * with "invalid input syntax for type bytea"). Null/undefined → null.
+ * decryptToken's toBuffer() reads this `\x` form back. Mirrors the Plaid/Faire
+ * /FBA encryption modules.
+ */
+export function toByteaHex(buf) {
+  if (buf == null) return null;
+  return "\\x" + Buffer.from(buf).toString("hex");
+}
+
 function toBuffer(v, label) {
   if (Buffer.isBuffer(v)) return v;
   if (typeof v !== "string") {

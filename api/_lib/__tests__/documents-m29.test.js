@@ -100,11 +100,12 @@ class StorageChain {
     for (const p of paths) this.state.storage[this.bucket].delete(p);
     return { error: null };
   }
-  async createSignedUrl(path, ttl) {
+  async createSignedUrl(path, ttl, opts) {
     if (!this.state.storage[this.bucket].has(path)) {
       return { error: { message: `not found: ${path}` } };
     }
-    return { data: { signedUrl: `https://signed.example.com/${path}?ttl=${ttl}` }, error: null };
+    const dl = opts && opts.download ? `&download=${encodeURIComponent(opts.download)}` : "";
+    return { data: { signedUrl: `https://signed.example.com/${path}?ttl=${ttl}${dl}` }, error: null };
   }
 }
 
@@ -232,6 +233,25 @@ describe("signedUrl", () => {
     await uploadVersion(sb, document.id, Buffer.from("v2"), { mime: "application/pdf" });
     const out = await signedUrl(sb, { document_id: document.id, version_id: version.id });
     expect(out.url).toMatch(/v1\.pdf/);
+  });
+
+  it("persists original_filename and uses it as the download name", async () => {
+    const { state, sb } = seed();
+    const { document } = await attach(
+      sb, ATTACH, Buffer.from("x"),
+      { mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", original_filename: "Q3-costing.xlsx" },
+    );
+    expect(state.tables.document_versions[0].original_filename).toBe("Q3-costing.xlsx");
+    const out = await signedUrl(sb, { document_id: document.id });
+    expect(out.filename).toBe("Q3-costing.xlsx");
+    expect(out.url).toContain("download=Q3-costing.xlsx");
+  });
+
+  it("falls back to the storage basename when no original_filename", async () => {
+    const { sb } = seed();
+    const { document } = await attach(sb, ATTACH, Buffer.from("x"), { mime: "application/pdf" });
+    const out = await signedUrl(sb, { document_id: document.id });
+    expect(out.filename).toMatch(/^v1\.pdf$/);
   });
 });
 

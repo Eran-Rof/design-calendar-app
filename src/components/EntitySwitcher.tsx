@@ -47,7 +47,12 @@ function formatEntityLabel(code: string | null, name: string): string {
   return code || name || "(unnamed)";
 }
 
-export default function EntitySwitcher() {
+interface EntitySwitcherProps {
+  /** When true the outer wrapper is relative/inline instead of position:fixed */
+  inline?: boolean;
+}
+
+export default function EntitySwitcher({ inline = false }: EntitySwitcherProps) {
   const {
     entities,
     currentEntityId,
@@ -110,7 +115,7 @@ export default function EntitySwitcher() {
     <div
       ref={ref}
       data-testid="entity-switcher"
-      style={{
+      style={inline ? { position: "relative", fontFamily: "inherit" } : {
         position: "fixed",
         top: 12,
         right: 16,

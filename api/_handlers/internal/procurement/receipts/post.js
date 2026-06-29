@@ -49,6 +49,74 @@ export const config = { maxDuration: 30 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// M5 — complete a manufacturing build from its conversion-PO receipt. Moves the
+// build's accumulated WIP into the finished style's inventory at actual cost.
+async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, buildOrderId }) {
+  const { data: build } = await admin.from("mfg_build_orders").select("*").eq("id", buildOrderId).maybeSingle();
+  if (!build) return res.status(404).json({ error: "Linked build order not found" });
+  if (build.status === "completed") return res.status(409).json({ error: "Build already completed" });
+  if (build.status !== "issued") {
+    return res.status(409).json({ error: `Build ${build.build_number} is '${build.status}' — issue components (and capitalize services) before receiving the finished good.` });
+  }
+
+  // All service charges must be capitalized so WIP is complete.
+  const { data: comps } = await admin.from("mfg_build_components").select("component_kind, service_capitalized").eq("build_order_id", buildOrderId);
+  const uncap = (comps || []).filter((c) => c.component_kind === "service" && !c.service_capitalized);
+  if (uncap.length > 0) return res.status(409).json({ error: `Capitalize all ${uncap.length} service charge(s) on build ${build.build_number} before receiving.` });
+
+  const accum = Number(build.accumulated_cost_cents || 0);
+  if (accum <= 0) return res.status(409).json({ error: "Build WIP cost is 0 — nothing to receive into finished goods." });
+
+  // Completed qty = accepted qty on the receipt (the finished good), else target.
+  const completedQty = (lines || []).reduce((s, l) => s + Number(l.qty_accepted || 0), 0) || Number(build.target_qty);
+  if (completedQty <= 0) return res.status(409).json({ error: "Receipt has no accepted quantity." });
+
+  const finishedAcct = (await resolveInventoryAccount(admin, rcpt.entity_id, null))?.id || null;
+  if (!finishedAcct) return res.status(409).json({ error: "No postable Inventory asset account for the finished style." });
+
+  let postResult;
+  try {
+    postResult = await postEvent(admin, {
+      kind: "mfg_build_complete",
+      entity_id: rcpt.entity_id,
+      created_by_user_id: null,
+      data: {
+        build_order_id: buildOrderId,
+        finished_item_id: build.finished_item_id,
+        posting_date: rcpt.receipt_date || new Date().toISOString().slice(0, 10),
+        wip_account_id: build.wip_account_id,
+        finished_inventory_account_id: finishedAcct,
+        accumulated_cost_cents: accum,
+        completed_qty: completedQty,
+        location_id: build.location_id || null,
+        build_number: build.build_number,
+      },
+    });
+  } catch (e) {
+    return res.status(400).json({ error: `Build completion failed: ${e instanceof Error ? e.message : String(e)}` });
+  }
+
+  const jeId = postResult.accrual_je_id || postResult.cash_je_id || null;
+  const layerId = (postResult.inventory_layer_ids || [])[0] || null;
+  if (layerId) {
+    for (const l of lines || []) await admin.from("tanda_po_receipt_lines").update({ inventory_layer_id: layerId }).eq("id", l.id);
+  }
+  await admin.from("tanda_po_receipts").update({ status: "posted", je_id: jeId, build_order_id: buildOrderId }).eq("id", receiptId);
+
+  const unitCost = Math.round(accum / completedQty);
+  await admin.from("mfg_build_orders").update({
+    status: "completed", completed_qty: completedQty, complete_je_id: jeId,
+    finished_unit_cost_cents: unitCost, updated_at: new Date().toISOString(),
+  }).eq("id", buildOrderId).eq("status", "issued");
+
+  return res.status(200).json({
+    receipt_id: receiptId, status: "posted", build_order_id: buildOrderId, build_completed: true,
+    finished_unit_cost_cents: unitCost, completed_qty: completedQty, je_id: jeId,
+    inventory_layer_ids: postResult.inventory_layer_ids || null,
+    message: `Conversion PO received — build ${build.build_number} completed. ${completedQty} finished unit(s) into inventory at $${(unitCost / 100).toFixed(2)}/unit.`,
+  });
+}
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -81,11 +149,28 @@ export default async function handler(req, res) {
 
   // PO line item ids (the SKU each receipt line stocks).
   const polIds = [...new Set(lines.map((l) => l.purchase_order_line_id).filter(Boolean))];
-  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id").in("id", polIds);
+  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id, lot_number").in("id", polIds);
   const itemByPol = new Map((polRows || []).map((p) => [p.id, p.inventory_item_id]));
+  // Carry the PO line's lot onto the receipt's inventory layer so on-hand stock
+  // is lot-identified for lot-aware allocation (Scenario 5).
+  const lotByPol = new Map((polRows || []).map((p) => [p.id, p.lot_number || null]));
 
   const { data: po } = await admin.from("purchase_orders").select("id, vendor_id").eq("id", rcpt.purchase_order_id).maybeSingle();
   const vendorId = po?.vendor_id || null;
+
+  // ── Manufacturing (M5): a conversion-PO receipt COMPLETES a build ───────────
+  // If this receipt (or its PO) is tied to a build order, receiving the finished
+  // good moves the build's accumulated WIP into finished-goods inventory at the
+  // real build cost (mfg_build_complete) instead of the normal goods-receipt
+  // path — no GRNI / landed-cost layer at the PO line's nominal unit cost.
+  let buildOrderId = rcpt.build_order_id || null;
+  if (!buildOrderId && rcpt.purchase_order_id) {
+    const { data: bo } = await admin.from("mfg_build_orders").select("id").eq("conversion_po_id", rcpt.purchase_order_id).maybeSingle();
+    buildOrderId = bo?.id || null;
+  }
+  if (buildOrderId) {
+    return completeBuildFromReceipt(admin, res, { receiptId: id, rcpt, lines, buildOrderId });
+  }
 
   // GL accounts for the goods-receipt GRNI JE (step 5).
   const inventoryAcctId = (await resolveInventoryAccount(admin, rcpt.entity_id, null))?.id || null;
@@ -129,6 +214,7 @@ export default async function handler(req, res) {
         entity_id: rcpt.entity_id, item_id: itemId, qty,
         unit_cost_cents: landedUnit, source_kind: "po_receipt", location_id: locationId,
         received_at: rcpt.receipt_date ? `${rcpt.receipt_date}T00:00:00Z` : undefined,
+        lot_number: lotByPol.get(l.purchase_order_line_id) || null,
         notes: `PO receipt ${id}`,
       });
       await admin.from("tanda_po_receipt_lines")
@@ -238,6 +324,38 @@ export default async function handler(req, res) {
 
   // ── 6. Flip the receipt to posted + stamp the JE ────────────────────────────
   await admin.from("tanda_po_receipts").update({ status: "posted", landed_cost_cents: capTotal, je_id: jeId }).eq("id", id);
+
+  // ── 6b. Roll the receipt up onto the native PO so "received" is REAL ─────────
+  // Bump each PO line's qty_received (+ flip its line status when fully received)
+  // and recompute the PO header status: 'received' when every line is fully in,
+  // else 'in_transit' (partial). This is the ONLY path that sets a PO 'received'
+  // — the modal's manual flip is blocked — so the status always reflects a posted,
+  // GL'd goods receipt.
+  if (rcpt.purchase_order_id) {
+    const { data: poLines } = await admin.from("purchase_order_lines")
+      .select("id, qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const recvByLine = new Map();
+    for (const l of lines) recvByLine.set(l.purchase_order_line_id, (recvByLine.get(l.purchase_order_line_id) || 0) + Number(l.qty_received || 0));
+    for (const pl of poLines || []) {
+      const add = recvByLine.get(pl.id) || 0;
+      if (add <= 0) continue;
+      const newRecv = Number(pl.qty_received || 0) + add;
+      const fully = newRecv >= Number(pl.qty_ordered || 0);
+      await admin.from("purchase_order_lines")
+        .update({ qty_received: newRecv, ...(fully && pl.status !== "cancelled" ? { status: "received" } : {}) })
+        .eq("id", pl.id);
+    }
+    // Recompute header status from the (now-updated) lines.
+    const { data: after } = await admin.from("purchase_order_lines")
+      .select("qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const active = (after || []).filter((l) => l.status !== "cancelled");
+    const anyRecv = active.some((l) => Number(l.qty_received || 0) > 0);
+    const allRecv = active.length > 0 && active.every((l) => Number(l.qty_received || 0) >= Number(l.qty_ordered || 0));
+    const newStatus = allRecv ? "received" : (anyRecv ? "in_transit" : null);
+    if (newStatus) {
+      await admin.from("purchase_orders").update({ status: newStatus }).eq("id", rcpt.purchase_order_id).neq("status", "cancelled");
+    }
+  }
 
   const rollupCount = rollupInvoices.filter((x) => x.invoice_id).length;
   return res.status(200).json({

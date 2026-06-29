@@ -119,6 +119,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -153,7 +154,7 @@ export default function InternalBankReconciliation() {
               border: `1px solid ${tab === "transactions" ? C.primary : C.cardBdr}`,
             }}
           >
-            🔁 Transactions
+            Transactions
           </button>
           <button
             onClick={() => setTab("accounts")}
@@ -165,7 +166,7 @@ export default function InternalBankReconciliation() {
               border: `1px solid ${tab === "accounts" ? C.primary : C.cardBdr}`,
             }}
           >
-            🏦 Accounts
+            Accounts
           </button>
         </div>
       </div>
@@ -219,7 +220,7 @@ function AccountsTab() {
           ] as ExportColumn<Record<string, unknown>>[]}
         />
       </div>
-    <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+    <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px" }}>Error: {err}</div>}
       {loading ? (
         <div style={{ padding: 20, color: C.textMuted, textAlign: "center" }}>Loading…</div>
@@ -397,12 +398,16 @@ function AutoPostRulesModal({ account, onClose, onSaved }: { account: BankAccoun
                              placeholder="e.g. ^MONTHLY SERVICE FEE" />
                     </td>
                     <td style={td}>
-                      <select value={r.direction} onChange={(e) => updateRule(i, { direction: e.target.value as AutoPostRule["direction"] })}
-                              style={{ ...inputStyle, padding: "4px 6px" }}>
-                        <option value="both">both</option>
-                        <option value="deposit">deposit</option>
-                        <option value="withdrawal">withdrawal</option>
-                      </select>
+                      <SearchableSelect
+                        value={r.direction}
+                        onChange={(v) => updateRule(i, { direction: v as AutoPostRule["direction"] })}
+                        options={[
+                          { value: "both", label: "both" },
+                          { value: "deposit", label: "deposit" },
+                          { value: "withdrawal", label: "withdrawal" },
+                        ]}
+                        inputStyle={{ ...inputStyle, padding: "4px 6px" }}
+                      />
                     </td>
                     <td style={td}>
                       <input type="number" value={r.max_amount_cents ?? ""} onChange={(e) => updateRule(i, { max_amount_cents: e.target.value === "" ? null : Math.max(0, Math.round(Number(e.target.value))) })}
@@ -545,14 +550,19 @@ function TransactionsTab() {
             placeholder="All accounts"
           />
         </div>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as BankTxn["status"] | "all")} style={inputStyle}>
-          <option value="unmatched">Unmatched ({counts.unmatched || 0})</option>
-          <option value="matched">Matched ({counts.matched || 0})</option>
-          <option value="manual_je_created">Manual JE ({counts.manual_je_created || 0})</option>
-          <option value="ignored">Ignored ({counts.ignored || 0})</option>
-          <option value="reversed">Reversed ({counts.reversed || 0})</option>
-          <option value="all">All ({rows.length})</option>
-        </select>
+        <SearchableSelect
+          value={filterStatus}
+          onChange={(v) => setFilterStatus(v as BankTxn["status"] | "all")}
+          options={[
+            { value: "unmatched", label: `Unmatched (${counts.unmatched || 0})` },
+            { value: "matched", label: `Matched (${counts.matched || 0})` },
+            { value: "manual_je_created", label: `Manual JE (${counts.manual_je_created || 0})` },
+            { value: "ignored", label: `Ignored (${counts.ignored || 0})` },
+            { value: "reversed", label: `Reversed (${counts.reversed || 0})` },
+            { value: "all", label: `All (${rows.length})` },
+          ]}
+          inputStyle={inputStyle}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <ExportButton
           rows={rows.map((r) => ({
@@ -675,7 +685,7 @@ function MatchCandidateModal({ txn, onClose, onPick }: { txn: BankTxn; onClose: 
   }, [txn.id]);
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 640, maxWidth: 900, maxHeight: "85vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(900px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Pick a matching JE line</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           {txn.posted_date} · {fmtCents(txn.amount_cents)} · {txn.description || txn.merchant_name || "(no description)"}
@@ -765,7 +775,7 @@ function CreateJeModal({ txn, onClose, onDone }: { txn: BankTxn; onClose: () => 
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 640, color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>Create JE for standalone transaction</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           {txn.posted_date} · {fmtCents(txn.amount_cents)} · {txn.description || txn.merchant_name || "(no description)"}

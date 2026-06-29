@@ -15,6 +15,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
+import CollapsibleHeader from "../panels/CollapsibleHeader";
+import { RfqQuotesPanel, RfqVendorThreadPanel, type RfqTheme } from "../../tanda/rfq/RfqQuotesAndMessages";
 import { getRfq, updateRfq, publishRfq, awardRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate, getEditId } from "../helpers";
 import { appConfirm } from "../../utils/theme";
@@ -22,6 +24,15 @@ import { useCostingStore } from "../store/costingStore";
 import type { RfqDetail, RfqListRow, RfqPatch, RfqStatus, RfqLineItem, RfqInvitation } from "../types";
 
 const STATUS_OPTIONS: RfqStatus[] = ["draft", "published", "closed", "awarded"];
+
+// Costing-module palette for the shared RFQ quotes + messages components.
+// Matches the dark tokens used throughout RfqEditView (page #0F172A, panels
+// #1E293B, borders #334155) with the costing module's blue accent (#60A5FA).
+const COSTING_RFQ_THEME: RfqTheme = {
+  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  text: "#E2E8F0", textMuted: "#94A3B8", textSub: "#CBD5E1",
+  primary: "#60A5FA", success: "#10B981", warn: "#F59E0B", danger: "#F87171",
+};
 
 const UNDO_LIMIT = 4;
 
@@ -228,6 +239,14 @@ export default function RfqEditView() {
     <div style={{ padding: "20px 24px", background: "#0F172A", minHeight: "100%", color: "#E2E8F0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <a href="#" onClick={(e) => { e.preventDefault(); navigate("rfq-list"); }} style={{ color: "#60A5FA", textDecoration: "none", fontSize: 13 }}>← RFQs</a>
+        {detail?.rfq.code && (
+          <span style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 12, fontWeight: 700, color: "#CBD5E1",
+            background: "#1E293B", border: "1px solid #334155",
+            borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap",
+          }}>{detail.rfq.code}</span>
+        )}
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           {detail?.rfq.title || "Loading…"}
         </h2>
@@ -332,19 +351,33 @@ export default function RfqEditView() {
 
       {detail && (
         <>
-          {/* Header strip: vendor / customer / project / line count — read-only context. */}
-          <div style={{
-            display: "flex", gap: 18, marginBottom: 14, padding: "10px 14px",
-            background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
-            fontSize: 12,
-          }}>
-            <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code} (not sent yet)` : "—")} />
-            <ContextField label="Customer" value={customerName || "—"} />
-            <ContextField label="Source project" value={project?.project_name || "—"} />
-            <ContextField label="Lines" value={String(items.length)} />
-            <ContextField label="Currency" value={detail.rfq.currency || "USD"} />
-            <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
-          </div>
+          {/* Header strip: vendor / customer / project / line count — read-only
+              context. Collapsible via the ▾ triangle. */}
+          <CollapsibleHeader
+            storageKey="rfq-context"
+            title="context"
+            style={{
+              marginBottom: 14, padding: "10px 14px",
+              background: "#1E293B", border: "1px solid #334155", borderRadius: 6,
+              fontSize: 12,
+            }}
+            collapsedSummary={
+              <div style={{ color: "#94A3B8", paddingRight: 24 }}>
+                {(invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code}` : "—"))}
+                {customerName ? ` · ${customerName}` : ""}
+                {` · ${items.length} line${items.length === 1 ? "" : "s"}`}
+              </div>
+            }
+          >
+            <div style={{ display: "flex", gap: 18 }}>
+              <ContextField label="Vendor(s)" value={invitations.map((i: RfqInvitation) => i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id).join(", ") || (detail.intended_vendor ? `${detail.intended_vendor.name || detail.intended_vendor.legal_name || detail.intended_vendor.code} (not sent yet)` : "—")} />
+              <ContextField label="Customer" value={customerName || "—"} />
+              <ContextField label="Source project" value={project?.project_name || "—"} />
+              <ContextField label="Lines" value={String(items.length)} />
+              <ContextField label="Currency" value={detail.rfq.currency || "USD"} />
+              <ContextField label="Created" value={detail.rfq.created_at ? fmtDateDisplay(detail.rfq.created_at.slice(0, 10)) : "—"} />
+            </div>
+          </CollapsibleHeader>
 
           {/* Header form. Most fields are backfilled from the source costing
               project at generation (generate-rfqs.js) and are READ-ONLY here —
@@ -366,9 +399,12 @@ export default function RfqEditView() {
 
             {/* RFQ-native — editable. */}
             <Field label="Status">
-              <select value={form.status || "draft"} onChange={(e) => setField("status", e.target.value as RfqStatus)} style={inp}>
-                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={form.status || "draft"}
+                onChange={(v) => setField("status", v as RfqStatus)}
+                options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+                inputStyle={inp}
+              />
             </Field>
             {/* Backfilled — read-only. */}
             <Field label="Brand">
@@ -440,7 +476,7 @@ export default function RfqEditView() {
                     <tr key={it.id} style={{ borderTop: "1px solid #334155" }}>
                       <Td>{it.line_index}</Td>
                       <Td>{it.description}</Td>
-                      <Td>{it.fabric_code || "—"}</Td>
+                      <Td title={it.fabric_label && it.fabric_label !== it.fabric_code ? it.fabric_label : undefined}>{it.fabric_label || it.fabric_code || "—"}</Td>
                       <Td>{it.fit || "—"}</Td>
                       <Td>{it.bottom_closure || "—"}</Td>
                       <Td>{it.size_scale_label || "—"}</Td>
@@ -457,6 +493,35 @@ export default function RfqEditView() {
             <div style={{ marginTop: 6, color: "#64748B", fontSize: 11, fontStyle: "italic" }}>
               Line items are read-only here — edit them back in the source costing project and regenerate the RFQ.
             </div>
+          </div>
+
+          {/* Vendor quote comparison — submitted quotes with vendor notes
+              (quote-level + per-line, via the 📝 expander). Display-only here;
+              awarding is driven by the Award button in the header above. */}
+          <div style={{ marginTop: 24 }}>
+            <RfqQuotesPanel
+              rfqId={detail.rfq.id}
+              theme={COSTING_RFQ_THEME}
+              lineLabel={(lineItemId) => {
+                const li = items.find((x) => x.id === lineItemId);
+                return li ? `#${li.line_index} ${li.description}` : "Line";
+              }}
+            />
+          </div>
+
+          {/* Internal RFQ message thread — PRIVATE per vendor. Pick which
+              invited vendor to converse with, then read their messages and
+              reply as "Ring of Fire". Same /api/internal/rfqs/:id/messages
+              feed (now vendor-scoped) as the Tanda RFQ detail. */}
+          <div style={{ maxWidth: 1080 }}>
+            <RfqVendorThreadPanel
+              rfqId={detail.rfq.id}
+              theme={COSTING_RFQ_THEME}
+              vendors={invitations.map((i: RfqInvitation) => ({
+                vendor_id: i.vendor_id,
+                vendor_name: i.vendors?.name || i.vendors?.legal_name || i.vendors?.code || i.vendor_id,
+              }))}
+            />
           </div>
         </>
       )}

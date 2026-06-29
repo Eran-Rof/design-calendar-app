@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmTasks.tsx
+﻿// src/tanda/InternalCrmTasks.tsx
 //
 // Tangerine P8-3 — CRM Tasks admin panel (M25, arch §3 + §4).
 // Task list with filters: assignee, status, due-before. Add modal + inline
@@ -12,6 +12,10 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_TASKS_TABLE_KEY = "tangerine:crmtasks:columns";
@@ -85,11 +89,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -113,19 +119,13 @@ function fmtDate(iso: string | null | undefined): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-US", {
-      month: "short", day: "2-digit", year: "numeric",
+      month: "2-digit", day: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
 }
 
-function fmtDateOnly(d: string | null | undefined): string {
-  if (!d) return "—";
-  try {
-    const dt = new Date(`${d}T00:00:00Z`);
-    return dt.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return d; }
-}
+const fmtDateOnly = fmtDateDisplay;
 
 function truncate(s: string | null | undefined, n: number): string {
   if (!s) return "";
@@ -143,6 +143,16 @@ export default function InternalCrmTasks() {
   const [rows, setRows] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const assigneeName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("");
@@ -162,6 +172,13 @@ export default function InternalCrmTasks() {
     CRM_TASK_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // Only the direct scalar columns are sortable. assignee/customer/opportunity
+  // render resolved lookups (not the row's raw id), so they stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:crmtasks:sort",
+    accessors: { due: (t) => t.due_date },
+  });
 
   async function load() {
     setLoading(true);
@@ -191,7 +208,7 @@ export default function InternalCrmTasks() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data) ? data : (data?.rows ?? []);
@@ -265,7 +282,7 @@ export default function InternalCrmTasks() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          ✅ Tasks
+          Tasks
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           CRM follow-ups (M25)
@@ -307,19 +324,21 @@ export default function InternalCrmTasks() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 140 }}>
           <label style={labelStyle}>Status</label>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-          </select>
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "", label: "All" }, ...STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))]}
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Assignee user id</label>
-          <input
-            type="text"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Assignee</label>
+          <SearchableSelect
+            value={assigneeFilter || null}
+            onChange={(v) => setAssigneeFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 160 }}>
@@ -368,14 +387,14 @@ export default function InternalCrmTasks() {
         }}>{err}</div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("title")}>Title</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
-              <th style={th} hidden={!isVisible("priority")}>Priority</th>
-              <th style={th} hidden={!isVisible("due")}>Due</th>
+              <SortableTh label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("title")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+              <SortableTh label="Priority" sortKey="priority" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("priority")} />
+              <SortableTh label="Due" sortKey="due" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("due")} />
               <th style={th} hidden={!isVisible("assignee")}>Assignee</th>
               <th style={th} hidden={!isVisible("customer")}>Customer</th>
               <th style={th} hidden={!isVisible("opportunity")}>Opp</th>
@@ -387,7 +406,7 @@ export default function InternalCrmTasks() {
             {!loading && rows.length === 0 && (
               <tr><td style={td} colSpan={8}>No tasks match.</td></tr>
             )}
-            {!loading && rows.map((t) => {
+            {!loading && sorted.map((t) => {
               const next = nextStatus(t.status);
               return (
                 <tr
@@ -406,8 +425,8 @@ export default function InternalCrmTasks() {
                   <td style={td} hidden={!isVisible("status")}><span style={pill(STATUS_COLOR[t.status])}>{t.status.replace("_", " ")}</span></td>
                   <td style={td} hidden={!isVisible("priority")}><span style={pill(PRIORITY_COLOR[t.priority])}>{t.priority}</span></td>
                   <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("due")}>{fmtDateOnly(t.due_date)}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
-                    {t.assignee_user_id ? truncate(t.assignee_user_id, 12) : "—"}
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("assignee")}>
+                    {t.assignee_user_id ? (assigneeName[t.assignee_user_id] || truncate(t.assignee_user_id, 12)) : "—"}
                   </td>
                   <td style={td} hidden={!isVisible("customer")}>
                     {t.customer_id
@@ -475,6 +494,7 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -592,20 +612,32 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value as Status)} style={inputStyle}>
-                {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-              </select>
+              <SearchableSelect
+                value={status}
+                onChange={(v) => setStatus(v as Status)}
+                options={STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Priority">
-              <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
-                {PRIORITY_VALUES.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              <SearchableSelect
+                value={priority}
+                onChange={(v) => setPriority(v as Priority)}
+                options={PRIORITY_VALUES.map((p) => ({ value: p, label: p }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Due">
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />
             </Field>
-            <Field label="Assignee user id">
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+            <Field label="Assignee">
+              <SearchableSelect
+                value={assignee || null}
+                onChange={(v) => setAssignee(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
+              />
             </Field>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -661,6 +693,7 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("normal");
@@ -724,15 +757,24 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label="Priority">
-          <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
-            {PRIORITY_VALUES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <SearchableSelect
+            value={priority}
+            onChange={(v) => setPriority(v as Priority)}
+            options={PRIORITY_VALUES.map((p) => ({ value: p, label: p }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Due">
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />
         </Field>
-        <Field label="Assignee user id">
-          <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Assignee">
+          <SearchableSelect
+            value={assignee || null}
+            onChange={(v) => setAssignee(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -790,8 +832,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 820, maxHeight: "90vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(820px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>

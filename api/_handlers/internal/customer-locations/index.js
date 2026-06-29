@@ -114,18 +114,20 @@ export default async function handler(req, res) {
     }
 
     const row = {
-      entity_id:    entityId,
-      customer_id:  body.customer_id,
-      name:         String(body.name).trim(),
-      code:         body.code   ? String(body.code).trim()         || null : null,
-      location_type: locationType,
-      address:      body.address && typeof body.address === "object"
-                      ? body.address : {},
-      contact_name: body.contact_name ? String(body.contact_name).trim() || null : null,
-      phone:        body.phone        ? String(body.phone).trim()        || null : null,
-      email:        body.email        ? String(body.email).trim()        || null : null,
-      is_default:   body.is_default === true,
-      active:       true,
+      entity_id:          entityId,
+      customer_id:        body.customer_id,
+      name:               String(body.name).trim(),
+      code:               body.code   ? String(body.code).trim()         || null : null,
+      location_type:      locationType,
+      address:            body.address && typeof body.address === "object"
+                            ? body.address : {},
+      contact_name:       body.contact_name ? String(body.contact_name).trim() || null : null,
+      phone:              body.phone        ? String(body.phone).trim()        || null : null,
+      email:              body.email        ? String(body.email).trim()        || null : null,
+      is_default:         body.is_default === true,
+      active:             true,
+      xoro_location_ref:  body.xoro_location_ref
+                            ? String(body.xoro_location_ref).trim() || null : null,
     };
 
     // If the new location is the default, clear any existing default first

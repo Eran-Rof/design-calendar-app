@@ -22,6 +22,8 @@ import type {
 } from "../types/wholesale";
 import { FORECAST_METHOD_LABELS } from "../types/wholesale";
 import { wholesaleRepo } from "../services/wholesalePlanningRepository";
+import { promoteStyleColor } from "../services/promoteStyleColorService";
+import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
@@ -35,7 +37,6 @@ import FutureDemandRequestsPanel from "./FutureDemandRequestsPanel";
 import ForecastDetailDrawer from "../components/ForecastDetailDrawer";
 import Toast, { type ToastMessage } from "../components/Toast";
 import LastUploadStamp from "../../shared/ui/LastUploadStamp";
-import StaleDataBanner from "../shared/components/StaleDataBanner";
 import SystemHealthBanner from "../shared/components/SystemHealthBanner";
 import {
   MonthlyTotalsCards,
@@ -258,6 +259,12 @@ export default function WholesalePlanningWorkbench() {
       const active = rs.find((r) => r.status === "active") ?? rs[0] ?? null;
       if (active) setSelectedRunId(active.id);
     }
+    // Report whether a run will be selectable. When there are NO runs (e.g.
+    // the planner deleted them all), no run is ever selected, so the
+    // [selectedRun] effect never flips bootstrap run-data→ready and the
+    // "Loading forecast and inventory" bar hangs forever. The mount effect
+    // uses this to jump straight to "ready" in that case.
+    return rs.length > 0;
   }, [selectedRunId]);
 
   const loadRunData = useCallback(async () => {
@@ -293,10 +300,11 @@ export default function WholesalePlanningWorkbench() {
     setLoading(true);
     setBootstrapPhase("masters");
     loadMasters()
-      .then(() => {
-        // Move to run-data so the status bar reflects what's happening
-        // next. The [selectedRun] effect picks up loadRunData below.
-        setBootstrapPhase((prev) => (prev === "masters" ? "run-data" : prev));
+      .then((hasRun) => {
+        // With a run, advance to run-data (the [selectedRun] effect loads it
+        // and flips to ready). With NO runs, finish bootstrap immediately so
+        // the loader dismisses to the empty state instead of hanging.
+        setBootstrapPhase((prev) => (prev === "masters" ? (hasRun ? "run-data" : "ready") : prev));
       })
       .catch((e) => {
         setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
@@ -752,6 +760,9 @@ export default function WholesalePlanningWorkbench() {
   // upstream identifiers — same lifecycle as the style/color NEW
   // flags, which clear once the master "catches up").
   const [newCustomerIds, setNewCustomerIds] = useState<Set<string>>(() => new Set());
+  // style|color keys promoted into the company masters this session — drives
+  // the per-row "✓ in DB" state so the planner doesn't re-promote.
+  const [promotedTbdKeys, setPromotedTbdKeys] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     setNewCustomerIds((prev) => {
       const next = new Set(prev);
@@ -1683,6 +1694,47 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Promote a planner-added new style+color into the SHARED company masters
+  // (ip_item_master + style_master) so it shows in Tangerine + ATS, where
+  // someone completes the details. Opt-in (a TBD row's "Add to DB" button) — the
+  // default stays temporary/planning-only. Idempotent server-side.
+  async function promoteTbdStyleColor(row: IpPlanningGridRow) {
+    const style = (row.sku_style ?? "").trim();
+    const color = (row.sku_color ?? "").trim();
+    if (!style || style.toUpperCase() === "TBD" || !color || color.toUpperCase() === "TBD") {
+      setToast({ text: "Give the row a real style and color before adding it to the database.", kind: "error" });
+      return;
+    }
+    const ok = await confirmDialog(
+      `Add "${style} / ${color}" to the company database?\n\n` +
+      `It will be created in the Style Master + item master and become visible in Tangerine and ATS. ` +
+      `It's flagged for review so someone can complete the details (brand, category, size scale, …).`,
+      { title: "Add to company database", confirmText: "Add to database", cancelText: "Cancel", confirmColor: "#3B82F6" },
+    );
+    if (!ok) return;
+    try {
+      const r = await promoteStyleColor({
+        style_code: style,
+        color,
+        description: row.sku_description ?? null,
+        group_name: row.group_name ?? null,
+        sub_category_name: row.sub_category_name ?? null,
+      });
+      setPromotedTbdKeys((prev) => new Set(prev).add(`${row.sku_style}|${row.sku_color}`));
+      const parts: string[] = [];
+      if (r.style_created) parts.push("style created"); else if (r.style_existed) parts.push("style already existed");
+      if (r.item_created) parts.push("item created"); else if (r.item_existed) parts.push("item already existed");
+      const warn = r.warnings.length ? ` (${r.warnings.join("; ")})` : "";
+      setToast({
+        text: `Added "${style} / ${color}" to the company database — ${parts.join(", ") || "done"}${warn}`,
+        kind: r.warnings.length ? "info" : "success",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Add to database failed — ${msg}`, kind: "error" });
+    }
+  }
+
   async function saveTbdColor(row: IpPlanningGridRow, color: string, isNewColor: boolean) {
     if (!selectedRun) return;
     const dup = findTbdDuplicate(row.sku_style ?? "", color, row.customer_id, row.period_code, row.forecast_id);
@@ -2167,33 +2219,12 @@ export default function WholesalePlanningWorkbench() {
 
   return (
     <div style={S.app}>
-      <div style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>IP</div>
-          <div>
-            <div style={S.navTitle}>Demand & Inventory Planning</div>
-            <div style={S.navSub}>Wholesale workbench · Phase 1</div>
-          </div>
-        </div>
-        <div style={S.navRight}>
-          <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
-          <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply →</a>
-          <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }} title="What-if scenarios, base vs scenario diff, exports & approvals">Scenarios</a>
-          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
-        </div>
-      </div>
-
       <div style={S.content}>
         {bootstrapPhase !== "ready" ? (
           <BootstrapStatusBar phase={bootstrapPhase} onCancel={() => setBootstrapPhase("ready")} />
         ) : (
         <>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["xoro_sales_history", "xoro_inventory", "wholesale_forecast"]}
-          dismissKey="wholesale_workbench"
-        />
         {/* Xoro sales-history ingestion controls — only relevant on the
             planning grid. The Future Demand Requests tab has its own
             sales-history readout (per Cat / Sub Cat / Style) so this
@@ -2341,11 +2372,14 @@ export default function WholesalePlanningWorkbench() {
               onUpdateTbdDescription={saveTbdDescription}
               onAddTbdRow={addTbdRow}
               onDeleteTbdRow={deleteTbdRow}
+              onPromoteTbdRow={promoteTbdStyleColor}
+              promotedTbdKeys={promotedTbdKeys}
               onUndoLastAdd={undoLastAddedTbd}
               lastAddedTbdMarker={lastAddedTbdMarker}
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}
+              masterCustomers={customers}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}
               systemSuggestionsOn={systemSuggestionsOn}
@@ -2403,10 +2437,10 @@ export default function WholesalePlanningWorkbench() {
               border: `1px solid ${accent}`,
               borderRadius: 10,
               padding: 22,
-              minWidth: 480,
-              maxWidth: 640,
-              maxHeight: "80vh",
+              width: "min(640px, 95vw)",
+              maxHeight: "90vh",
               overflowY: "auto",
+              boxSizing: "border-box",
               color: PAL.text,
               boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
             }}>
@@ -2546,7 +2580,7 @@ export default function WholesalePlanningWorkbench() {
 
                   {u.warnings.length > 0 && (
                     <div style={{ ...S.infoCell, padding: "10px 12px", marginBottom: 10, background: PAL.yellow + "11", border: `1px solid ${PAL.yellow}44` }}>
-                      <div style={{ ...S.infoLabel, color: PAL.yellow }}>⚠ Data-quality warnings ({u.warnings.length})</div>
+                      <div style={{ ...S.infoLabel, color: PAL.yellow }}>Data-quality warnings ({u.warnings.length})</div>
                       <div style={{ fontSize: 12, color: PAL.textDim, marginTop: 4 }}>
                         {u.warnings.slice(0, 5).map((w, i) => <div key={i}>· {w}</div>)}
                         {u.warnings.length > 5 && <div style={{ color: PAL.textMuted }}>+ {u.warnings.length - 5} more in console</div>}

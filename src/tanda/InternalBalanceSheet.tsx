@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
 type Basis = "ACCRUAL" | "CASH";
 
@@ -23,6 +24,7 @@ type BSRow = {
   entity_id: string;
   basis: string;
   account_type: "asset" | "contra_asset" | "liability" | "equity" | string;
+  account_id?: string | null;
   code: string;
   name: string;
   balance_cents: number | string;
@@ -56,6 +58,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -92,6 +95,23 @@ export default function InternalBalanceSheet() {
   const [err, setErr] = useState<string | null>(null);
   const [basis, setBasis] = useState<Basis>("ACCRUAL");
   const [asOf, setAsOf] = useState<string>(todayISO());
+  const [drill, setDrill] = useState<GLDetailTarget | null>(null);
+
+  // Balance Sheet is an "as of" report: drill into the account's GL detail for
+  // the fiscal year-to-date window ending at the as-of date (year-start → as-of)
+  // so the line activity reconciles to the balance shown.
+  function openDrill(r: BSRow) {
+    if (!r.account_id) return;
+    setDrill({
+      accountId: r.account_id,
+      code: r.code,
+      name: r.name,
+      accountType: r.account_type,
+      from: yearStartISO(asOf),
+      to: asOf,
+      basis,
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -200,11 +220,21 @@ export default function InternalBalanceSheet() {
               // contra_asset: render with indent + negative sign (the stored
               // balance_cents is positive — it's a credit reducing the asset).
               const displayBalance = isContra ? -Number(r.balance_cents || 0) : Number(r.balance_cents || 0);
+              const drillable = !!r.account_id;
               return (
-                <tr key={`${r.account_type}-${r.code}`}>
+                <tr
+                  key={`${r.account_type}-${r.code}`}
+                  onClick={() => openDrill(r)}
+                  onDoubleClick={() => openDrill(r)}
+                  title={drillable ? "Open GL detail for this account" : undefined}
+                  style={drillable ? { cursor: "pointer" } : undefined}
+                  onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                >
                   <td style={{ ...td, paddingLeft: isContra ? 24 : 10 }}>
                     <span style={{ color: C.textMuted, marginRight: 6, fontSize: 11 }}>{r.code}</span>
                     {r.name}
+                    {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
                   </td>
                   <td style={{ ...tdNum, color: isContra ? C.textMuted : C.text }}>
                     {fmtCents(displayBalance)}
@@ -308,6 +338,10 @@ export default function InternalBalanceSheet() {
         </div>
       )}
 
+      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 12 }}>
+        Tip: click any account to open its GL detail (↗) for the year-to-date through the as-of date.
+      </div>
+
       {loading ? (
         <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
       ) : (
@@ -343,6 +377,8 @@ export default function InternalBalanceSheet() {
           </div>
         </>
       )}
+
+      {drill && <GLDetailModal target={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

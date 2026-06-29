@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { appConfirm } from "../../utils/theme";
 import type { CostingComplianceStatus, CostingLineCompliance } from "../types";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const DEFAULT_CODES = ["CPSIA", "PROP65", "FLAMMABILITY", "LABEL_FIBER_CONTENT", "COO"];
 
@@ -136,13 +137,12 @@ export default function CompliancePanel() {
                     </code>
                   </Td>
                   <Td>
-                    <select
+                    <SearchableSelect
                       value={r.status}
-                      onChange={(e) => onStatusChange(r, e.target.value as CostingComplianceStatus)}
-                      style={{ ...inp, background: sc.bg, color: sc.fg, fontWeight: 600 }}
-                    >
-                      {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
+                      onChange={(v) => onStatusChange(r, v as CostingComplianceStatus)}
+                      options={STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                      inputStyle={{ ...inp, background: sc.bg, color: sc.fg, fontWeight: 600 }}
+                    />
                   </Td>
                   <Td>
                     <input

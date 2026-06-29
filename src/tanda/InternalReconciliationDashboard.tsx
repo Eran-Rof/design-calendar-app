@@ -36,7 +36,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DateRangePresets from "./components/DateRangePresets";
-import { computePreset } from "./components/dateRangePresets";
+import { computePreset } from "./components/dateRangeMath";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge from "./components/SourceBadge";
@@ -85,11 +85,11 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
 };
 
 export const DOMAIN_EMOJI: Record<Domain, string> = {
-  ap:        "🧾",
-  ar:        "🧮",
-  cash:      "💵",
-  gl:        "📓",
-  inventory: "📦",
+  ap:        "",
+  ar:        "",
+  cash:      "",
+  gl:        "",
+  inventory: "",
 };
 
 // Which manual-trigger endpoints exist today (built in P9-2..P9-6 —
@@ -321,6 +321,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -487,7 +488,7 @@ export default function InternalReconciliationDashboard() {
     <div style={{ color: C.text }} data-testid="recon-dashboard">
       {/* ───── Header ───── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Parallel-Run Reconciliation</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Parallel-Run Reconciliation</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             5-domain recon · Xoro vs Tangerine · soft-block close until cleared (D4)
@@ -525,7 +526,6 @@ export default function InternalReconciliationDashboard() {
               data-testid={`recon-card-${d}`}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{DOMAIN_EMOJI[d]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{DOMAIN_LABEL[d]}</span>
               </div>
               {run ? (
@@ -584,7 +584,7 @@ export default function InternalReconciliationDashboard() {
           style={inputStyle}
           data-testid="recon-to"
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => setRange({ from: f, to: t })}
@@ -602,7 +602,7 @@ export default function InternalReconciliationDashboard() {
           </div>
         )}
       </div>
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", marginBottom: 24 }} data-testid="recon-grid-wrap">
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", marginBottom: 24 }} data-testid="recon-grid-wrap">
         {loading ? (
           <div style={{ padding: 20, color: C.textMuted, textAlign: "center" }}>Loading…</div>
         ) : dates.length === 0 ? (
@@ -623,7 +623,7 @@ export default function InternalReconciliationDashboard() {
               {DOMAINS.map((dom) => (
                 <tr key={dom}>
                   <td style={{ ...td, fontWeight: 600, position: "sticky", left: 0, background: C.card, zIndex: 1 }}>
-                    {DOMAIN_EMOJI[dom]} {DOMAIN_LABEL[dom]}
+                    {DOMAIN_LABEL[dom]}
                   </td>
                   {dates.map((date) => {
                     const cell = byDomainDate[dom][date];
@@ -705,8 +705,8 @@ export default function InternalReconciliationDashboard() {
                       {c.clean_window_start} → {c.clean_window_end}
                     </td>
                     <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("total_recons")}>{c.total_recons}</td>
-                    <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }} hidden={!cutoverVisible.has("signoff_emp")}>
-                      {c.signoff_employee_id ? c.signoff_employee_id.slice(0, 8) + "…" : "—"}
+                    <td style={td} hidden={!cutoverVisible.has("signoff_emp")}>
+                      {c.signoff_employee_id ? "✓ Signed off" : "—"}
                     </td>
                     <td style={{ ...td, fontVariantNumeric: "tabular-nums" }} hidden={!cutoverVisible.has("signoff_at")}>
                       {new Date(c.signoff_at).toLocaleString()}
@@ -780,7 +780,7 @@ function VarianceSidePanel({
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 18 }}>
-            {DOMAIN_EMOJI[run.domain]} {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
+            {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
           </h3>
           <button onClick={onClose} style={btnSecondary} data-testid="recon-side-panel-close">Close</button>
         </div>
@@ -844,7 +844,7 @@ function VarianceSidePanel({
               {variances.map((v) => (
                 <tr key={v.id} data-testid={`recon-variance-row-${v.id}`}>
                   <td style={td}>{v.source_table}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11 }}>{v.source_id}</td>
+                  <td style={td}>{"—"}</td>
                   <td style={td}>
                     {v.source_tag ? <SourceBadge source={v.source_tag} /> : <span style={{ color: C.textMuted }}>—</span>}
                   </td>
@@ -948,8 +948,8 @@ function ClearReasonModal({
           <div style={{ color: C.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
             Variance
           </div>
-          <div style={{ fontFamily: "monospace", fontSize: 11 }}>
-            {variance.source_table} · {variance.source_id}
+          <div style={{ fontSize: 11 }}>
+            {variance.source_table}
           </div>
           <div style={{ marginTop: 4 }}>
             T: {fmtCents(variance.tangerine_amount_cents)} · X: {fmtCents(variance.xoro_amount_cents)} · Δ: <strong style={{ color: C.danger }}>{fmtCents(variance.variance_amount_cents)}</strong>

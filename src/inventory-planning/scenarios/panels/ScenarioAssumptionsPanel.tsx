@@ -11,7 +11,19 @@ import type { IpCategory, IpCustomer, IpChannel, IpItem } from "../../types/enti
 import { scenarioRepo } from "../services/scenarioRepo";
 import { logChange } from "../services/auditLogService";
 import { S, PAL } from "../../components/styles";
+import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "ip.scenario_assumptions";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "type", label: "Type" },
+  { key: "value", label: "Value" },
+  { key: "unit", label: "Unit" },
+  { key: "scope", label: "Scope" },
+  { key: "note", label: "Note" },
+];
 
 const TYPES: Array<{ key: IpAssumptionType; unit: IpAssumptionUnit; hint: string }> = [
   { key: "demand_uplift_percent",   unit: "percent", hint: "+ lifts demand by %, − reduces it" },
@@ -48,6 +60,7 @@ export default function ScenarioAssumptionsPanel({
   const [scopeChannel, setScopeChannel] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const customerById = new Map(customers.map((c) => [c.id, c.name]));
   const channelById = new Map(channels.map((c) => [c.id, c.name]));
@@ -95,7 +108,7 @@ export default function ScenarioAssumptionsPanel({
   }
 
   async function removeAssumption(id: string) {
-    if (!window.confirm("Remove this assumption?")) return;
+    if (!(await confirmDialog("Remove this assumption?"))) return;
     try {
       await scenarioRepo.deleteAssumption(id);
       await logChange({
@@ -114,7 +127,17 @@ export default function ScenarioAssumptionsPanel({
 
   return (
     <div style={S.card}>
-      <h3 style={S.cardTitle}>Scenario assumptions</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h3 style={S.cardTitle}>Scenario assumptions</h3>
+        <TablePrefsButton
+          tableKey={TABLE_KEY}
+          columns={ALL_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
+        />
+      </div>
       {!readOnly && (
         <div style={{ ...S.infoCell, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: PAL.textDim, marginBottom: 8 }}>
@@ -123,9 +146,8 @@ export default function ScenarioAssumptionsPanel({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
             <div>
               <label style={S.label}>Type</label>
-              <select style={{ ...S.select, width: "100%" }} value={type} onChange={(e) => setType(e.target.value as IpAssumptionType)}>
-                {TYPES.map((t) => <option key={t.key} value={t.key}>{t.key.replace(/_/g, " ")}</option>)}
-              </select>
+              <SearchableSelect value={type} onChange={(v) => setType(v as IpAssumptionType)} inputStyle={{ ...S.select, width: "100%" }}
+                options={TYPES.map((t) => ({ value: t.key, label: t.key.replace(/_/g, " ") }))} />
             </div>
             <div>
               <label style={S.label}>Value ({selectedUnit})</label>
@@ -136,31 +158,23 @@ export default function ScenarioAssumptionsPanel({
             </div>
             <div>
               <label style={S.label}>SKU scope (optional)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeSku} onChange={(e) => setScopeSku(e.target.value)}>
-                <option value="">— all —</option>
-                {items.slice(0, 500).map((i) => <option key={i.id} value={i.id}>{i.sku_code}</option>)}
-              </select>
+              <SearchableSelect value={scopeSku || null} onChange={(v) => setScopeSku(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...items.slice(0, 500).map((i) => ({ value: i.id, label: i.sku_code }))]} />
             </div>
             <div>
               <label style={S.label}>Category scope (optional)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeCategory} onChange={(e) => setScopeCategory(e.target.value)}>
-                <option value="">— all —</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeCategory || null} onChange={(v) => setScopeCategory(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div>
               <label style={S.label}>Customer (wholesale)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeCustomer} onChange={(e) => setScopeCustomer(e.target.value)}>
-                <option value="">— all —</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeCustomer || null} onChange={(v) => setScopeCustomer(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...customers.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div>
               <label style={S.label}>Channel (ecom)</label>
-              <select style={{ ...S.select, width: "100%" }} value={scopeChannel} onChange={(e) => setScopeChannel(e.target.value)}>
-                <option value="">— all —</option>
-                {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchableSelect value={scopeChannel || null} onChange={(v) => setScopeChannel(v)} inputStyle={{ ...S.select, width: "100%" }}
+                options={[{ value: "", label: "— all —" }, ...channels.map((c) => ({ value: c.id, label: c.name }))]} />
             </div>
             <div style={{ gridColumn: "1 / 3" }}>
               <label style={S.label}>Note</label>
@@ -179,24 +193,24 @@ export default function ScenarioAssumptionsPanel({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Type</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Value</th>
-              <th style={S.th}>Unit</th>
-              <th style={S.th}>Scope</th>
-              <th style={S.th}>Note</th>
+              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
+              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("value")}>Value</th>
+              <th style={S.th} hidden={!visibleColumns.has("unit")}>Unit</th>
+              <th style={S.th} hidden={!visibleColumns.has("scope")}>Scope</th>
+              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
             {assumptions.map((a) => (
               <tr key={a.id}>
-                <td style={S.td}>{a.assumption_type.replace(/_/g, " ")}</td>
-                <td style={{ ...S.tdNum, fontFamily: "monospace" }}>{a.assumption_value ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{a.assumption_unit ?? "–"}</td>
-                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }}>
+                <td style={S.td} hidden={!visibleColumns.has("type")}>{a.assumption_type.replace(/_/g, " ")}</td>
+                <td style={{ ...S.tdNum, fontFamily: "monospace" }} hidden={!visibleColumns.has("value")}>{a.assumption_value ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("unit")}>{a.assumption_unit ?? "–"}</td>
+                <td style={{ ...S.td, color: PAL.textDim, fontSize: 11 }} hidden={!visibleColumns.has("scope")}>
                   {scopeLabel(a, itemById, categoryById, customerById, channelById)}
                 </td>
-                <td style={{ ...S.td, color: PAL.textMuted }}>{a.note ?? ""}</td>
+                <td style={{ ...S.td, color: PAL.textMuted }} hidden={!visibleColumns.has("note")}>{a.note ?? ""}</td>
                 <td style={S.td}>
                   {!readOnly && (
                     <button style={{ ...S.btnGhost, color: PAL.red }} onClick={() => removeAssumption(a.id)}>Remove</button>
@@ -224,10 +238,10 @@ function scopeLabel(
   channelById: Map<string, string>,
 ): string {
   const parts: string[] = [];
-  if (a.applies_to_sku_id) parts.push(`SKU ${itemById.get(a.applies_to_sku_id) ?? a.applies_to_sku_id.slice(0, 8)}`);
-  if (a.applies_to_category_id) parts.push(`cat ${categoryById.get(a.applies_to_category_id) ?? "?"}`);
-  if (a.applies_to_customer_id) parts.push(`cust ${customerById.get(a.applies_to_customer_id) ?? "?"}`);
-  if (a.applies_to_channel_id) parts.push(`chan ${channelById.get(a.applies_to_channel_id) ?? "?"}`);
+  if (a.applies_to_sku_id) parts.push(`SKU ${itemById.get(a.applies_to_sku_id) ?? "—"}`);
+  if (a.applies_to_category_id) parts.push(`cat ${categoryById.get(a.applies_to_category_id) ?? "—"}`);
+  if (a.applies_to_customer_id) parts.push(`cust ${customerById.get(a.applies_to_customer_id) ?? "—"}`);
+  if (a.applies_to_channel_id) parts.push(`chan ${channelById.get(a.applies_to_channel_id) ?? "—"}`);
   if (a.period_start) parts.push(`period ${a.period_start}`);
   return parts.length ? parts.join(" · ") : "(all)";
 }

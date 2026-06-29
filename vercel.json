@@ -30,6 +30,7 @@
   "crons": [
     { "path": "/api/cron/compliance-daily", "schedule": "0 14 * * *" },
     { "path": "/api/cron/contracts-daily", "schedule": "0 15 * * *" },
+    { "path": "/api/cron/customer-contact-reminders", "schedule": "0 * * * *" },
     { "path": "/api/cron/scorecards-monthly", "schedule": "0 6 1 * *" },
     { "path": "/api/cron/early-payment-analytics", "schedule": "0 8 2 * *" },
     { "path": "/api/cron/anomalies-nightly", "schedule": "0 8 * * *" },
@@ -37,6 +38,7 @@
     { "path": "/api/cron/push-delivery", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/notifications-email-drain", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/ip-freshness-refresh", "schedule": "0 */4 * * *" },
+    { "path": "/api/cron/tpl-inventory-pull", "schedule": "30 2 * * *" },
     { "path": "/api/cron/ip-integration-health", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/insights-weekly", "schedule": "0 6 * * 1" },
     { "path": "/api/cron/compliance-automation", "schedule": "0 13 * * *" },
@@ -53,6 +55,7 @@
     { "path": "/api/cron/bank-feed-sync", "schedule": "0 */4 * * *" },
     { "path": "/api/cron/bank-auto-post-fees", "schedule": "0 16 * * *" },
     { "path": "/api/cron/xoro-mirror-nightly", "schedule": "30 1 * * *" },
+    { "path": "/api/cron/xoro-ap-sync", "schedule": "30 2 * * *" },
     { "path": "/api/cron/menu-usage-decay", "schedule": "0 3 * * *" },
     { "path": "/api/cron/walmart-orders-nightly", "schedule": "30 3 * * *" },
     { "path": "/api/cron/walmart-returns-daily", "schedule": "0 5 * * *" },

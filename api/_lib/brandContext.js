@@ -122,6 +122,12 @@ export function activeBrandId(req) {
   return resolveBrandContext(req).brand_id; // uuid or null
 }
 
+/** The channel_id to filter by — or null when scoping is off / "All channels". */
+export function activeChannelId(req) {
+  if (brandScopeMode() !== "enforce") return null;
+  return resolveChannelContext(req).channel_id; // uuid or null
+}
+
 /**
  * Collapse brand-split aging rows back to one row per (party, age_bucket),
  * summing the money + count. Needed because the brand-aware aging VIEW now

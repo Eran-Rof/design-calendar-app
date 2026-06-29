@@ -29,17 +29,11 @@ export function ActivityView({
         {historyEntries.length === 0 ? (
           <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>No activity recorded yet</div>
         ) : historyEntries.map((entry, i) => {
-          const isStatus = (entry.note ?? "").includes("Status:");
-          const isBulk = (entry.note ?? "").includes("Bulk update");
-          const isSync = (entry.note ?? "").includes("synced");
-          const isGen = (entry.note ?? "").includes("generated") || (entry.note ?? "").includes("Regenerated");
-          const icon = isBulk ? "⚡" : isSync ? "🔄" : isGen ? "🏭" : isStatus ? "📊" : "📝";
           const time = entry.created_at ? new Date(entry.created_at).toLocaleString() : "";
           const timeAgo = entry.created_at ? (() => { const ms = Date.now() - new Date(entry.created_at).getTime(); const m = Math.floor(ms / 60000); if (m < 60) return `${m}m ago`; const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`; return `${Math.floor(h / 24)}d ago`; })() : "";
           return (
             <div key={entry.id || i} style={{ display: "flex", gap: 12, padding: "14px 18px", borderBottom: "1px solid #0F172A", background: i % 2 === 0 ? "#1E293B" : "#1A2332", cursor: "pointer" }}
               onClick={() => { const p = pos.find(x => x.PoNumber === entry.po_number); if (p) { setDetailMode("milestones"); setNewNote(""); setSearch(""); setSelected(p); setView("list"); } }}>
-              <div style={{ fontSize: 18, flexShrink: 0, width: 32, textAlign: "center" }}>{icon}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#60A5FA", fontFamily: "monospace" }}>{entry.po_number}</span>

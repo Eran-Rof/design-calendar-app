@@ -1,4 +1,4 @@
-// src/tanda/InternalPromotions.tsx
+﻿// src/tanda/InternalPromotions.tsx
 //
 // M43 — Promotions admin. Time-boxed percent/amount discounts layered on the
 // resolved list price by the engine. Optional match filters (style / brand /
@@ -6,6 +6,7 @@
 // best (largest-discount) active, in-effect, matching promo (no stacking v1).
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -16,7 +17,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -34,11 +35,11 @@ type Customer = { id: string; name: string; customer_code?: string | null };
 type Style = { id: string; style_code: string | null; style_name?: string | null };
 type Brand = { id: string; name: string; code?: string };
 
-const styleLabel = (s: Style | null) => !s ? "" : (s.style_name ? `${s.style_code || s.id.slice(0, 8)} — ${s.style_name}` : (s.style_code || s.id.slice(0, 8)));
+const styleLabel = (s: Style | null) => !s ? "" : (s.style_name ? `${s.style_code || "—"} — ${s.style_name}` : (s.style_code || "—"));
 function discountLabel(p: Promo) { return p.discount_type === "percent" ? `${Number(p.discount_value)}% off` : `$${(Number(p.discount_value) / 100).toFixed(2)} off`; }
 function scopeBits(p: Promo): string {
   const b: string[] = [];
-  if (p.style_id) b.push(`style ${p.style?.style_code || p.style_id.slice(0, 8)}`);
+  if (p.style_id) b.push(`style ${p.style?.style_code || "—"}`);
   if (p.brand_id) b.push("brand");
   if (p.customer_id) b.push(`cust ${p.customer?.name || ""}`.trim());
   if (p.customer_tier) b.push(`tier ${p.customer_tier}`);
@@ -52,7 +53,7 @@ export default function InternalPromotions() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [editing, setEditing] = useState<Promo | "new" | null>(null);
 
@@ -60,7 +61,7 @@ export default function InternalPromotions() {
     setLoading(true); setErr(null);
     try {
       const p = new URLSearchParams();
-      if (q.trim()) p.set("q", q.trim());
+      if (qDebounced.trim()) p.set("q", qDebounced.trim());
       if (includeInactive) p.set("include_inactive", "true");
       const r = await fetch(`/api/internal/price-promotions?${p.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -68,15 +69,15 @@ export default function InternalPromotions() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [includeInactive]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [qDebounced, includeInactive]);
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
-    fetch("/api/internal/style-master?limit=500").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
+    fetch("/api/internal/customer-master?limit=5000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a); }).catch(() => {});
+    fetch("/api/internal/style-master?limit=10000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setStyles(a); }).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
   }, []);
 
   async function del(p: Promo) {
-    if (!(await confirmDialog(`Delete promotion "${p.name}"?`, { confirmText: "Delete", danger: true, icon: "🗑️" }))) return;
+    if (!(await confirmDialog(`Delete promotion "${p.name}"?`, { confirmText: "Delete", danger: true }))) return;
     const r = await fetch(`/api/internal/price-promotions/${p.id}`, { method: "DELETE" });
     if (!r.ok) { notify((await r.json().catch(() => ({}))).error || "Delete failed", "error"); return; }
     notify("Promotion deleted.", "success"); void load();
@@ -85,11 +86,11 @@ export default function InternalPromotions() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🎁 Promotions</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Promotions</h2>
         <button style={btnPrimary} onClick={() => setEditing("new")}>+ New promotion</button>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void load(); }} placeholder="Search name / code…" style={{ ...inputStyle, width: 220 }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / code…" style={{ ...inputStyle, width: 220 }} />
         <button style={btnSecondary} onClick={() => void load()}>Search</button>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} /> Include inactive
@@ -100,7 +101,7 @@ export default function InternalPromotions() {
           columns={[{ key: "name", header: "Name" }, { key: "code", header: "Code" }, { key: "discount", header: "Discount" }, { key: "scope", header: "Applies to" }, { key: "from", header: "From", format: "date" }, { key: "to", header: "To", format: "date" }, { key: "active", header: "Active" }] as ExportColumn<Record<string, unknown>>[]} />
       </div>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Name</th><th style={th}>Code</th><th style={th}>Discount</th><th style={th}>Applies to</th><th style={th}>Window</th><th style={th}>Active</th><th style={th}></th></tr></thead>
           <tbody>
@@ -171,14 +172,14 @@ function PromoModal({ promo, customers, styles, brands, onClose, onSaved }: { pr
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 640, maxWidth: 820, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(820px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New promotion" : `Promotion — ${promo?.name}`}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Spring Sale" /></Field>
           <Field label="Code (optional)"><input value={code} onChange={(e) => setCode(e.target.value)} style={inputStyle} placeholder="(auto if blank)" /></Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value as "percent" | "amount")} style={inputStyle}><option value="percent">Percent %</option><option value="amount">Amount $</option></select></Field>
+          <Field label="Type"><SearchableSelect value={type} onChange={(v) => setType(v as "percent" | "amount")} inputStyle={inputStyle} options={[{ value: "percent", label: "Percent %" }, { value: "amount", label: "Amount $" }]} /></Field>
           <Field label={type === "percent" ? "Percent (0–100)" : "Amount ($ off)"}><input type="text" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} style={inputStyle} placeholder={type === "percent" ? "10" : "5.00"} /></Field>
           <Field label="Min qty"><input type="text" inputMode="decimal" value={minQty} onChange={(e) => setMinQty(e.target.value)} style={inputStyle} placeholder="0" /></Field>
         </div>

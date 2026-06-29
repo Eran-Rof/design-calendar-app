@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney } from "../utils";
+import { fmtDate, fmtMoney, errMsg } from "../utils";
 import POMessageThread, { type Sender } from "./POMessageThread";
 import VendorPhasesView from "./VendorPhasesView";
+import VendorPoMatrix from "./VendorPoMatrix";
+import { showAlert } from "../ui/AppDialog";
 
 interface PORow {
   uuid_id: string;
@@ -50,11 +52,11 @@ interface InvoiceRow {
 type Tab = "overview" | "messages" | "shipments" | "invoices" | "phases";
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  submitted:    { bg: "#FEF3C7", fg: "#92400E" },
-  under_review: { bg: "#DBEAFE", fg: "#1E40AF" },
-  approved:     { bg: "#D1FAE5", fg: "#065F46" },
-  paid:         { bg: "#A7F3D0", fg: "#064E3B" },
-  rejected:     { bg: "#FECACA", fg: "#991B1B" },
+  submitted:    { bg: "#78350F33", fg: "#FBBF24" },
+  under_review: { bg: "#1E3A8A22", fg: "#60A5FA" },
+  approved:     { bg: "#064E3B33", fg: "#34D399" },
+  paid:         { bg: "#064E3B33", fg: "#10B981" },
+  rejected:     { bg: "#7F1D1D33", fg: "#FCA5A5" },
 };
 
 export default function VendorPODetail() {
@@ -92,7 +94,9 @@ export default function VendorPODetail() {
         const uid = userRes.user?.id;
         if (!uid) throw new Error("Not signed in.");
         const { data: vu } = await supabaseVendor
-          .from("vendor_users").select("id, display_name").eq("auth_id", uid).maybeSingle();
+          .from("vendor_users").select("id, display_name, vendor_id").eq("auth_id", uid).maybeSingle();
+        const vendorId = (vu?.vendor_id as string | undefined) ?? null;
+        if (!vendorId) throw new Error("Your account is not linked to a vendor.");
         if (vu) {
           setVendorUserId(vu.id as string);
           setSender({
@@ -102,30 +106,87 @@ export default function VendorPODetail() {
           });
         }
 
-        const [poRes, lineRes, shipRes, invRes, ackRes, msgRes] = await Promise.all([
-          supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).maybeSingle(),
+        // Scope the PO to this vendor explicitly — never trust RLS (see
+        // vendorId.ts). A foreign uuid simply resolves to null → "PO not found".
+        const [poRes, lineRes, shipRes, msgRes] = await Promise.all([
+          supabaseVendor.from("tanda_pos").select("uuid_id, po_number, data, buyer_name, date_expected_delivery, vendor_id").eq("uuid_id", id).eq("vendor_id", vendorId).maybeSingle(),
           supabaseVendor.from("po_line_items").select("id, line_index, item_number, description, qty_ordered, qty_received, unit_price, line_total").eq("po_id", id).order("line_index"),
           supabaseVendor.from("shipments").select("id, number, number_type, asn_number, carrier, ship_date, estimated_delivery, current_status, workflow_status").eq("po_id", id).order("created_at", { ascending: false }),
-          Promise.resolve(null),
-          vu ? supabaseVendor.from("po_acknowledgments").select("id").eq("vendor_user_id", vu.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
           supabaseVendor.from("po_messages").select("id, sender_type, read_by_vendor").eq("po_id", id),
         ]);
 
+        // The PO header is the only essential query — fail hard only if it can't
+        // load. Line items / shipments / messages drive secondary tabs; if one
+        // of those errors (e.g. a table-permission gap that only bites certain
+        // legacy POs) we degrade that section to empty rather than blanking the
+        // whole page with an opaque error.
         if (poRes.error) throw poRes.error;
-        if (lineRes.error) throw lineRes.error;
-        if (shipRes.error) throw shipRes.error;
-        if (msgRes.error) throw msgRes.error;
+        if (lineRes.error) console.warn("[VendorPODetail] line items load failed:", errMsg(lineRes.error));
+        if (shipRes.error) console.warn("[VendorPODetail] shipments load failed:", errMsg(shipRes.error));
+        if (msgRes.error) console.warn("[VendorPODetail] messages load failed:", errMsg(msgRes.error));
 
-        setPO(poRes.data as PORow | null);
-        setLines((lineRes.data ?? []) as POLineItem[]);
+        let poData = poRes.data as PORow | null;
+        let lineData = (lineRes.data ?? []) as POLineItem[];
+
+        // Tangerine-native PO fallback: when the id isn't a tanda_pos (Xoro) row,
+        // try purchase_orders (the new ERP) — so a Tangerine PO opens read-only
+        // instead of "PO not found". Shipments / messages / ack / invoices stay
+        // empty for these (they're keyed to tanda_pos po_ids).
+        if (!poData) {
+          try {
+            const { data: tpo } = await supabaseVendor
+              .from("purchase_orders")
+              .select("id, po_number, order_date, expected_date, status, total_cents, notes, vendor_id")
+              .eq("id", id).eq("vendor_id", vendorId).maybeSingle();
+            if (tpo) {
+              const { data: tlines } = await supabaseVendor
+                .from("purchase_order_lines")
+                .select("id, line_number, description, qty_ordered, qty_received, unit_cost_cents, line_total_cents")
+                .eq("purchase_order_id", id).order("line_number");
+              poData = {
+                uuid_id: tpo.id as string,
+                po_number: tpo.po_number as string,
+                data: {
+                  TotalAmount: typeof tpo.total_cents === "number" ? tpo.total_cents / 100 : undefined,
+                  DateOrder: tpo.order_date ?? undefined,
+                  DateExpectedDelivery: tpo.expected_date ?? undefined,
+                  StatusName: tpo.status ?? undefined,
+                  BuyerName: null,
+                  Notes: tpo.notes ?? undefined,
+                  _source: "tangerine",
+                },
+                buyer_name: null,
+                date_expected_delivery: (tpo.expected_date as string | null) ?? null,
+                vendor_id: (tpo.vendor_id as string | null) ?? null,
+              };
+              lineData = ((tlines ?? []) as Array<Record<string, unknown>>).map((l) => ({
+                id: l.id as string,
+                line_index: (l.line_number as number) ?? 0,
+                item_number: null,
+                description: (l.description as string | null) ?? null,
+                qty_ordered: (l.qty_ordered as number | null) ?? null,
+                qty_received: (l.qty_received as number | null) ?? null,
+                unit_price: typeof l.unit_cost_cents === "number" ? (l.unit_cost_cents as number) / 100 : null,
+                line_total: typeof l.line_total_cents === "number" ? (l.line_total_cents as number) / 100 : null,
+              }));
+            }
+          } catch (te) {
+            console.warn("[VendorPODetail] purchase_orders fallback failed:", errMsg(te));
+          }
+        }
+
+        setPO(poData);
+        setLines(lineData);
         setShipments((shipRes.data ?? []) as ShipmentRow[]);
 
-        // Acknowledge check keyed by po_number
-        if (vu && poRes.data) {
+        // Acknowledge check keyed by po_number (source-agnostic — works for both
+        // Xoro tanda_pos rows and Tangerine purchase_orders, so use the resolved
+        // poData, not only the tanda_pos result).
+        if (vu && poData) {
           const { data: ackRow } = await supabaseVendor
             .from("po_acknowledgments")
             .select("id")
-            .eq("po_number", poRes.data.po_number)
+            .eq("po_number", poData.po_number)
             .eq("vendor_user_id", vu.id)
             .maybeSingle();
           setAcked(!!ackRow);
@@ -162,7 +223,7 @@ export default function VendorPODetail() {
           .filter((m) => m.sender_type === "internal" && !m.read_by_vendor).length;
         setUnreadCount(unread);
       } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : String(e));
+        setErr(errMsg(e));
       } finally {
         setLoading(false);
       }
@@ -174,7 +235,7 @@ export default function VendorPODetail() {
     const { error } = await supabaseVendor
       .from("po_acknowledgments")
       .upsert({ po_number: po.po_number, vendor_user_id: vendorUserId }, { onConflict: "po_number,vendor_user_id" });
-    if (error) { alert("Could not acknowledge: " + error.message); return; }
+    if (error) { void showAlert({ title: "Error", message: "Could not acknowledge: " + error.message, tone: "danger" }); return; }
     setAcked(true);
   }
 
@@ -182,7 +243,9 @@ export default function VendorPODetail() {
     BuyerName?: string; StatusName?: string; DateOrder?: string;
     DateExpectedDelivery?: string; TotalAmount?: number; CurrencyCode?: string;
   };
-  const lineTotal = useMemo(() => lines.reduce((a, l) => a + (Number(l.line_total) || (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0)), 0), [lines]);
+  // Size-matrix line items come from the Xoro PO payload (data.Items), same
+  // source the Tanda PO matrix uses — SKU encodes base/color/size.
+  const matrixItems = ((po?.data as any)?.Items ?? (po?.data as any)?.PoLineArr ?? []) as any[];
 
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading PO…</div>;
   if (err) return <div style={{ color: TH.primary, padding: "10px 12px", background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
@@ -209,7 +272,7 @@ export default function VendorPODetail() {
               to={`/vendor/pos/${id}/view`}
               style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "none", color: TH.text, fontSize: 12, fontWeight: 600, fontFamily: "inherit", textDecoration: "none" }}
             >
-              📄 View PO
+              View PO
             </Link>
             {invoices.some((i) => i.status !== "rejected") && (
               <span style={{ fontSize: 12, padding: "6px 14px", borderRadius: 999, background: "#D1FAE5", color: "#065F46", fontWeight: 700 }}>Shipped/Invoiced</span>
@@ -241,32 +304,9 @@ export default function VendorPODetail() {
       </div>
 
       {tab === "overview" && (
-        <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ padding: "12px 20px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 14, fontWeight: 700, color: TH.text }}>Line items</div>
-          {lines.length === 0 ? (
-            <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No line items materialized yet.</div>
-          ) : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}`, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase" }}>
-                <div>#</div><div>Item</div><div>Description</div><div>Qty ord.</div><div>Qty shipped</div><div>Qty rcv.</div><div>Unit price</div><div style={{ textAlign: "right" }}>Line total</div>
-              </div>
-              {lines.map((l) => (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "60px 160px 1fr 100px 100px 100px 120px 120px", padding: "10px 20px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center" }}>
-                  <div style={{ color: TH.textMuted }}>{l.line_index}</div>
-                  <div style={{ fontFamily: "Menlo, monospace", fontSize: 12, color: TH.textSub2 }}>{l.item_number ?? "—"}</div>
-                  <div style={{ color: TH.text }}>{l.description ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{l.qty_ordered ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{shippedByLine[l.id] ?? 0}</div>
-                  <div style={{ color: TH.textSub2 }}>{l.qty_received ?? "—"}</div>
-                  <div style={{ color: TH.textSub2 }}>{fmtMoney(l.unit_price ?? undefined)}</div>
-                  <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(l.line_total ?? (Number(l.qty_ordered) || 0) * (Number(l.unit_price) || 0))}</div>
-                </div>
-              ))}
-              <div style={{ padding: "12px 20px", display: "flex", justifyContent: "flex-end", background: TH.surfaceHi, borderTop: `1px solid ${TH.border}` }}>
-                <div style={{ fontSize: 14, color: TH.text }}>Lines total <strong style={{ color: TH.primary, marginLeft: 10, fontSize: 16 }}>{fmtMoney(lineTotal)}</strong></div>
-              </div>
-            </>
-          )}
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: TH.text, marginBottom: 10 }}>Line items</div>
+          <VendorPoMatrix items={matrixItems} />
         </div>
       )}
 

@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmOpportunities.tsx
+﻿// src/tanda/InternalCrmOpportunities.tsx
 //
 // Tangerine P8-3 — CRM Opportunities admin panel (M25, arch §3 + §4).
 // List + filters + detail/edit modal (with inline activity log + stage-change
@@ -13,6 +13,8 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_OPPS_TABLE_KEY = "tangerine:crmopportunities:columns";
@@ -115,11 +117,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -139,19 +143,13 @@ function fmtDate(iso: string | null | undefined): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-US", {
-      month: "short", day: "2-digit", year: "numeric",
+      month: "2-digit", day: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
 }
 
-function fmtDateOnly(d: string | null | undefined): string {
-  if (!d) return "—";
-  try {
-    const dt = new Date(`${d}T00:00:00Z`);
-    return dt.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
-  } catch { return d; }
-}
+const fmtDateOnly = fmtDateDisplay;
 
 function fmtMoney(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -167,6 +165,16 @@ export default function InternalCrmOpportunities() {
   const [rows, setRows] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Employee picker options + id→name map (no raw user UUIDs anywhere).
+  const { employees, options: employeeOptions } = useEmployeeOptions();
+  const ownerName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const e of employees) {
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      m[e.id] = (e.code && name) ? `${e.code} — ${name}` : (name || e.code || e.email || e.id);
+    }
+    return m;
+  }, [employees]);
 
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
@@ -212,7 +220,7 @@ export default function InternalCrmOpportunities() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data)
@@ -247,7 +255,7 @@ export default function InternalCrmOpportunities() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          💼 Opportunities
+          Opportunities
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Pipeline (M25)
@@ -293,13 +301,13 @@ export default function InternalCrmOpportunities() {
           <Select label="Stage" value={stageFilter} onChange={setStageFilter} options={[...STAGE_VALUES]} />
         </div>
         <div style={{ minWidth: 220 }}>
-          <label style={labelStyle}>Owner user id</label>
-          <input
-            type="text"
-            value={ownerFilter}
-            onChange={(e) => setOwnerFilter(e.target.value)}
-            placeholder="uuid…"
-            style={inputStyle}
+          <label style={labelStyle}>Owner</label>
+          <SearchableSelect
+            value={ownerFilter || null}
+            onChange={(v) => setOwnerFilter(v || "")}
+            options={[{ value: "", label: "All" }, ...employeeOptions]}
+            placeholder="All"
+            emptyText="No matching employees"
           />
         </div>
         <div style={{ minWidth: 220 }}>
@@ -346,7 +354,7 @@ export default function InternalCrmOpportunities() {
 
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`,
-        borderRadius: 8, overflow: "hidden",
+        borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -384,8 +392,8 @@ export default function InternalCrmOpportunities() {
                 <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("probability")}>{r.probability_pct}</td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "monospace" }} hidden={!isVisible("expected")}>{fmtMoney(r.expected_cents)}</td>
                 <td style={{ ...td, fontSize: 12 }} hidden={!isVisible("expected_close")}>{fmtDateOnly(r.expected_close_date)}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
-                  {r.owner_user_id ? truncate(r.owner_user_id, 12) : "—"}
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("owner")}>
+                  {r.owner_user_id ? (ownerName[r.owner_user_id] || truncate(r.owner_user_id, 12)) : "—"}
                 </td>
                 <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("created")}>{fmtDate(r.created_at)}</td>
               </tr>
@@ -427,14 +435,16 @@ function Select({ label, value, onChange, options, placeholder }: {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        <option value="">{placeholder || "All"}</option>
-        {options.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
-      </select>
+      <SearchableSelect
+        value={value || null}
+        onChange={(v) => onChange(v)}
+        options={[
+          { value: "", label: placeholder || "All" },
+          ...options.map((o) => ({ value: o, label: o.replace("_", " ") })),
+        ]}
+        placeholder={placeholder || "All"}
+        inputStyle={inputStyle}
+      />
     </div>
   );
 }
@@ -451,6 +461,7 @@ function OpportunityDetailModal({ id, onClose, customers }: {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { options: employeeOptions } = useEmployeeOptions();
 
   // Local pending edits — applied on save.
   const [title, setTitle] = useState("");
@@ -635,13 +646,13 @@ function OpportunityDetailModal({ id, onClose, customers }: {
                 style={inputStyle}
               />
             </Field>
-            <Field label="Owner user id">
-              <input
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                style={inputStyle}
-                placeholder="uuid…"
+            <Field label="Owner">
+              <SearchableSelect
+                value={owner || null}
+                onChange={(v) => setOwner(v || "")}
+                options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+                placeholder="Unassigned"
+                emptyText="No matching employees"
               />
             </Field>
           </div>
@@ -726,16 +737,16 @@ function OpportunityDetailModal({ id, onClose, customers }: {
           </h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 12, alignItems: "end" }}>
             <Field label="New stage">
-              <select
+              <SearchableSelect
                 value={pendingStage}
-                onChange={(e) => setPendingStage(e.target.value as Stage | "")}
-                style={inputStyle}
-              >
-                <option value="">— select —</option>
-                {STAGE_VALUES.filter((s) => s !== data.stage).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+                onChange={(v) => setPendingStage(v as Stage | "")}
+                options={[
+                  { value: "", label: "— select —" },
+                  ...STAGE_VALUES.filter((s) => s !== data.stage).map((s) => ({ value: s, label: s })),
+                ]}
+                placeholder="— select —"
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Reason (optional)">
               <input
@@ -828,6 +839,7 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { options: employeeOptions } = useEmployeeOptions();
   const [title, setTitle] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [owner, setOwner] = useState("");
@@ -905,12 +917,21 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
           />
         </Field>
         <Field label="Stage">
-          <select value={stage} onChange={(e) => setStage(e.target.value as Stage)} style={inputStyle}>
-            {STAGE_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={stage}
+            onChange={(v) => setStage(v as Stage)}
+            options={STAGE_VALUES.map((s) => ({ value: s, label: s }))}
+            inputStyle={inputStyle}
+          />
         </Field>
-        <Field label="Owner user id">
-          <input type="text" value={owner} onChange={(e) => setOwner(e.target.value)} style={inputStyle} placeholder="uuid…" />
+        <Field label="Owner">
+          <SearchableSelect
+            value={owner || null}
+            onChange={(v) => setOwner(v || "")}
+            options={[{ value: "", label: "Unassigned" }, ...employeeOptions]}
+            placeholder="Unassigned"
+            emptyText="No matching employees"
+          />
         </Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
@@ -977,8 +998,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 900, maxHeight: "92vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(900px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>

@@ -37,6 +37,12 @@ export interface ItemMasterRecord {
   // approach was hitting both false positives (dirty size fields) and
   // false negatives (legacy styles where the token sits in size only).
   pack_size?: number | null;
+  // FK → brand_master.id (P15 Brand Master). First-class column on
+  // ip_item_master, NOT inside `attributes`. Backfilled to the ROF
+  // default brand on legacy rows, so virtually every row carries one.
+  // ATS resolves it to a brand NAME via brandLookup for the Brand
+  // filter dropdown.
+  brand_id?: string | null;
   // Master schema (verified against live ip_item_master): the planning side
   // labels `group_name` as "Category" and `category_name` as "Sub Cat".
   // `product_category` is a higher-level rollup (e.g. BOTTOMS / TOPS) we
@@ -67,6 +73,16 @@ export interface ResolvedStyle {
   // 1 = non-prepack. Callers should use this directly instead of
   // calling ppkMultiplier() on the text fields above.
   pack_size: number;
+  // brand_master FK resolved from ip_item_master.brand_id. Null when
+  // unmatched or the master row carries no brand. Resolve to a NAME
+  // via brandLookup.brandNameById().
+  brand_id: string | null;
+  // Raw gender code from ip_item_master.attributes->>'gender' (Xoro's
+  // GenderCode, e.g. "M" / "WMS" / "B" / "C" / "G" / "U"). The ATS feed
+  // doesn't reliably carry gender per row, so callers prefer this master
+  // value over the feed's r.gender. Falls back to the style-level row when
+  // a variant carries none. Null when unmatched / unset.
+  gender: string | null;
   match_source: "sku" | "style" | null; // null = unmatched
 }
 
@@ -83,6 +99,8 @@ const NULL_RESULT: ResolvedStyle = {
   size: null,
   description: null,
   pack_size: 1,
+  brand_id: null,
+  gender: null,
   match_source: null,
 };
 
@@ -98,6 +116,34 @@ function resolveCleanDescription(rec: ItemMasterRecord): string | null {
     if (fromStyle) return fromStyle;
   }
   return rec.description?.trim() || null;
+}
+
+// Resolve a record's brand_id, falling back to its style-level row when the
+// variant itself carries none (mirrors resolveCleanDescription). In practice
+// the P15 backfill stamped every row with the ROF default brand, so the
+// fallback is belt-and-suspenders for any newer un-backfilled variant.
+function resolveBrandId(rec: ItemMasterRecord): string | null {
+  if (rec.brand_id) return rec.brand_id;
+  if (rec.style_code) {
+    const styleRow = byStyleCode?.get(rec.style_code.toUpperCase());
+    if (styleRow?.brand_id) return styleRow.brand_id;
+  }
+  return null;
+}
+
+// Resolve a record's gender (attributes->>'gender'), falling back to its
+// style-level row when the variant carries none (mirrors resolveBrandId).
+// Variant rows usually DO carry the code, but the fallback covers any row
+// whose own attributes are empty.
+function resolveGender(rec: ItemMasterRecord): string | null {
+  const own = rec.attributes?.gender?.trim();
+  if (own) return own;
+  if (rec.style_code) {
+    const styleRow = byStyleCode?.get(rec.style_code.toUpperCase());
+    const fromStyle = styleRow?.attributes?.gender?.trim();
+    if (fromStyle) return fromStyle;
+  }
+  return null;
 }
 
 // A record is the "canonical" style-level row when its sku_code equals its
@@ -244,7 +290,7 @@ async function fetchAllItemMaster(): Promise<ItemMasterRecord[]> {
   // Explicit column list — `select=*` pulls every column including
   // large/unused ones (e.g. wide `attributes` JSON) and was triggering
   // the 8s statement timeout on a 40k+ row table.
-  const SELECT = "id,sku_code,style_code,color,size,description,unit_cost,pack_size,attributes";
+  const SELECT = "id,sku_code,style_code,color,size,description,unit_cost,pack_size,brand_id,attributes";
   // Keyset pagination on sku_code instead of offset. At 40k+ rows the
   // offset path forced Postgres to scan + sort all preceding rows per
   // page; keyset uses the unique sku_code index for O(log n) seeks.
@@ -318,6 +364,8 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
       size: skuHit.size ?? null,
       description: resolveCleanDescription(skuHit),
       pack_size: skuHit.pack_size ?? 1,
+      brand_id: resolveBrandId(skuHit),
+      gender: resolveGender(skuHit),
       match_source: "sku",
     };
   }
@@ -349,6 +397,8 @@ export function resolveStyle(sku: string, stylePart?: string | null): ResolvedSt
           size: styleHit.size ?? null,
           description: resolveCleanDescription(styleHit),
           pack_size: styleHit.pack_size ?? 1,
+          brand_id: resolveBrandId(styleHit),
+          gender: resolveGender(styleHit),
           match_source: "style",
         };
       }

@@ -79,7 +79,10 @@ export function buildExportRows(
       priced_date:   line.priced_date || "",
       ly_unit_cost:  line.ly_unit_cost ?? "",
       ly_qty:        line.ly_qty ?? "",
-      ly_margin_pct: line.ly_margin_pct ?? "",
+      // ly_margin_pct is stored as a FRACTION (0.20 = 20%) — matches the grid,
+      // which scales it ×100 for display. Scale here too so the "LY MARGIN %"
+      // column isn't off by 100× (shows 20, not 0.2).
+      ly_margin_pct: line.ly_margin_pct != null ? Math.round(line.ly_margin_pct * 100 * 100) / 100 : "",
       remarks:       line.remarks || "",
       total_cost:    qty && landed ? Math.round(qty * landed * 100) / 100 : "",
       total_sales:   qty && sell ? Math.round(qty * sell * 100) / 100 : "",

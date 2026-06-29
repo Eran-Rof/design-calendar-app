@@ -1,52 +1,74 @@
-// Costing Module — Plan Flow widget hook.
+// Costing Module — Plan Flow hook (per-LINE status).
 //
-// Derives per-line stage from store state (no extra DB columns) and rolls up
-// per-stage counts + $ totals for the 5-stage strip.
+// Status is a STORED, event-driven lifecycle on costing_lines.status:
+//   draft   — new line, nothing sent
+//   sent    — line is on a published RFQ (vendor invited)        [publish.js]
+//   quoted  — the invited vendor submitted a quote                [submit.js]
+//   awarded — formally awarded via the RFQ award flow             [award/[vendor].js]
+//   lost    — a sibling row (same project+style) won              [award/[vendor].js]
+//   revised — Stage B (edit-forks-a-Sent-row mechanic)
+//   closed  — manual terminal close (operator)
 //
-// Stages:
-//   draft       — line has no style_master_id yet (free-typed placeholder)
-//   in_progress — style chosen, but no vendor quotes yet
-//   quoted      — ≥1 vendor quote with status pending or received
-//   awarded     — selected_vendor_quote_id IS NOT NULL
-//   closed      — parent project status='closed' or 'cancelled'
+// NOTE: selecting a vendor quote on a line (selected_vendor_quote_id) is NOT
+// the same as awarding. Vendor selection tracks the intended vendor for RFQ
+// generation; awarded is set only by the formal RFQ award handler.
 
 import { useMemo } from "react";
 import { useCostingStore } from "../store/costingStore";
-import type { CostingLine, CostingStatus, CostingLineVendor } from "../types";
+import type { CostingLine, CostingLineStatus } from "../types";
 
-export type PlanFlowStage = "draft" | "in_progress" | "quoted" | "awarded" | "closed";
+export type PlanFlowStage = CostingLineStatus;
 
 export const PLAN_FLOW_STAGES: PlanFlowStage[] = [
-  "draft", "in_progress", "quoted", "awarded", "closed",
+  "draft", "sent", "quoted", "awarded", "lost", "revised", "closed",
 ];
 
 const STAGE_LABEL: Record<PlanFlowStage, string> = {
-  draft:       "Draft",
-  in_progress: "In Progress",
-  quoted:      "Quoted",
-  awarded:     "Awarded",
-  closed:      "Closed",
+  draft:   "Draft",
+  sent:    "RFQ",
+  quoted:  "Quoted",
+  awarded: "Awarded",
+  lost:    "Lost",
+  revised: "Rvsd RFQ",
+  closed:  "Closed",
 };
 
 const STAGE_ICON: Record<PlanFlowStage, string> = {
-  draft:       "✏️",
-  in_progress: "🔧",
-  quoted:      "💬",
-  awarded:     "🏆",
-  closed:      "🔒",
+  draft:   "✏️",
+  sent:    "📤",
+  quoted:  "💬",
+  awarded: "🏆",
+  lost:    "❌",
+  revised: "🔁",
+  closed:  "🔒",
 };
 
+// GREEN reserved for awarded. Other stages: draft gray, sent blue, quoted amber,
+// lost red, revised muted slate, closed indigo.
 const STAGE_COLOR: Record<PlanFlowStage, { bg: string; fg: string; bar: string }> = {
-  draft:       { bg: "#E5E7EB", fg: "#374151", bar: "#9CA3AF" },
-  in_progress: { bg: "#DBEAFE", fg: "#1E40AF", bar: "#3B82F6" },
-  quoted:      { bg: "#FEF3C7", fg: "#92400E", bar: "#F59E0B" },
-  awarded:     { bg: "#DCFCE7", fg: "#166534", bar: "#10B981" },
-  closed:      { bg: "#E0E7FF", fg: "#3730A3", bar: "#6366F1" },
+  draft:   { bg: "#33415533", fg: "#CBD5E1", bar: "#64748B" },
+  sent:    { bg: "#1E3A8A33", fg: "#93C5FD", bar: "#3B82F6" },
+  quoted:  { bg: "#78350F33", fg: "#FBBF24", bar: "#F59E0B" },
+  awarded: { bg: "#064E3B33", fg: "#34D399", bar: "#10B981" },
+  lost:    { bg: "#7F1D1D33", fg: "#FCA5A5", bar: "#EF4444" },
+  revised: { bg: "#33415533", fg: "#94A3B8", bar: "#64748B" },
+  closed:  { bg: "#3730A333", fg: "#A5B4FC", bar: "#6366F1" },
 };
 
-export function stageLabel(s: PlanFlowStage): string { return STAGE_LABEL[s]; }
-export function stageIcon(s: PlanFlowStage): string  { return STAGE_ICON[s]; }
-export function stageColor(s: PlanFlowStage)         { return STAGE_COLOR[s]; }
+export function stageLabel(s: PlanFlowStage): string { return STAGE_LABEL[s] ?? s; }
+export function stageIcon(s: PlanFlowStage): string  { return STAGE_ICON[s] ?? ""; }
+export function stageColor(s: PlanFlowStage)         { return STAGE_COLOR[s] ?? STAGE_COLOR.draft; }
+
+const KNOWN_STAGES = new Set<string>(PLAN_FLOW_STAGES);
+
+// Effective per-line status reads directly from the stored DB column.
+// Vendor selection (selected_vendor_quote_id) is NOT treated as awarded;
+// only a formal RFQ award sets status='awarded'.
+export function effectiveLineStatus(line: CostingLine): PlanFlowStage {
+  const s = line.status;
+  if (s && KNOWN_STAGES.has(s)) return s as PlanFlowStage;
+  return "draft";
+}
 
 export interface PlanFlowBucket {
   stage: PlanFlowStage;
@@ -59,21 +81,7 @@ export interface PlanFlowBucket {
 export interface PlanFlowSummary {
   buckets: Record<PlanFlowStage, PlanFlowBucket>;
   orderedBuckets: PlanFlowBucket[];
-  projectStatus: CostingStatus | null;
   lineStageById: Record<string, PlanFlowStage>;
-}
-
-function deriveLineStage(
-  line: CostingLine,
-  quotes: CostingLineVendor[] | undefined,
-  projectStatus: CostingStatus | null,
-): PlanFlowStage {
-  if (projectStatus === "closed" || projectStatus === "cancelled") return "closed";
-  if (line.selected_vendor_quote_id) return "awarded";
-  const liveQuotes = (quotes || []).filter((q) => q.status === "pending" || q.status === "received" || q.status === "selected");
-  if (liveQuotes.length > 0) return "quoted";
-  if (line.style_master_id) return "in_progress";
-  return "draft";
 }
 
 function lineCostTotal(line: CostingLine): number {
@@ -89,23 +97,17 @@ function lineSalesTotal(line: CostingLine): number {
 }
 
 export function usePlanFlow(): PlanFlowSummary {
-  const project      = useCostingStore((s) => s.project);
-  const lines        = useCostingStore((s) => s.lines);
-  const vendorQuotes = useCostingStore((s) => s.vendorQuotes);
+  const lines = useCostingStore((s) => s.lines);
 
   return useMemo(() => {
-    const projectStatus = project?.status ?? null;
     const lineStageById: Record<string, PlanFlowStage> = {};
-    const buckets: Record<PlanFlowStage, PlanFlowBucket> = {
-      draft:       { stage: "draft",       count: 0, totalCost: 0, totalSales: 0, lineIds: [] },
-      in_progress: { stage: "in_progress", count: 0, totalCost: 0, totalSales: 0, lineIds: [] },
-      quoted:      { stage: "quoted",      count: 0, totalCost: 0, totalSales: 0, lineIds: [] },
-      awarded:     { stage: "awarded",     count: 0, totalCost: 0, totalSales: 0, lineIds: [] },
-      closed:      { stage: "closed",      count: 0, totalCost: 0, totalSales: 0, lineIds: [] },
-    };
+    const buckets = {} as Record<PlanFlowStage, PlanFlowBucket>;
+    for (const stage of PLAN_FLOW_STAGES) {
+      buckets[stage] = { stage, count: 0, totalCost: 0, totalSales: 0, lineIds: [] };
+    }
 
     for (const line of lines) {
-      const stage = deriveLineStage(line, vendorQuotes[line.id], projectStatus);
+      const stage = effectiveLineStatus(line);
       lineStageById[line.id] = stage;
       const b = buckets[stage];
       b.count++;
@@ -115,6 +117,6 @@ export function usePlanFlow(): PlanFlowSummary {
     }
 
     const orderedBuckets = PLAN_FLOW_STAGES.map((s) => buckets[s]);
-    return { buckets, orderedBuckets, projectStatus, lineStageById };
-  }, [project, lines, vendorQuotes]);
+    return { buckets, orderedBuckets, lineStageById };
+  }, [lines]);
 }

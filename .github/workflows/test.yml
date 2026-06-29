@@ -5,6 +5,10 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  # Required so the `test` status check is produced for GitHub merge-queue
+  # groups. Without this trigger an enabled merge queue would wait forever
+  # for a check that never runs on the temporary gh-readonly-queue branch.
+  merge_group:
 
 jobs:
   test:
@@ -23,7 +27,19 @@ jobs:
           node-version: 22
           cache: "npm"
       - run: npm ci
-      # Type-check gate (the repo's vite/esbuild build only transpiles, so
-      # type errors used to slip through to runtime). Must stay green.
+      # api/ smoke-check: tsc covers only TypeScript and vitest never loads
+      # the dispatcher, so a SyntaxError / bad import in the plain-JS api/
+      # layer would otherwise reach prod and 500 every route at once
+      # (FUNCTION_INVOCATION_FAILED). Static parse + import-resolution gate.
+      - run: npm run check:api
+      # routes.js is generated from routes.manifest.js — fail if a PR edited
+      # the manifest (or a handler path) without regenerating routes.js.
+      - run: npm run gen:routes -- --check
+      # Type-check ratchet. The vite/esbuild build only transpiles, so type
+      # errors (incl. genuine ReferenceErrors) used to reach runtime. The OLD
+      # `tsc -p tsconfig.json` was a no-op (solution-style root config), so a
+      # backlog of ~150 errors built up. The ratchet runs the REAL `tsc -b`
+      # and fails ONLY on errors not already in scripts/typecheck-baseline.txt
+      # — new type errors are blocked; the baseline shrinks as files are fixed.
       - run: npm run typecheck
       - run: npm test

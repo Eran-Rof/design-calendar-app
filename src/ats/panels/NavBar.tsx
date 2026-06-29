@@ -1,17 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import S from "../styles";
-import { fmtDateDisplay } from "../helpers";
+import { fmtDateDisplay, pickColorImage } from "../helpers";
 import type { ATSRow, ATSPoEvent, ATSSoEvent, ExcelData } from "../types";
 import { computeGridTotals } from "../computeTotals";
 import { ExportOptionsModal, type ExportOptions } from "./ExportOptionsModal";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { SalesCompsModal } from "./SalesCompsModal";
 import { fetchSalesAggregates, type SalesFetchResult } from "../exportSalesFetch";
-import { buildExportPayload, type ExportPayload } from "../exportExcel";
+import { buildExportPayload, type ExportPayload, type AtsSizeMatrixResponse } from "../exportExcel";
+import { fetchDataUrls, type ExportImage } from "../../shared/exportImages";
 import type { ReportPayload } from "../reportPayload";
 import type { IncompleteSkusResult } from "../exportIncompleteSkus";
 import type { StockVsSoResult } from "../exportStockVsSo";
 import { getItemMasterById } from "../itemMasterLookup";
+import { periodAvail } from "../compute";
 import { filterRows } from "../filter";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
@@ -22,6 +24,45 @@ import { onAskAIRequest } from "../../ai/askAIBridge";
 import { ATS_REPORT_KEYS, type AtsReportKey, getAtsReportPermissionsFromSession } from "../../permissions";
 import { usePersonalization } from "../../hooks/usePersonalization";
 import FavoritesMenu from "../../components/FavoritesMenu";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
+
+// Build "STYLE|COLOR" → base64 data URL for the export's Image column. Resolves
+// each row's color-matched thumbnail (byColor[color] → style default) from the
+// PIM (same source + match logic as the grid), fetches the bytes (deduped),
+// and keys by the same STYLE|COLOR the export looks up. Failures are skipped —
+// a missing thumbnail never blocks the export.
+async function buildStyleImageMap(rows: ATSRow[]): Promise<Map<string, ExportImage>> {
+  const codes = Array.from(new Set(rows.map((r) => (r.master_style ?? "").trim().toUpperCase()).filter(Boolean)));
+  if (codes.length === 0) return new Map();
+  let info: Record<string, { default: string | null; byColor: Record<string, string> }> = {};
+  try {
+    const res = await fetch("/api/internal/pim/style-thumbs-by-code", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ style_codes: codes, variant: "web" }),
+    });
+    if (res.ok) info = await res.json();
+  } catch { /* no images — column just stays blank */ }
+  const keyToUrl = new Map<string, string>();
+  const urls = new Set<string>();
+  for (const r of rows) {
+    const code = (r.master_style ?? "").trim().toUpperCase();
+    const colorRaw = (r.master_color ?? "").trim();
+    const ent = info[code];
+    if (!ent) continue;
+    const url = pickColorImage(ent.byColor, colorRaw, ent.default ?? null) ?? "";
+    if (!url) continue;
+    keyToUrl.set(`${code}|${colorRaw.toUpperCase()}`, url);
+    urls.add(url);
+  }
+  if (urls.size === 0) return new Map();
+  // Trim the white studio background so the garment fills the export cell
+  // (PIM shots frame the product in a tall white canvas).
+  const dataByUrl = await fetchDataUrls([...urls], { trimWhitespace: true });
+  const out = new Map<string, ExportImage>();
+  for (const [key, url] of keyToUrl) { const d = dataByUrl.get(url); if (d) out.set(key, d); }
+  return out;
+}
 
 // Fetch ip_item_master rows for sku_ids the local cache doesn't
 // already have. Used by the cross-grid synthetic-row flow when a
@@ -210,11 +251,26 @@ interface NavBarProps {
     salesAggregates?: SalesFetchResult,
     explodePpk?: boolean,
     customerSoMap?: Map<string, { qty: number; soPrice: number }>,
+    sizeMatrix?: AtsSizeMatrixResponse,
+    bulkByStyleColor?: Map<string, { so: number; po: number }>,
+    periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+    styleImages?: Map<string, ExportImage>,
   ) => void;
   // Grid's current Explode PPK toggle — passed through so the export
   // mirrors the grain the operator is looking at on screen.
   explodePpk: boolean;
+  // The CALC set — filtered rows MINUS the operator's excluded ("X") rows.
+  // This is what every report/export consumes by default, so exclusions
+  // flow through automatically. The "Include" choice in the exclusion
+  // warning swaps in `fullFiltered`.
   filtered: ATSRow[];
+  // The full filtered set INCLUDING excluded rows — used only when the
+  // operator picks "Include" in the pre-report exclusion warning.
+  fullFiltered: ATSRow[];
+  // Rows the operator has excluded via the "X" column (for the warning
+  // list shown before a report runs). Empty = no warning, reports run
+  // straight through.
+  excludedRows: ATSRow[];
   // Auto-default for the export-options modal's customer dropdown.
   // Picks up whatever the grid toolbar currently has selected.
   customerFilter: string;
@@ -254,10 +310,12 @@ interface NavBarProps {
   // to the modal's Download button so every ATS report gets a
   // view-before-download flow with app-themed preview colors. The
   // downloaded .xlsx keeps the Excel-native palette unchanged.
-  onNegInven: () => ReportPayload | null;
-  onAgedInven: (days: number, category: string) => "empty" | ReportPayload;
-  onDownloadIncompleteSkus: () => IncompleteSkusResult;
-  onDownloadStockVsSo: () => StockVsSoResult;
+  // includeExcluded (from the pre-report exclusion warning) decides whether
+  // the "X"-marked rows are counted in the report; default excludes them.
+  onNegInven: (includeExcluded?: boolean) => ReportPayload | null;
+  onAgedInven: (days: number, category: string, includeExcluded?: boolean) => "empty" | ReportPayload;
+  onDownloadIncompleteSkus: (includeExcluded?: boolean) => IncompleteSkusResult;
+  onDownloadStockVsSo: (includeExcluded?: boolean) => StockVsSoResult;
   categories: string[];
   // Full filter option lists from the broader dataset — used by Sales
   // Comps so the operator can broaden the report past the grid's
@@ -303,7 +361,7 @@ interface NavBarProps {
 export const NavBar: React.FC<NavBarProps> = ({
   mergeHistory, undoLastMerge, onNavigateHome, setShowUpload,
   uploadingFile, invFile, purFile, ordFile,
-  exportToExcel, filtered, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
+  exportToExcel, filtered, fullFiltered, excludedRows, displayPeriods, hiddenColumns, showTotalsRow, eventIndex, viewMode, generalMarginPct, onNegInven, onAgedInven, onDownloadIncompleteSkus, onDownloadStockVsSo,
   categories, subCategories, styles, STORES, filterCategory,
   customerFilter, exportFilterOpts, explodePpk,
   unreadNotifs, showingNotifications, onToggleNotifications,
@@ -372,6 +430,10 @@ export const NavBar: React.FC<NavBarProps> = ({
       aoa: payload.aoa,
       wb: payload.wb,
       filename: payload.filename,
+      // Preserve the non-main worksheet AOAs (By Size Matrix + per-period
+      // tabs) — without this the preview's tab lookup finds nothing and the
+      // matrix/period tabs render blank.
+      extraSheets: payload.extraSheets,
     };
     setPreviewPayload(normalized);
     setPreviewBodyCount(Math.max(0, payload.aoa.length - 1));
@@ -388,6 +450,40 @@ export const NavBar: React.FC<NavBarProps> = ({
   // same handler that the dedicated buttons used to fire; the Aged Inven
   // entry still opens the days/category modal before downloading.
   const [reportsOpen, setReportsOpen] = useState(false);
+  // ── Pre-report exclusion warning ──────────────────────────────────────
+  // When any report/export runs while rows are excluded ("X" column), we
+  // first show a warning listing the excluded styles with Continue (run
+  // excluding them) / Cancel / Include (count them this once). `excludeGate`
+  // holds the pending runner (a fn of `includeExcluded`); `reportInclude`
+  // carries the choice into the deferred modal-based reports (Export Excel,
+  // Sales Comps) that read it at build time.
+  const hasExclusions = (excludedRows?.length ?? 0) > 0;
+  const [excludeGate, setExcludeGate] = useState<{ run: (include: boolean) => void } | null>(null);
+  const [reportInclude, setReportInclude] = useState(false);
+  // Run a report through the exclusion gate. No exclusions → run straight
+  // through (excluding nothing). Otherwise stash the runner and open the
+  // warning modal.
+  const gateReport = (run: (include: boolean) => void) => {
+    if (hasExclusions) { setReportsOpen(false); setExcludeGate({ run }); }
+    else run(false);
+  };
+  const resolveGate = (include: boolean) => {
+    const g = excludeGate;
+    setExcludeGate(null);
+    g?.run(include);
+  };
+  // Distinct excluded styles for the warning list (style # + description).
+  const excludedStyleList = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Array<{ style: string; description: string }> = [];
+    for (const r of excludedRows ?? []) {
+      const style = r.master_style ?? r.sku;
+      if (seen.has(style)) continue;
+      seen.add(style);
+      out.push({ style, description: r.master_description ?? r.description ?? "" });
+    }
+    return out.sort((a, b) => a.style.localeCompare(b.style));
+  }, [excludedRows]);
   // Per-report permission gate (default-true semantics — see
   // getAtsReportPermissionsFromSession). Resolved once per render; the
   // session payload only changes on login/logout so there's no value in
@@ -413,7 +509,10 @@ export const NavBar: React.FC<NavBarProps> = ({
   // sales pre-fetch failed catastrophically (the modal stays open so
   // the operator can retry or adjust).
   async function prepareExportArgs(opts: ExportOptions) {
-    let rowsForExport = filtered.filter(r => !r.__collapsed);
+    // Base set respects the exclusion choice: default = calc set (excluded
+    // dropped); "Include" = full filtered set.
+    const baseRows = reportInclude ? fullFiltered : filtered;
+    let rowsForExport = baseRows.filter(r => !r.__collapsed);
 
     // Hydrate avgCost for rows the ATS snapshot left blank — typically
     // SKUs that are currently out-of-stock but have incoming POs (the
@@ -858,7 +957,166 @@ export const NavBar: React.FC<NavBarProps> = ({
       }
     }
 
-    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap };
+    // By Size Matrix worksheet(s). The size cells show TRUE size-grain
+    // ATS-available straight from /api/internal/ats-size-matrix (on-hand −
+    // reservations [+ incoming-by-period for the period tabs], per size) so the
+    // matrix MATCHES Tangerine/Xoro per size (operator decision — supersedes
+    // the earlier reprojection that split the main report's color total by an
+    // on-hand shape). NOTE: because the size cells are true size-grain and the
+    // main report's color total is netted vs the color-grain Xoro On Order, the
+    // matrix per-color total can differ from the main color sheet by the
+    // netting. SO/PO stay the main report's loose On Order / On PO (color-grain
+    // — no size split); PPK packs come from the PPK style rows' ATS.
+    let sizeMatrix: AtsSizeMatrixResponse | undefined;
+    let bulkByStyleColor: Map<string, { so: number; po: number }> | undefined;
+    let periodMatrices: Array<{ name: string; matrix: AtsSizeMatrixResponse }> | undefined;
+    if (opts.bySizeMatrix) {
+      const stemOf = (s: string) => s.replace(/-?PPK\d*$/i, "").toUpperCase();
+      const isPpk = (s: string) => /PPK/i.test(s);
+      const styleOf = (r: ATSRow) => (r.master_style && r.master_style.trim()) || String(r.sku || "").split(" - ")[0].trim();
+      const colorOf = (r: ATSRow) => (r.master_color && r.master_color.trim()) || String(r.sku || "").split(" - ").slice(1).join(" - ").trim();
+      const nPer = periods.length;
+
+      type CAcc = { color: string; so: number; po: number; total: number; per: number[]; ppkSo: number; ppkPo: number; ppkUnitsTotal: number; ppkUnitsPer: number[] };
+      const byStem = new Map<string, { packSize: number; colors: Map<string, CAcc> }>();
+      const ensureStem = (stem: string) => { let s = byStem.get(stem); if (!s) { s = { packSize: 0, colors: new Map() }; byStem.set(stem, s); } return s; };
+      const ensureColor = (st: { colors: Map<string, CAcc> }, color: string) => {
+        const k = color.toUpperCase(); let c = st.colors.get(k);
+        if (!c) { c = { color, so: 0, po: 0, total: 0, per: Array(nPer).fill(0), ppkSo: 0, ppkPo: 0, ppkUnitsTotal: 0, ppkUnitsPer: Array(nPer).fill(0) }; st.colors.set(k, c); }
+        return c;
+      };
+      for (const r of finalRows) {
+        if (r.__collapsed) continue; // aggregate rows would double-count
+        const styleRaw = styleOf(r); if (!styleRaw) continue;
+        const st = ensureStem(stemOf(styleRaw));
+        const ca = ensureColor(st, colorOf(r));
+        const perVals = periods.map((_, i) => periodAvail(r, periods, i));
+        const tot = perVals.reduce((a, b) => a + b, 0);
+        if (isPpk(styleRaw)) {
+          const mult = (r.ppkMult && r.ppkMult > 1) ? r.ppkMult : 1;
+          if (mult > 1) st.packSize = mult;
+          ca.ppkSo += Number(r.onOrder) || 0;
+          ca.ppkPo += Number(r.onPO) || 0;
+          ca.ppkUnitsTotal += tot;
+          perVals.forEach((v, i) => { ca.ppkUnitsPer[i] += v; });
+        } else {
+          ca.so += Number(r.onOrder) || 0;
+          ca.po += Number(r.onPO) || 0;
+          ca.total += tot;
+          perVals.forEach((v, i) => { ca.per[i] += v; });
+        }
+      }
+
+      // Bulk SO/PO for the matrix builder: loose On Order / On PO keyed by the
+      // loose stem; when exploding, PPK rows become their own block keyed by
+      // "<stem>PPK" so they pick up the PPK style's own On Order / On PO.
+      bulkByStyleColor = new Map();
+      for (const [stem, st] of byStem) for (const ca of st.colors.values()) {
+        bulkByStyleColor.set(`${stem}|${ca.color.toUpperCase()}`, { so: ca.so, po: ca.po });
+        bulkByStyleColor.set(`${stem}PPK|${ca.color.toUpperCase()}`, { so: ca.ppkSo, po: ca.ppkPo });
+      }
+
+      const styleCodes = [...byStem.keys()];
+      if (styleCodes.length > 0) {
+        const fetchShape = async (asOf?: string): Promise<AtsSizeMatrixResponse | null> => {
+          try {
+            const resp = await fetch("/api/internal/ats-size-matrix", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(asOf ? { style_codes: styleCodes, as_of_date: asOf } : { style_codes: styleCodes }),
+            });
+            return resp.ok ? await resp.json() : null;
+          } catch { return null; }
+        };
+        // stem(upper) → { sizes, style_name, packFromShape, shapeByColor: colorUpper → by_size }
+        const indexShape = (resp: AtsSizeMatrixResponse | null) => {
+          const m = new Map<string, { sizes: string[]; style_name: string; packFromShape: number; shapeByColor: Map<string, Record<string, number>> }>();
+          for (const s of resp?.styles ?? []) {
+            const shapeByColor = new Map<string, Record<string, number>>();
+            for (const c of s.colors ?? []) shapeByColor.set(String(c.color).toUpperCase(), c.by_size || {});
+            m.set(String(s.style_code).toUpperCase(), { sizes: s.sizes || [], style_name: s.style_name || s.style_code, packFromShape: s.pack_size || 0, shapeByColor });
+          }
+          return m;
+        };
+        // Reproject one display matrix from per-(stem,color) totals + a shape.
+        const buildDisplay = (
+          metaIdx: ReturnType<typeof indexShape>,
+          shapeIdx: ReturnType<typeof indexShape>,
+          pickPpkUnits: (ca: CAcc) => number,
+        ): AtsSizeMatrixResponse => {
+          const styles: AtsSizeMatrixResponse["styles"] = [];
+          for (const [stem, st] of byStem) {
+            const meta = metaIdx.get(stem) || { sizes: [], style_name: stem, packFromShape: 0, shapeByColor: new Map() };
+            const packSize = st.packSize || meta.packFromShape || 0;
+            const shapeStem = shapeIdx.get(stem);
+
+            // Loose block — units by size. When Explode PPK is OFF the PPK pack
+            // count rides as a column here; when ON, PPK becomes its own block
+            // below so this column stays empty.
+            const looseColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+            for (const ca of st.colors.values()) {
+              const ppkPacks = (!explodePpk && packSize > 1) ? Math.round(pickPpkUnits(ca) / packSize) : 0;
+              // TRUE size-grain available straight from the ats-size-matrix
+              // shape (on-hand − reservations [+ incoming for period tabs]).
+              // total_eachs = Σ over the scale's sizes. No reprojection.
+              const shape = shapeStem?.shapeByColor.get(ca.color.toUpperCase()) || {};
+              const bySize: Record<string, number> = {};
+              let sizeTot = 0;
+              for (const sz of meta.sizes) {
+                const q = Number(shape[sz]) || 0;
+                if (q > 0) { bySize[sz] = q; sizeTot += q; }
+              }
+              if (sizeTot <= 0 && ppkPacks <= 0) continue;
+              looseColors.push({ color: ca.color, by_size: bySize, total_eachs: sizeTot, ppk_packs: ppkPacks });
+            }
+            if (looseColors.length) styles.push({ style_code: stem, style_name: meta.style_name, sizes: meta.sizes, pack_size: packSize, colors: looseColors.sort((a, b) => a.color.localeCompare(b.color)) });
+
+            // Explode ON → PPK style as its OWN block (main-report row format):
+            // exploded units as a BULK number in the ATS/Total Eachs column
+            // (size cells blank until prepack compositions are configured), with
+            // the pack count alongside (PPK / Total PPK<n>). e.g. 10 PPK24 = 240.
+            if (explodePpk && packSize > 1) {
+              const ppkColors: AtsSizeMatrixResponse["styles"][number]["colors"] = [];
+              for (const ca of st.colors.values()) {
+                const units = pickPpkUnits(ca);
+                if (units <= 0) continue;
+                ppkColors.push({ color: ca.color, by_size: {}, total_eachs: units, ppk_packs: Math.round(units / packSize) });
+              }
+              if (ppkColors.length) styles.push({ style_code: `${stem}PPK`, style_name: `${meta.style_name} — Prepacks (exploded units)`, sizes: meta.sizes, pack_size: packSize, colors: ppkColors.sort((a, b) => a.color.localeCompare(b.color)) });
+            }
+          }
+          return { as_of: null, styles };
+        };
+
+        const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const toIso = (d: string): string | null => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+          const dt = new Date(d); return isNaN(dt.getTime()) ? null : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+        };
+        const nameOf = (endDate: string, label: string) => { const dt = new Date(endDate); return isNaN(dt.getTime()) ? label : `${MONTHS[dt.getMonth()]} ${dt.getFullYear()}`; };
+
+        // Snapshot shape (on-hand by size) → metadata + the snapshot tab's shape.
+        const metaIdx = indexShape(await fetchShape());
+
+        // Per-period shapes (as_of), in parallel, capped.
+        const periodsToFetch = displayPeriods.slice(0, 24);
+        const shapeResps = await Promise.all(periodsToFetch.map(async (p, i) => ({ p, i, shape: indexShape(toIso(p.endDate) ? await fetchShape(toIso(p.endDate)!) : null) })));
+
+        // Snapshot tab = TRUE current size-grain available (on-hand − reservations).
+        sizeMatrix = buildDisplay(metaIdx, metaIdx, (ca) => ca.ppkUnitsTotal);
+        // One tab per period = TRUE size-grain available as of that period (adds
+        // incoming size-grain PO due by then), straight from that period's shape.
+        periodMatrices = [];
+        for (const { p, i, shape } of shapeResps) {
+          const display = buildDisplay(metaIdx, shape, (ca) => ca.ppkUnitsPer[i]);
+          if (display.styles.length) periodMatrices.push({ name: nameOf(p.endDate, p.label), matrix: display });
+        }
+      }
+    }
+
+    // Style thumbnails for the optional Image column — fetched here (async)
+    // so buildExportPayload stays synchronous. Off → undefined → no column.
+    const styleImages = opts.images ? await buildStyleImageMap(finalRows) : undefined;
+    return { rowsForExport: finalRows, periods, totals, salesAggregates, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices, styleImages };
   }
 
   return (
@@ -953,21 +1211,21 @@ export const NavBar: React.FC<NavBarProps> = ({
                 menuKey: "ats/reports/export-excel",
                 label: "Export Excel…",
                 sub: "Pick subtotals / cost / trailing options, then view + download",
-                onClick: () => { setExportOptsOpen(true); setReportsOpen(false); },
+                onClick: () => gateReport((include) => { setReportInclude(include); setExportOptsOpen(true); }),
               },
               {
                 key: "negInven",
                 menuKey: "ats/reports/neg-inven",
                 label: "Neg Inven",
                 sub: "Preview the negative-inventory report, then download",
-                onClick: () => {
-                  const payload = onNegInven();
+                onClick: () => gateReport((include) => {
+                  const payload = onNegInven(include);
                   if (!payload) {
                     alert("No negative-ATS rows in the current grid filter.");
                     return;
                   }
                   openPreview(payload);
-                },
+                }),
               },
               {
                 key: "agedInven",
@@ -981,18 +1239,18 @@ export const NavBar: React.FC<NavBarProps> = ({
                 menuKey: "ats/reports/no-mrgn",
                 label: "NO Mrgn Data",
                 sub: "Styles with no open SO, no avg cost, no PO cost (the red Mrgn:* asterisks)",
-                onClick: () => {
-                  const { payload } = onDownloadIncompleteSkus();
+                onClick: () => gateReport((include) => {
+                  const { payload } = onDownloadIncompleteSkus(include);
                   openPreview(payload);
-                },
+                }),
               },
               {
                 key: "stockVsSo",
                 menuKey: "ats/reports/stock-vs-so",
                 label: "Stock Vs SO",
                 sub: "Per-SO breakdown: stock-fill vs incoming PO vs needs-new-PO",
-                onClick: () => {
-                  const result = onDownloadStockVsSo();
+                onClick: () => gateReport((include) => {
+                  const result = onDownloadStockVsSo(include);
                   if (result.kind === "no-events") {
                     alert("No event data loaded — open the ATS report and let the data finish loading first.");
                     return;
@@ -1002,14 +1260,14 @@ export const NavBar: React.FC<NavBarProps> = ({
                     return;
                   }
                   openPreview(result.payload);
-                },
+                }),
               },
               {
                 key: "salesComps",
                 menuKey: "ats/reports/sales-comps",
                 label: "Sales Comps…",
                 sub: "TY vs same-period-LY for the date range + filters you pick",
-                onClick: () => { setSalesCompsOpen(true); setReportsOpen(false); },
+                onClick: () => gateReport((include) => { setReportInclude(include); setSalesCompsOpen(true); }),
               },
             ] as const)
               // Per-report permission gate. atsReportsPerm[key] is true unless
@@ -1067,7 +1325,7 @@ export const NavBar: React.FC<NavBarProps> = ({
           onClick={() => setAiOpen(true)}
           title="Ask Claude about the grid — filter, sort, or get a quick answer"
         >
-          ✨ Ask AI
+          Ask AI
         </button>
       )}
       <button
@@ -1082,7 +1340,7 @@ export const NavBar: React.FC<NavBarProps> = ({
         onClick={onToggleNotifications}
         title="Notifications"
       >
-        🔔 Notifications
+        Notifications
         {unreadNotifs > 0 && (
           <span style={{
             minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -1114,7 +1372,7 @@ export const NavBar: React.FC<NavBarProps> = ({
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
         onClick={() => setAgedOpen(false)}
       >
-        <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, width: 320, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
+        <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 12, padding: 28, width: "min(320px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}
           onClick={e => e.stopPropagation()}
         >
           <div style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9", marginBottom: 6 }}>Aged Inventory Report</div>
@@ -1128,18 +1386,17 @@ export const NavBar: React.FC<NavBarProps> = ({
             min={1}
             value={agedDays}
             onChange={e => setAgedDays(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } } }}
+            onKeyDown={e => { if (e.key === "Enter") { const d = parseInt(agedDays); if (d > 0) gateReport((include) => { const r = onAgedInven(d, agedCategory, include); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } }); } }}
             autoFocus
             style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 15, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 16 }}
           />
           <label style={{ fontSize: 12, color: "#94A3B8", display: "block", marginBottom: 6 }}>Category</label>
-          <select
-            value={agedCategory}
-            onChange={e => setAgedCategory(e.target.value)}
-            style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 14, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20, cursor: "pointer" }}
-          >
-            {categories.map(c => <option key={c} value={c}>{c === "All" ? "All Categories" : c}</option>)}
-          </select>
+          <SearchableSelect
+            value={agedCategory || null}
+            onChange={v => setAgedCategory(v)}
+            options={categories.map(c => ({ value: c, label: c === "All" ? "All Categories" : c }))}
+            inputStyle={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 8, color: "#F1F5F9", fontSize: 14, padding: "8px 12px", outline: "none", boxSizing: "border-box" as const, marginBottom: 20, cursor: "pointer" }}
+          />
           {agedEmpty && (
             <div style={{ color: "#F87171", fontSize: 12, marginBottom: 14, padding: "8px 12px", background: "rgba(248,113,113,0.08)", borderRadius: 6, border: "1px solid rgba(248,113,113,0.2)" }}>
               No aged inventory found for {agedCategory !== "All" ? `${agedCategory} – ` : ""}{agedDays}+ days.
@@ -1151,7 +1408,7 @@ export const NavBar: React.FC<NavBarProps> = ({
               Cancel
             </button>
             <button
-              onClick={() => { const d = parseInt(agedDays); if (d > 0) { const r = onAgedInven(d, agedCategory); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } } }}
+              onClick={() => { const d = parseInt(agedDays); if (d > 0) gateReport((include) => { const r = onAgedInven(d, agedCategory, include); if (r === "empty") setAgedEmpty(true); else { setAgedOpen(false); openPreview(r); } }); }}
               style={{ background: "#1D6F42", border: "1px solid #155734", color: "#fff", borderRadius: 6, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               View Report
             </button>
@@ -1178,6 +1435,10 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
+          prep.periodMatrices,
+          prep.styleImages,
         );
         setExportOptsOpen(false);
       }}
@@ -1194,6 +1455,10 @@ export const NavBar: React.FC<NavBarProps> = ({
           prep.salesAggregates,
           explodePpk,
           prep.customerSoMap,
+          prep.sizeMatrix,
+          prep.bulkByStyleColor,
+          prep.periodMatrices,
+          prep.styleImages,
         );
         if (!payload) return;
         // Main-grid export remembers the options modal so the preview's
@@ -1238,10 +1503,62 @@ export const NavBar: React.FC<NavBarProps> = ({
         allSubCategories={subCategories}
         allStyles={styles}
         allStores={STORES}
-        rows={filtered}
+        rows={reportInclude ? fullFiltered : filtered}
         excelData={excelData}
         explodePpk={explodePpk}
       />
+    )}
+
+    {/* Pre-report exclusion warning — lists the excluded ("X") styles and
+        lets the operator Continue (run excluding them), Cancel, or Include
+        them for this one run. Shown before ANY report/export when rows are
+        excluded. */}
+    {excludeGate && (
+      <div
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        onClick={() => setExcludeGate(null)}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 12, width: "min(560px, 95vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 16px 48px rgba(0,0,0,0.5)" }}
+        >
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ color: "#F1F5F9", fontSize: 15, fontWeight: 700 }}>This report excludes {excludedStyleList.length} style{excludedStyleList.length === 1 ? "" : "s"}</span>
+          </div>
+          <div style={{ padding: "14px 20px", overflowY: "auto", flex: 1 }}>
+            <div style={{ color: "#94A3B8", fontSize: 13, marginBottom: 10 }}>
+              The following styles are marked excluded (the “X” column) and will be left out of this report and all totals. Continue to run without them, Include to count them this once, or Cancel.
+            </div>
+            <div style={{ border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+              {excludedStyleList.map((s, i) => (
+                <div
+                  key={s.style}
+                  style={{ display: "flex", gap: 10, padding: "7px 12px", fontSize: 12, background: i % 2 ? "#1E293B" : "#162032", borderBottom: i < excludedStyleList.length - 1 ? "1px solid #243048" : "none" }}
+                >
+                  <span style={{ fontFamily: "monospace", color: "#60A5FA", fontWeight: 700, minWidth: 96 }}>{s.style}</span>
+                  <span style={{ color: "#CBD5E1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.description || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ padding: "14px 20px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button
+              onClick={() => setExcludeGate(null)}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#CBD5E1", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >Cancel</button>
+            <button
+              onClick={() => resolveGate(true)}
+              title="Run this report counting the excluded styles, just this once (they stay excluded everywhere else)"
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #B45309", background: "rgba(245,158,11,0.15)", color: "#FCD34D", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >Include them</button>
+            <button
+              onClick={() => resolveGate(false)}
+              title="Run this report without the excluded styles"
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #047857", background: "rgba(16,185,129,0.15)", color: "#6EE7B7", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+            >Continue</button>
+          </div>
+        </div>
+      </div>
     )}
     {exportLoading && (
       <div style={{

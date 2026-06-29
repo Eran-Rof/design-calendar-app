@@ -3,6 +3,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import SearchableSelect from "./components/SearchableSelect";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 interface Card {
   id: string;
@@ -77,16 +79,18 @@ export default function InternalVirtualCards() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>PAN + CVV are AES-256-GCM encrypted; only last4 is ever shown here. Vendors see the full details for 24 hours via a one-time reveal link.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="spent">Spent</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="expired">Expired</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "active", label: "Active" }, { value: "spent", label: "Spent" }, { value: "cancelled", label: "Cancelled" }, { value: "expired", label: "Expired" }, { value: "", label: "All" }]}
+            inputStyle={selectSt}
+          />
           <button onClick={() => setIssueOpen(true)} style={btnPrimary}>+ Issue card</button>
           <ExportButton
             rows={rows.map((c) => ({
@@ -125,7 +129,7 @@ export default function InternalVirtualCards() {
           {rows.map((c) => (
             <div key={c.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
-                <div style={{ fontWeight: 600 }}>{c.vendor?.name || c.vendor_id}</div>
+                <div style={{ fontWeight: 600 }}>{c.vendor?.name || "—"}</div>
                 <div style={{ fontSize: 11, color: C.textMuted }}>Inv {c.invoice?.invoice_number || "—"}</div>
               </div>
               <div style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>•••• {c.card_number_last4} · {String(c.expiry_month).padStart(2, "0")}/{c.expiry_year}</div>
@@ -133,9 +137,9 @@ export default function InternalVirtualCards() {
               <div style={{ color: C.warn }}>${Number(c.amount_spent).toLocaleString()}</div>
               <div style={{ color: C.textSub, fontSize: 11, textTransform: "uppercase" }}>{c.provider}</div>
               <div><StatusChip status={c.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(c.issued_at).toLocaleDateString()}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(c.issued_at)}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
+                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}
               </div>
             </div>
@@ -152,12 +156,12 @@ export default function InternalVirtualCards() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: 560, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <h3 style={{ margin: 0, fontSize: 16 }}>
                 Documents — card •••• {docsCard.card_number_last4}
-                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || docsCard.vendor_id}</span>
+                <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{docsCard.vendor?.name || "—"}</span>
               </h3>
               <button onClick={() => setDocsCard(null)} style={{ ...btnMini }}>Close</button>
             </div>
@@ -177,6 +181,18 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
   const [invoiceId, setInvoiceId] = useState("");
   const [provider, setProvider] = useState<"stripe" | "marqeta" | "railsbank">("stripe");
   const [saving, setSaving] = useState(false);
+  // Approved AP invoices, picked by number (no raw UUID input).
+  const [invoiceOpts, setInvoiceOpts] = useState<Array<{ id: string; invoice_number: string | null; vendor_id: string | null }>>([]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch(`/api/internal/ap-invoices?status=posted`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (Array.isArray(data)) setInvoiceOpts(data);
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
   const [result, setResult] = useState<{ reveal_url: string; card: { card_number_last4: string; credit_limit: number } } | null>(null);
 
   async function issue() {
@@ -199,13 +215,26 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>{result ? "Card issued" : "Issue virtual card"}</h3>
         {!result ? (
           <>
-            <Row label="Invoice ID"><input value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} placeholder="UUID of the approved invoice" style={inp} /></Row>
+            <Row label="Invoice">
+              <SearchableSelect
+                value={invoiceId || null}
+                onChange={(v) => setInvoiceId(v || "")}
+                options={invoiceOpts.map((iv) => ({
+                  value: iv.id,
+                  label: iv.invoice_number || "(no number)",
+                  searchHaystack: `${iv.invoice_number || ""}`,
+                }))}
+                placeholder="Search approved invoice by number…"
+                emptyText="No posted AP invoices"
+              />
+            </Row>
             <Row label="Provider">
-              <select value={provider} onChange={(e) => setProvider(e.target.value as "stripe")} style={inp}>
-                <option value="stripe">Stripe</option>
-                <option value="marqeta">Marqeta</option>
-                <option value="railsbank">Railsbank</option>
-              </select>
+              <SearchableSelect
+                value={provider}
+                onChange={(v) => setProvider(v as "stripe")}
+                options={[{ value: "stripe", label: "Stripe" }, { value: "marqeta", label: "Marqeta" }, { value: "railsbank", label: "Railsbank" }]}
+                inputStyle={inp}
+              />
             </Row>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={onClose} style={btnSecondary}>Cancel</button>
@@ -243,8 +272,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

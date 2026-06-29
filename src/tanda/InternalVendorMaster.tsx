@@ -19,7 +19,8 @@
 //   • SearchableSelect     — payment_terms picker in the modal (list grows
 //                            past the 7-option adoption threshold once finance
 //                            wires the full term catalog).
-//   The status select stays a native <select> (3 fixed options).
+//   The status picker is now a themed SearchableSelect too (3 fixed options)
+//   so its open popup matches the app dark theme on Windows.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -29,8 +30,12 @@ import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the vendor detail modal.
 import RowHistory from "./components/RowHistory";
 import AddressFields, { type Address } from "./components/AddressFields";
+import MailLink from "./components/MailLink";
+import { composePhone, localPhoneDigits, dialCodeFromStored } from "../shared/phone";
 // Wave 5 universal primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -51,6 +56,7 @@ type Vendor = {
   contact_title: string | null;
   email: string | null;
   phone: string | null;
+  phone_country_code: number | null;
   website: string | null;
   wechat_id: string | null;
   moq: number | null;
@@ -73,6 +79,12 @@ type GlAccount = {
   name: string;
   is_postable: boolean;
   status: string;
+};
+
+type CountryRow = {
+  iso2: string;
+  name: string;
+  phone_code: number | null;
 };
 
 type PaymentTermOption = {
@@ -115,19 +127,21 @@ const btnDanger: React.CSSProperties = {
 };
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", colorScheme: "dark",
 };
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  boxSizing: "border-box", display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -186,6 +200,11 @@ export default function InternalVendorMaster() {
     VENDOR_MASTER_COLUMNS,
   );
   const isVisible = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  // payment_terms renders a resolved lookup, so it stays non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:vendormaster:sort",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -288,7 +307,7 @@ export default function InternalVendorMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -297,17 +316,17 @@ export default function InternalVendorMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("country")}>Country</th>
-                <th style={th} hidden={!isVisible("status")}>Status</th>
-                <th style={th} hidden={!isVisible("is_1099_vendor")}>1099</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Country" sortKey="country" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("country")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
+                <SortableTh label="1099" sortKey="is_1099_vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_1099_vendor")} />
                 <th style={th} hidden={!isVisible("payment_terms")}>Payment terms</th>
                 <th style={{ ...th, width: 200 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}
@@ -343,7 +362,7 @@ export default function InternalVendorMaster() {
                       title="Open vendor scorecard (lead time, on-time %, purchases, invoices, POs)"
                       aria-label={`Open scorecard for ${r.name}`}
                     >
-                      📊 Scorecard
+                      Scorecard
                     </button>
                     {!r.deleted_at && (
                       <>
@@ -383,7 +402,10 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
     contact:                       vendor?.contact                       ?? "",
     contact_title:                 vendor?.contact_title                 ?? "",
     email:                         vendor?.email                         ?? "",
+    // phone holds the editable NATIONAL number; phone_country_code is the dial
+    // code. We split the stored composed value once countries load (effect below).
     phone:                         vendor?.phone                         ?? "",
+    phone_country_code:            vendor?.phone_country_code != null ? String(vendor.phone_country_code) : "",
     address:                       (typeof vendor?.address === "object" && vendor.address !== null
                                      ? vendor.address
                                      : {}) as Address,
@@ -400,6 +422,9 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  const [phoneSplit, setPhoneSplit] = useState(false);
+
   // Load postable GL accounts for the AP + expense account pickers.
   useEffect(() => {
     fetch("/api/internal/gl-accounts?limit=1000")
@@ -407,6 +432,64 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
       .then((arr: GlAccount[]) => setGlAccounts(Array.isArray(arr) ? arr.filter((a) => a.status === "active" && a.is_postable) : []))
       .catch(() => {});
   }, []);
+
+  // Country master powers both the Country dropdown (names only, Vendor #1/#2)
+  // and the phone dial-code dropdown (Vendor #3).
+  useEffect(() => {
+    fetch("/api/internal/countries")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: CountryRow[]) => setCountries(Array.isArray(arr) ? arr : []))
+      .catch(() => {});
+  }, []);
+
+  // Country dropdown — NAMES ONLY (iso2 kept in the search haystack). Tolerates
+  // a legacy free-text/iso2 value by injecting it as a one-off option.
+  const countryOptions = useMemo(() => {
+    const raw = String(form.country ?? "");
+    const matched = countries.find((c) => c.iso2 === raw.toUpperCase() || c.name.toLowerCase() === raw.toLowerCase());
+    const opts = [
+      { value: "", label: "(select)" },
+      ...countries.map((c) => ({ value: c.iso2, label: c.name, searchHaystack: `${c.name} ${c.iso2}` })),
+    ];
+    if (raw && !matched && !opts.some((o) => o.value === raw)) {
+      opts.splice(1, 0, { value: raw, label: raw, searchHaystack: raw });
+    }
+    return opts;
+  }, [countries, form.country]);
+  const countryValue = useMemo(() => {
+    const raw = String(form.country ?? "");
+    const matched = countries.find((c) => c.iso2 === raw.toUpperCase() || c.name.toLowerCase() === raw.toLowerCase());
+    return matched?.iso2 || raw;
+  }, [countries, form.country]);
+
+  // Phone dial-code dropdown — distinct numeric E.164 codes from the master,
+  // deduped (US/CA/… share +1). Numeric by construction (options are codes).
+  const dialOptions = useMemo(() => {
+    const byCode = new Map<number, string[]>();
+    for (const c of countries) {
+      if (c.phone_code == null) continue;
+      const arr = byCode.get(c.phone_code) || [];
+      arr.push(c.name);
+      byCode.set(c.phone_code, arr);
+    }
+    return [...byCode.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([code, names]) => ({
+        value: String(code),
+        label: `+${code}`,
+        searchHaystack: `+${code} ${code} ${names.join(" ")}`,
+      }));
+  }, [countries]);
+  const knownCodes = useMemo(() => countries.map((c) => c.phone_code).filter((n): n is number => n != null), [countries]);
+
+  // Once countries are loaded, split the stored composed phone into
+  // (dial code, national number) for the two-field editor — exactly once.
+  useEffect(() => {
+    if (phoneSplit || countries.length === 0) return;
+    const code = form.phone_country_code || (mode === "add" ? "1" : dialCodeFromStored(vendor?.phone ?? "", knownCodes));
+    setForm((f) => ({ ...f, phone_country_code: code, phone: localPhoneDigits(code, vendor?.phone ?? "") }));
+    setPhoneSplit(true);
+  }, [countries, phoneSplit, knownCodes, mode, vendor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wave 5 — payment-terms picker via SearchableSelect. We include inactive
   // terms only if they are the currently-selected term (so editing an old
@@ -418,17 +501,18 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
         .filter((t) => t.is_active || t.id === form.payment_terms_id)
         .map((t) => ({
           value: t.id,
-          label: `${t.code} — ${t.name} (${t.due_days}d)`,
+          // Names only (operator #2) — code stays searchable.
+          label: `${t.name} (${t.due_days}d)`,
           searchHaystack: `${t.code} ${t.name} ${t.due_days}d`,
         })),
     ];
     return opts;
   }, [paymentTerms, form.payment_terms_id]);
 
-  // GL account picker options — postable accounts formatted as "{code} — {name}".
+  // GL account picker options — NAMES ONLY (operator #2); code stays searchable.
   const glAccountOptions = useMemo(() => [
     { value: "", label: "(select)" },
-    ...glAccounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.name}` })),
+    ...glAccounts.map((a) => ({ value: a.id, label: a.name, searchHaystack: `${a.code} ${a.name}` })),
   ], [glAccounts]);
 
   async function submit() {
@@ -443,7 +527,10 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
         contact:                       form.contact.trim() || null,
         contact_title:                 form.contact_title.trim() || null,
         email:                         form.email.trim() || null,
-        phone:                         form.phone.trim() || null,
+        // Compose the stored phone from (dial code, national number): code 1 →
+        // national (NNN) NNN-NNNN, else E.164 +<code><digits> (operator #3).
+        phone:                         composePhone(form.phone_country_code || "1", form.phone) || null,
+        phone_country_code:            form.phone_country_code ? Number(form.phone_country_code) : null,
         address:                       form.address,
         website:                       form.website.trim() || null,
         wechat_id:                     form.wechat_id.trim() || null,
@@ -486,7 +573,7 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 480, maxWidth: 580, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(580px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add vendor" : `Edit ${vendor!.name}`}
@@ -521,12 +608,12 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Country">
-            <input
-              type="text"
-              value={form.country}
-              onChange={(e) => setForm({ ...form, country: e.target.value })}
-              style={inputStyle}
-              placeholder="e.g. US, CN, VN"
+            <SearchableSelect
+              value={countryValue || ""}
+              onChange={(v) => setForm({ ...form, country: v })}
+              options={countryOptions}
+              placeholder="(select)"
+              emptyText="No matching countries"
             />
           </Field>
           <Field label="Contact name">
@@ -548,22 +635,50 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Email">
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              style={inputStyle}
-              placeholder="vendor@example.com"
-            />
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                style={{ ...inputStyle, paddingRight: 30 }}
+                placeholder="vendor@example.com"
+              />
+              <MailLink email={form.email} />
+            </div>
           </Field>
           <Field label="Phone">
-            <input
-              type="text"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              style={inputStyle}
-              placeholder="+1 212 555 0100"
-            />
+            <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ width: 96, flexShrink: 0 }}>
+                <SearchableSelect
+                  value={form.phone_country_code || "1"}
+                  onChange={(v) => {
+                    const code = String(v).replace(/\D/g, "") || "1";
+                    const nat = form.phone.replace(/\D/g, "");
+                    setForm({ ...form, phone_country_code: code, phone: code === "1" ? composePhone("1", nat) : nat });
+                  }}
+                  options={dialOptions}
+                  placeholder="+1"
+                  emptyText="No codes"
+                />
+              </div>
+              <input
+                type="text"
+                value={form.phone}
+                onChange={(e) => {
+                  const code = form.phone_country_code || "1";
+                  // code 1 → live national mask; otherwise keep digits (E.164 national part).
+                  const next = code === "1" ? composePhone("1", e.target.value) : e.target.value.replace(/\D/g, "");
+                  setForm({ ...form, phone: next });
+                }}
+                style={inputStyle}
+                placeholder={(form.phone_country_code || "1") === "1" ? "(212) 555-0100" : "national number"}
+              />
+            </div>
+            {form.phone_country_code && form.phone_country_code !== "1" && form.phone && (
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                E.164: +{form.phone_country_code}{form.phone}
+              </div>
+            )}
           </Field>
           <Field label="Website">
             <input
@@ -608,9 +723,12 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
             />
           </Field>
           <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.status || null}
+              onChange={(v) => setForm({ ...form, status: v })}
+              options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="1099 vendor?">
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
@@ -659,13 +777,6 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
-            {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
-          </button>
-        </div>
-
         {mode === "edit" && vendor && (
           <div style={{ marginTop: 16 }}>
             <DocumentAttachmentList
@@ -680,6 +791,16 @@ function VendorFormModal({ mode, vendor, paymentTerms, onClose, onSaved }: Modal
         {mode === "edit" && vendor && (
           <RowHistory source_table="vendors" source_id={vendor.id} />
         )}
+
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable on tall records (negative margins span
+            the modal's 20px padding; bottom:-20 cancels its padding-bottom). */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "16px -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+          <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting}>
+            {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );

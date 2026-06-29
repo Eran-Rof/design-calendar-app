@@ -5,6 +5,8 @@
 
 import { useEffect, useState } from "react";
 import type { XoroPO, Milestone } from "../../../utils/tandaTypes";
+import { fmtDateDisplay } from "../../../utils/tandaTypes";
+import SearchableSelect from "../../components/SearchableSelect";
 
 export interface NotesModalProps {
   po: XoroPO;
@@ -47,7 +49,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
   })();
 
   // Variant notes aggregated across all milestones — shown in the "all notes"
-  // modal (no filterPhase, no filterVariant) so the row-level 📝 includes them.
+  // modal (no filterPhase, no filterVariant) so the row-level notes icon includes them.
   const variantNotesFlat = (!isVariantMode && !filterPhase) ? ms.flatMap(m =>
     Object.entries(m.variant_notes || {}).flatMap(([vk, arr]) =>
       arr.map(ne => ({ ...ne, phase: m.phase, variant: vk, milestoneId: m.id }))
@@ -82,7 +84,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
       onClick={onClose}
     >
       <div
-        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 560, maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+        style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: "min(560px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -151,7 +153,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                                     style={{ background: "#1A2B40", border: "1px solid #334155", color: "#93C5FD", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
                                     onMouseEnter={e => { e.currentTarget.style.background = "#1E3A5F"; e.currentTarget.style.color = "#60A5FA"; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = "#1A2B40"; e.currentTarget.style.color = "#93C5FD"; }}
-                                  >✏</button>
+                                  >✎</button>
                                   <button
                                     onClick={() => handleDelete(i)}
                                     title="Delete note"
@@ -161,7 +163,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                                   >✕</button>
                                 </div>
                               </div>
-                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {ne.date}</div>
+                              <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>{ne.user} · {fmtDateDisplay(ne.date)}</div>
                             </>
                           )}
                         </div>
@@ -186,7 +188,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                     <div style={{ color: "#E5E7EB", fontSize: 12, flex: 1 }}>{vn.text}</div>
                   </div>
                   <div style={{ color: "#4B5563", fontSize: 10, marginTop: 4 }}>
-                    <span style={{ color: "#60A5FA" }}>{vn.variant}</span> · {vn.phase} · {vn.user} · {vn.date}
+                    <span style={{ color: "#60A5FA" }}>{vn.variant}</span> · {vn.phase} · {vn.user} · {fmtDateDisplay(vn.date)}
                   </div>
                 </div>
               ))}
@@ -198,13 +200,14 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
         {/* Add note footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #1E293B", flexShrink: 0, background: "#080F1A", borderRadius: "0 0 10px 10px" }}>
           {!filterPhase && availableMs.length > 1 && (
-            <select
-              value={addPhase}
-              onChange={e => setAddPhase(e.target.value)}
-              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", marginBottom: 8, boxSizing: "border-box", outline: "none" }}
-            >
-              {availableMs.map(m => <option key={m.id} value={m.phase}>{m.phase}</option>)}
-            </select>
+            <div style={{ marginBottom: 8 }}>
+              <SearchableSelect
+                value={addPhase || null}
+                onChange={v => setAddPhase(v)}
+                options={availableMs.map(m => ({ value: m.phase, label: m.phase }))}
+                inputStyle={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", boxSizing: "border-box", outline: "none" }}
+              />
+            </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <textarea

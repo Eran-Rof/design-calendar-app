@@ -3,7 +3,8 @@
 // GET  — list all compliance document types (active + inactive)
 // POST — create a new document type
 //         body: { name, description, required, expiry_required, reminder_days_before }
-//         code is auto-derived from name (lowercased, non-alnum -> _)
+//         code is AUTO-GENERATED (CDOC-NNNNN) by a DB trigger + immutable —
+//         not operator-supplied or derived here.
 //
 // "Internal auth" in the spec — these endpoints run with the service role
 // and are not exposed to unauthenticated external callers via CORS
@@ -41,12 +42,11 @@ export default async function handler(req, res) {
     const { name, description, required = true, expiry_required = true, reminder_days_before = 30 } = body || {};
     if (!name || typeof name !== "string") return res.status(400).json({ error: "name is required" });
 
-    const code = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-    if (!code) return res.status(400).json({ error: "name must contain at least one letter or digit" });
-
+    // `code` is AUTO-GENERATED (CDOC-NNNNN) by a BEFORE INSERT trigger — never
+    // derived from / supplied by the client.
     const { data, error } = await admin
       .from("compliance_document_types")
-      .insert({ code, name, description: description || null, required, expiry_required, reminder_days_before, active: true })
+      .insert({ name, description: description || null, required, expiry_required, reminder_days_before, active: true })
       .select("*")
       .single();
     if (error) {

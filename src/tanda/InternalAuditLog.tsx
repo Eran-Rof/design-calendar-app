@@ -332,7 +332,7 @@ export default function InternalAuditLog() {
           marginBottom: 16,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 22 }}>🕒 Audit Log</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Audit Log</h2>
         <div style={{ fontSize: 11, color: C.textMuted }}>
           {rows.length} change{rows.length === 1 ? "" : "s"} · page {Math.floor(offset / PAGE) + 1}
         </div>
@@ -388,7 +388,7 @@ export default function InternalAuditLog() {
             data-testid="audit-to-date"
           />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
@@ -417,17 +417,18 @@ export default function InternalAuditLog() {
           }}
         >
           Entity type
-          <select
-            value={sourceTable}
-            onChange={(e) => setSourceTable(e.target.value)}
-            style={{ ...inputStyle, width: 220 }}
-            data-testid="audit-source-table"
-          >
-            <option value="">— Any —</option>
-            {T11_SOURCE_TABLES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <div style={{ width: 220 }} data-testid="audit-source-table">
+            <SearchableSelect
+              value={sourceTable || null}
+              onChange={(v) => setSourceTable(v)}
+              options={[
+                { value: "", label: "— Any —" },
+                ...T11_SOURCE_TABLES.map((t) => ({ value: t, label: t })),
+              ]}
+              placeholder="— Any —"
+              inputStyle={inputStyle}
+            />
+          </div>
         </label>
         <label
           style={{
@@ -623,8 +624,8 @@ export default function InternalAuditLog() {
                       {r.operation}
                     </span>
                   </td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("row_id")}>
-                    {r.source_id ? `${r.source_id.slice(0, 8)}…` : ""}
+                  <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!visibleColumns.has("row_id")}>
+                    {"—"}
                   </td>
                   <td style={{ ...td, fontStyle: r.reason ? "italic" : "normal", color: r.reason ? C.textSub : C.textMuted }} hidden={!visibleColumns.has("reason")}>
                     {r.reason || "—"}
@@ -667,11 +668,11 @@ function AuditSidePanel({ change, onClose }: { change: Change; onClose: () => vo
         style={{
           background: C.card,
           border: `1px solid ${C.cardBdr}`,
-          width: 560,
-          maxWidth: "95vw",
+          width: "min(560px, 95vw)",
           padding: 20,
           color: C.text,
           overflowY: "auto",
+          boxSizing: "border-box",
         }}
       >
         <div
@@ -708,14 +709,14 @@ function AuditSidePanel({ change, onClose }: { change: Change; onClose: () => vo
 
         <DetailRow label="Time" value={new Date(change.changed_at).toLocaleString()} />
         <DetailRow label="Actor" value={change.actor_display_name || "—"} />
-        <DetailRow label="Row ID" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}>{change.source_id}</span>} />
+        <DetailRow label="Row ID" value={"—"} />
         {change.entity_id && (
-          <DetailRow label="Entity ID" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}>{change.entity_id}</span>} />
+          <DetailRow label="Entity ID" value={"—"} />
         )}
         {change.reason && <DetailRow label="Reason" value={<span style={{ fontStyle: "italic" }}>&ldquo;{change.reason}&rdquo;</span>} />}
         {change.source && <DetailRow label="Source tag" value={change.source} />}
         {change.correlation_id && (
-          <DetailRow label="Correlation" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}>{change.correlation_id}</span>} />
+          <DetailRow label="Correlation" value={"—"} />
         )}
 
         <div style={{ marginTop: 16 }}>

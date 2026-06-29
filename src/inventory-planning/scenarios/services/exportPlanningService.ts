@@ -10,7 +10,7 @@
 //
 // Naming: "<type>_<run-slug>_<YYYY-MM-DD>.xlsx"
 
-import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, addObjectGridSheet, addMetaSheet, downloadExcelWorkbook, type ExcelJS } from "../../../shared/excelLogo";
 import type {
   IpInventoryRecommendation,
   IpProjectedInventory,
@@ -23,36 +23,23 @@ import { supplyRepo } from "../../supply/services/supplyReconciliationRepo";
 import { scenarioRepo } from "./scenarioRepo";
 import { logChange } from "./auditLogService";
 
-// Shared styles — keep them modest; this isn't the ATS deck.
-const HDR: XLSXStyle.CellStyle = {
-  font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
-  fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" },
-  alignment: { horizontal: "center", vertical: "center" },
-};
-const CELL: XLSXStyle.CellStyle = {
-  font: { sz: 10, name: "Calibri" },
-  alignment: { horizontal: "left", vertical: "center" },
-};
-const NUM: XLSXStyle.CellStyle = { ...CELL, alignment: { horizontal: "right", vertical: "center" } };
+// Quantity-like fields across the planning exports — rendered as #,##0.
+const QTY_FIELDS = [
+  "qty", "demand", "supply", "shortage", "excess", "value",
+  "base_demand", "scenario_demand", "demand_delta", "base_supply", "scenario_supply", "supply_delta",
+  "base_ending", "scenario_ending", "ending_delta", "base_shortage", "scenario_shortage", "shortage_delta",
+  "base_excess", "scenario_excess", "excess_delta",
+];
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function sheet(rowsOfObjects: Record<string, unknown>[]): XLSXStyle.WorkSheet {
-  if (rowsOfObjects.length === 0) {
-    return XLSXStyle.utils.aoa_to_sheet([["(no rows)"]]);
-  }
-  const headers = Object.keys(rowsOfObjects[0]);
-  const aoa: unknown[][] = [headers, ...rowsOfObjects.map((r) => headers.map((h) => r[h]))];
-  const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
-  // Apply light styles.
-  for (let c = 0; c < headers.length; c++) {
-    const cell = XLSXStyle.utils.encode_cell({ r: 0, c });
-    if (ws[cell]) ws[cell].s = HDR;
-  }
-  ws["!cols"] = headers.map((h) => ({ wch: Math.min(40, Math.max(12, h.length + 2)) }));
-  return ws;
+// Sheet specs — turned into ExcelJS sheets by addSheet().
+type SheetSpec = { grid: Record<string, unknown>[] } | { meta: Array<[string, unknown]> };
+
+function sheet(rowsOfObjects: Record<string, unknown>[]): SheetSpec {
+  return { grid: rowsOfObjects };
 }
 
 function metaSheet(args: {
@@ -60,31 +47,31 @@ function metaSheet(args: {
   exportType: IpExportType;
   rowCount: number;
   notes?: string[];
-}): XLSXStyle.WorkSheet {
-  const meta = [
-    ["Generated at", new Date().toISOString()],
-    ["Export type", args.exportType],
-    ["Planning run id", args.run.id],
-    ["Planning run name", args.run.name],
-    ["Planning scope", args.run.planning_scope],
-    ["Run status", args.run.status],
-    ["Snapshot date", args.run.source_snapshot_date],
-    ["Horizon", `${args.run.horizon_start} → ${args.run.horizon_end}`],
-    ["Row count", args.rowCount],
-    ...(args.notes ?? []).map((n) => ["Note", n]),
-  ];
-  return XLSXStyle.utils.aoa_to_sheet(meta);
+}): SheetSpec {
+  return {
+    meta: [
+      ["Generated at", new Date().toISOString()],
+      ["Export type", args.exportType],
+      ["Planning run id", args.run.id],
+      ["Planning run name", args.run.name],
+      ["Planning scope", args.run.planning_scope],
+      ["Run status", args.run.status],
+      ["Snapshot date", args.run.source_snapshot_date],
+      ["Horizon", `${args.run.horizon_start} → ${args.run.horizon_end}`],
+      ["Row count", args.rowCount],
+      ...(args.notes ?? []).map((n) => ["Note", n] as [string, unknown]),
+    ],
+  };
 }
 
-function download(workbook: XLSXStyle.WorkBook, fileName: string): void {
-  const buf = XLSXStyle.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  const blob = new Blob([buf], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
+// Append a spec as a branded sheet (logo on the first/data sheet).
+function addSheet(wb: ExcelJS.Workbook, spec: SheetSpec, name: string): void {
+  if ("meta" in spec) addMetaSheet(wb, name, spec.meta);
+  else addObjectGridSheet(wb, name, spec.grid, { title: name, qtyKeys: QTY_FIELDS });
+}
+
+function download(workbook: ExcelJS.Workbook, fileName: string): Promise<void> {
+  return downloadExcelWorkbook(workbook, fileName);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────
@@ -129,7 +116,7 @@ export async function exportWholesaleBuyPlan(ctx: ExportContext): Promise<IpExpo
   const rows = recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -138,11 +125,11 @@ export async function exportWholesaleBuyPlan(ctx: ExportContext): Promise<IpExpo
       service_risk: r.service_risk_flag,
       reason: r.action_reason ?? "",
     }));
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Buy Plan");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "wholesale_buy_plan", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(rows), "Buy Plan");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "wholesale_buy_plan", rowCount: rows.length }), "Meta");
   const fileName = `wholesale_buy_plan_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "wholesale_buy_plan", fileName, rows.length);
 }
 
@@ -152,7 +139,7 @@ export async function exportEcomBuyPlan(ctx: ExportContext): Promise<IpExportJob
   const rows = recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite" || r.recommendation_type === "protect_inventory")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -160,11 +147,11 @@ export async function exportEcomBuyPlan(ctx: ExportContext): Promise<IpExportJob
       priority: r.priority_level,
       reason: r.action_reason ?? "",
     }));
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Ecom Buy Plan");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "ecom_buy_plan", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(rows), "Ecom Buy Plan");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "ecom_buy_plan", rowCount: rows.length }), "Meta");
   const fileName = `ecom_buy_plan_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "ecom_buy_plan", fileName, rows.length);
 }
 
@@ -175,18 +162,18 @@ export async function exportShortageReport(ctx: ExportContext): Promise<IpExport
     .filter((p: IpProjectedInventory) => p.shortage_qty > 0)
     .sort((a, b) => b.shortage_qty - a.shortage_qty)
     .map((p: IpProjectedInventory) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
       shortage: p.shortage_qty,
       stockout: p.projected_stockout_flag,
     }));
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Shortages");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "shortage_report", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(rows), "Shortages");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "shortage_report", rowCount: rows.length }), "Meta");
   const fileName = `shortage_report_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "shortage_report", fileName, rows.length);
 }
 
@@ -197,17 +184,17 @@ export async function exportExcessReport(ctx: ExportContext): Promise<IpExportJo
     .filter((p: IpProjectedInventory) => p.excess_qty > 0)
     .sort((a, b) => b.excess_qty - a.excess_qty)
     .map((p: IpProjectedInventory) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
       excess: p.excess_qty,
     }));
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Excess");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "excess_report", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(rows), "Excess");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "excess_report", rowCount: rows.length }), "Meta");
   const fileName = `excess_report_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "excess_report", fileName, rows.length);
 }
 
@@ -215,7 +202,7 @@ export async function exportRecommendationsReport(ctx: ExportContext): Promise<I
   const recs = await supplyRepo.listRecommendations(ctx.run.id);
   const itemById = new Map(ctx.items.map((i) => [i.id, i]));
   const rows = recs.map((r: IpInventoryRecommendation) => ({
-    sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+    sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
     period: r.period_code,
     action: r.recommendation_type,
     qty: r.recommendation_qty ?? 0,
@@ -225,11 +212,11 @@ export async function exportRecommendationsReport(ctx: ExportContext): Promise<I
     service_risk: r.service_risk_flag,
     reason: r.action_reason ?? "",
   }));
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "Recommendations");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "recommendations_report", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(rows), "Recommendations");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "recommendations_report", rowCount: rows.length }), "Meta");
   const fileName = `recommendations_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "recommendations_report", fileName, rows.length);
 }
 
@@ -272,12 +259,12 @@ export async function exportScenarioComparison(
     { metric: "stockouts_removed", value: comparison.totals.stockouts_removed },
     { metric: "recs_changed", value: comparison.totals.recs_changed },
   ];
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, sheet(totalsRows), "Totals");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(rows), "By SKU/Period");
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({ run: ctx.run, exportType: "scenario_comparison", rowCount: rows.length }), "Meta");
+  const wb = newWorkbook();
+  addSheet(wb, sheet(totalsRows), "Totals");
+  addSheet(wb, sheet(rows), "By SKU/Period");
+  addSheet(wb, metaSheet({ run: ctx.run, exportType: "scenario_comparison", rowCount: rows.length }), "Meta");
   const fileName = `scenario_comparison_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   return recordExport(ctx, "scenario_comparison", fileName, rows.length);
 }
 
@@ -291,7 +278,7 @@ function buildWholesaleBuyPlanRows(recs: IpInventoryRecommendation[], items: IpI
   return recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -307,7 +294,7 @@ function buildEcomBuyPlanRows(recs: IpInventoryRecommendation[], items: IpItem[]
   return recs
     .filter((r) => r.recommendation_type === "buy" || r.recommendation_type === "expedite" || r.recommendation_type === "protect_inventory")
     .map((r) => ({
-      sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+      sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
       description: itemById.get(r.sku_id)?.description ?? "",
       period: r.period_code,
       action: r.recommendation_type,
@@ -323,7 +310,7 @@ function buildShortageRows(projected: IpProjectedInventory[], items: IpItem[]): 
     .filter((p) => p.shortage_qty > 0)
     .sort((a, b) => b.shortage_qty - a.shortage_qty)
     .map((p) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -338,7 +325,7 @@ function buildExcessRows(projected: IpProjectedInventory[], items: IpItem[]): Re
     .filter((p) => p.excess_qty > 0)
     .sort((a, b) => b.excess_qty - a.excess_qty)
     .map((p) => ({
-      sku_code: itemById.get(p.sku_id)?.sku_code ?? p.sku_id.slice(0, 8),
+      sku_code: itemById.get(p.sku_id)?.sku_code ?? "—",
       period: p.period_code,
       demand: p.wholesale_demand_qty + p.ecom_demand_qty,
       supply: p.total_available_supply_qty,
@@ -349,7 +336,7 @@ function buildExcessRows(projected: IpProjectedInventory[], items: IpItem[]): Re
 function buildRecommendationRows(recs: IpInventoryRecommendation[], items: IpItem[]): Record<string, unknown>[] {
   const itemById = new Map(items.map((i) => [i.id, i]));
   return recs.map((r) => ({
-    sku_code: itemById.get(r.sku_id)?.sku_code ?? r.sku_id.slice(0, 8),
+    sku_code: itemById.get(r.sku_id)?.sku_code ?? "—",
     period: r.period_code,
     action: r.recommendation_type,
     qty: r.recommendation_qty ?? 0,
@@ -492,32 +479,32 @@ export async function exportConsolidatedWorkbook(
     ctx.scenarioId ? scenarioRepo.listAssumptions(ctx.scenarioId) : Promise.resolve([]),
   ]);
 
-  const wb = XLSXStyle.utils.book_new();
+  const wb = newWorkbook();
 
-  XLSXStyle.utils.book_append_sheet(wb, metaSheet({
+  addSheet(wb, metaSheet({
     run: ctx.run,
     exportType: "consolidated_plan",
     rowCount: projected.length,
     notes: ctx.scenarioId ? [`Scenario id: ${ctx.scenarioId}`] : undefined,
   }), "Metadata");
 
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildSummaryRows(recs, projected)), "Summary");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildWholesaleBuyPlanRows(recs, ctx.items)), "Wholesale Buy Plan");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildEcomBuyPlanRows(recs, ctx.items)), "Ecom Buy Plan");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildShortageRows(projected, ctx.items)), "Shortages");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildExcessRows(projected, ctx.items)), "Excess");
-  XLSXStyle.utils.book_append_sheet(wb, sheet(buildRecommendationRows(recs, ctx.items)), "Recommendations");
+  addSheet(wb, sheet(buildSummaryRows(recs, projected)), "Summary");
+  addSheet(wb, sheet(buildWholesaleBuyPlanRows(recs, ctx.items)), "Wholesale Buy Plan");
+  addSheet(wb, sheet(buildEcomBuyPlanRows(recs, ctx.items)), "Ecom Buy Plan");
+  addSheet(wb, sheet(buildShortageRows(projected, ctx.items)), "Shortages");
+  addSheet(wb, sheet(buildExcessRows(projected, ctx.items)), "Excess");
+  addSheet(wb, sheet(buildRecommendationRows(recs, ctx.items)), "Recommendations");
 
   if (opts.comparison) {
-    XLSXStyle.utils.book_append_sheet(wb, sheet(buildComparisonTotalsRows(opts.comparison.totals)), "Comparison Totals");
-    XLSXStyle.utils.book_append_sheet(wb, sheet(buildComparisonGridRows(opts.comparison.rows)), "Scenario Comparison");
+    addSheet(wb, sheet(buildComparisonTotalsRows(opts.comparison.totals)), "Comparison Totals");
+    addSheet(wb, sheet(buildComparisonGridRows(opts.comparison.rows)), "Scenario Comparison");
   }
   if (ctx.scenarioId && assumptions.length > 0) {
-    XLSXStyle.utils.book_append_sheet(wb, sheet(buildAssumptionsRows(assumptions, ctx.items, ctx.categories)), "Assumptions");
+    addSheet(wb, sheet(buildAssumptionsRows(assumptions, ctx.items, ctx.categories)), "Assumptions");
   }
 
   const fileName = `consolidated_plan_${slug(ctx.run.name)}_${today()}.xlsx`;
-  download(wb, fileName);
+  await download(wb, fileName);
   // row_count tracks projected rows (the "biggest" tab) — gives a
   // useful magnitude in the export-jobs log.
   return recordExport(ctx, "consolidated_plan", fileName, projected.length);

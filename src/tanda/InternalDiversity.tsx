@@ -95,7 +95,7 @@ export default function InternalDiversity() {
           </div>
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 120px 140px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600 }}>{r.vendor_name || r.vendor_id}</div>
+              <div style={{ fontWeight: 600 }}>{r.vendor_name || "—"}</div>
               <div style={{ color: C.textSub, fontSize: 11 }}>{(r.business_type || []).join(", ") || "—"}</div>
               <div style={{ color: C.textSub, fontSize: 11 }}>{r.certifying_body || "—"} {r.certification_number ? `· ${r.certification_number}` : ""}</div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{r.certification_expiry || "—"}</div>

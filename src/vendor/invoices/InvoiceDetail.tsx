@@ -3,7 +3,7 @@ import { showAlert, showFileViewer } from "../ui/AppDialog";
 import { Link, useParams } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { fmtDate, fmtMoney } from "../utils";
+import { fmtDate, fmtMoney, fmtMoney2 } from "../utils";
 import AttachmentsManager from "../ui/AttachmentsManager";
 
 interface Invoice {
@@ -394,9 +394,9 @@ export default function InvoiceDetail() {
                   {editing ? (
                     <input type="number" step="any" value={l.unit_price ?? ""} onChange={(e) => updateEditLine(idx, { unit_price: e.target.value === "" ? null : Number(e.target.value) })} style={{ ...editInp, textAlign: "right" }} />
                   ) : (
-                    <div style={{ color: TH.textSub2, textAlign: "right" }}>{fmtMoney(l.unit_price ?? undefined)}</div>
+                    <div style={{ color: TH.textSub2, textAlign: "right" }}>{fmtMoney2(l.unit_price ?? undefined)}</div>
                   )}
-                  <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney(lineTotal)}</div>
+                  <div style={{ textAlign: "right", fontWeight: 600, color: TH.text }}>{fmtMoney2(lineTotal)}</div>
                 </div>
               );
             })}

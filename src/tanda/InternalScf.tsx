@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
+import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -110,9 +112,12 @@ export default function InternalScf() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Programs, utilization, and vendor finance requests.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            inputStyle={selectSt}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New program</button>
         </div>
       </div>
@@ -137,7 +142,7 @@ export default function InternalScf() {
                     <div style={{ width: `${Math.min(100, utilPct).toFixed(0)}%`, height: "100%", background: utilPct > 80 ? C.danger : utilPct > 50 ? C.warn : C.success }} />
                   </div>
                   <div style={{ fontSize: 11, color: C.textSub, marginTop: 3 }}>
-                    ${Math.round(p.current_utilization).toLocaleString()} / ${Math.round(p.max_facility_amount).toLocaleString()} ({utilPct.toFixed(0)}%)
+                    ${fmtMoney(p.current_utilization)} / ${fmtMoney(p.max_facility_amount)} ({utilPct.toFixed(0)}%)
                   </div>
                 </div>
               </div>
@@ -149,14 +154,19 @@ export default function InternalScf() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Requests</h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="requested">Pending approval</option>
-            <option value="approved">Approved (needs funding)</option>
-            <option value="funded">Funded</option>
-            <option value="repaid">Repaid</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v)}
+            inputStyle={selectSt}
+            options={[
+              { value: "requested", label: "Pending approval" },
+              { value: "approved", label: "Approved (needs funding)" },
+              { value: "funded", label: "Funded" },
+              { value: "repaid", label: "Repaid" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+          />
           <ExportButton
             rows={requests as unknown as Array<Record<string, unknown>>}
             filename="scf-requests"
@@ -195,7 +205,7 @@ export default function InternalScf() {
                 <div style={{ fontSize: 11, color: C.textMuted }}>Inv {r.invoice?.invoice_number || "—"} · due {r.invoice?.due_date || "—"}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
-              <div>${Number(r.requested_amount).toLocaleString()}</div>
+              <div>${fmtMoney(Number(r.requested_amount))}</div>
               <div style={{ color: C.textMuted }}>{r.fee_amount != null ? `$${Number(r.fee_amount).toFixed(2)}` : "—"}</div>
               <div>{r.net_disbursement != null ? `$${Number(r.net_disbursement).toLocaleString()}` : "—"}</div>
               <div><StatusChip status={r.status} /></div>
@@ -271,7 +281,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

@@ -7,6 +7,8 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import SearchableSelect from "./tanda/components/SearchableSelect";
+import { registerLoginPresence, SIGNED_OUT_PARAM } from "./utils/plmSessionTabs";
 import {
   ATS_REPORT_KEYS,
   type AtsReportKey,
@@ -36,6 +38,7 @@ interface User {
   id: string;
   username: string;
   name?: string;
+  email?: string;
   password: string;
   role: "admin" | "user";
   color?: string;
@@ -49,6 +52,7 @@ interface User {
     vendor?: AppPermission;
     gs1?: AppPermission;
     planning?: AppPermission;
+    tangerine?: AppPermission;
   };
 }
 
@@ -90,7 +94,7 @@ const APPS = [
     id: "design" as const,
     name: "Design Calendar",
     description: "Seasonal design workflow, task tracking and vendor milestones",
-    icon: "🎨",
+    icon: "",
     color: "#CC2200",
     path: "/design",
   },
@@ -98,7 +102,7 @@ const APPS = [
     id: "tanda" as const,
     name: "PO WIP",
     description: "PO tracking, Xoro sync and delivery management",
-    icon: "📋",
+    icon: "",
     color: "#3B82F6",
     path: "/tanda",
   },
@@ -106,7 +110,7 @@ const APPS = [
     id: "techpack" as const,
     name: "Tech Packs",
     description: "Tech packs, spec sheets, costing, approvals, materials & sample tracking",
-    icon: "📐",
+    icon: "",
     color: "#8B5CF6",
     path: "/techpack",
   },
@@ -114,7 +118,7 @@ const APPS = [
     id: "ats" as const,
     name: "ATS",
     description: "Available to Sell — inventory snapshot grid, Xoro sync and Excel upload",
-    icon: "📦",
+    icon: "",
     color: "#10B981",
     path: "/ats",
   },
@@ -122,7 +126,7 @@ const APPS = [
     id: "vendor" as const,
     name: "Vendor Portal",
     description: "Manage vendors, POs, invoices, compliance, RFQ, payments",
-    icon: "🤝",
+    icon: "",
     color: "#EA580C",
     path: "/vendor",
   },
@@ -130,7 +134,7 @@ const APPS = [
     id: "planning" as const,
     name: "Inventory Planning",
     description: "Wholesale + ecom forecasts, supply reconciliation, scenarios, accuracy & AI co-pilot",
-    icon: "📊",
+    icon: "",
     color: "#F59E0B",
     path: "/planning/wholesale",
   },
@@ -138,7 +142,7 @@ const APPS = [
     id: "gs1" as const,
     name: "GTIN Creation",
     description: "GS1 prepack GTIN generation, packing list upload, label batch printing and CSV export",
-    icon: "🏷️",
+    icon: "",
     color: "#0891B2",
     path: "/gs1",
   },
@@ -146,9 +150,17 @@ const APPS = [
     id: "costing" as const,
     name: "Costing",
     description: "Costing projects — multi-vendor quotes, LY + trailing-3-mo comp, margin targeting",
-    icon: "💰",
+    icon: "",
     color: "#EAB308",
     path: "/costing",
+  },
+  {
+    id: "tangerine" as const,
+    name: "Tangerine ERP",
+    description: "Accounting, inventory, sales, procurement & finance — the Xoro replacement",
+    icon: "",
+    color: "#F97316",
+    path: "/tangerine",
   },
 ];
 
@@ -162,6 +174,138 @@ function ROFLogoFull({ height = 44 }: { height?: number }) {
   );
 }
 
+// ── Forgot-password request modal ──────────────────────────────────────────────
+// Posts username-or-email to the reset-request endpoint, which ALWAYS returns a
+// generic success (never reveals whether the account exists). Email only fires
+// on this explicit user action.
+function ForgotPasswordModal({ initial, onClose }: { initial: string; onClose: () => void }) {
+  const [identifier, setIdentifier] = useState(initial || "");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function submit() {
+    setErr("");
+    if (!identifier.trim()) { setErr("Enter your username or email."); return; }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/password-reset/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_type: "plm",
+          identifier: identifier.trim(),
+          site_url: window.location.origin,
+        }),
+      });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        setErr((b as any)?.error || `Request failed (${r.status})`);
+        return;
+      }
+      setSent(true);
+    } catch (e: any) {
+      setErr(`Could not connect: ${e?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ ...S.modalOverlay, zIndex: 400 }} onClick={onClose}>
+      <div style={{ ...S.modal, width: "min(380px, 95vw)", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={S.modalHeader}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#111827" }}>Reset your password</h3>
+          <button style={S.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+          {sent ? (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: "#374151", lineHeight: 1.5 }}>
+                If an account exists, a password reset email has been sent. Check your inbox and follow the link (valid for 1 hour).
+              </p>
+              <button style={S.btnPrimary} onClick={onClose}>Done</button>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
+                Enter your username or email and we'll send a reset link.
+              </p>
+              <input style={S.input} placeholder="Username or email"
+                value={identifier} onChange={e => setIdentifier(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submit()} autoFocus />
+              {err && <p style={S.err}>{err}</p>}
+              <button style={{ ...S.btnPrimary, opacity: busy ? 0.7 : 1 }} onClick={submit} disabled={busy}>
+                {busy ? "Sending…" : "Send reset link"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Set-new-password card (reset link target) ──────────────────────────────────
+// Posts the raw token + new password to the confirm endpoint, which validates
+// the token server-side and writes the sha256 hash into app_data.
+function ResetPasswordCard({ token }: { token: string }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+
+  async function submit() {
+    setErr("");
+    if (password.length < 8) { setErr("Password must be at least 8 characters."); return; }
+    if (password !== confirm) { setErr("Passwords do not match."); return; }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/password-reset/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr((b as any)?.error || `Could not reset (${r.status})`); return; }
+      setDone(true);
+    } catch (e: any) {
+      setErr(`Could not connect: ${e?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) return (
+    <div style={S.card}>
+      <p style={{ margin: "0 0 16px", fontSize: 14, color: "#374151", lineHeight: 1.5 }}>
+        Your password has been set. You can now sign in.
+      </p>
+      <a href="/" style={{ ...S.btnPrimary, display: "block", textAlign: "center", textDecoration: "none" }}>
+        Go to sign in
+      </a>
+    </div>
+  );
+
+  return (
+    <div style={S.card}>
+      <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
+        Choose a new password for your account.
+      </p>
+      <input style={S.input} type="password" placeholder="New password" autoComplete="new-password"
+        value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+      <input style={S.input} type="password" placeholder="Confirm new password" autoComplete="new-password"
+        value={confirm} onChange={e => setConfirm(e.target.value)}
+        onKeyDown={e => e.key === "Enter" && submit()} />
+      {err && <p style={S.err}>{err}</p>}
+      <button style={{ ...S.btnPrimary, opacity: busy ? 0.7 : 1 }} onClick={submit} disabled={busy}>
+        {busy ? "Saving…" : "Set password"}
+      </button>
+    </div>
+  );
+}
+
 // ── Main PLM Launcher ─────────────────────────────────────────────────────────
 export default function PLMApp() {
   const [user, setUser]           = useState<User | null>(null);
@@ -172,6 +316,20 @@ export default function PLMApp() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [view, setView] = useState<"launcher" | "notifications">("launcher");
+
+  // ── Password reset ──────────────────────────────────────────────────────────
+  // Reset link lands at /?reset_token=<token>. When present, show the set-new-
+  // password page instead of the launcher/login (read once at mount).
+  const [resetToken] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get("reset_token"); } catch { return null; }
+  });
+  // Set when a redundant idle tab was sent here after its session timed out and
+  // the browser wouldn't let it auto-close (see collapseTabsToLogin). Shows a
+  // "you can close this tab" stub instead of a duplicate login form.
+  const [signedOut] = useState<boolean>(() => {
+    try { return new URLSearchParams(window.location.search).get(SIGNED_OUT_PARAM) === "1"; } catch { return false; }
+  });
+  const [showForgot, setShowForgot] = useState(false);
   const unreadAll = useAppUnreadCount({
     supabase: supabaseClient,
     userId: user?.id,
@@ -223,6 +381,15 @@ export default function PLMApp() {
       .catch(() => { /* keep existing session snapshot */ });
   }, []);
 
+  // While the login screen is showing, announce this tab as the live login tab
+  // so other PLM tabs that time out retire themselves instead of each opening
+  // its own duplicate login screen. (Not the reset-password or signed-out stub.)
+  const showingLogin = !user && !resetToken && !signedOut;
+  useEffect(() => {
+    if (!showingLogin) return;
+    return registerLoginPresence();
+  }, [showingLogin]);
+
   async function handleLogin() {
     setLoginErr("");
     setLoggingIn(true);
@@ -260,8 +427,57 @@ export default function PLMApp() {
   }
 
   function openApp(path: string) {
-    window.location.href = path;
+    // Apps in the suite open in their own browser tab so the launcher stays put
+    // (operator preference). NOTE: do NOT pass "noopener" here — a noopener tab is a
+    // disconnected browsing context, so the browser does NOT copy the opener's
+    // sessionStorage into it. The sub-apps read their login session exclusively from
+    // sessionStorage.plm_user (e.g. store/index.ts hydrates currentUser from it), and
+    // App.tsx bounces straight back to "/" when that's missing — which looked like
+    // "Design Calendar won't log in after clicking the card". Opening same-origin
+    // WITHOUT noopener clones sessionStorage into the new tab, carrying the session over.
+    window.open(path, "_blank");
   }
+
+  // ── RESET-PASSWORD PAGE ──────────────────────────────────────────────────────
+  // Reachable via the emailed link (/?reset_token=...). Shown regardless of any
+  // stale session so the operator can always complete a reset.
+  if (resetToken) return (
+    <div style={S.bg}>
+      <div style={S.loginWrap}>
+        <ROFLogoFull height={72} />
+        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
+        <ResetPasswordCard token={resetToken} />
+        <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
+          Ring of Fire Clothing © {new Date().getFullYear()}
+        </p>
+      </div>
+    </div>
+  );
+
+  // ── SIGNED-OUT STUB ──────────────────────────────────────────────────────────
+  // A redundant tab that timed out and couldn't be auto-closed lands here, so the
+  // user sees one clear "you can close this tab" message instead of a wall of
+  // duplicate login forms. One other tab is already open at the login screen.
+  if (signedOut && !user && !resetToken) return (
+    <div style={S.bg}>
+      <div style={S.loginWrap}>
+        <ROFLogoFull height={72} />
+        <h1 style={{ margin: "0 0 32px", fontSize: 47, fontWeight: 500, color: "#CDD1D7", letterSpacing: "0.35em", fontFamily: "'DM Sans','Segoe UI',sans-serif" }}>P L M</h1>
+        <div style={S.card}>
+          <p style={{ color: "#CDD1D7", fontSize: 16, fontWeight: 600, margin: "0 0 8px" }}>You've been signed out</p>
+          <p style={{ color: "#9CA3AF", fontSize: 13, lineHeight: 1.5, margin: "0 0 20px" }}>
+            Your session timed out. You can close this tab — a sign-in screen is already open in another tab.
+          </p>
+          <button style={S.btnPrimary} onClick={() => { window.location.href = "/"; }}>
+            Sign in here instead
+          </button>
+        </div>
+        <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
+          Ring of Fire Clothing © {new Date().getFullYear()}
+        </p>
+      </div>
+    </div>
+  );
 
   // ── LOGIN SCREEN ────────────────────────────────────────────────────────────
   if (!user) return (
@@ -283,7 +499,7 @@ export default function PLMApp() {
               value={loginPass} onChange={e => setLoginPass(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleLogin()} />
             <button onClick={() => setShowPass(p => !p)} style={S.eyeBtn}>
-              {showPass ? "🙈" : "👁"}
+              {showPass ? "Hide" : "Show"}
             </button>
           </div>
 
@@ -293,12 +509,19 @@ export default function PLMApp() {
             onClick={handleLogin} disabled={loggingIn}>
             {loggingIn ? "Signing in…" : "Sign In"}
           </button>
+
+          <button type="button" onClick={() => setShowForgot(true)}
+            style={{ background: "none", border: "none", color: "#9CA3AF", fontSize: 12, cursor: "pointer", marginTop: 14, padding: 0, fontFamily: "inherit", textDecoration: "underline" }}>
+            Forgot password?
+          </button>
         </div>
 
         <p style={{ color: "#4B5563", fontSize: 12, marginTop: 24 }}>
           Ring of Fire Clothing © {new Date().getFullYear()}
         </p>
       </div>
+
+      {showForgot && <ForgotPasswordModal initial={loginName} onClose={() => setShowForgot(false)} />}
     </div>
   );
 
@@ -337,7 +560,7 @@ export default function PLMApp() {
             onClick={() => setView(view === "notifications" ? "launcher" : "notifications")}
             title="Notifications"
           >
-            🔔 Notifications
+            Notifications
             {unreadAll > 0 && (
               <span style={{
                 minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -347,7 +570,7 @@ export default function PLMApp() {
             )}
           </button>
           {isAdmin && (
-            <button style={S.headerBtn} onClick={() => setShowAdmin(true)}>⚙️ Manage Users</button>
+            <button style={S.headerBtn} onClick={() => setShowAdmin(true)}>Manage Users</button>
           )}
           <button style={{ ...S.headerBtn, color: "#CC2200", borderColor: "#FCA5A5" }}
             onClick={handleSignOut}>Sign Out</button>
@@ -367,7 +590,7 @@ export default function PLMApp() {
         </main>
       ) : (
       <main style={S.main}>
-        <h2 style={S.greeting}>Welcome back, {user.name?.split(" ")[0] ?? user.username} 👋</h2>
+        <h2 style={S.greeting}>Welcome back, {user.name?.split(" ")[0] ?? user.username}</h2>
         <p style={S.greetingSub}>Select an application to get started</p>
 
         <div style={S.grid}>
@@ -407,7 +630,6 @@ export default function PLMApp() {
                   openApp(app.path);
                 }}>
 
-                <div style={{ fontSize: 40, marginBottom: 12 }}>{app.icon}</div>
                 <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827", display: "flex", alignItems: "center", gap: 6 }}>
                   {app.name}
                   {app.id === "planning" && appConfig.inventoryPlanningBetaOnly && (
@@ -423,10 +645,10 @@ export default function PLMApp() {
 
                 <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   {locked ? (
-                    <span style={S.lockedBadge}>🔒 No Access</span>
+                    <span style={S.lockedBadge}>No Access</span>
                   ) : (
                     <span style={{ ...S.accessBadge, background: app.color + "15", color: app.color, border: `1px solid ${app.color}30` }}>
-                      {perm.readOnly ? "👁 Read Only" : "✏️ Read/Write"}
+                      {perm.readOnly ? "Read Only" : "Read/Write"}
                     </span>
                   )}
                   {!locked && (
@@ -467,13 +689,19 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
   const [editing, setEditing] = useState<User | null>(null);
   const [msg, setMsg]         = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // JSON snapshot of the last persisted user list. `users` is mutated in local
+  // state by the inline permission checkboxes (updatePermission) WITHOUT writing
+  // to the DB — the write only happens on "💾 Save All Changes". Comparing
+  // against this snapshot tells us when there are unsaved changes so we can warn
+  // (and guard the close), preventing the silent data-loss footgun.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     // Catch the rejection so a Supabase 503 / PGRST hiccup doesn't leave
     // the modal stuck in "loading" forever. Without the .catch the
     // promise rejection was unhandled and setLoading(false) never fired.
     loadUsers()
-      .then((u) => { setUsers(u); setLoading(false); })
+      .then((u) => { setUsers(u); setSavedSnapshot(JSON.stringify(u)); setLoading(false); })
       .catch((e) => {
         console.error("[PLM] users load failed:", e);
         setMsg("Could not load users from Supabase — refusing to overwrite to prevent data loss. Refresh and try again.");
@@ -521,6 +749,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
         body: JSON.stringify({ key: "users", value: JSON.stringify(updated) }),
       });
       setUsers(updated);
+      setSavedSnapshot(JSON.stringify(updated));
       setMsg("Saved!");
       setTimeout(() => setMsg(""), 2000);
     } catch { setMsg("Save failed"); }
@@ -552,7 +781,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
   function addUser() {
     const newUser: User = {
-      id: uid(), username: "", name: "", password: "", role: "user", color: "#3B82F6", initials: "",
+      id: uid(), username: "", name: "", email: "", password: "", role: "user", color: "#3B82F6", initials: "",
       permissions: {
         design:   { ...DEFAULT_PERMISSION },
         tanda:    { ...DEFAULT_PERMISSION },
@@ -574,7 +803,8 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     } else if (password && !isHashed(password)) {
       password = await sha256(password); // hash new plaintext password
     }
-    const saved = { ...editing, password };
+    const email = editing.email ? editing.email.trim().toLowerCase() : undefined;
+    const saved = { ...editing, password, email };
     const updated = exists ? users.map(u => u.id === editing.id ? saved : u) : [...users, saved];
     saveUsers(updated);
     setEditing(null);
@@ -599,6 +829,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { id: "vendor",   label: "Vendor Portal",   color: "#EA580C" },
     { id: "planning", label: "Inv. Planning",   color: "#F59E0B" },
     { id: "gs1",      label: "GTIN Creation",   color: "#0891B2" },
+    { id: "tangerine", label: "Tangerine ERP",  color: "#F97316" },
   ];
 
   const ATS_REPORT_LABELS: { key: AtsReportKey; label: string }[] = [
@@ -610,15 +841,30 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     { key: "salesComps",  label: "Sales Comps" },
   ];
 
+  // Unsaved changes = current list differs from the last persisted snapshot.
+  // Null snapshot (initial load not finished / failed) is never "dirty".
+  const dirty = savedSnapshot !== null && JSON.stringify(users) !== savedSnapshot;
+
+  // Guard close so unsaved permission edits aren't silently discarded.
+  function requestClose() {
+    if (dirty && !window.confirm("You have unsaved changes that haven't been saved to the database.\n\nClick Cancel, then \"Save All Changes\" to keep them. Click OK to discard.")) return;
+    onClose();
+  }
+
   return (
-    <div style={S.modalOverlay} onClick={onClose}>
+    <div style={S.modalOverlay} onClick={requestClose}>
       <div style={{ ...S.modal, width: 740, maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>⚙️ User Management</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>User Management</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {dirty && (
+              <span style={{ color: "#B45309", background: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
+                ● Unsaved changes
+              </span>
+            )}
             {msg && <span style={{ color: "#10B981", fontSize: 13 }}>{msg}</span>}
             {saving && <span style={{ color: "#6B7280", fontSize: 13 }}>Saving…</span>}
-            <button style={S.modalClose} onClick={onClose}>✕</button>
+            <button style={S.modalClose} onClick={requestClose}>✕</button>
           </div>
         </div>
 
@@ -731,9 +977,23 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
               </button>
 
               {users.length > 0 && (
-                <button style={{ ...S.btnSave, marginTop: 12 }} onClick={() => saveUsers(users)} disabled={saving}>
-                  {saving ? "Saving…" : "💾 Save All Changes"}
-                </button>
+                <div style={{ marginTop: 12 }}>
+                  {dirty && !saving && (
+                    <div style={{ color: "#B45309", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                      You have unsaved changes — click “Save All Changes” to apply them.
+                    </div>
+                  )}
+                  <button
+                    style={{
+                      ...S.btnSave,
+                      ...(dirty && !saving ? { boxShadow: "0 0 0 3px #F59E0B", fontWeight: 700 } : {}),
+                    }}
+                    onClick={() => saveUsers(users)}
+                    disabled={saving || !dirty}
+                  >
+                    {saving ? "Saving…" : dirty ? "Save All Changes" : "✓ All changes saved"}
+                  </button>
+                </div>
               )}
             </>
           )}
@@ -759,6 +1019,11 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                   <input style={S.input} value={editing.username} onChange={e => setEditing(p => p ? { ...p, username: e.target.value } : p)} placeholder="username" />
                 </div>
                 <div>
+                  <label style={S.label}>Email</label>
+                  <input style={S.input} type="email" value={editing.email ?? ""} onChange={e => setEditing(p => p ? { ...p, email: e.target.value } : p)} placeholder="name@ringoffireclothing.com" />
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9CA3AF" }}>Used for password-reset emails. Required for "Forgot password?".</p>
+                </div>
+                <div>
                   <label style={S.label}>Password</label>
                   <input style={S.input} type="password" value={editing.password} onChange={e => setEditing(p => p ? { ...p, password: e.target.value } : p)} placeholder={users.find(u => u.id === editing.id) ? "Leave blank to keep current" : "password"} />
                 </div>
@@ -768,10 +1033,16 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 </div>
                 <div>
                   <label style={S.label}>Role</label>
-                  <select style={S.select} value={editing.role} onChange={e => setEditing(p => p ? { ...p, role: e.target.value as "admin" | "user" } : p)}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <SearchableSelect
+                    theme="light"
+                    value={editing.role}
+                    onChange={v => setEditing(p => p ? { ...p, role: v as "admin" | "user" } : p)}
+                    options={[
+                      { value: "user", label: "User" },
+                      { value: "admin", label: "Admin" },
+                    ]}
+                    inputStyle={S.select}
+                  />
                 </div>
                 <div>
                   <label style={S.label}>Color</label>

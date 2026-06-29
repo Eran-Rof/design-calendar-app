@@ -48,6 +48,13 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
   const groups = new Map<string, IpPlanningGridRow[]>();
   for (const r of rows) {
     let key: string;
+    // Inseam is a grain dimension wherever style is preserved: a denim
+    // style+color with inseams 30/32/34 splits into one planning line per
+    // inseam so each length is forecast / bought separately. Null inseam
+    // (most styles) yields an empty fragment, so non-denim rows never gain
+    // an extra split. NOT applied to the category / sub-cat / customer-all
+    // rollups below, which intentionally drop style detail.
+    const inseamPart = r.sku_inseam ? `:in:${r.sku_inseam}` : "";
     if (modes.subCat) {
       key = `sub:${r.sub_category_name ?? "—"}:${r.period_code}`;
     } else if (modes.category) {
@@ -55,7 +62,7 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
     } else if (modes.allCustomersPerStyle) {
       // Style-level: drop customer AND color. Use sku_style if set,
       // else fall back to sku_code as the grouping key.
-      key = `acps:${r.sku_style ?? r.sku_code}:${r.period_code}`;
+      key = `acps:${r.sku_style ?? r.sku_code}${inseamPart}:${r.period_code}`;
     } else if (modes.allCustomersPerCategory) {
       // Within each category, one row per (style[+color], period) summing
       // every customer. `colors` collapses to style; otherwise the
@@ -64,26 +71,26 @@ export function aggregateRows(rows: IpPlanningGridRow[], modes: CollapseModes): 
       const skuPart = modes.colors
         ? `style:${r.sku_style ?? r.sku_code}`
         : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
-      key = `acpc:${r.group_name ?? "—"}:${skuPart}:${r.period_code}`;
+      key = `acpc:${r.group_name ?? "—"}:${skuPart}${inseamPart}:${r.period_code}`;
     } else if (modes.allCustomersPerSubCat) {
       const skuPart = modes.colors
         ? `style:${r.sku_style ?? r.sku_code}`
         : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
-      key = `acpsc:${r.sub_category_name ?? "—"}:${skuPart}:${r.period_code}`;
+      key = `acpsc:${r.sub_category_name ?? "—"}:${skuPart}${inseamPart}:${r.period_code}`;
     } else if (modes.customerAllStyles) {
       // Customer × period only — sums every style this customer
       // bought into one row. Other style/color/SKU fields collapse.
       key = `cust-all:${r.customer_id}:${r.period_code}`;
     } else {
-      // Default base granularity: (style, color, customer, period).
+      // Default base granularity: (style, color, inseam, customer, period).
       // Sizes always merge into the (style, color) cell — there is no
       // mode that exposes sku_id directly. `colors` drops the color
-      // dim; `customers` drops the customer dim.
+      // dim; `customers` drops the customer dim; inseam stays a grain.
       const skuPart = modes.colors
         ? `style:${r.sku_style ?? r.sku_code}`
         : `style+color:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
       const custPart = modes.customers ? "all" : r.customer_id;
-      key = `${skuPart}:${custPart}:${r.period_code}`;
+      key = `${skuPart}${inseamPart}:${custPart}:${r.period_code}`;
     }
     let bucket = groups.get(key);
     if (!bucket) { bucket = []; groups.set(key, bucket); }
@@ -150,6 +157,14 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, b
   const styleSet = new Set(bucket.map((r) => r.sku_style ?? r.sku_code));
   const colorSet = new Set(bucket.map((r) => r.sku_color ?? "—"));
   const sizeSet = new Set(bucket.map((r) => r.sku_size ?? "—"));
+  // Inseam stays a grain in the style/color rollups (so a bucket is
+  // normally single-inseam there), but the category / customer-all
+  // rollups span inseams — surface "(N inseams)" rather than an
+  // arbitrary child's value so the merged cell isn't misleading.
+  const inseamValues = bucket.map((r) => r.sku_inseam).filter((v): v is string => !!v);
+  const inseamSet = new Set(inseamValues);
+  const mergedInseam: string | null =
+    inseamSet.size > 1 ? `(${inseamSet.size} inseams)` : (inseamValues[0] ?? null);
 
   let label = head.customer_name;
   let style: string | null = head.sku_style;
@@ -242,6 +257,7 @@ export function mergeBucket(bucket: IpPlanningGridRow[], modes: CollapseModes, b
     customer_name: label,
     sku_style: style,
     sku_color: color,
+    sku_inseam: mergedInseam,
     sku_color_inferred: anyColorInferred || undefined,
     sku_description: description,
     sub_category_name: subCatOverride !== undefined ? subCatOverride : head.sub_category_name,

@@ -6,7 +6,6 @@
 //          Mutable fields: name, code, customer_type, country, payment_terms,
 //          default_currency, tax_exempt, tax_exempt_certificate, credit_limit,
 //          status, billing_address, shipping_address,
-//          default_gl_ar_account_id, default_gl_revenue_account_id,
 //          parent_customer_id, contact_name, contact_title, email, phone,
 //          website, wechat_id.
 // DELETE — soft-delete: set deleted_at = now(); 404 if already deleted.
@@ -14,6 +13,7 @@
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeContacts } from "./index.js";
 
 export const config = { maxDuration: 15 };
 
@@ -28,12 +28,12 @@ const MUTABLE_FIELDS = new Set([
   "is_factored", "factor_id",
   "status",
   "billing_address", "shipping_address",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P4-family sales-rep / default / GL-routing columns.
   "sales_rep_1_id",
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -43,12 +43,12 @@ const MUTABLE_FIELDS = new Set([
   "parent_customer_id",
   "price_list_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
+  "contacts",
 ]);
 
 // Nullable fields whose empty-string input should be normalized to null.
 const NULLABLE_TEXT_FIELDS = [
   "code", "country", "payment_terms", "payment_terms_id",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P4-family UUID FK fields normalize "" → null too.
   "sales_rep_1_id", "sales_rep_2_id", "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id",
@@ -173,6 +173,12 @@ export function validatePatch(body) {
     out.name = String(out.name).trim();
   }
 
+  if ("contacts" in out) {
+    const c = sanitizeContacts(out.contacts, 12);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c ?? [];
+  }
+
   if (out.customer_type != null && out.customer_type !== "") {
     if (!CUSTOMER_TYPES.includes(out.customer_type)) {
       return { error: `customer_type must be one of ${CUSTOMER_TYPES.join(", ")}` };
@@ -277,7 +283,7 @@ export function validatePatch(body) {
   }
 
   // P4-family: commission percentages — numeric, 0..100; "" → null.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (k in out) {
       if (out[k] == null || out[k] === "") {
         out[k] = null;

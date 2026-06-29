@@ -1,4 +1,4 @@
-// src/shared/documents/DocumentAttachmentList.tsx
+﻿// src/shared/documents/DocumentAttachmentList.tsx
 //
 // Tangerine P2 Chunk 6 — reusable attachment widget.
 // Drops into any panel via:
@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { confirmDialog } from "../ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 type DocVersion = {
   id: string;
@@ -22,6 +23,7 @@ type DocVersion = {
   byte_size: number;
   sha256_hex: string;
   notes: string | null;
+  original_filename: string | null;
   created_at: string;
 };
 
@@ -144,6 +146,8 @@ export default function DocumentAttachmentList({
           context_id: contextId,
           kind: form.kind,
           title: form.title,
+          // Keep the real filename for downloads (title is a free-text label).
+          original_filename: form.file.name,
           mime: form.file.type || "application/octet-stream",
           bytes_base64,
           notes: form.notes || undefined,
@@ -167,7 +171,7 @@ export default function DocumentAttachmentList({
       {!compact && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
-            📎 Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
+            Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
           </div>
           <button style={btnPrimary} onClick={() => setUploadOpen(true)}>+ Upload</button>
         </div>
@@ -194,11 +198,11 @@ export default function DocumentAttachmentList({
             </div>
             {d.current_version && (
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>
-                v{d.current_version.version_number} · {d.current_version.mime_type} · {formatBytes(d.current_version.byte_size)} · {new Date(d.current_version.created_at).toLocaleDateString()}
+                v{d.current_version.version_number} · {d.current_version.mime_type} · {formatBytes(d.current_version.byte_size)} · {new Date(d.current_version.created_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}
               </div>
             )}
           </div>
-          <button style={btnSecondary} onClick={() => void download(d.id)}>⬇ Download</button>
+          <button style={btnSecondary} onClick={() => void download(d.id)}>Download</button>
           <button style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} onClick={() => void archive(d.id)}>Archive</button>
         </div>
       ))}
@@ -241,7 +245,7 @@ function UploadModal({ kinds, onCancel, onUpload, uploading }: {
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
     }}>
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 24, width: 480 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 24, width: "min(480px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box" }}>
         <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>Upload document</h2>
 
         <div style={{ marginBottom: 10 }}>
@@ -252,9 +256,12 @@ function UploadModal({ kinds, onCancel, onUpload, uploading }: {
         <div style={{ marginBottom: 10 }}>
           <label style={{ display: "block", color: C.textSub, fontSize: 11, marginBottom: 4 }}>Kind</label>
           {kinds && kinds.length > 0 ? (
-            <select style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)}>
-              {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+            <SearchableSelect
+              value={kind || null}
+              onChange={(v) => setKind(v)}
+              inputStyle={inputStyle}
+              options={kinds.map((k) => ({ value: k, label: k }))}
+            />
           ) : (
             <input style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)} placeholder="contract, w9, packing_list, ..." />
           )}

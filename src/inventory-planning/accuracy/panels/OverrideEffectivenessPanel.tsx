@@ -6,6 +6,16 @@ import { useMemo, useState } from "react";
 import type { IpOverrideEffectiveness } from "../types/accuracy";
 import { aggregateOverrideEffectiveness } from "../compute/accuracyMetrics";
 import { S, PAL, formatQty } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "ip.override_effectiveness";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "helped", label: "Helped" },
+  { key: "hurt", label: "Hurt" },
+  { key: "neutral", label: "Neutral" },
+  { key: "avg_error_delta", label: "Avg error Δ" },
+];
 
 export interface OverrideEffectivenessPanelProps {
   rows: IpOverrideEffectiveness[];
@@ -14,6 +24,7 @@ export interface OverrideEffectivenessPanelProps {
 
 export default function OverrideEffectivenessPanel({ rows, skuCodeById }: OverrideEffectivenessPanelProps) {
   const [lane, setLane] = useState<"all" | "wholesale" | "ecom">("all");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   const filtered = useMemo(() => {
     return rows.filter((r) => lane === "all" ? true : r.forecast_type === lane);
   }, [rows, lane]);
@@ -30,14 +41,23 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
   return (
     <div>
       <div style={S.toolbar}>
-        <select style={S.select} value={lane} onChange={(e) => setLane(e.target.value as "all" | "wholesale" | "ecom")}>
-          <option value="all">Both lanes</option>
-          <option value="wholesale">Wholesale</option>
-          <option value="ecom">Ecom</option>
-        </select>
+        <SearchableSelect
+          value={lane}
+          onChange={(v) => setLane(v as "all" | "wholesale" | "ecom")}
+          options={[
+            { value: "all", label: "Both lanes" },
+            { value: "wholesale", label: "Wholesale" },
+            { value: "ecom", label: "Ecom" },
+          ]}
+          inputStyle={S.select}
+        />
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           {filtered.length} override rows scored.
         </span>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                            onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       <div style={S.card}>
@@ -47,10 +67,10 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
             <thead>
               <tr>
                 <th style={S.th}>Reason</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Helped</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Hurt</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Neutral</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Avg error Δ</th>
+                <th hidden={!visibleColumns.has("helped")} style={{ ...S.th, textAlign: "right" }}>Helped</th>
+                <th hidden={!visibleColumns.has("hurt")} style={{ ...S.th, textAlign: "right" }}>Hurt</th>
+                <th hidden={!visibleColumns.has("neutral")} style={{ ...S.th, textAlign: "right" }}>Neutral</th>
+                <th hidden={!visibleColumns.has("avg_error_delta")} style={{ ...S.th, textAlign: "right" }}>Avg error Δ</th>
                 <th style={S.th}>Net verdict</th>
               </tr>
             </thead>
@@ -58,10 +78,10 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
               {byReason.map((b) => (
                 <tr key={b.key}>
                   <td style={S.td}>{b.label}</td>
-                  <td style={{ ...S.tdNum, color: PAL.green }}>{b.helped_count}</td>
-                  <td style={{ ...S.tdNum, color: PAL.red }}>{b.hurt_count}</td>
-                  <td style={{ ...S.tdNum, color: PAL.textMuted }}>{b.neutral_count}</td>
-                  <td style={{ ...S.tdNum, color: b.avg_error_delta > 0 ? PAL.green : b.avg_error_delta < 0 ? PAL.red : PAL.textMuted }}>
+                  <td hidden={!visibleColumns.has("helped")} style={{ ...S.tdNum, color: PAL.green }}>{b.helped_count}</td>
+                  <td hidden={!visibleColumns.has("hurt")} style={{ ...S.tdNum, color: PAL.red }}>{b.hurt_count}</td>
+                  <td hidden={!visibleColumns.has("neutral")} style={{ ...S.tdNum, color: PAL.textMuted }}>{b.neutral_count}</td>
+                  <td hidden={!visibleColumns.has("avg_error_delta")} style={{ ...S.tdNum, color: b.avg_error_delta > 0 ? PAL.green : b.avg_error_delta < 0 ? PAL.red : PAL.textMuted }}>
                     {(b.avg_error_delta >= 0 ? "+" : "")}{formatQty(b.avg_error_delta)}
                   </td>
                   <td style={S.td}>

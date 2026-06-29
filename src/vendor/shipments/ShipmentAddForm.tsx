@@ -62,7 +62,7 @@ export default function ShipmentAddForm({ onClose, onCreated }: Props) {
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 12, padding: 24, width: 460, maxWidth: "92vw", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 12, padding: 24, width: 460, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 10px 25px rgba(0,0,0,0.15)" }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: TH.text, marginBottom: 4 }}>Add shipment</div>
         <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 18 }}>
           Look up a container, Bill of Lading, or Booking number via Searates. First fetch uses cached data (cheap). Live refresh available after.

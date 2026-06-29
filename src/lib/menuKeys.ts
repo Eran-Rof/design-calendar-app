@@ -134,6 +134,7 @@ const GS1_MENU: MenuKey[] = [
   { key: "gs1/upc",           label: "UPC Master",        app: "gs1", route: "/gs1?tab=upc",           group: "Masters" },
   { key: "gs1/scale",         label: "Scale Master",      app: "gs1", route: "/gs1?tab=scale",         group: "Masters" },
   { key: "gs1/gtins",         label: "Pack GTINs",        app: "gs1", route: "/gs1?tab=gtins",         group: "Masters" },
+  { key: "gs1/catalog",       label: "Styles Catalog",    app: "gs1", route: "/gs1?tab=catalog",       group: "Catalog" },
   { key: "gs1/upload",        label: "Packing List",      app: "gs1", route: "/gs1?tab=upload",        group: "Workflow" },
   { key: "gs1/pa-unpacker",   label: "PA Unpacker",       app: "gs1", route: "/gs1?tab=pa_unpacker",   group: "Workflow" },
   { key: "gs1/labels",        label: "Label Batches",     app: "gs1", route: "/gs1?tab=labels",        group: "Labels" },
@@ -141,6 +142,7 @@ const GS1_MENU: MenuKey[] = [
   { key: "gs1/cartons",       label: "Carton Labels",     app: "gs1", route: "/gs1?tab=cartons",       group: "Labels" },
   { key: "gs1/receiving",     label: "Receiving",         app: "gs1", route: "/gs1?tab=receiving",     group: "Workflow" },
   { key: "gs1/exceptions",    label: "Exceptions",        app: "gs1", route: "/gs1?tab=exceptions",    group: "Workflow" },
+  { key: "gs1/edi-workflow",  label: "Workflow Guide",    app: "gs1", route: "/gs1?tab=edi_workflow",  group: "Help" },
   { key: "gs1/notifications", label: "Notifications",     app: "gs1", route: "/gs1?tab=notifications", group: "Communication", icon: "🔔" },
 ];
 
@@ -162,16 +164,35 @@ const GS1_MENU: MenuKey[] = [
 const TANDA_MENU: MenuKey[] = [
   // Master Data
   { key: "tanda/master/style",         label: "Style Master",       app: "tanda", route: "/tangerine?m=style_master",     group: "Master Data", icon: "🎨" },
-  { key: "tanda/master/pim-catalog",   label: "Product Catalog",    app: "tanda", route: "/tangerine?m=pim_catalog",      group: "Master Data", icon: "🏷️" },
-  { key: "tanda/master/fabric-codes",  label: "Fabric Codes",       app: "tanda", route: "/tangerine?m=fabric_codes",     group: "Master Data", icon: "🧵" },
+  { key: "tanda/master/pim-catalog",   label: "Product Catalog Master",    app: "tanda", route: "/tangerine?m=pim_catalog",      group: "Master Data", icon: "🏷️" },
+  { key: "tanda/master/fabric-codes",  label: "Fabric Codes Master",       app: "tanda", route: "/tangerine?m=fabric_codes",     group: "Master Data", icon: "🧵" },
   { key: "tanda/master/vendor",        label: "Vendor Master",      app: "tanda", route: "/tangerine?m=vendor_master",    group: "Master Data", icon: "🏭" },
   { key: "tanda/master/customer",      label: "Customer Master",    app: "tanda", route: "/tangerine?m=customer_master",  group: "Master Data", icon: "🤝" },
-  { key: "tanda/master/payment-terms", label: "Payment Terms",      app: "tanda", route: "/tangerine?m=payment_terms",    group: "Master Data", icon: "📆" },
-  { key: "tanda/master/countries",     label: "Countries",          app: "tanda", route: "/tangerine?m=countries",        group: "Master Data", icon: "🌍" },
-  { key: "tanda/master/genders",       label: "Genders",            app: "tanda", route: "/tangerine?m=genders",          group: "Master Data", icon: "⚧" },
-  { key: "tanda/master/style-classifications", label: "Group/Category/Sub", app: "tanda", route: "/tangerine?m=style_classifications", group: "Master Data", icon: "🗂️" },
-  { key: "tanda/master/factors",       label: "Factors/Insurance",  app: "tanda", route: "/tangerine?m=factors",          group: "Master Data", icon: "🏦" },
-  { key: "tanda/master/size-scales",   label: "Size Scales",        app: "tanda", route: "/tangerine?m=size_scales",      group: "Master Data", icon: "📏" },
+  { key: "tanda/master/payment-terms", label: "Payment Terms Master",      app: "tanda", route: "/tangerine?m=payment_terms",    group: "Master Data", icon: "📆" },
+  { key: "tanda/master/countries",     label: "Countries Master",          app: "tanda", route: "/tangerine?m=countries",        group: "Master Data", icon: "🌍" },
+  { key: "tanda/master/genders",       label: "Genders Master",            app: "tanda", route: "/tangerine?m=genders",          group: "Master Data", icon: "⚧" },
+  { key: "tanda/master/style-classifications", label: "Group/Category/Sub Master", app: "tanda", route: "/tangerine?m=style_classifications", group: "Master Data", icon: "🗂️" },
+  { key: "tanda/master/factors",       label: "Factors/Insurance Master",  app: "tanda", route: "/tangerine?m=factors",          group: "Master Data", icon: "🏦" },
+  { key: "tanda/master/size-scales",   label: "Size Scales Master",        app: "tanda", route: "/tangerine?m=size_scales",      group: "Master Data", icon: "📏" },
+  { key: "tanda/master/seasons",       label: "Seasons Master",            app: "tanda", route: "/tangerine?m=season_master",    group: "Master Data", icon: "🍂" },
+  { key: "tanda/master/colors",        label: "Color Master",              app: "tanda", route: "/tangerine?m=color_master",     group: "Master Data", icon: "🎨" },
+  { key: "tanda/master/rma-reasons",   label: "RMA Reasons Master",        app: "tanda", route: "/tangerine?m=rma_reason_master", group: "Master Data", icon: "↩️" },
+  { key: "tanda/master/adjustment-types", label: "Adjustment Types Master", app: "tanda", route: "/tangerine?m=adjustment_type_master", group: "Master Data", icon: "⚙️" },
+  { key: "tanda/master/adjustment-reasons", label: "Adjustment Reason Master", app: "tanda", route: "/tangerine?m=adjustment_reason_master", group: "Master Data", icon: "📋" },
+  { key: "tanda/master/transfer-reasons", label: "Transfer Reasons Master", app: "tanda", route: "/tangerine?m=transfer_reason_master", group: "Master Data", icon: "🔁" },
+  { key: "tanda/master/date-presets", label: "Date Presets Master", app: "tanda", route: "/tangerine?m=date_preset_master", group: "Master Data", icon: "📅" },
+  { key: "tanda/master/warehouses",    label: "Warehouses Master",         app: "tanda", route: "/tangerine?m=warehouse_master",  group: "Master Data", icon: "🏬" },
+  { key: "tanda/master/hts-master",   label: "HTS Master",                app: "tanda", route: "/tangerine?m=hts_master",        group: "Master Data", icon: "🛃" },
+  { key: "tanda/master/fabric-mills", label: "Fabric Mill Master",        app: "tanda", route: "/tangerine?m=fabric_mill_master", group: "Master Data", icon: "🏭" },
+  { key: "tanda/master/part-master",  label: "Part Master",               app: "tanda", route: "/tangerine?m=part_master",       group: "Master Data", icon: "🧩" },
+  { key: "tanda/master/service-items", label: "Service Item Master",      app: "tanda", route: "/tangerine?m=service_item_master", group: "Master Data", icon: "🛠️" },
+  { key: "tanda/master/part-types",   label: "Part Type Master",          app: "tanda", route: "/tangerine?m=part_type_master", group: "Master Data", icon: "🏷️" },
+  { key: "tanda/mfg/part-inventory",  label: "Part Inventory",            app: "tanda", route: "/tangerine?m=part_inventory",    group: "Manufacturing", icon: "🧩" },
+  { key: "tanda/mfg/boms",            label: "Bill of Materials",         app: "tanda", route: "/tangerine?m=mfg_bom",          group: "Manufacturing", icon: "📋" },
+  { key: "tanda/mfg/build-orders",    label: "Build Orders",              app: "tanda", route: "/tangerine?m=mfg_build_orders", group: "Manufacturing", icon: "🛠️" },
+  { key: "tanda/mfg/reports",         label: "Mfg Reports",               app: "tanda", route: "/tangerine?m=mfg_reports",      group: "Manufacturing", icon: "📊" },
+  { key: "tanda/master/carriers",     label: "Carrier Master",            app: "tanda", route: "/tangerine?m=carrier_master",     group: "Master Data", icon: "🚚" },
+  { key: "tanda/master/buyer-scopes", label: "Buyer Scope Master",        app: "tanda", route: "/tangerine?m=buyer_scope_master", group: "Master Data", icon: "🛒" },
   // P18-F — internal B2B admin (buyers + wholesale price list).
   { key: "tanda/b2b/accounts",         label: "B2B Buyers",         app: "tanda", route: "/tangerine?m=b2b_accounts",     group: "Customers", icon: "🛍️" },
   { key: "tanda/b2b/price-list",       label: "Price Lists",        app: "tanda", route: "/tangerine?m=b2b_price_list",   group: "Pricing", icon: "🏷️" },
@@ -185,6 +206,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/ar-invoices", label: "AR Invoices",      app: "tanda", route: "/tangerine?m=ar_invoices",       group: "Customers – Accts Rec", icon: "🧮" },
   { key: "tanda/sales/sales-orders",  label: "Sales Orders",        app: "tanda", route: "/tangerine?m=sales_orders",      group: "Sales", icon: "🛒" },
   { key: "tanda/sales/allocations",   label: "Allocations",         app: "tanda", route: "/tangerine?m=sales_allocations", group: "Sales", icon: "📊" },
+  { key: "tanda/sales/returns-rma",   label: "Returns/RMA",         app: "tanda", route: "/tangerine?m=sales_returns",     group: "Sales", icon: "↩️" },
+  { key: "tanda/sales/drop-ship",     label: "Drop-Ship",           app: "tanda", route: "/tangerine?m=drop_ship",         group: "Sales", icon: "📦" },
   { key: "tanda/accounting/ar-receipts", label: "AR Receipts",      app: "tanda", route: "/tangerine?m=ar_receipts",       group: "Customers – Accts Rec", icon: "💵" },
   { key: "tanda/accounting/ar-aging",   label: "AR Aging",          app: "tanda", route: "/tangerine?m=ar_aging",          group: "Customers – Accts Rec", icon: "📅" },
   { key: "tanda/accounting/ar-backfill", label: "AR Backfill",      app: "tanda", route: "/tangerine?m=ar_backfill",       group: "Customers – Accts Rec", icon: "🗄️" },
@@ -193,6 +216,9 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/balance-sheet", label: "Balance Sheet",  app: "tanda", route: "/tangerine?m=balance_sheet",     group: "Accounting", icon: "📋" },
   { key: "tanda/accounting/cash-flow",  label: "Cash Flow",         app: "tanda", route: "/tangerine?m=cash_flow",         group: "Accounting", icon: "💧" },
   { key: "tanda/accounting/year-end-close", label: "Year-End Close", app: "tanda", route: "/tangerine?m=year_end_close",   group: "Accounting", icon: "🔚" },
+  { key: "tanda/accounting/fixed-assets", label: "Fixed Assets",     app: "tanda", route: "/tangerine?m=fixed_assets",      group: "Accounting", icon: "🏢" },
+  { key: "tanda/accounting/budgets",      label: "Budgets",           app: "tanda", route: "/tangerine?m=budgets",           group: "Accounting", icon: "🎯" },
+  { key: "tanda/accounting/form-1099",    label: "1099 Worksheet",    app: "tanda", route: "/tangerine?m=form_1099",         group: "Accounting", icon: "🧾" },
   { key: "tanda/accounting/bank-reconciliation", label: "Bank Reconciliation", app: "tanda", route: "/tangerine?m=bank_reconciliation", group: "Accounting", icon: "🏦" },
   // CRM
   { key: "tanda/crm/opportunities",     label: "CRM Opportunities", app: "tanda", route: "/tangerine?m=crm_opportunities", group: "CRM", icon: "💼" },
@@ -204,7 +230,9 @@ const TANDA_MENU: MenuKey[] = [
   // Nav reorg: Sales by Rep moved to the Sales section; Sales by Customer to Customers.
   { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Sales", icon: "🧑‍💼" },
   { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Customers", icon: "🤝" },
+  { key: "tanda/reports/hub",           label: "Reports & Analytics", app: "tanda", route: "/tangerine?m=reports_hub",      group: "Reports", icon: "📊" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tangerine?m=gl_detail",         group: "Reports", icon: "🔍" },
+  { key: "tanda/reports/upc-report",    label: "UPC Report",        app: "tanda", route: "/tangerine?m=upc_report",        group: "Reports", icon: "🔖" },
   // Scorecards — nav-reachable entry points under Vendors / Customers.
   { key: "tanda/vendors/scorecard",     label: "Vendor Scorecard",   app: "tanda", route: "/tangerine?m=vendor_scorecard",   group: "Vendors", icon: "📊" },
   { key: "tanda/customers/scorecard",   label: "Customer Scorecard", app: "tanda", route: "/tangerine?m=customer_scorecard", group: "Customers", icon: "📊" },
@@ -217,8 +245,15 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/procurement/broker-invoices", label: "Broker Invoices", app: "tanda", route: "/tangerine?m=broker_invoices", group: "Procurement", icon: "🚢" },
   { key: "tanda/procurement/three-way-match", label: "3-Way Match", app: "tanda", route: "/tangerine?m=three_way_match", group: "Procurement", icon: "⚖️" },
   { key: "tanda/procurement/recon", label: "Procurement Recon", app: "tanda", route: "/tangerine?m=procurement_recon", group: "Procurement", icon: "🧮" },
+  // EDI restructured into a Master-Data sub-menu: Vendors / Customers / Settings.
+  // The existing vendor X12 panel keeps route m=edi, relabelled "Vendors".
+  { key: "tanda/edi/vendors",   label: "EDI Vendors",   app: "tanda", route: "/tangerine?m=edi",           group: "EDI", icon: "🏭" },
+  { key: "tanda/edi/customers", label: "EDI Customers", app: "tanda", route: "/tangerine?m=edi_customers", group: "EDI", icon: "🤝" },
+  { key: "tanda/edi/settings",  label: "EDI Settings",  app: "tanda", route: "/tangerine?m=edi_settings",  group: "EDI", icon: "⚙️" },
   { key: "tanda/inventory/matrix",       label: "Inventory Matrix",  app: "tanda", route: "/tangerine?m=inventory_matrix",   group: "Inventory", icon: "🧮" },
-  { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Inventory", icon: "📦" },
+  { key: "tanda/inventory/prepack-matrices", label: "Prepack Matrices Master", app: "tanda", route: "/tangerine?m=prepack_matrices", group: "Master Data", icon: "📦" },
+  { key: "tanda/inventory/3pl",          label: "3PL",               app: "tanda", route: "/tangerine?m=three_pl",          group: "Inventory", icon: "🚚" },
+  { key: "tanda/inventory/3pl-recon",    label: "3PL Inventory Recon", app: "tanda", route: "/tangerine?m=three_pl_recon",  group: "Inventory", icon: "📋" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },
   { key: "tanda/inventory/adjustments", label: "Inventory Adjustments", app: "tanda", route: "/tangerine?m=inventory_adjustments", group: "Inventory", icon: "📐" },
   { key: "tanda/inventory/cycle-counts", label: "Cycle Counts",     app: "tanda", route: "/tangerine?m=cycle_counts",      group: "Inventory", icon: "📋" },
@@ -238,6 +273,52 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/hr/employee-departments",  label: "Employee Departments", app: "tanda", route: "/tangerine?m=employee_departments", group: "HR", icon: "🏢" },
   // Operations
   { key: "tanda/operations/scanner-sessions", label: "Scanner Sessions", app: "tanda", route: "/tangerine?m=scanner_sessions", group: "Operations", icon: "📱" },
+  // Registry-gap backfill — nav-reachable Tangerine modules that were missing
+  // a menu_key (favorites/home-route could not pin them). Group/label mirror
+  // their ModuleDef in src/Tangerine.tsx.
+  { key: "tanda/accounting/recon-report",       label: "Recon Report",         app: "tanda", route: "/tangerine?m=bank_recon_report",  group: "Accounting", icon: "⚖️" },
+  { key: "tanda/accounting/commission-accruals", label: "Commission Accruals", app: "tanda", route: "/tangerine?m=commission_accruals", group: "Accounting", icon: "💰" },
+  { key: "tanda/accounting/commission-payouts",  label: "Commission Payouts",  app: "tanda", route: "/tangerine?m=commission_payouts",  group: "Accounting", icon: "📜" },
+  { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },
+  { key: "tanda/shopify/stores",                 label: "Connect Store",        app: "tanda", route: "/tangerine?m=shopify_stores",     group: "Shopify", icon: "🛍️" },
+  { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
+  { key: "tanda/audit/log",                      label: "Audit Log",            app: "tanda", route: "/tangerine?m=audit_log",           group: "Audit", icon: "🕒" },
+  { key: "tanda/admin/user-access",              label: "User Access",          app: "tanda", route: "/tangerine?m=user_access",         group: "Admin", icon: "🔐" },
+  // #983 — surface 26 built-but-unmenued Tangerine panels.
+  // Treasury group.
+  { key: "tanda/treasury/payments",          label: "Payments",            app: "tanda", route: "/tangerine?m=payments",          group: "Treasury", icon: "💸" },
+  { key: "tanda/treasury/reconciliation",    label: "Reconciliation",      app: "tanda", route: "/tangerine?m=recon_dashboard",   group: "Treasury", icon: "⚖️" },
+  { key: "tanda/treasury/fx",                label: "FX",                  app: "tanda", route: "/tangerine?m=fx",                group: "Treasury", icon: "🌐" },
+  { key: "tanda/treasury/virtual-cards",     label: "Virtual Cards",       app: "tanda", route: "/tangerine?m=virtual_cards",     group: "Treasury", icon: "💳" },
+  { key: "tanda/treasury/scf",               label: "Supply Chain Finance", app: "tanda", route: "/tangerine?m=scf",              group: "Treasury", icon: "🏦" },
+  { key: "tanda/treasury/discount-offers",   label: "Discount Offers",     app: "tanda", route: "/tangerine?m=discount_offers",   group: "Treasury", icon: "⚡" },
+  { key: "tanda/treasury/tax",               label: "Tax",                 app: "tanda", route: "/tangerine?m=tax",               group: "Treasury", icon: "🧾" },
+  // Procurement RFQs.
+  { key: "tanda/procurement/rfqs",           label: "RFQs",                app: "tanda", route: "/tangerine?m=rfqs",              group: "Procurement", icon: "📨" },
+  // Reports analytics.
+  { key: "tanda/reports/analytics",          label: "Analytics",           app: "tanda", route: "/tangerine?m=analytics",         group: "Reports", icon: "📊" },
+  { key: "tanda/reports/insights",           label: "Insights",            app: "tanda", route: "/tangerine?m=insights",          group: "Reports", icon: "💡" },
+  { key: "tanda/reports/anomalies",          label: "Anomalies",           app: "tanda", route: "/tangerine?m=anomalies",         group: "Reports", icon: "🚨" },
+  { key: "tanda/reports/benchmark",          label: "Benchmark",           app: "tanda", route: "/tangerine?m=benchmark",         group: "Reports", icon: "📈" },
+  { key: "tanda/reports/health-scores",      label: "Vendor Health",       app: "tanda", route: "/tangerine?m=health_scores",     group: "Vendors", icon: "❤️" },
+  { key: "tanda/reports/preferred",          label: "Preferred Vendors",   app: "tanda", route: "/tangerine?m=preferred",         group: "Reports", icon: "⭐" },
+  // ESG & Compliance group.
+  { key: "tanda/esg/sustainability",         label: "Sustainability",      app: "tanda", route: "/tangerine?m=sustainability",    group: "ESG & Compliance", icon: "🌿" },
+  { key: "tanda/esg/esg-scores",             label: "ESG Scores",          app: "tanda", route: "/tangerine?m=esg_scores",        group: "ESG & Compliance", icon: "🌍" },
+  { key: "tanda/esg/diversity",              label: "Diversity",           app: "tanda", route: "/tangerine?m=diversity",         group: "ESG & Compliance", icon: "🤲" },
+  { key: "tanda/esg/compliance-audit",       label: "Compliance Audit",    app: "tanda", route: "/tangerine?m=compliance_audit",  group: "ESG & Compliance", icon: "📜" },
+  { key: "tanda/esg/compliance-automation",  label: "Compliance Automation", app: "tanda", route: "/tangerine?m=compliance_automation", group: "ESG & Compliance", icon: "🤖" },
+  // Workflow group.
+  { key: "tanda/workflow/rules",             label: "Workflow Rules",      app: "tanda", route: "/tangerine?m=workflow_rules",    group: "Workflow", icon: "🧩" },
+  { key: "tanda/workflow/executions",        label: "Approvals Queue",     app: "tanda", route: "/tangerine?m=workflow_executions", group: "Workflow", icon: "🗳️" },
+  { key: "tanda/workflow/workspaces",        label: "Workspaces",          app: "tanda", route: "/tangerine?m=workspaces",        group: "Workflow", icon: "🗂️" },
+  // Marketplaces.
+  { key: "tanda/marketplaces/marketplace",   label: "Marketplace",         app: "tanda", route: "/tangerine?m=marketplace",      group: "Marketplaces", icon: "🛍️" },
+  { key: "tanda/marketplaces/inquiries",     label: "Marketplace Inquiries", app: "tanda", route: "/tangerine?m=marketplace_inquiries", group: "Marketplaces", icon: "📩" },
+  // Admin.
+  { key: "tanda/admin/entities",             label: "Entities",            app: "tanda", route: "/tangerine?m=entities",          group: "Admin", icon: "🏛️" },
+  { key: "tanda/admin/onboarding",           label: "Onboarding",          app: "tanda", route: "/tangerine?m=onboarding",        group: "Admin", icon: "🚀" },
+  { key: "tanda/admin/api-keys",             label: "API Keys",            app: "tanda", route: "/tangerine?m=api_keys",         group: "Admin", icon: "🔑" },
 ];
 
 // ─── Tech Packs ────────────────────────────────────────────────────────────
@@ -291,4 +372,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 9;
+export const MENU_KEYS_VERSION = 21;

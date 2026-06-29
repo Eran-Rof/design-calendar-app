@@ -19,11 +19,13 @@
 //   - <ExportButton> (T3/T8) — xlsx-only export of the visible rows
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SHOPIFY_REFUNDS_TABLE_KEY = "tangerine:shopifyrefunds:columns";
@@ -72,6 +74,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -93,11 +96,7 @@ function fmtCents(c: string | number | null | undefined): string {
   return `${neg ? "-" : ""}$${w}.${frac}`;
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  // YYYY-MM-DD slice — matches the rest of the Tangerine panels.
-  return iso.slice(0, 10);
-}
+const fmtDate = fmtDateDisplay;
 
 function refundTypeColor(t: RefundType): string {
   return t === "full" ? C.danger : C.warn;
@@ -190,15 +189,16 @@ export default function InternalShopifyRefunds() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <select
+        <SearchableSelect
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as RefundType | "")}
-          style={{ ...inputStyle, width: 150 }}
-        >
-          <option value="">All types</option>
-          <option value="full">Full</option>
-          <option value="partial">Partial</option>
-        </select>
+          onChange={(v) => setTypeFilter(v as RefundType | "")}
+          inputStyle={{ ...inputStyle, width: 150 }}
+          options={[
+            { value: "", label: "All types" },
+            { value: "full", label: "Full" },
+            { value: "partial", label: "Partial" },
+          ]}
+        />
         <input
           type="date" placeholder="From" value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
@@ -209,17 +209,22 @@ export default function InternalShopifyRefunds() {
           onChange={(e) => setToDate(e.target.value)}
           style={{ ...inputStyle, width: 140 }}
         />
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
-          <option value={50}>Limit 50</option>
-          <option value={100}>Limit 100</option>
-          <option value={200}>Limit 200</option>
-          <option value={500}>Limit 500</option>
-        </select>
+        <SearchableSelect
+          value={String(limit)}
+          onChange={(v) => setLimit(Number(v))}
+          inputStyle={{ ...inputStyle, width: 110 }}
+          options={[
+            { value: "50", label: "Limit 50" },
+            { value: "100", label: "Limit 100" },
+            { value: "200", label: "Limit 200" },
+            { value: "500", label: "Limit 500" },
+          ]}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <TablePrefsButton
           tableKey={SHOPIFY_REFUNDS_TABLE_KEY}
@@ -251,7 +256,7 @@ export default function InternalShopifyRefunds() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (

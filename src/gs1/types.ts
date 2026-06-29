@@ -493,3 +493,79 @@ export const KNOWN_SCALE_CODES = new Set([
 
 // ── Style number pattern ──────────────────────────────────────────────────────
 export const STYLE_NO_RE = /^\d{6,10}[A-Z]{0,4}$/;
+
+// ── Styles Catalog (workflow step 1 — publishable supplier catalog) ───────────
+
+export type CatalogStatus = "draft" | "ready" | "published";
+
+export interface CatalogItem {
+  id: string;
+  style_id: string | null;
+  style_no: string;
+  style_name: string | null;
+  color: string;
+  color_id: string | null;
+  brand: string | null;
+  category: string | null;
+  description: string | null;
+  pack_gtin: string | null;
+  price_cents: number | null;
+  currency: string;
+  price_list_id: string | null;
+  price_list_code: string | null;
+  status: CatalogStatus;
+  gdsn_target: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Upsert payload (keyed on style_no + color). price_cents is the resolved sell
+// price from the chosen price list, overridable by the operator before publish.
+export interface CatalogItemInput {
+  style_id?: string | null;
+  style_no: string;
+  style_name?: string | null;
+  color: string;
+  color_id?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  description?: string | null;
+  pack_gtin?: string | null;
+  price_cents?: number | null;
+  currency?: string;
+  price_list_id?: string | null;
+  price_list_code?: string | null;
+  status?: CatalogStatus;
+}
+
+// One selectable style+color from the PLM, shown in the "add styles & colors"
+// picker BEFORE import. No price here — price is pulled only on import.
+export interface CatalogSourceRow {
+  style_id: string | null;
+  style_no: string;
+  style_name: string | null;
+  color: string;
+  brand: string | null;
+  category: string | null;
+  description: string | null;
+  pack_gtin: string | null;
+  in_catalog: boolean;   // already present in the catalog
+}
+
+// A selectable Tangerine price list (M43) shown in the catalog price-list picker.
+export interface PriceListOption {
+  id: string;
+  code: string;
+  name: string;
+  currency: string;
+  is_default: boolean;
+  item_count: number;
+}
+
+export interface CatalogImportResult {
+  imported: number;   // rows upserted into the catalog
+  priced: number;     // rows that got a price from the list
+  unpriced: number;   // style+color rows with no price in the chosen list
+  with_gtin: number;  // rows that already have a pack GTIN
+}

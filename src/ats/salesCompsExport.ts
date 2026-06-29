@@ -9,7 +9,6 @@
 // truth for sections / row splits / numbers. This file styles them.
 // Don't change shape / dimensions / sectioning here.
 
-import XLSXStyle from "xlsx-js-style";
 import { fmtDateDisplay } from "./helpers";
 import {
   PALETTE, ROW_HEIGHTS, BORDER_BODY, BORDER_HEADER, BORDER_TOTAL, EXTRA_THICK,
@@ -17,7 +16,7 @@ import {
   subtotalTextStyle, subtotalNumStyle,
   totalLabelStyle, totalNumStyle,
   zebraFill, numOrBlank,
-  autofitColumns,
+  autofitColumns, buildMultiSheetWorkbook, writeWorkbookToFile,
 } from "./exportTheme";
 import type { DimRow, DimTotals } from "./salesCompsAggregate";
 
@@ -568,17 +567,15 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
     }
   }
 
-  // ── Build worksheet ─────────────────────────────────────────────────
-  const ws: any = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
-
-  // Apply outer-rectangle outline so the whole sheet reads as one
-  // bordered table.
+  // ── Outer-rectangle outline (applied to the AOA cells directly) ─────
+  // Each touched cell is cloned so we never mutate a shared style ref.
+  // buildMultiSheetWorkbook stamps the logo banner on top and offsets
+  // the merges; borders are per-cell so they move with their cells.
   const lastAoaRow = aoa.length - 1;
   const lastColIdx = maxCols - 1;
   for (let r = 0; r <= lastAoaRow; r++) {
     for (let c = 0; c <= lastColIdx; c++) {
-      const addr = XLSXStyle.utils.encode_cell({ r, c });
-      const cell = ws[addr];
+      const cell = aoa[r]?.[c];
       if (!cell) continue;
       const existingBorder = cell.s?.border ?? {};
       const border: any = { ...existingBorder };
@@ -586,56 +583,56 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
       if (c === lastColIdx)  border.right  = EXTRA_THICK;
       if (r === 0)           border.top    = EXTRA_THICK;
       if (r === lastAoaRow)  border.bottom = EXTRA_THICK;
-      cell.s = { ...(cell.s ?? {}), border };
+      aoa[r][c] = { ...cell, s: { ...(cell.s ?? {}), border } };
     }
   }
-
-  if (merges.length > 0) ws["!merges"] = merges;
 
   // Column widths — use the widest per-dim header + body block. If no
   // dim section was emitted (e.g. SO-only), fall back to autofit across
   // the whole AOA.
+  let cols: Array<{ wch: number }>;
   if (firstHeaderRow && firstBodyRowsStart > 0) {
     const bodyForFit = aoa.slice(firstBodyRowsStart);
-    ws["!cols"] = widthsForRows(firstHeaderRow, bodyForFit);
+    cols = widthsForRows(firstHeaderRow, bodyForFit);
   } else {
-    ws["!cols"] = autofitColumns({ headerRow: aoa[0], bodyRows: aoa.slice(1) });
+    cols = autofitColumns({ headerRow: aoa[0], bodyRows: aoa.slice(1) });
   }
 
   // Row heights — title taller, header band heavier, body standard.
   // Mark each row by walking the AOA shape: row index 0 = title banner;
   // row 1-2 = window banners; row 3-4 = scope/explode; everything after
   // is body with the column header / totals interspersed.
-  const rows: any[] = [];
+  const rowHeights: Array<{ hpt: number }> = [];
   for (let r = 0; r <= lastAoaRow; r++) {
-    if (r === 0) { rows.push({ hpt: 32 }); continue; }
-    if (r === 1 || r === 2) { rows.push({ hpt: 22 }); continue; }
-    if (r === 3 || r === 4) { rows.push({ hpt: 18 }); continue; }
+    if (r === 0) { rowHeights.push({ hpt: 32 }); continue; }
+    if (r === 1 || r === 2) { rowHeights.push({ hpt: 22 }); continue; }
+    if (r === 3 || r === 4) { rowHeights.push({ hpt: 18 }); continue; }
     // Heuristic: a row whose first cell carries a wrapped header style
     // is a column header (give it the HEADER height). Bumped to 34 if
     // any header in the row wraps (mirrors exportExcel.ts convention).
     const firstCell = aoa[r]?.[0];
     const hasWrap = aoa[r]?.some((c: any) => !!c?.s?.alignment?.wrapText);
     if (firstCell?.s?.font?.bold && firstCell?.s?.font?.sz >= 13) {
-      // section banner
-      rows.push({ hpt: 24 });
+      rowHeights.push({ hpt: 24 });            // section banner
     } else if (hasWrap && firstCell?.s?.font?.color?.rgb === "FFFFFF") {
-      // column header with wrapped text
-      rows.push({ hpt: 34 });
+      rowHeights.push({ hpt: 34 });            // wrapped column header
     } else if (firstCell?.s?.font?.color?.rgb === "FFFFFF" && firstCell?.s?.font?.bold) {
-      // column header, single line
-      rows.push({ hpt: ROW_HEIGHTS.HEADER });
+      rowHeights.push({ hpt: ROW_HEIGHTS.HEADER }); // single-line column header
     } else {
-      rows.push({ hpt: ROW_HEIGHTS.BODY });
+      rowHeights.push({ hpt: ROW_HEIGHTS.BODY });
     }
   }
-  ws["!rows"] = rows;
-
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "Sales Comps");
 
   const cfSuffix = customerFacing ? "_customer" : "";
-  return { wb, filename: `SalesComps_${start}_to_${end}${cfSuffix}.xlsx` };
+  const filename = `SalesComps_${start}_to_${end}${cfSuffix}.xlsx`;
+  const { wb } = buildMultiSheetWorkbook(filename, [{
+    sheetName: "Sales Comps",
+    allRows: aoa,
+    cols,
+    rowHeights,
+    merges,
+  }]);
+  return { wb, filename };
 }
 
 // ── SO section emitter ────────────────────────────────────────────────
@@ -805,15 +802,8 @@ function isoMinusMonths(iso: string, months: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// ── Public trigger-download (mirrors exportTheme.writeWorkbookToFile) ──
+// ── Public trigger-download (branded ExcelJS flush via exportTheme) ──
 export function downloadSalesCompsWorkbook(input: SalesCompsExportInput): void {
   const { wb, filename } = buildSalesCompsWorkbook(input);
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  void writeWorkbookToFile(wb, filename);
 }

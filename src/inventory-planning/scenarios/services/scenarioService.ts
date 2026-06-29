@@ -76,7 +76,7 @@ export async function cloneBaseIntoScenario(args: {
                               ?? (baseRun.planning_scope === "wholesale" ? baseRun.id : null),
     ecom_source_run_id: baseRun.ecom_source_run_id
                               ?? (baseRun.planning_scope === "ecom" ? baseRun.id : null),
-    note: `Cloned from ${baseRun.id.slice(0, 8)} at ${new Date().toISOString()}`,
+    note: `Cloned from ${baseRun.name} at ${new Date().toISOString()}`,
     created_by: createdBy ?? null,
   });
 
@@ -213,7 +213,7 @@ export async function cloneBaseIntoSavedBuild(args: {
     forecast_method_preference: baseRun.forecast_method_preference,
     wholesale_source_run_id: baseRun.wholesale_source_run_id ?? null,
     ecom_source_run_id: baseRun.ecom_source_run_id ?? null,
-    note: `Saved build of ${baseRun.name} (${baseRunId.slice(0, 8)}) at ${new Date().toISOString()}`,
+    note: `Saved build of ${baseRun.name} at ${new Date().toISOString()}`,
     created_by: createdBy ?? null,
   });
 
@@ -491,12 +491,18 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
   }
 
   const wholesaleDemand = new Map<string, { total: number; by_customer: Map<string, number> }>();
+  // Phase 1 planned buys summed per (sku, period) — fed to the projected row's
+  // inbound_planned_buy_qty. MUST be set (the column is NOT NULL): without it
+  // buildProjectedInventory does Math.max(0, undefined) → NaN → serialized as
+  // null → "violates not-null constraint" on ip_projected_inventory.
+  const plannedBuysByGrain = new Map<string, number>();
   for (const f of wholesaleForecast) {
     const k = `${f.sku_id}:${f.period_start}`;
     const entry = wholesaleDemand.get(k) ?? { total: 0, by_customer: new Map() };
     entry.total += f.final_forecast_qty;
     entry.by_customer.set(f.customer_id, (entry.by_customer.get(f.customer_id) ?? 0) + f.final_forecast_qty);
     wholesaleDemand.set(k, entry);
+    plannedBuysByGrain.set(k, (plannedBuysByGrain.get(k) ?? 0) + (f.planned_buy_qty ?? 0));
   }
   const ecomDemand = new Map<string, {
     total: number; protected: number;
@@ -546,6 +552,7 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
         ats_qty: beginning === (onHandBySku.get(skuId)?.qty ?? 0) ? ats : 0,
         inbound_receipts_qty: receiptsByGrain.get(grainKey) ?? 0,
         inbound_po_qty: inboundPoByGrain.get(grainKey) ?? 0,
+        inbound_planned_buy_qty: plannedBuysByGrain.get(grainKey) ?? 0,
         wip_qty: 0,
       };
       const demand = {
@@ -567,6 +574,9 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
         supply, demand,
         rules: applicableRules,
         po_detail: poDetailByGrain.get(grainKey),
+        // Honor the run's flag, same as the Supply-screen reconciliation, so
+        // planned buys net into supply consistently across both paths.
+        count_planned_buys: !!run.recon_include_planned_buys,
       });
       projectedRows.push(row);
 
@@ -590,6 +600,66 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
   await supplyRepo.replaceExceptions(run.id, exceptions);
 
   return { projected_rows: projectedRows.length, recommendations: recs.length, exceptions: exceptions.length };
+}
+
+// Push the planner-typed buy quantities (ip_wholesale_forecast.planned_buy_qty)
+// straight through as the buy plan, BYPASSING supply reconciliation. Writes
+// one `buy` recommendation per (sku, period) summing planned_buy_qty across
+// customers, REPLACING any computed recommendations for the scenario's run.
+// The execution batch + buy-plan export read recommendations, so after this
+// they reflect the planner's own numbers (not the system's shortage math).
+export async function generatePlannerBuyRecommendations(scenarioId: string): Promise<{ recommendations: number; units: number }> {
+  const scenario = await scenarioRepo.getScenario(scenarioId);
+  if (!scenario) throw new Error("Scenario not found");
+  const runId = scenario.planning_run_id;
+
+  const [forecast, items] = await Promise.all([
+    wholesaleRepo.listForecast(runId),
+    wholesaleRepo.listItems(),
+  ]);
+  const categoryBySku = new Map(items.map((i) => [i.id, i.category_id]));
+
+  // Aggregate planned_buy_qty to (sku, period) grain — recommendations are
+  // per (run, sku, period), forecast is per (customer, category, sku, period).
+  const bySkuPeriod = new Map<string, {
+    sku_id: string; category_id: string | null;
+    period_start: string; period_end: string; period_code: string; qty: number;
+  }>();
+  for (const f of forecast) {
+    const qty = f.planned_buy_qty ?? 0;
+    if (qty <= 0 || !f.sku_id) continue;
+    const key = `${f.sku_id}|${f.period_code}`;
+    const ex = bySkuPeriod.get(key);
+    if (ex) { ex.qty += qty; continue; }
+    bySkuPeriod.set(key, {
+      sku_id: f.sku_id,
+      category_id: f.category_id ?? categoryBySku.get(f.sku_id) ?? null,
+      period_start: f.period_start,
+      period_end: f.period_end,
+      period_code: f.period_code,
+      qty,
+    });
+  }
+
+  const rows = [...bySkuPeriod.values()].map((e) => ({
+    planning_run_id: runId,
+    sku_id: e.sku_id,
+    category_id: e.category_id,
+    period_start: e.period_start,
+    period_end: e.period_end,
+    period_code: e.period_code,
+    recommendation_type: "buy" as const,
+    recommendation_qty: Math.round(e.qty),
+    action_reason: "planner_buy_plan",
+    priority_level: "medium" as const,
+    shortage_qty: null,
+    excess_qty: null,
+    service_risk_flag: false,
+  }));
+
+  await supplyRepo.replaceRecommendations(runId, rows);
+  const units = rows.reduce((s, r) => s + (r.recommendation_qty ?? 0), 0);
+  return { recommendations: rows.length, units };
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

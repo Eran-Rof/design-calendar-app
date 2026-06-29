@@ -13,6 +13,7 @@ import {
 } from "../../governance/services/permissionService";
 import { logChange } from "../../scenarios/services/auditLogService";
 import { S, PAL, formatDate } from "../../components/styles";
+import { confirmDialog, promptDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 
 export interface RolesPermissionsPanelProps {
@@ -39,7 +40,7 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
 
   async function assign() {
     if (!selectedRole || !isAdmin) return;
-    const email = window.prompt(`Grant "${selectedRole.role_name}" to which email?`);
+    const email = await promptDialog(`Grant "${selectedRole.role_name}" to which email?`, { title: "Grant role", placeholder: "name@domain.com", required: true });
     if (!email) return;
     try {
       await assignUserRole(email, selectedRole.id, currentUser.user_email);
@@ -58,7 +59,7 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
 
   async function revoke(ur: IpUserRole) {
     if (!isAdmin) return;
-    if (!window.confirm(`Revoke ${ur.user_email}'s role?`)) return;
+    if (!(await confirmDialog(`Revoke ${ur.user_email}'s role?`, { danger: true, confirmText: "Revoke" }))) return;
     try {
       await revokeUserRole(ur.id);
       await logChange({

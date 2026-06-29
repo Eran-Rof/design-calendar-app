@@ -11,7 +11,8 @@ For a `(customer, style, quantity, date)` the engine walks price lists **most-sp
 1. **The customer's own list** — a price list whose scope is that specific customer.
 2. **The customer's assigned list** — the shared list set on the customer (e.g. "Distributor"), via Customer Master → Reps & Defaults → **Price list**.
 3. **The tier list** — a list whose scope is the customer's `customer_tier`.
-4. **The Default list** — the global fallback (`Default Wholesale`, seeded).
+4. **The brand default list** — a per-brand list (`Default — <Brand>`) holding that brand's styles at the standard margin.
+5. **The Default list** — the global all-brand fallback (`Default Wholesale`, seeded).
 
 Within the chosen list, if the style has **quantity breaks** (multiple prices at different minimum quantities), the engine takes the price for the **highest minimum quantity that the order quantity meets**. Finally, the best (largest-discount) matching **promotion** in effect that day is applied on top. Prices always resolve at the **style** level (every size of a style shares the price).
 
@@ -19,12 +20,13 @@ Within the chosen list, if the style has **quantity breaks** (multiple prices at
 
 The list shows every price list with its **scope** (Default / Tier / Customer), currency, and item count. Click a row to open it.
 
-**Creating a list** — give it a `Code`, `Name`, currency, and pick a **Scope**:
-- **Default (fallback)** — the catch-all. Keep exactly one active default.
+**Creating a list** — give it a `Name`, currency, and pick a **Scope**. The **Code** is **auto-generated, read-only** (`PL-NNNNN`) — allocated on save, you never type it; the pre-existing `DEFAULT` list keeps its code. Scope options:
+- **Default — all brands (fallback)** — the catch-all. Keep exactly one active default.
+- **Per-brand default** — pick the **Brand**; the list holds that brand's styles (one `Default — <Brand>` per brand). Seeded at a **23% margin on sell** from each style's on-hand weighted-average cost (or an open-PO cost when there's no stock), rounded **up to the nearest 5¢**.
 - **Customer tier** — type the tier string (must match `customers.customer_tier`).
-- **Specific customer** — pick the customer; this becomes that customer's own list.
+- **Specific customer** — pick the customer; this becomes that customer's own list (mixed brands). Ross and Burlington are seeded from each customer's **last invoiced price** per style.
 
-**Adding prices & quantity breaks** — inside a saved list, **+ Add price** opens the price editor: pick the **Style**, enter the **Price**, and a **Min qty** (use `0` for the base price; add more rows at `12`, `144`, … for break pricing). Optional **effective from/to** dates gate when the price applies. Each `(style, min-qty)` is unique within a list — editing an existing break re-opens the same editor.
+**Adding prices & quantity breaks** — inside a saved list, **+ Add price** opens the cost-aware price editor: pick the **Style** and the editor looks up that style's **cost** and **suggests a price** at the standard 23% margin (a **Use suggested** button pre-fills it; everything stays editable). If the style has **no cost on file**, enter the price directly, or type a **Cost + Margin %** and press **Compute price**. On a **customer** list, when the style is also in its brand's default list a **Copy from Default** button pulls that price in. Set a **Min qty** (use `0` for the base price; add rows at `12`, `144`, … for break pricing); all prices are rounded **up to the nearest 5¢** on save. Optional **effective from/to** dates gate when the price applies. Each `(style, min-qty)` is unique within a list.
 
 ## 31.3 Promotions panel (`💲 Pricing → Promotions`)
 
@@ -47,5 +49,5 @@ Customer Master → edit a customer → **Reps & Defaults** tab → **Price list
 
 ## What's NOT yet usable
 - **Matrix-entry auto-fill** — fast-follow; the size-grid SO entry still takes a typed price (use ↻ on the resulting lines).
-- **Size-level prices, multi-currency, promotion stacking, cost-plus auto-pricing** — out of scope for v1 (see `../M43-pricing-engine-architecture.md`).
+- **Size-level prices, multi-currency, promotion stacking** — out of scope for v1 (see `../M43-pricing-engine-architecture.md`). (Cost-plus pricing now assists the add-a-price flow per the section above, but the engine itself still stores explicit prices, not formulas.)
 - Setting a customer's price list on the **create** screen isn't persisted yet — create the customer first, then edit to assign the list.

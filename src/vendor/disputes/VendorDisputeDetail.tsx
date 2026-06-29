@@ -47,6 +47,8 @@ function timeAgo(iso: string): string {
 export default function VendorDisputeDetail() {
   const { id } = useParams<{ id: string }>();
   const [dispute, setDispute] = useState<Dispute | null>(null);
+  const [poNumber, setPoNumber] = useState<string | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState<string | null>(null);
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,20 @@ export default function VendorDisputeDetail() {
       const data = await r.json();
       setDispute(data.dispute);
       setMessages(data.messages || []);
+      // Resolve human-readable PO / invoice numbers (no raw UUIDs in the UI).
+      // RLS scopes these tables to the caller's vendor.
+      const linkedPoId = data.dispute?.po_id as string | null;
+      const linkedInvoiceId = data.dispute?.invoice_id as string | null;
+      if (linkedPoId) {
+        const { data: po } = await supabaseVendor.from("tanda_pos")
+          .select("po_number").eq("uuid_id", linkedPoId).maybeSingle();
+        setPoNumber((po as { po_number: string } | null)?.po_number || null);
+      } else setPoNumber(null);
+      if (linkedInvoiceId) {
+        const { data: inv } = await supabaseVendor.from("invoices")
+          .select("invoice_number").eq("id", linkedInvoiceId).maybeSingle();
+        setInvoiceNumber((inv as { invoice_number: string } | null)?.invoice_number || null);
+      } else setInvoiceNumber(null);
       // Resolve caller's vendor_id for the attachments storage folder.
       // RLS guarantees the dispute belongs to this vendor.
       if (!vendorId) {
@@ -126,8 +142,8 @@ export default function VendorDisputeDetail() {
             </div>
           </div>
           <div style={{ fontSize: 12, color: TH.textMuted, textAlign: "right" }}>
-            {dispute.po_id && <div>PO: {dispute.po_id.slice(0, 8)}…</div>}
-            {dispute.invoice_id && <div>Invoice: {dispute.invoice_id.slice(0, 8)}…</div>}
+            {dispute.po_id && <div>PO: {poNumber || "—"}</div>}
+            {dispute.invoice_id && <div>Invoice: {invoiceNumber || "—"}</div>}
           </div>
         </div>
         {dispute.resolution && (
@@ -146,7 +162,7 @@ export default function VendorDisputeDetail() {
             const mine = m.sender_type === "vendor";
             return (
               <div key={m.id} style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 10 }}>
-                <div style={{ maxWidth: "78%", background: mine ? TH.primary : "#FFFFFF", color: mine ? "#FFFFFF" : TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+                <div style={{ maxWidth: "78%", background: mine ? TH.primary : TH.bg, color: TH.text, border: `1px solid ${mine ? TH.primary : TH.border}`, borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, opacity: 0.85, color: mine ? "rgba(255,255,255,0.9)" : TH.textMuted }}>
                     {m.sender_name} · {mine ? "You" : "Ring of Fire"}
                   </div>

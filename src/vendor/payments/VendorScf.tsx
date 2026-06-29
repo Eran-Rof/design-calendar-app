@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface Eligible {
   invoice: { id: string; invoice_number: string; total: number; due_date: string; currency: string };
@@ -52,7 +52,7 @@ export default function VendorScf() {
   useEffect(() => { void load(); }, []);
 
   async function request(row: Eligible) {
-    if (!confirm(`Request financing on invoice ${row.invoice.invoice_number}? You'll receive ~$${row.est_net_disbursement.toLocaleString()} after a $${row.est_fee_amount.toLocaleString()} fee.`)) return;
+    if (!await showConfirm({ title: "Request financing?", message: `Invoice ${row.invoice.invoice_number}: you'll receive ~$${row.est_net_disbursement.toLocaleString()} after a $${row.est_fee_amount.toLocaleString()} fee.`, tone: "info", confirmLabel: "Request" })) return;
     const r = await api("/api/vendor/scf/request", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ invoice_id: row.invoice.id, program_id: row.program_id }),
@@ -106,7 +106,7 @@ export default function VendorScf() {
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 110px 110px 110px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{r.invoice?.invoice_number || "—"}</div>
-                <div style={{ fontSize: 11, color: C.textMuted }}>{new Date(r.requested_at).toLocaleDateString()}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>{new Date(r.requested_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}</div>
               </div>
               <div style={{ color: C.textSub, fontSize: 12 }}>{r.program?.name || "—"}</div>
               <div>${Number(r.requested_amount).toLocaleString()}</div>

@@ -1,10 +1,11 @@
-import XLSXStyle from "xlsx-js-style";
+import { buildMultiSheetWorkbook, writeWorkbookToFile, type MultiSheetSpec } from "./exportTheme";
 import type { ATSRow, ATSPoEvent, ATSSoEvent } from "./types";
 import { fmtDate, displayColor } from "./helpers";
 import type { GridTotals } from "./computeTotals";
 import { periodAvail } from "./compute";
 import type { ExportOptions } from "./panels/ExportOptionsModal";
 import type { SalesFetchResult, SalesAggregate } from "./exportSalesFetch";
+import type { ExportImage } from "../shared/exportImages";
 
 type EventIndex = Record<string, Record<string, { pos: ATSPoEvent[]; sos: ATSSoEvent[] }>>;
 
@@ -48,32 +49,33 @@ export function exportToExcel(
   // (instead of the row's full onOrder) AND a new "SO Prc" column
   // is inserted between On Order and On PO.
   customerSoMap?: CustomerSoMap,
+  // Optional By Size Matrix worksheet inputs (see buildExportPayload).
+  sizeMatrix?: AtsSizeMatrixResponse,
+  bulkByStyleColor?: Map<string, { so: number; po: number }>,
+  periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+  styleImages?: Map<string, ExportImage>,
 ) {
-  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap);
+  const payload = buildExportPayload(rows, periods, _hiddenColumns, _totals, options, _eventIndex, salesAggregates, explodePpk, customerSoMap, sizeMatrix, bulkByStyleColor, periodMatrices, styleImages);
   if (!payload) return;
-  triggerXlsxDownload(payload.wb, payload.filename);
+  return triggerXlsxDownload(payload.wb, payload.filename);
 }
 
-// ── Trigger a browser download for a built workbook. ─────────────────
-export function triggerXlsxDownload(wb: any, filename: string): void {
-  const buf  = XLSXStyle.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+// ── Trigger a browser download for a built (ExcelJS) workbook. ───────
+export function triggerXlsxDownload(wb: any, filename: string): Promise<void> {
+  return writeWorkbookToFile(wb, filename);
 }
 
 export interface ExportPayload {
   aoa: any[][];     // the array-of-arrays the worksheet was built from
-  wb: any;          // XLSXStyle workbook ready to write
+  wb: any;          // branded ExcelJS workbook ready to write
   filename: string; // download filename
   // Display title used by the preview modal header. Kept optional so
   // legacy code that built ExportPayload without one still type-checks
   // — the preview default falls back to "Export".
   title?: string;
+  // Non-main worksheet AOAs (By Size Matrix + per-period tabs) so the
+  // preview can render them without reaching into the workbook internals.
+  extraSheets?: Array<{ name: string; aoa: any[][] }>;
 }
 
 // Same as exportToExcel but returns the workbook + AOA without
@@ -90,6 +92,21 @@ export function buildExportPayload(
   salesAggregates?: SalesFetchResult,
   explodePpk: boolean = true,
   customerSoMap?: CustomerSoMap,
+  // By Size Matrix worksheet (optional): per-style size-grain ATS-available
+  // from /api/internal/ats-size-matrix, plus the bulk SO/PO overlay per
+  // (style, color) keyed "STYLE|COLOR" (upper-cased). Both undefined → no
+  // extra sheet (default).
+  sizeMatrix?: AtsSizeMatrixResponse,
+  bulkByStyleColor?: Map<string, { so: number; po: number }>,
+  // One By-Size-Matrix tab per selected report period — each carries a 22pt
+  // dark-blue period banner and the same matrix computed AS OF that period
+  // (on-hand + inbound-by-then − reservations). Appended after the snapshot
+  // "By Size Matrix" tab. Empty/undefined → period tabs omitted.
+  periodMatrices?: Array<{ name: string; matrix: AtsSizeMatrixResponse }>,
+  // Embedded style thumbnails, keyed "STYLE|COLOR" (upper-cased) → base64 data
+  // URL, already fetched + color-matched by the caller. Present only when the
+  // operator ticked "Include style images". Adds a dedicated Image column.
+  styleImages?: Map<string, ExportImage>,
 ): ExportPayload | null {
   // Default options — keeps the export's pre-modal behavior when
   // exportToExcel is called without a modal (e.g. legacy tests).
@@ -110,7 +127,19 @@ export function buildExportPayload(
     customSalesRangeEnabled:  options?.customSalesRangeEnabled  ?? false,
     customSalesRangeStart:    options?.customSalesRangeStart    ?? "",
     customSalesRangeEnd:      options?.customSalesRangeEnd      ?? "",
+    bySizeMatrix:             options?.bySizeMatrix             ?? false,
+    buyerWorksheet:           options?.buyerWorksheet           ?? false,
   };
+  // Buyer worksheet = the live pricing view for an internal buyer: shows the
+  // Avg Cost column INLINE plus an editable Sls Prc with LIVE Mrgn % / Total $
+  // formulas that recompute when a price is edited. It is NOT customer-safe
+  // (cost + margin are visible) — that's intentional; it's a working tool, not
+  // a customer hand-out. Force the columns it needs on.
+  if (opts.buyerWorksheet) {
+    opts.avgCost = true;
+    opts.slsPrcAtMrgn = true;
+    opts.customerFacing = false; // mutually exclusive — buyer view shows cost
+  }
   // hideATSData drops the entire ATS-data block — including Avg Cost,
   // Total Cost, and Sls Prc @ Mrgn. Force the optional-column toggles
   // off here so allocation skips them entirely (mirrors how
@@ -121,13 +150,19 @@ export function buildExportPayload(
     opts.avgCost = false;
     opts.slsPrcAtMrgn = false;
   }
-  // Customer-facing mode strips every column that exposes our cost
-  // basis or margin. Applied here so all downstream column-existence
-  // checks (header / body / subtotal / bottom-total) honor it.
+  // Customer-facing mode strips EVERY column that exposes our cost basis or
+  // margin (Avg Cost, Total Cost, Sls Prc @ Mrgn) so the workbook is safe to
+  // send to a customer. (The live-pricing view now lives in the separate
+  // "Buyer worksheet" option, which is NOT customer-safe by design.)
   if (opts.customerFacing) {
     opts.avgCost = false;
     opts.slsPrcAtMrgn = false;
   }
+  // LIVE Excel formulas (editable Sls Prc → Mrgn % + Total $) are the Buyer
+  // worksheet behavior ONLY. The margin formula references the Avg Cost column
+  // INLINE on the same sheet (no separate cost sheet). Plain Sls Prc @ Margin
+  // (without buyer worksheet) keeps its original static values.
+  const slsPrcFormulaMode = opts.buyerWorksheet;
   // Margin column appears in trailing/SPLY blocks always when no
   // customer is selected; when a customer IS selected, only when the
   // operator opted in. Customer-facing mode forces the margin column
@@ -227,6 +262,18 @@ export function buildExportPayload(
   // requested by the user; we record their indexes here so the data /
   // header / subtotal / outline loops can pick them up uniformly.
   const numPeriods = periods.length;
+  // Dedicated Image column (after Color) when the operator opted into style
+  // thumbnails. Inserted in the COL allocator so every downstream index shifts
+  // automatically; left undefined otherwise so the report is byte-identical.
+  const wantImages = !!styleImages && styleImages.size > 0;
+  // Report text is scaled up; defined here so the autofit (below) widens text
+  // columns to match and the row-height + font passes share one factor.
+  const FONT_SCALE: number = 1.35;
+  // Image column geometry: ~220px square thumbnail (large product image). The
+  // embedded source is the higher-res "web" derivative so it stays crisp.
+  const IMG_COL_WCH = 32;   // ≈ 229px column
+  const IMG_ROW_HPT = 170;  // ≈ 227px row
+  const IMG_PX = 220;       // embedded thumbnail px (inset inside the cell)
   let nextCol = 1;
   const COL = {
     category:    nextCol++,
@@ -234,6 +281,7 @@ export function buildExportPayload(
     style:       nextCol++,
     description: nextCol++,
     color:       nextCol++,
+    ...(wantImages ? { image: nextCol++ } : {}),
     spacerF:     nextCol++,
     onHand:      nextCol++,
     spacerH:     nextCol++,
@@ -267,6 +315,11 @@ export function buildExportPayload(
   //   3. Fall through to formula Sls Prc = avgCost / (1 - margin) →
   //      margin equals operator-typed slsMarginPct, default font.
   const COL_SLS_MRGN_PCT: number | undefined = opts.slsPrcAtMrgn ? nextCol++ : undefined;
+  // Total $ — implied sale price × the row's Total qty. A live Excel formula
+  // (Sls Prc cell × Total qty cell) so it tracks any sale-price edit. Ships
+  // alongside Sls Prc @ Margin.
+  // Total $ ships only in the Buyer worksheet (live-formula) view.
+  const COL_SLS_TTL:     number | undefined = slsPrcFormulaMode ? nextCol++ : undefined;
   const COL_T3_QTY:      number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_PRICE:    number | undefined = opts.trailing3    ? nextCol++ : undefined;
   const COL_T3_TTL_SLS:  number | undefined = opts.trailing3    ? nextCol++ : undefined;
@@ -295,7 +348,8 @@ export function buildExportPayload(
   const totalColumnCount = nextCol - 1;
 
   // ── Style fills ────────────────────────────────────────────────────────
-  const HDR_TEXT_FILL  = "3278CC"; // text headers + every spacer
+  const HDR_TEXT_FILL  = "3278CC"; // text headers
+  const SPACER_FILL    = "2C69B2"; // separator columns — darker than 3278CC so they read clearly against the On Hand header (#4081D0)
   const HDR_ONHAND_FILL = "4081D0"; // On Hand only
   const HDR_DARK_FILL  = "1F497D"; // On Order, On PO, periods, Total
   const FILL_EVEN = "EEF3FA";       // zebra even data rows (text + period cols)
@@ -320,19 +374,30 @@ export function buildExportPayload(
   //     column outline.
   const THICK: any = { style: "medium", color: { rgb: "1F497D" } };
   const THIN: any  = { style: "thin",   color: { rgb: "4472C4" } };
-  const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THICK, right: THICK };
-  // Header column dividers use THIN so the joints between period header
-  // cells read lighter (planner asked for lighter / less heavy header
-  // dividers); top + bottom stay thick so the header band frames clearly.
+  // Interior gridlines are a single clean THIN weight: the heavy vertical
+  // column dividers drop from medium→thin (lighter than before) and every
+  // interior line stays a continuous solid. We don't go below thin — Excel's
+  // "hair" weight renders as a dotted line, not a thinner solid one. The
+  // outer frame (EXTRA_THICK, applied in the outline pass) and the line
+  // below the header (THICK) stay heavy.
+  const BORDER_BODY: any   = { top: THIN,  bottom: THIN,  left: THIN, right: THIN };
   const BORDER_HEADER: any = { top: THICK, bottom: THICK, left: THIN, right: THIN };
-  const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THICK, right: THICK };
+  const BORDER_TOTAL: any  = { top: THICK, bottom: THICK, left: THIN, right: THIN };
+  // Text-header column dividers in WHITE — the blue THIN (#4472C4) is
+  // invisible against the #3278CC text-header fill, so the Category / Sub
+  // Cat / Style / Description / Color splits don't read. Header row only;
+  // the data cells below keep their normal THIN dividers.
+  const WHITE_THIN: any = { style: "thin", color: { rgb: "FFFFFF" } };
+  const BORDER_HTEXT_FIRST: any = { top: THICK, bottom: THICK, left: THIN,       right: WHITE_THIN }; // Category (left = outer frame via outline)
+  const BORDER_HTEXT_MID:   any = { top: THICK, bottom: THICK, left: WHITE_THIN, right: WHITE_THIN };  // Sub Cat / Style / Description / Color
+  const BORDER_HSEP_FIRST:  any = { top: THICK, bottom: THICK, left: WHITE_THIN, right: THIN };        // first separator: white edge to its left (before On Hand)
 
   // ── Style factories ────────────────────────────────────────────────────
-  const headerStyle = (fill: string, align: "left" | "center", wrap: boolean = false): any => ({
+  const headerStyle = (fill: string, align: "left" | "center", wrap: boolean = false, border: any = BORDER_HEADER): any => ({
     font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
     alignment: { horizontal: align, vertical: "center", wrapText: wrap },
-    border:    BORDER_HEADER,
+    border,
   });
   // Tracks whether ANY header cell was built with wrap enabled —
   // used downstream to decide the header row height.
@@ -341,10 +406,10 @@ export function buildExportPayload(
   // value longer than 10 chars. Sets wrapText at construction time
   // (not via post-walk mutation) so xlsx-js-style's aoa_to_sheet
   // serializer reliably picks it up.
-  const headerCell = (value: string, fill: string, align: "left" | "center") => {
+  const headerCell = (value: string, fill: string, align: "left" | "center", border?: any) => {
     const wrap = value.length > 10;
     if (wrap) headerHasWrap = true;
-    return { v: value, t: "s" as const, s: headerStyle(fill, align, wrap) };
+    return { v: value, t: "s" as const, s: headerStyle(fill, align, wrap, border) };
   };
   // For non-merged rows, alignment is left/center. For prepack pairs,
   // text + qty cols are merged across the pair so the value sits in
@@ -391,18 +456,19 @@ export function buildExportPayload(
     fill: { fgColor: { rgb: "FFEB9C" }, patternType: "solid" },
   });
   // Total column body cells now zebra-stripe like the text + period
-  // cols — same row's zebra fill applied to col R per planner.
+  // cols — same row's zebra fill applied to col R per planner. Numbers
+  // RIGHT-aligned (operator standard for total columns across all reports).
   const bodyTotalStyle = (fill: string): any => ({
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   });
-  // Spacer cell — always #3278CC top to bottom, no value. NO borders —
+  // Spacer cell — always #2C69B2 top to bottom, no value. NO borders —
   // spacers read as a clean colored gap between column groups (planner
   // asked for the spacer-column vertical borders to be removed).
   const spacerCellStyle = (): any => ({
-    fill:   { fgColor: { rgb: HDR_TEXT_FILL }, patternType: "solid" },
+    fill:   { fgColor: { rgb: SPACER_FILL }, patternType: "solid" },
     border: {},
   });
 
@@ -412,15 +478,16 @@ export function buildExportPayload(
   // wasn't always picked up by xlsx-js-style's aoa_to_sheet
   // serializer.)
   const headerRow: any[] = new Array(totalColumnCount);
-  headerRow[COL.category    - 1] = headerCell("Category",    HDR_TEXT_FILL, "left");
-  headerRow[COL.subCat      - 1] = headerCell("Sub Cat",     HDR_TEXT_FILL, "left");
-  headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left");
-  headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left");
-  headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left");
-  headerRow[COL.spacerF - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerH - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerJ - 1] = headerCell("", HDR_TEXT_FILL, "center");
-  headerRow[COL.spacerL - 1] = headerCell("", HDR_TEXT_FILL, "center");
+  headerRow[COL.category    - 1] = headerCell("Category",    HDR_TEXT_FILL, "left", BORDER_HTEXT_FIRST);
+  headerRow[COL.subCat      - 1] = headerCell("Sub Cat",     HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.style       - 1] = headerCell("Style",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.description - 1] = headerCell("Description", HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  headerRow[COL.color       - 1] = headerCell("Color",       HDR_TEXT_FILL, "left", BORDER_HTEXT_MID);
+  if (COL.image) headerRow[COL.image - 1] = headerCell("Image", HDR_TEXT_FILL, "center");
+  headerRow[COL.spacerF - 1] = headerCell("", SPACER_FILL, "center", BORDER_HSEP_FIRST);
+  headerRow[COL.spacerH - 1] = headerCell("", SPACER_FILL, "center");
+  headerRow[COL.spacerJ - 1] = headerCell("", SPACER_FILL, "center");
+  headerRow[COL.spacerL - 1] = headerCell("", SPACER_FILL, "center");
   headerRow[COL.onHand  - 1] = headerCell("On Hand",  HDR_ONHAND_FILL, "center");
   headerRow[COL.onOrder - 1] = headerCell("On Order", HDR_DARK_FILL, "center");
   if (COL_SO_PRC) headerRow[COL_SO_PRC - 1] = headerCell("SO Prc", HDR_DARK_FILL, "center");
@@ -438,6 +505,7 @@ export function buildExportPayload(
   if (COL_TOT_COST) headerRow[COL_TOT_COST - 1] = headerCell("Total Cost", HDR_ONHAND_FILL, "center");
   if (COL_SLS_PRC)  headerRow[COL_SLS_PRC  - 1] = headerCell(`Sls Prc @ ${opts.slsMarginPct}%`, HDR_ONHAND_FILL, "center");
   if (COL_SLS_MRGN_PCT) headerRow[COL_SLS_MRGN_PCT - 1] = headerCell("Mrgn %", HDR_ONHAND_FILL, "center");
+  if (COL_SLS_TTL) headerRow[COL_SLS_TTL - 1] = headerCell("Total $", HDR_ONHAND_FILL, "center");
   // T3/LY column labels reflect the customer narrowing AND, when the
   // operator picked a custom date range via Hide ATS data, the actual
   // window the aggregates were computed over. Format examples:
@@ -523,15 +591,66 @@ export function buildExportPayload(
   // conversion and round-up-to-$0.05). Rows with no master_style or
   // non-positive avgCost are skipped here AND fall through to the
   // per-row formula at body time.
-  const bpMaxSlsPrc = new Map<string, number>();
-  if (COL_SLS_PRC || COL_SLS_MRGN_PCT) {
+  //
+  // OUTLIER GUARD: a single corrupt cost must not become the whole BP's price.
+  // Real example (RYB1416, a NON-prepack style): two variants carried a
+  // pack-grain unit_cost of 171.60 while every other variant was 7.50 — the
+  // 171.60 → $222.90 implied price then propagated to every variant, so normal
+  // rows showed a 96.8% margin. A unit/pack mix-up always lands the cost many×
+  // the real unit cost, so we drop any variant whose cost exceeds 8× the
+  // CHEAPEST variant in the BP before taking the max. Legit same-style
+  // variation (rarely > 2×) is well under that; a 12–72-unit pack cost is well
+  // over it.
+  const COST_OUTLIER_FACTOR = 8;
+  // Per-BP cost cap = cheapest variant × 8. A cost above the cap is treated as
+  // corrupt (a pack cost mis-keyed as a unit cost) and excluded from BOTH the
+  // BP-max implied price AND the grand-total weighted average, so it can't
+  // inflate either. Shared via isOutlierCost() below.
+  const bpCostCap = new Map<string, number>();
+  // Cheapest valued variant per BP (grain-adjusted). Used both for the cap and
+  // as the REPRESENTATIVE cost a corrupt-outlier row falls back to, so its
+  // Avg Cost / Total Cost / margin render consistently with its siblings.
+  const bpMinCost = new Map<string, number>();
+  {
     for (const r of rows) {
       const styleKey = r.master_style ?? "";
       if (!styleKey) continue;
       const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
       const rCostMul = (explodePpk ?? true) ? 1 : rMult;
       const rAvgCost = (r.avgCost ?? 0) * rCostMul;
-      if (rAvgCost <= 0 || slsMargin >= 1) continue;
+      if (rAvgCost <= 0) continue;
+      const cur = bpMinCost.get(styleKey);
+      if (cur === undefined || rAvgCost < cur) bpMinCost.set(styleKey, rAvgCost);
+    }
+    for (const [k, v] of bpMinCost) bpCostCap.set(k, v * COST_OUTLIER_FACTOR);
+  }
+  // A grain-adjusted cost is an outlier when the BP has >1 valued variant and
+  // the cost exceeds that BP's cap. Single-variant BPs are never flagged.
+  const isOutlierCost = (styleKey: string, grainCost: number, bpCount: number): boolean => {
+    if (bpCount <= 1) return false;
+    const cap = bpCostCap.get(styleKey);
+    return cap !== undefined && grainCost > cap;
+  };
+  // BP variant counts (valued rows) so isOutlierCost can skip single-variant BPs.
+  const bpValuedCount = new Map<string, number>();
+  for (const r of rows) {
+    const styleKey = r.master_style ?? "";
+    if (!styleKey) continue;
+    const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+    const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+    if ((r.avgCost ?? 0) * rCostMul > 0) bpValuedCount.set(styleKey, (bpValuedCount.get(styleKey) ?? 0) + 1);
+  }
+
+  const bpMaxSlsPrc = new Map<string, number>();
+  if ((COL_SLS_PRC || COL_SLS_MRGN_PCT) && slsMargin < 1) {
+    for (const r of rows) {
+      const styleKey = r.master_style ?? "";
+      if (!styleKey) continue;
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const rCostMul = (explodePpk ?? true) ? 1 : rMult;
+      const rAvgCost = (r.avgCost ?? 0) * rCostMul;
+      if (rAvgCost <= 0) continue;
+      if (isOutlierCost(styleKey, rAvgCost, bpValuedCount.get(styleKey) ?? 1)) continue; // corrupt cost — skip
       const rPrice = Math.ceil((rAvgCost / (1 - slsMargin)) * 20) / 20;
       const cur = bpMaxSlsPrc.get(styleKey);
       if (cur === undefined || rPrice > cur) bpMaxSlsPrc.set(styleKey, rPrice);
@@ -546,6 +665,13 @@ export function buildExportPayload(
   // the pair so the qty value sits vertically centered in the taller
   // merged cell. Matches the planner's reference image exactly.
   const dataRows: any[][] = [];
+  // Image column support: an empty fill-matched cell per row (so the zebra/band
+  // shows behind the thumbnail), plus a per-data-row anchor list the embedded
+  // images are built from after the AOA is assembled.
+  const imageCell = (f: string): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: f }, patternType: "solid" }, alignment: { horizontal: "center", vertical: "center" }, border: BORDER_BODY } });
+  const imageAnchors: Array<{ dataIdx: number; img: ExportImage; prepack: boolean }> = [];
+  const imageFor = (r: ATSRow): ExportImage | undefined =>
+    wantImages ? styleImages!.get(`${(r.master_style ?? "").trim().toUpperCase()}|${(r.master_color ?? "").trim().toUpperCase()}`) : undefined;
   // Title row gets prepended to the AOA when the operator narrows by customer
   // OR picks a custom date range. Both signals are knowable now, well before
   // the title-row block actually constructs the cell. The per-row Total has
@@ -684,7 +810,7 @@ export function buildExportPayload(
   // Subtotal row factory. Sums the given qty / period totals across a
   // style group; styled blue + bold + 12.1pt (= 11pt qty × 1.1, the
   // planner's "+10%" request).
-  function buildSubtotalRow(styleLabel: string, group: ATSRow[]): any[] {
+  function buildSubtotalRow(styleLabel: string, group: ATSRow[], excelRow: number): any[] {
     const subtotalFontSize = 12.1;
     const SUB_FILL = FILL_QTY_COL;  // sit on the qty band so the row
                                     // anchors visually against the qty cols
@@ -730,6 +856,7 @@ export function buildExportPayload(
       r2[ci - 1] = { v: "", t: "s", s: subTextStyle };
     }
     r2[COL.color - 1] = { v: `${styleLabel} Subtotal`, t: "s", s: subTextStyle };
+    if (COL.image) r2[COL.image - 1] = { v: "", t: "s", s: subTextStyle };
     r2[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     r2[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -752,6 +879,8 @@ export function buildExportPayload(
       r2[ci - 1] = subCell(perPeriod[i]);
     }
     r2[COL.total - 1] = subCell(grand);
+    // Total column right-aligned to match the body Total column.
+    if (r2[COL.total - 1]?.s) r2[COL.total - 1].s = { ...r2[COL.total - 1].s, alignment: { horizontal: "right", vertical: "center" } };
 
     // Optional extra columns at subtotal level.
     const subCurr = (v: number) => v === 0
@@ -770,6 +899,11 @@ export function buildExportPayload(
       for (const x of group) {
         const xAvg = x.avgCost ?? 0;
         if (xAvg <= 0) continue;
+        // Skip per-BP corrupt cost outliers so they don't inflate the subtotal.
+        const xKey = x.master_style ?? "";
+        const xMult = (typeof x.ppkMult === "number" && x.ppkMult > 0) ? x.ppkMult : 1;
+        const xGrain = xAvg * ((explodePpk ?? true) ? 1 : xMult);
+        if (xKey && isOutlierCost(xKey, xGrain, bpValuedCount.get(xKey) ?? 1)) continue;
         let xRowTotal = 0;
         for (let i = 0; i < numPeriods; i++) xRowTotal += periodValueOf(x, i);
         totalQtyForCost += xRowTotal;
@@ -816,7 +950,30 @@ export function buildExportPayload(
         const subMrgn = (weightedAvgCost > 0 && slsPrcW > 0)
           ? (slsPrcW - weightedAvgCost) / slsPrcW
           : 0;
-        r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+        if (slsPrcFormulaMode && COL_SLS_PRC && COL_AVG_COST) {
+          // Buyer worksheet: live formula off this subtotal row's own Sls Prc +
+          // Avg Cost cells, so editing the subtotal price updates its margin.
+          const slsRef = `${colLetter(COL_SLS_PRC)}${excelRow}`;
+          const costRef = `${colLetter(COL_AVG_COST)}${excelRow}`;
+          r2[COL_SLS_MRGN_PCT - 1] = (slsPrcW > 0 && weightedAvgCost > 0)
+            ? { v: subMrgn, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: { ...subNumStyle, numFmt: "0.0%" } }
+            : subPct(subMrgn);
+        } else {
+          r2[COL_SLS_MRGN_PCT - 1] = subPct(subMrgn);
+        }
+      }
+      // Subtotal Total $ (Buyer worksheet only — COL_SLS_TTL exists only then):
+      // a live formula = this subtotal's Sls Prc × its Total qty, so editing the
+      // subtotal price updates it.
+      if (COL_SLS_TTL) {
+        let groupQty = 0;
+        for (const x of group) for (let i = 0; i < numPeriods; i++) groupQty += periodValueOf(x, i);
+        const ttl = slsPrcW > 0 ? slsPrcW * groupQty : 0;
+        const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${excelRow}` : "";
+        const totRef = `${colLetter(COL.total)}${excelRow}`;
+        r2[COL_SLS_TTL - 1] = (slsRef && slsPrcW > 0 && groupQty > 0)
+          ? { v: ttl, f: `IF(${slsRef}="",0,${slsRef}*${totRef})`, t: "n", s: { ...subNumStyle, numFmt: "$#,##0.00" } }
+          : subCurr(ttl);
       }
     }
 
@@ -903,7 +1060,7 @@ export function buildExportPayload(
     // Skip single-row style groups — the lone qty row already shows the
     // totals, so a subtotal would just repeat the same numbers.
     if (currentGroup.length === 1) { currentGroup = []; return; }
-    dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup));
+    dataRows.push(buildSubtotalRow(currentGroupStyle, currentGroup, nextExcelRow));
     nextExcelRow++;
     currentGroup = [];
   }
@@ -939,6 +1096,7 @@ export function buildExportPayload(
 
     // ── Qty row ──────────────────────────────────────────────────────────
     const qtyRow: any[] = new Array(totalColumnCount);
+    if (COL.image) qtyRow[COL.image - 1] = imageCell(fill);
     qtyRow[COL.category    - 1] = { v: r.master_category ?? r.category ?? "", t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.subCat      - 1] = { v: r.master_sub_category ?? "",            t: "s", s: bodyTextStyle(fill) };
     qtyRow[COL.style       - 1] = { v: r.master_style ?? "",                   t: "s", s: bodyStyleStyle(fill) };
@@ -1028,7 +1186,18 @@ export function buildExportPayload(
     // avgCost on the row is per-UNIT. When the grid is in pack mode
     // (explodePpk=false) we display it per-PACK by multiplying by
     // ppkMult so the operator sees the same grain as the grid.
-    const avgCostV = (r.avgCost ?? 0) * costMul;
+    const rawAvgCostV = (r.avgCost ?? 0) * costMul;
+    // A corrupt per-BP outlier cost (e.g. a pack cost mis-keyed as a unit cost,
+    // like RYB1416's 171.60 vs the real 7.50) falls back to the BP's
+    // representative (cheapest) cost, so this row's Avg Cost / Total Cost /
+    // margin render consistently with its siblings instead of a wild negative
+    // margin. The implied Sls Prc was already BP-uniform, so this keeps the
+    // whole row coherent.
+    const styleKeyForCost = r.master_style ?? "";
+    const bpRepCost = bpMinCost.get(styleKeyForCost);
+    const avgCostV = (bpRepCost != null && isOutlierCost(styleKeyForCost, rawAvgCostV, bpValuedCount.get(styleKeyForCost) ?? 1))
+      ? bpRepCost
+      : rawAvgCostV;
     // Total cost = avgCost × the row's total qty across periods.
     // Both avgCostV and rowPeriodTotal have already been scaled by
     // costMul / qtyDiv (inverses); the product is grain-invariant.
@@ -1065,39 +1234,63 @@ export function buildExportPayload(
     if (COL_TOT_COST) qtyRow[COL_TOT_COST - 1] = totalCostV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
       : { v: totalCostV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
+    // Sls Prc — the implied unit sale price. Stays an editable VALUE so the
+    // operator can override it in Excel; Mrgn % + Total $ below are live
+    // formulas keyed off this cell, so editing it recomputes both.
     if (COL_SLS_PRC) qtyRow[COL_SLS_PRC - 1] = slsPrcV === 0
       ? { v: "", t: "s", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } }
       : { v: slsPrcV, t: "n", s: { ...bodyNumStyle(fill), numFmt: "$#,##0.00" } };
 
-    // Mrgn % — see COL_SLS_MRGN_PCT declaration for the priority rules.
-    // Falls back to formula margin (== slsMarginPct) when no preferred
-    // price source applies.
+    // Mrgn %. Buyer worksheet → LIVE formula = (Sls Prc − Avg Cost) / Sls Prc,
+    // referencing the INLINE Avg Cost cell on the same sheet, so editing the
+    // Sls Prc recomputes the margin. Otherwise (plain Sls Prc @ Margin) keep
+    // the original static value with its customer-T3 / last-price priority +
+    // blue/red coloring.
     if (COL_SLS_MRGN_PCT) {
-      let derivedPrice = slsPrcV;
-      let mrgnColor: "default" | "blue" | "red" = "default";
-      if (avgCostV > 0) {
-        const styleKey = r.master_style ?? "";
-        const sAgg = styleKey ? t3ByStyleMap?.get(styleKey) : undefined;
-        if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
-          derivedPrice = sAgg.totalPrice / sAgg.qty;
-          mrgnColor = "blue";
+      if (slsPrcFormulaMode && COL_AVG_COST) {
+        const m = (slsPrcV > 0 && avgCostV > 0) ? (slsPrcV - avgCostV) / slsPrcV : 0;
+        const styled = { ...bodyNumStyle(fill), numFmt: "0.0%" };
+        const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${qtyExcelRow}` : "";
+        const costRef = `${colLetter(COL_AVG_COST)}${qtyExcelRow}`;
+        qtyRow[COL_SLS_MRGN_PCT - 1] = (slsPrcV > 0 && avgCostV > 0)
+          ? { v: m, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: styled }
+          : { v: "", t: "s", s: styled };
+      } else {
+        let derivedPrice = slsPrcV;
+        let mrgnColor: "default" | "blue" | "red" = "default";
+        if (avgCostV > 0) {
+          const styleKey = r.master_style ?? "";
+          const sAgg = styleKey ? t3ByStyleMap?.get(styleKey) : undefined;
+          if (sAgg && sAgg.qty > 0 && sAgg.totalPrice > 0) {
+            derivedPrice = sAgg.totalPrice / sAgg.qty;
+            mrgnColor = "blue";
+          }
+          const cl = lastCustPriceMap?.get(r.sku);
+          if (cl && cl.price > 0) {
+            derivedPrice = cl.price;
+            mrgnColor = "red";
+          }
         }
-        const cl = lastCustPriceMap?.get(r.sku);
-        if (cl && cl.price > 0) {
-          derivedPrice = cl.price;
-          mrgnColor = "red";
-        }
+        const m = (derivedPrice > 0 && avgCostV > 0) ? (derivedPrice - avgCostV) / derivedPrice : 0;
+        const base = bodyNumStyle(fill);
+        const styled = mrgnColor === "default"
+          ? { ...base, numFmt: "0.0%" }
+          : { ...base, numFmt: "0.0%", font: { ...base.font, bold: true, color: { rgb: mrgnColor === "blue" ? MRGN_BLUE : MRGN_RED } } };
+        qtyRow[COL_SLS_MRGN_PCT - 1] = m === 0
+          ? { v: "", t: "s", s: styled }
+          : { v: m, t: "n", s: styled };
       }
-      const m = (derivedPrice > 0 && avgCostV > 0)
-        ? (derivedPrice - avgCostV) / derivedPrice
-        : 0;
-      const base = bodyNumStyle(fill);
-      const styled = mrgnColor === "default"
-        ? { ...base, numFmt: "0.0%" }
-        : { ...base, numFmt: "0.0%", font: { ...base.font, bold: true, color: { rgb: mrgnColor === "blue" ? MRGN_BLUE : MRGN_RED } } };
-      qtyRow[COL_SLS_MRGN_PCT - 1] = m === 0
-        ? { v: "", t: "s", s: styled }
-        : { v: m, t: "n", s: styled };
+    }
+
+    // Total $ — LIVE formula = Sls Prc × Total qty. Recomputes on a price edit.
+    if (COL_SLS_TTL) {
+      const slsRef = COL_SLS_PRC ? `${colLetter(COL_SLS_PRC)}${qtyExcelRow}` : "";
+      const totRef = `${colLetter(COL.total)}${qtyExcelRow}`;
+      const totalSls = slsPrcV * rowPeriodTotal;
+      const styled = { ...bodyNumStyle(fill), numFmt: "$#,##0.00" };
+      qtyRow[COL_SLS_TTL - 1] = (slsPrcV > 0 && rowPeriodTotal > 0)
+        ? { v: totalSls, f: `IF(${slsRef}="",0,${slsRef}*${totRef})`, t: "n", s: styled }
+        : { v: "", t: "s", s: styled };
     }
 
     // Trailing 3 — sales over the last 3 months from today, optionally
@@ -1170,6 +1363,7 @@ export function buildExportPayload(
       if (COL_T3_LY_DIFF_MRGN) qtyRow[COL_T3_LY_DIFF_MRGN - 1] = marginDiffCell(t3MrgnPct / 100, lyMrgnPct / 100, bodyNumStyle(fill));
     }
 
+    if (wantImages) { const im = imageFor(r); if (im) imageAnchors.push({ dataIdx: dataRows.length, img: im, prepack: isPrepack }); }
     dataRows.push(qtyRow);
     nextExcelRow++;
 
@@ -1196,6 +1390,7 @@ export function buildExportPayload(
       ppkRow[COL.style       - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.description - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.color       - 1] = blankFill(bodyTextStyle(fill));
+      if (COL.image) ppkRow[COL.image - 1] = blankFill(bodyTextStyle(fill));
       ppkRow[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
       ppkRow[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -1225,7 +1420,7 @@ export function buildExportPayload(
       // Optional extra cols on the PPK follower row — blank with the
       // same style as the qty row's matching cell so the merge looks
       // clean and the outline finalizer sees a real cell to border.
-      for (const ci of [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
+      for (const ci of [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_SLS_TTL, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN]) {
         if (ci !== undefined) ppkRow[ci - 1] = blankFill(bodyNumStyle(fill));
       }
 
@@ -1274,6 +1469,7 @@ export function buildExportPayload(
       cells[ci - 1] = { v: "", t: "s", s: totalLabelStyle };
     }
     cells[COL.color - 1] = { v: label, t: "s", s: totalLabelStyle };
+    if (COL.image) cells[COL.image - 1] = { v: "", t: "s", s: totalLabelStyle };
     cells[COL.spacerF - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerH - 1] = { v: "", t: "s", s: spacerCellStyle() };
     cells[COL.spacerJ - 1] = { v: "", t: "s", s: spacerCellStyle() };
@@ -1292,11 +1488,13 @@ export function buildExportPayload(
       cells[ci - 1] = cellFor(getPeriod(periods[i].endDate));
     }
     cells[COL.total - 1] = cellFor(getRowTotal());
+    // Right-align the grand-total Total cell to match the body Total column.
+    if (cells[COL.total - 1]?.s) cells[COL.total - 1].s = { ...cells[COL.total - 1].s, alignment: { horizontal: "right", vertical: "center" } };
     // Fill any optional extra columns with blank styled cells so the
     // outline finalizer + autofit see real cells and the bottom row
     // closes the table cleanly across its full width. Callers that
     // want real aggregates patch these in after.
-    const optCols = [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
+    const optCols = [COL_SO_PRC, COL_AVG_COST, COL_TOT_COST, COL_SLS_PRC, COL_SLS_MRGN_PCT, COL_SLS_TTL, COL_T3_QTY, COL_T3_PRICE, COL_T3_TTL_SLS, COL_T3_MRGN, COL_LY_QTY, COL_LY_PRICE, COL_LY_TTL_SLS, COL_LY_MRGN, COL_T3_LY_DIFF_QTY, COL_T3_LY_DIFF, COL_T3_LY_DIFF_MRGN];
     for (const ci of optCols) {
       if (ci !== undefined) cells[ci - 1] = { v: "", t: "s", s: totalNumStyle };
     }
@@ -1311,6 +1509,12 @@ export function buildExportPayload(
     for (const r of rows) {
       const a = r.avgCost ?? 0;
       if (a <= 0) continue;
+      // Exclude per-BP corrupt cost outliers (see isOutlierCost) so a mis-keyed
+      // pack cost can't inflate the grand-total weighted avg / implied price.
+      const styleKey = r.master_style ?? "";
+      const rMult = (typeof r.ppkMult === "number" && r.ppkMult > 0) ? r.ppkMult : 1;
+      const grainCost = a * ((explodePpk ?? true) ? 1 : rMult);
+      if (styleKey && isOutlierCost(styleKey, grainCost, bpValuedCount.get(styleKey) ?? 1)) continue;
       let q = 0;
       for (let i = 0; i < numPeriods; i++) q += periodValueOf(r, i);
       qtyForCost += q;
@@ -1366,12 +1570,15 @@ export function buildExportPayload(
     }
     const soPrcW = soPrcQty > 0 ? soPrcRev / soPrcQty : 0;
 
-    return { avgCostW, totalCostW: costSum, slsPrcW, slsMrgnW, soPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
+    // Grand-total Total $ = weighted Sls Prc × total qty (snapshot; per-row
+    // Total $ is the live formula).
+    const slsTtl = slsPrcW > 0 ? slsPrcW * qtyForCost : 0;
+    return { avgCostW, totalCostW: costSum, slsPrcW, slsMrgnW, slsTtl, soPrcW, t3Qty, t3RawQty: t3Qty, t3Price, t3Tot, t3Mrgn, lyQty, lyRawQty: lyQty, lyPrice, lyTot, lyMrgn };
   }
 
   // Overlay the optional-col aggregates onto a stack row in-place. Used
   // for the toggle-OFF Total row and the toggle-ON "TOTAL Qty" row.
-  function patchOptColAggregates(cells: any[], agg: ReturnType<typeof computeOptColAggregates>) {
+  function patchOptColAggregates(cells: any[], agg: ReturnType<typeof computeOptColAggregates>, excelRow?: number) {
     const setCurr = (ci: number | undefined, v: number) => {
       if (!ci) return;
       cells[ci - 1] = v === 0
@@ -1395,6 +1602,21 @@ export function buildExportPayload(
     setCurr(COL_TOT_COST,    agg.totalCostW);
     setCurr(COL_SLS_PRC,     agg.slsPrcW);
     setPct (COL_SLS_MRGN_PCT, agg.slsMrgnW);
+    setCurr(COL_SLS_TTL,     agg.slsTtl);
+    // Buyer worksheet: make the grand-total Mrgn % + Total $ LIVE formulas off
+    // this row's own Sls Prc + Avg Cost + Total cells, so editing the grand
+    // total's Sls Prc recomputes them (matches the per-row + subtotal rows).
+    if (slsPrcFormulaMode && excelRow && COL_SLS_PRC && COL_AVG_COST) {
+      const slsRef = `${colLetter(COL_SLS_PRC)}${excelRow}`;
+      const costRef = `${colLetter(COL_AVG_COST)}${excelRow}`;
+      const totRef = `${colLetter(COL.total)}${excelRow}`;
+      if (COL_SLS_MRGN_PCT && agg.slsPrcW > 0 && agg.avgCostW > 0) {
+        cells[COL_SLS_MRGN_PCT - 1] = { v: agg.slsMrgnW, f: `IF(${slsRef}=0,"",(${slsRef}-${costRef})/${slsRef})`, t: "n", s: { ...totalNumStyle, numFmt: "0.0%" } };
+      }
+      if (COL_SLS_TTL && agg.slsTtl > 0) {
+        cells[COL_SLS_TTL - 1] = { v: agg.slsTtl, f: `IF(${slsRef}="",0,${slsRef}*${totRef})`, t: "n", s: { ...totalNumStyle, numFmt: "$#,##0.00" } };
+      }
+    }
     setQty (COL_T3_QTY,      agg.t3Qty);
     setCurr(COL_T3_PRICE,    agg.t3Price);
     setCurr(COL_T3_TTL_SLS,  agg.t3Tot);
@@ -1451,7 +1673,7 @@ export function buildExportPayload(
       (key) => t.periodQty[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
     );
-    patchOptColAggregates(totalQtyRow, computeOptColAggregates());
+    patchOptColAggregates(totalQtyRow, computeOptColAggregates(), nextExcelRow);
     dataRows.push(totalQtyRow);
     // Customer-facing mode drops Cost / Mrgn rows from the stack
     // (operator doesn't want our cost or margin visible to the
@@ -1500,7 +1722,7 @@ export function buildExportPayload(
       (key) => periodSumByKey[key] ?? 0,
       () => periodSums.reduce((a, b) => a + b, 0),
     );
-    patchOptColAggregates(totalRow, computeOptColAggregates());
+    patchOptColAggregates(totalRow, computeOptColAggregates(), nextExcelRow);
     dataRows.push(totalRow);
   }
 
@@ -1640,6 +1862,11 @@ export function buildExportPayload(
       if (r === tableTopRow) border.top = EXTRA_THICK;             // top of header
       if (r === lastAoaRow) border.bottom = EXTRA_THICK;           // bottom of total row
 
+      // Separator column at the header row: drop the bottom rule so the
+      // colored separator reads as one continuous band from header into
+      // the data, with no horizontal line cutting across it.
+      if (r === tableTopRow && isSpacer) delete border.bottom;
+
       // (b) Style-group outline — only on non-spacer columns.
       // Painting horizontal EXTRA_THICK across the spacer band would
       // chop the dark spacer column into bricks, which is exactly the
@@ -1684,6 +1911,7 @@ export function buildExportPayload(
     const alwaysKeep = new Set<number>([
       COL.category, COL.subCat, COL.style, COL.description, COL.color,
       COL.spacerF, COL.spacerH, COL.spacerJ, COL.spacerL,
+      ...(COL.image ? [COL.image] : []),
     ]);
     // Build forced-drop set up-front. hideATSData drops period range
     // + Total; even if hideZeroColumns disagrees (e.g. a period column
@@ -1748,23 +1976,49 @@ export function buildExportPayload(
       // sit at M..R (often the row's own Total column, self-referencing).
       const colLetterToIdx = (letters: string): number => {
         let n = 0;
-        for (let i = 0; i < letters.length; i++) {
-          n = n * 26 + (letters.charCodeAt(i) - 64);
-        }
+        for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
         return n;
+      };
+      // Map an original 1-based column to its new index. A DROPPED column is
+      // clamped to the nearest KEPT column on the given side, so a range bound
+      // shrinks INWARD rather than keeping a stale letter. Keeping a stale end
+      // letter let a SUM range over-reach into the Total column that reflowed
+      // leftward into the old period letters — the circular-reference bug.
+      const keptAsc = keptList.slice().sort((a, b) => a - b);
+      const mapClamped = (origIdx: number, side: "start" | "end"): number | null => {
+        const direct = columnIndexMap!.get(origIdx);
+        if (direct !== undefined) return direct;
+        if (side === "end") {
+          let best = -1;
+          for (const k of keptAsc) { if (k <= origIdx) best = k; else break; }
+          return best >= 0 ? columnIndexMap!.get(best)! : null;
+        }
+        for (const k of keptAsc) if (k >= origIdx) return columnIndexMap!.get(k)!;
+        return null;
       };
       for (const row of effectiveAllRows) {
         if (!row) continue;
         for (const cell of row) {
           if (!cell || typeof cell.f !== "string") continue;
-          cell.f = cell.f.replace(/([A-Z]+)(\d+)/g, (whole, lettersRaw, digits) => {
-            const origIdx = colLetterToIdx(lettersRaw);
-            const newIdx = columnIndexMap!.get(origIdx);
-            // Dropped column: keep the original letter — Excel evaluates
-            // the cell as empty, producing a slight under-count rather
-            // than a wildly wrong sum from a self-reference.
-            if (newIdx === undefined) return whole;
-            return `${colLetter(newIdx)}${digits}`;
+          // One pass over ranges (A1:B1) AND single refs (A1). Ranges clamp
+          // dropped bounds inward; singles map directly (or keep if dropped).
+          cell.f = cell.f.replace(/([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?/g, (whole, l1, d1, l2, d2, off, str) => {
+            // Skip sheet-qualified refs (e.g. 'Cost ...'!A12) — the cell part
+            // after "!" addresses a DIFFERENT sheet whose columns are not part
+            // of this sheet's hide-zero compaction. Remapping it would corrupt
+            // the cross-sheet cost reference behind Mrgn % / Total $.
+            if (typeof off === "number" && off > 0 && str[off - 1] === "!") return whole;
+            if (l2 !== undefined) {
+              const a = mapClamped(colLetterToIdx(l1), "start");
+              const b = mapClamped(colLetterToIdx(l2), "end");
+              if (a === null || b === null || a > b) {
+                const one = a ?? b;
+                return one != null ? `${colLetter(one)}${d1}` : whole;
+              }
+              return `${colLetter(a)}${d1}:${colLetter(b)}${d2}`;
+            }
+            const newIdx = columnIndexMap!.get(colLetterToIdx(l1));
+            return newIdx === undefined ? whole : `${colLetter(newIdx)}${d1}`;
           });
         }
       }
@@ -1785,7 +2039,6 @@ export function buildExportPayload(
 
   // ── Build worksheet ─────────────────────────────────────────────────────
   const aoa = effectiveAllRows;
-  const ws  = (XLSXStyle.utils.aoa_to_sheet as any)(aoa, { skipHeader: true });
 
   // ── Auto-fit column widths ──────────────────────────────────────────────
   const SPACER_WCH = 1.57;
@@ -1793,6 +2046,7 @@ export function buildExportPayload(
   const MAX_WCH = 80;
   function widthForColumn(idx1: number): number {
     if (SPACER_COLS.has(idx1)) return SPACER_WCH;
+    if (COL.image && idx1 === COL.image) return IMG_COL_WCH;
     let maxLen = 0;
     const hdrCell = headerRow[idx1 - 1];
     if (hdrCell?.v != null) {
@@ -1816,19 +2070,20 @@ export function buildExportPayload(
       else s = String(cell.v ?? "");
       if (s.length > maxLen) maxLen = s.length;
     }
-    return Math.min(MAX_WCH, maxLen + PAD);
+    // Widen by FONT_SCALE so the 135%-scaled text isn't clipped in its column.
+    return Math.min(Math.round(MAX_WCH * FONT_SCALE), Math.round((maxLen + PAD) * FONT_SCALE));
   }
   // Width array follows the same projection as the AOA when hideZero
   // is on: only emit widths for kept columns, in the same order.
-  ws["!cols"] = [];
+  const mainCols: Array<{ wch: number }> = [];
   if (columnIndexMap) {
     const keptOrigCols = [...columnIndexMap.keys()].sort((a, b) => (columnIndexMap!.get(a)! - columnIndexMap!.get(b)!));
     keptOrigCols.forEach((origCol, i) => {
-      ws["!cols"][i] = { wch: widthForColumn(origCol) };
+      mainCols[i] = { wch: widthForColumn(origCol) };
     });
   } else {
     for (let ci = 1; ci <= totalColumnCount; ci++) {
-      ws["!cols"][ci - 1] = { wch: widthForColumn(ci) };
+      mainCols[ci - 1] = { wch: widthForColumn(ci) };
     }
   }
 
@@ -1838,13 +2093,15 @@ export function buildExportPayload(
   // and total rows a touch taller for visual weight.
   // Header height bumps when any cell wrapped (estimate two lines @
   // 11pt + padding). Single-line headers keep the tighter 22pt.
-  const HEADER_HPT = headerHasWrap ? 34 : 22;
-  const ROW_HPT = 15;
-  const PPK_ROW_HPT = 11;
-  const SUBTOTAL_HPT = 19;
-  const TOTAL_HPT = 18;
+  // Row heights scaled by FONT_SCALE (defined above) to match the larger text.
+  // Image rows are sized for the picture by the renderer, not the font.
+  const HEADER_HPT = Math.round((headerHasWrap ? 34 : 22) * FONT_SCALE);
+  const ROW_HPT = Math.round(15 * FONT_SCALE);
+  const PPK_ROW_HPT = Math.round(11 * FONT_SCALE);
+  const SUBTOTAL_HPT = Math.round(19 * FONT_SCALE);
+  const TOTAL_HPT = Math.round(18 * FONT_SCALE);
   const rowsHeight: any[] = [];
-  if (titleRow) rowsHeight.push({ hpt: 30 }); // taller for the 22pt customer name
+  if (titleRow) rowsHeight.push({ hpt: Math.round(30 * FONT_SCALE) }); // taller for the customer-name banner
   rowsHeight.push({ hpt: HEADER_HPT });
   // Walk the dataRows we actually built. A subtotal / bottom Total row
   // is identifiable by a "Subtotal" or "Total" label in the Color col;
@@ -1861,20 +2118,225 @@ export function buildExportPayload(
     } else if (typeof styleVal === "string" && styleVal.trim() === "") {
       rowsHeight.push({ hpt: PPK_ROW_HPT });
     } else {
-      rowsHeight.push({ hpt: ROW_HPT });
+      // Taller qty rows when embedding thumbnails so the image fits.
+      rowsHeight.push({ hpt: wantImages ? Math.max(ROW_HPT, IMG_ROW_HPT) : ROW_HPT });
     }
   }
-  ws["!rows"] = rowsHeight;
-
   // Merged cells for prepack pairs — text + spacers + qty cols + Total
   // span both rows; only period cols stay split (qty top, PPK bottom).
-  if (effectiveMerges.length > 0) {
-    ws["!merges"] = effectiveMerges;
+  // No frozen panes, no autofilter on the main sheet.
+  // Embedded thumbnails → AoA-relative anchors (the renderer adds the banner
+  // offset). The Image column index is stable: every column at/left of it is
+  // in alwaysKeep, so the column-drop pass never shifts it.
+  const reportImages = (wantImages && COL.image)
+    ? imageAnchors.map((a) => ({
+        aoaRow: titleRowCount + 1 + a.dataIdx,
+        col: (COL.image as number) - 1,
+        dataUrl: a.img.dataUrl,
+        // Exact pixel dims measured in the browser → the renderer sizes the row
+        // to the image so the cell fits it with no empty space. Fall back to the
+        // square box only if dims are unknown (e.g. server-side, no canvas).
+        width: a.img.w > 0 ? a.img.w : IMG_PX,
+        height: a.img.h > 0 ? a.img.h : IMG_PX,
+        // Prepack rows are a qty row + a PPK annotation row. Extend the image
+        // down over the PPK row so it covers the internal qty/PPK border (the
+        // stray blue line under the picture) and its bottom lands on the
+        // record's outer separator. px ≈ pt*96/72.
+        extendPx: a.prepack ? Math.round((PPK_ROW_HPT * 96) / 72) : 0,
+      }))
+    : undefined;
+  const sheetSpecs: MultiSheetSpec[] = [{
+    sheetName: "ATS Report",
+    allRows: aoa,
+    cols: mainCols,
+    rowHeights: rowsHeight,
+    merges: effectiveMerges.length > 0 ? effectiveMerges : undefined,
+    images: reportImages,
+  }];
+
+  // Scale every cell's font up by FONT_SCALE (the row heights above are already
+  // bumped to match). Each touched cell is cloned so shared style objects in
+  // the factories aren't scaled more than once.
+  if (FONT_SCALE !== 1) {
+    for (const row of aoa) {
+      if (!row) continue;
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        const sz = cell?.s?.font?.sz;
+        if (typeof sz === "number") {
+          row[c] = { ...cell, s: { ...cell.s, font: { ...cell.s.font, sz: Math.round(sz * FONT_SCALE * 2) / 2 } } };
+        }
+      }
+    }
   }
-  // No frozen panes, no autofilter.
 
-  const wb = XLSXStyle.utils.book_new();
-  XLSXStyle.utils.book_append_sheet(wb, ws, "ATS Report");
+  // Optional "By Size Matrix" worksheet(s) (operator export option). Built
+  // only when the size-grain data was fetched; the main report is unaffected.
+  if (opts.bySizeMatrix && sizeMatrix && Array.isArray(sizeMatrix.styles) && sizeMatrix.styles.length > 0) {
+    const usedNames = new Set<string>(["ATS Report"]);
+    // Excel tab names: ≤31 chars, none of []:*?/\, unique within the book.
+    const safeTab = (raw: string) => {
+      let base = String(raw).replace(/[[\]:*?/\\]/g, " ").trim().slice(0, 31) || "Sheet";
+      let name = base, n = 2;
+      while (usedNames.has(name)) { const suf = ` ${n++}`; name = base.slice(0, 31 - suf.length) + suf; }
+      usedNames.add(name);
+      return name;
+    };
+    // Snapshot (total) matrix tab.
+    const matrixSpec = buildSizeMatrixSheet(sizeMatrix, bulkByStyleColor);
+    if (matrixSpec) sheetSpecs.push({ ...matrixSpec, sheetName: safeTab("By Size Matrix") });
+    // One tab per selected period, each AS OF that period with a 22pt banner.
+    for (const pm of periodMatrices ?? []) {
+      if (!pm?.matrix || !Array.isArray(pm.matrix.styles) || pm.matrix.styles.length === 0) continue;
+      const spec = buildSizeMatrixSheet(pm.matrix, bulkByStyleColor, pm.name);
+      if (spec) sheetSpecs.push({ ...spec, sheetName: safeTab(pm.name) });
+    }
+  }
 
-  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid" };
+
+  const { wb } = buildMultiSheetWorkbook(`ATS_Report_${fmtDate(new Date())}.xlsx`, sheetSpecs);
+  const extraSheets = sheetSpecs.slice(1).map((s) => ({ name: s.sheetName, aoa: s.allRows }));
+  return { aoa, wb, filename: `ATS_Report_${fmtDate(new Date())}.xlsx`, title: "ATS Grid", extraSheets };
+}
+
+// ── By Size Matrix worksheet ───────────────────────────────────────────────
+// Response shape of POST /api/internal/ats-size-matrix (h611).
+export interface AtsSizeMatrixColor {
+  color: string;
+  by_size: Record<string, number>; // size → ATS-available eaches
+  total_eachs: number;
+  ppk_packs: number;
+}
+export interface AtsSizeMatrixStyle {
+  style_code: string;
+  style_name: string;
+  sizes: string[];      // ordered size columns (from the style's scale)
+  pack_size: number;    // dominant PPK pack size (0 when none)
+  colors: AtsSizeMatrixColor[];
+}
+export interface AtsSizeMatrixResponse {
+  as_of: string | null;
+  styles: AtsSizeMatrixStyle[];
+}
+
+// Build a "By Size Matrix" worksheet. One block per style:
+//   [optional 22pt period banner] · per-style title · header
+//   (Style·Color·SO·_·PO·_·ATS·_·<sizes>·PPK·Total Eachs·Total PPK<n>) ·
+//   one row per color · a Subtotal row · a blank spacer row.
+// Blank spacer COLUMNS sit after SO, PO and ATS (operator layout). SO / PO
+// come from the bulk color-grain overlay (keyed "STYLE|COLOR"); the size
+// cells + PPK come from the size-grain fetch. Fills mirror the main ATS
+// report palette (dark-blue headers / white font, qty-band data cells,
+// blue spacer columns). `periodHeader` adds the big banner used by the
+// per-period tabs. Returns null when there is nothing to render.
+function buildSizeMatrixSheet(
+  data: AtsSizeMatrixResponse,
+  bulk?: Map<string, { so: number; po: number }>,
+  periodHeader?: string,
+): Omit<MultiSheetSpec, "sheetName"> | null {
+  const NUMFMT = "#,##0";
+  // Report palette (matches exportExcel's main sheet).
+  const DARK = "1F497D";   // dark-blue header fill (On Order/PO/periods/Total)
+  const TEXTHDR = "3278CC"; // text headers
+  const SPACER_FILL = "2C69B2"; // separator columns (matches main sheet)
+  const QTY = "B4C7E7";    // qty-band data cells
+  const EVEN = "EEF3FA";   // zebra even (text cols)
+  const ODD = "FFFFFF";    // zebra odd (text cols)
+  const WHITE = "FFFFFF";
+  const THICK = { style: "medium", color: { rgb: DARK } };
+  const THIN = { style: "thin", color: { rgb: "4472C4" } };
+  const HDR_BORDER: any = { top: THICK, bottom: THICK, left: THIN, right: THIN };
+  const CELL_BORDER: any = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+  const fill = (rgb: string) => ({ fgColor: { rgb }, patternType: "solid" });
+  // Header cells.
+  const hDark = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
+  const hText = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(TEXTHDR), alignment: { horizontal: "center", vertical: "center" }, border: HDR_BORDER } });
+  const hSpacer = () => ({ v: "", t: "s", s: { fill: fill(SPACER_FILL), border: HDR_BORDER } });
+  // Data cells.
+  const dTxt = (v: string, z: string) => ({ v, t: "s", s: { font: { sz: 11, name: "Calibri" }, fill: fill(z), alignment: { horizontal: "left" }, border: CELL_BORDER } });
+  const dNum = (v: number, rgb: string) => ({ v: v > 0 ? v : "", t: v > 0 ? "n" : "s", s: { numFmt: NUMFMT, font: { sz: 11, name: "Calibri" }, fill: fill(rgb), alignment: { horizontal: "right" }, border: CELL_BORDER } });
+  const dSpacer = (z: string) => ({ v: "", t: "s", s: { fill: fill(z), border: CELL_BORDER } });
+  // Subtotal cells (bold dark-blue font on the qty band, thick top rule).
+  const SUB_BORDER: any = { top: THICK, bottom: THIN, left: THIN, right: THIN };
+  const sTxt = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 11, color: { rgb: DARK }, name: "Calibri" }, fill: fill(QTY), border: SUB_BORDER } });
+  const sNum = (v: number) => ({ v: v > 0 ? v : "", t: v > 0 ? "n" : "s", s: { numFmt: NUMFMT, font: { bold: true, sz: 11, color: { rgb: DARK }, name: "Calibri" }, fill: fill(QTY), alignment: { horizontal: "right" }, border: SUB_BORDER } });
+  const sSpacer = () => ({ v: "", t: "s", s: { fill: fill(QTY), border: SUB_BORDER } });
+  // Per-style title banner + the big period banner.
+  const titleCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 13, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "left", vertical: "center" } } });
+  const periodCell = (v: string) => ({ v, t: "s", s: { font: { bold: true, sz: 22, color: { rgb: WHITE }, name: "Calibri" }, fill: fill(DARK), alignment: { horizontal: "center", vertical: "center" } } });
+  const blank = { v: "", t: "s" };
+  const keyOf = (style: string, color: string) => `${String(style).toUpperCase()}|${String(color).toUpperCase()}`;
+
+  // Block width = Style,Color,SO,_,PO,_,ATS,_ (8) + sizes + PPK,TotalEachs,TotalPPK (3).
+  const widthOf = (sizes: string[]) => 8 + sizes.length + 3;
+  const maxWidth = Math.max(...data.styles.filter((s) => (s.colors?.length ?? 0) > 0).map((s) => widthOf(s.sizes || [])), 1);
+
+  const aoa: any[][] = [];
+  const merges: any[] = [];
+  const padTo = (row: any[], w: number) => { while (row.length < w) row.push(blank); return row; };
+
+  // Big period banner (per-period tabs only).
+  if (periodHeader) {
+    const r = aoa.length;
+    aoa.push(padTo([periodCell(periodHeader)], maxWidth));
+    merges.push({ s: { r, c: 0 }, e: { r, c: maxWidth - 1 } });
+    aoa.push([]); // breathing room under the banner
+  }
+
+  for (const st of data.styles) {
+    if (!st || (st.colors?.length ?? 0) === 0) continue;
+    const sizes = Array.isArray(st.sizes) ? st.sizes : [];
+    const packLabel = st.pack_size > 1 ? `Total PPK${st.pack_size}` : "Total PPK";
+    const blockWidth = widthOf(sizes);
+
+    // Per-style title (merged).
+    const titleR = aoa.length;
+    aoa.push(padTo([titleCell(`${st.style_code}  ${st.style_name || ""}  —  ATS Available by Size`)], blockWidth));
+    merges.push({ s: { r: titleR, c: 0 }, e: { r: titleR, c: blockWidth - 1 } });
+
+    // Header row (spacers after SO, PO, ATS).
+    aoa.push([
+      hText("Style"), hText("Color"),
+      hDark("SO"), hSpacer(), hDark("PO"), hSpacer(), hDark("ATS"), hSpacer(),
+      ...sizes.map((s) => hDark(String(s))),
+      hDark("PPK"), hDark("Total Eachs"), hDark(packLabel),
+    ]);
+
+    // Color rows + running subtotal.
+    const sub = { so: 0, po: 0, eachs: 0, ppk: 0, bySize: {} as Record<string, number> };
+    let i = 0;
+    for (const c of st.colors) {
+      const z = (i++ % 2 === 0) ? EVEN : ODD; // zebra for text cols + spacers
+      const ov = bulk?.get(keyOf(st.style_code, c.color)) ?? { so: 0, po: 0 };
+      sub.so += ov.so; sub.po += ov.po; sub.eachs += c.total_eachs || 0; sub.ppk += c.ppk_packs || 0;
+      aoa.push([
+        dTxt(st.style_name || st.style_code, z), dTxt(c.color, z),
+        dNum(ov.so, QTY), dSpacer(z), dNum(ov.po, QTY), dSpacer(z), dNum(c.total_eachs || 0, QTY), dSpacer(z),
+        ...sizes.map((s) => { const q = Number(c.by_size?.[s]) || 0; sub.bySize[s] = (sub.bySize[s] || 0) + q; return dNum(q, QTY); }),
+        dNum(c.ppk_packs || 0, QTY), dNum(c.total_eachs || 0, QTY), dNum(c.ppk_packs || 0, QTY),
+      ]);
+    }
+
+    // Subtotal row.
+    aoa.push([
+      sTxt("Subtotal"), sTxt(""),
+      sNum(sub.so), sSpacer(), sNum(sub.po), sSpacer(), sNum(sub.eachs), sSpacer(),
+      ...sizes.map((s) => sNum(sub.bySize[s] || 0)),
+      sNum(sub.ppk), sNum(sub.eachs), sNum(sub.ppk),
+    ]);
+
+    aoa.push([]); // spacer between style blocks
+  }
+
+  if (aoa.length === 0) return null;
+  // Column widths: Style/Color wide, narrow spacers (cols 3,5,7), compact numerics.
+  const cols: Array<{ wch: number }> = [{ wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 2 }, { wch: 9 }, { wch: 2 }, { wch: 10 }, { wch: 2 }];
+  for (let i = 8; i < maxWidth; i++) cols.push({ wch: i >= maxWidth - 3 ? 11 : 7 });
+  return {
+    allRows: aoa,
+    cols,
+    merges: merges.length > 0 ? merges : undefined,
+    rowHeights: periodHeader ? [{ hpt: 30 }] : [], // tall banner row
+  };
 }

@@ -17,6 +17,28 @@
          one. border-box keeps width:100% INSIDE the cell. Targeted to form
          controls so it can't disturb other layout. */
       input, select, textarea, button { box-sizing: border-box; }
+      /* App-wide dark dropdowns: the suite is dark-themed (body #0F172A), but
+         native <select> popups + date/number pickers render in the OS light
+         scheme unless color-scheme is set. Force dark so every dropdown's
+         option list matches the app instead of flashing a white menu. Inline
+         background/color on individual selects still win for the closed
+         control; this only fixes the native-rendered popup + form-control
+         defaults. */
+      select, input, textarea { color-scheme: dark; }
+      /* App-colored default for native <select> dropdowns. Selects that set their
+         own inline background/color still win (inline beats this stylesheet rule);
+         any select that DIDN'T — which used to render a generic light control —
+         now gets the slate/navy look on both the closed control and the option
+         popup, so nothing flashes white. Scoped to <select> so checkboxes /
+         radios / date pickers are untouched. */
+      select {
+        background-color: #0b1220;
+        color: #F1F5F9;
+        border: 1px solid #334155;
+        border-radius: 6px;
+      }
+      select:disabled { color: #94A3B8; opacity: 0.6; }
+      select option, select optgroup { background-color: #0b1220; color: #F1F5F9; }
       /* Body scroll stays available for app-level scroll on small
          screens; the ATS grid uses its own height-locked scroll
          container (S.tableWrap) so its horizontal bar lives at the

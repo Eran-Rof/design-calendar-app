@@ -21,10 +21,50 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope } from "../../../_lib/brandContext.js";
+import { resolveUserLabels } from "../../../_lib/resolveUserNames.js";
+
+// GL account lookup for inventory adjustments. Queries by account_type=expense
+// and name matching "inventory adjust" (primary), falling back to "adjust" only.
+// Returns { id } or { error }.
+async function lookupAdjustmentGlAccount(admin, entityId) {
+  // Primary: expense account whose name contains "inventory" AND "adjust".
+  const { data: primary, error: e1 } = await admin
+    .from("gl_accounts")
+    .select("id")
+    .eq("entity_id", entityId)
+    .eq("account_type", "expense")
+    .eq("is_postable", true)
+    .ilike("name", "%inventory%adjust%")
+    .limit(1)
+    .maybeSingle();
+  if (e1) return { error: e1.message };
+  if (primary) return { id: primary.id };
+
+  // Fallback: any postable expense account whose name contains "adjust".
+  const { data: fallback, error: e2 } = await admin
+    .from("gl_accounts")
+    .select("id")
+    .eq("entity_id", entityId)
+    .eq("account_type", "expense")
+    .eq("is_postable", true)
+    .ilike("name", "%adjust%")
+    .limit(1)
+    .maybeSingle();
+  if (e2) return { error: e2.message };
+  if (fallback) return { id: fallback.id };
+
+  return { error: "Inventory Adjustments Expense GL account not found. Create one in Chart of Accounts." };
+}
 
 export const config = { maxDuration: 15 };
 
-const VALID_TYPES = ["damage","shrinkage","found","correction","write_off","return_to_vendor"];
+// adjustment_type is now a CONFIGURABLE category sourced from the
+// adjustment_type_master CRUD list (a category/reason for grouping only — it does
+// NOT drive FIFO accounting, which is governed purely by qty sign + unit cost).
+// We therefore accept any non-empty string (the master curates the picklist),
+// while still tolerating the legacy fixed enum values for backward compatibility.
+// LEGACY_TYPES is retained only for documentation of the original seed set.
+const LEGACY_TYPES = ["damage","shrinkage","found","correction","write_off","return_to_vendor"];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -64,9 +104,8 @@ export function parseListQuery(searchParams) {
 
   const adjType = (searchParams.get("adjustment_type") || "").trim();
   if (adjType) {
-    if (!VALID_TYPES.includes(adjType)) {
-      return { error: `adjustment_type must be one of ${VALID_TYPES.join("|")}` };
-    }
+    // adjustment_type is a free-text category (sourced from adjustment_type_master);
+    // any non-empty value is a valid filter.
     out.filters.adjustment_type = adjType;
   }
 
@@ -107,8 +146,11 @@ export function validateInsert(body) {
   if (!body.item_id || !isUuid(String(body.item_id))) {
     return { error: "item_id (uuid) required" };
   }
-  if (!body.adjustment_type || !VALID_TYPES.includes(body.adjustment_type)) {
-    return { error: `adjustment_type required, one of ${VALID_TYPES.join("|")}` };
+  // adjustment_type is a free-text category sourced from adjustment_type_master
+  // (curated picklist, not an FK). Require a non-empty string; the master governs
+  // which values appear in the UI, but any name is accepted for backward compat.
+  if (!body.adjustment_type || !String(body.adjustment_type).trim()) {
+    return { error: "adjustment_type required" };
   }
   if (body.qty_delta == null || body.qty_delta === "") {
     return { error: "qty_delta required" };
@@ -120,9 +162,8 @@ export function validateInsert(body) {
   if (!body.reason || !String(body.reason).trim()) {
     return { error: "reason (non-empty) required" };
   }
-  if (!body.gl_account_id || !isUuid(String(body.gl_account_id))) {
-    return { error: "gl_account_id (uuid) required" };
-  }
+  // gl_account_id is OPTIONAL from client — server fills it via lookupAdjustmentGlAccount.
+  // If the client supplies it for backward compat, validate but don't require.
 
   let unitCost = null;
   if (qty > 0) {
@@ -147,11 +188,11 @@ export function validateInsert(body) {
   return {
     data: {
       item_id: String(body.item_id),
-      adjustment_type: body.adjustment_type,
+      adjustment_type: String(body.adjustment_type).trim(),
       qty_delta: qty,
       unit_cost_cents: unitCost,
       reason: String(body.reason).trim(),
-      gl_account_id: String(body.gl_account_id),
+      // gl_account_id is resolved server-side; not taken from body.
       receiving_channel,
     },
   };
@@ -191,7 +232,12 @@ export default async function handler(req, res) {
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+
+    // Enrich with a "created by" display label (items 3/4 — show + filter by user).
+    const adjRows = data || [];
+    const labels = await resolveUserLabels(admin, adjRows.map((r) => r.created_by_user_id));
+    for (const r of adjRows) r.created_by_name = r.created_by_user_id ? (labels[r.created_by_user_id] || null) : null;
+    return res.status(200).json(adjRows);
   }
 
   if (req.method === "POST") {
@@ -203,12 +249,17 @@ export default async function handler(req, res) {
     const v = validateInsert(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
 
+    // Server always resolves the GL account — client never picks it.
+    const glLookup = await lookupAdjustmentGlAccount(admin, entityId);
+    if (glLookup.error) return res.status(400).json({ error: glLookup.error });
+
     const created_by_user_id = body && typeof body.created_by_user_id === "string" && isUuid(body.created_by_user_id)
       ? body.created_by_user_id
       : null;
 
     const insertRow = {
       ...v.data,
+      gl_account_id: glLookup.id,
       entity_id: entityId,
       created_by_user_id,
     };

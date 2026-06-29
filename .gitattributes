@@ -1,0 +1,2 @@
+# Union merge strategy for high-churn docs so parallel PRs never conflict
+docs/tangerine/BUILD-PROGRESS.md merge=union

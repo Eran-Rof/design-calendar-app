@@ -11,6 +11,7 @@ interface UseRowFilteringOpts {
   filterSubCategory: string[];
   filterStyle: string[];
   filterGender: string[];
+  filterBrand: string[];
   filterStatus: string;
   minATS: number | "";
   storeFilter: string[];
@@ -44,6 +45,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     filterSubCategory: opts.filterSubCategory,
     filterStyle: opts.filterStyle,
     filterGender: opts.filterGender,
+    filterBrand: opts.filterBrand,
     filterStatus: opts.filterStatus,
     minATS: opts.minATS,
     storeFilter: opts.storeFilter,
@@ -51,7 +53,7 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     today: opts.today,
     displayPeriods: opts.displayPeriods,
   }), [
-    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterStatus,
+    opts.rows, opts.search, opts.filterCategory, opts.filterSubCategory, opts.filterStyle, opts.filterGender, opts.filterBrand, opts.filterStatus,
     opts.minATS, opts.storeFilter, customerSkuSet, opts.today, opts.displayPeriods,
   ]);
 
@@ -87,6 +89,16 @@ export function useRowFiltering(opts: UseRowFilteringOpts) {
     customerSkuSet,
     filtered,
     statFiltered,
+    // The filtered + sorted LEAF rows, BEFORE collapse. Collapse is a
+    // display-only transform (it builds synthetic `__group:` aggregate rows
+    // for the grid), so anything that operates on the real data — Excel
+    // export, reports, Sales Comps, the AI snapshot — must use this set, not
+    // `sortedFiltered`. Otherwise a collapsed grid exports the aggregates
+    // (which the export then drops) → a blank workbook, and prepack rows
+    // lose their per-row ppkMult so PPK quantities stop exploding.
+    sortedLeaves,
+    // The collapse-aware display set (aggregates + expanded children). Drives
+    // the grid (pageRows / totalPages) ONLY.
     sortedFiltered,
     pageRows,
     totalPages,

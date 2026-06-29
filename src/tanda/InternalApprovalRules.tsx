@@ -11,6 +11,18 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
+
+const TABLE_KEY = "tanda.approval_rules";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "kind", label: "Kind" },
+  { key: "name", label: "Name" },
+  { key: "match", label: "Match" },
+  { key: "steps", label: "Steps" },
+  { key: "active", label: "Active" },
+  { key: "actions", label: "Actions" },
+];
 
 type Rule = {
   id: string;
@@ -49,6 +61,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -64,6 +77,7 @@ export default function InternalApprovalRules() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const { getRowProps } = useRowClickEdit<Rule>({
     onRowClick: (r) => setEditing(r),
@@ -120,15 +134,31 @@ export default function InternalApprovalRules() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <select style={{ ...inputStyle, width: 200 }} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
-          <option value="">All kinds</option>
-          {KNOWN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={kindFilter || null}
+            onChange={(v) => setKindFilter(v)}
+            options={[
+              { value: "", label: "All kinds" },
+              ...KNOWN_KINDS.map((k) => ({ value: k, label: k })),
+            ]}
+            placeholder="All kinds"
+            inputStyle={inputStyle}
+          />
+        </div>
         <label style={{ color: C.textSub, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
           Include inactive
         </label>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="approval-rules"
@@ -148,16 +178,16 @@ export default function InternalApprovalRules() {
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Kind</th>
-              <th style={th}>Name</th>
-              <th style={th}>Match</th>
-              <th style={th}>Steps</th>
-              <th style={th}>Active</th>
-              <th style={th}>Actions</th>
+              <th style={th} hidden={!visibleColumns.has("kind")}>Kind</th>
+              <th style={th} hidden={!visibleColumns.has("name")}>Name</th>
+              <th style={th} hidden={!visibleColumns.has("match")}>Match</th>
+              <th style={th} hidden={!visibleColumns.has("steps")}>Steps</th>
+              <th style={th} hidden={!visibleColumns.has("active")}>Active</th>
+              <th style={th} hidden={!visibleColumns.has("actions")}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -174,20 +204,20 @@ export default function InternalApprovalRules() {
                 highlightedRowId={highlightedId}
                 {...getRowProps(r)}
               >
-                <td style={{ ...td, fontFamily: "monospace" }}>{r.kind}</td>
-                <td style={td}>{r.name}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }}>
+                <td style={{ ...td, fontFamily: "monospace" }} hidden={!visibleColumns.has("kind")}>{r.kind}</td>
+                <td style={td} hidden={!visibleColumns.has("name")}>{r.name}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textSub }} hidden={!visibleColumns.has("match")}>
                   {JSON.stringify(r.match)}
                 </td>
-                <td style={{ ...td, fontSize: 12, color: C.textSub }}>
+                <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("steps")}>
                   {r.steps.map((s) => `${s.step_order}. ${s.mode}/${s.role_required}`).join(" → ")}
                 </td>
-                <td style={td}>
+                <td style={td} hidden={!visibleColumns.has("active")}>
                   <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); void toggleActive(r); }}>
-                    {r.is_active ? "🟢 Active" : "⚪ Inactive"}
+                    {r.is_active ? "Active" : "Inactive"}
                   </button>
                 </td>
-                <td style={td}>
+                <td style={td} hidden={!visibleColumns.has("actions")}>
                   <button style={btnSecondary} onClick={(e) => { e.stopPropagation(); setEditing(r); }}>Edit</button>
                   &nbsp;
                   <button style={btnDanger} onClick={(e) => { e.stopPropagation(); void deleteRule(r.id); }}>Delete</button>
@@ -271,7 +301,7 @@ function RuleModal({ mode, rule, onCancel, onSaved }: {
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 720, maxHeight: "90vh", overflow: "auto",
+        padding: 24, width: "min(720px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
         <h2 style={{ margin: "0 0 16px 0", fontSize: 18, color: C.text }}>
           {mode === "add" ? "Add rule" : "Edit rule"}
@@ -281,9 +311,12 @@ function RuleModal({ mode, rule, onCancel, onSaved }: {
           {mode === "edit" ? (
             <input style={{ ...inputStyle, color: C.textMuted }} value={kind} disabled />
           ) : (
-            <select style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)}>
-              {KNOWN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+            <SearchableSelect
+              value={kind || null}
+              onChange={(v) => setKind(v)}
+              options={KNOWN_KINDS.map((k) => ({ value: k, label: k }))}
+              inputStyle={inputStyle}
+            />
           )}
         </Field>
 

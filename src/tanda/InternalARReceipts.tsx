@@ -133,6 +133,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -145,7 +146,7 @@ const modalBackdrop: React.CSSProperties = {
 };
 const modalContent: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10,
-  padding: 24, width: "100%", maxWidth: 880,
+  padding: 24, width: "min(880px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
 
 function fmtCents(c: string | number | bigint | null | undefined): string {
@@ -276,23 +277,28 @@ export default function InternalARReceipts() {
             placeholder="All customers"
           />
         </div>
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          style={{ ...inputStyle, width: 160 }}
-        >
-          <option value="">All methods</option>
-          {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={method || null}
+            onChange={(v) => setMethod(v)}
+            options={[
+              { value: "", label: "All methods" },
+              ...METHODS.map((m) => ({ value: m, label: m })),
+            ]}
+            placeholder="All methods"
+          />
+        </div>
+        <div style={{ width: 150 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           From&nbsp;
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
@@ -301,7 +307,7 @@ export default function InternalARReceipts() {
           To&nbsp;
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={from}
           to={to}
           onChange={(f, t) => { setFrom(f); setTo(t); }}
@@ -315,16 +321,18 @@ export default function InternalARReceipts() {
           />
           Include voided
         </label>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value) || 100)}
-          style={{ ...inputStyle, width: 100 }}
-        >
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="250">250</option>
-          <option value="500">500</option>
-        </select>
+        <div style={{ width: 100 }}>
+          <SearchableSelect
+            value={String(limit)}
+            onChange={(v) => setLimit(Number(v) || 100)}
+            options={[
+              { value: "50", label: "50" },
+              { value: "100", label: "100" },
+              { value: "250", label: "250" },
+              { value: "500", label: "500" },
+            ]}
+          />
+        </div>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
         <ExportButton
           rows={rows.map((r) => {
@@ -379,7 +387,7 @@ export default function InternalARReceipts() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -638,9 +646,13 @@ function AddReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method *
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ ...inputStyle, marginTop: 4 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4 }}>
+              <SearchableSelect
+                value={paymentMethod || null}
+                onChange={(v) => setPaymentMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank account *
@@ -745,7 +757,9 @@ function AddReceiptModal({
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Cancel stay reachable as the receipt-application grid grows. */}
+        <div style={{ position: "sticky", bottom: -24, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -24px -24px", padding: "14px 24px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={saving}>Cancel</button>
           <button onClick={() => void save()} style={btnPrimary} disabled={saving}>
             {saving ? "Saving…" : "Create draft"}
@@ -930,9 +944,14 @@ function DetailReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method
-            <select value={editMethod} onChange={(e) => setEditMethod(e.target.value)} disabled={!editable} style={{ ...inputStyle, marginTop: 4, opacity: editable ? 1 : 0.6 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4, opacity: editable ? 1 : 0.6 }}>
+              <SearchableSelect
+                value={editMethod || null}
+                onChange={(v) => setEditMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+                disabled={!editable}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank
@@ -978,8 +997,8 @@ function DetailReceiptModal({
                 <tbody>
                   {receipt.applications.map((a) => (
                     <tr key={a.id}>
-                      <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
-                        {a.ar_invoices?.invoice_number || a.ar_invoice_id.slice(0, 8) + "…"}
+                      <td style={td}>
+                        {a.ar_invoices?.invoice_number || "—"}
                       </td>
                       <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}>
                         {fmtCents(a.amount_applied_cents)}
@@ -1008,8 +1027,8 @@ function DetailReceiptModal({
           <div style={{ marginBottom: 12, padding: "8px 12px", background: "#1d2747", border: `1px solid ${C.cardBdr}`, borderRadius: 6, fontSize: 12, color: C.textSub }}>
             {isPosted && (
               <>
-                Accrual JE: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.success }}>{receipt.accrual_je_id?.slice(0, 8)}…</span>
-                &nbsp;·&nbsp;Cash JE: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.success }}>{receipt.cash_je_id?.slice(0, 8)}…</span>
+                Accrual JE: <span style={{ color: C.success }}>{receipt.accrual_je_id ? "posted" : "—"}</span>
+                &nbsp;·&nbsp;Cash JE: <span style={{ color: C.success }}>{receipt.cash_je_id ? "posted" : "—"}</span>
               </>
             )}
           </div>

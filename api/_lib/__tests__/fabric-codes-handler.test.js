@@ -130,10 +130,6 @@ describe("fabric-codes validatePatch", () => {
     expect(validatePatch({ fabric_weight_gsm: -5 }).error).toMatch(/fabric_weight_gsm/);
   });
 
-  it("normalizes empty hts_code to null", () => {
-    expect(validatePatch({ hts_code: "" }).data.hts_code).toBeNull();
-  });
-
   it("empty patch returns empty data", () => {
     const v = validatePatch({});
     expect(v.error).toBeUndefined();

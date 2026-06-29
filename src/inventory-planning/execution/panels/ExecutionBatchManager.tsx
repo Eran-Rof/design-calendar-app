@@ -14,8 +14,14 @@ import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import {
   buildExecutionBatchFromRecommendations,
   executionRepo,
+  type ExecutionExportNameMaps,
 } from "../services";
+import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
+import type { IpScenario } from "../../scenarios/types/scenarios";
+import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
 import ExecutionAuditPanel from "./ExecutionAuditPanel";
@@ -38,12 +44,23 @@ const BATCH_TYPES: IpExecutionBatchType[] = [
   "reserve_update", "protection_update", "reallocation_plan",
 ];
 
+const TABLE_KEY = "ip.execution_batches";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "created", label: "Created" },
+  { key: "approved", label: "Approved" },
+  { key: "note", label: "Note" },
+];
+
 export default function ExecutionBatchManager() {
   const [batches, setBatches] = useState<IpExecutionBatch[]>([]);
   const [runs, setRuns] = useState<IpPlanningRun[]>([]);
   const [items, setItems] = useState<IpItem[]>([]);
   const [categories, setCategories] = useState<IpCategory[]>([]);
   const [writebackConfig, setWritebackConfig] = useState<IpErpWritebackConfig[]>([]);
+  const [nameMaps, setNameMaps] = useState<ExecutionExportNameMaps | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actions, setActions] = useState<IpExecutionAction[]>([]);
   const [audit, setAudit] = useState<IpExecutionAuditEntry[]>([]);
@@ -52,6 +69,7 @@ export default function ExecutionBatchManager() {
   const [showNew, setShowNew] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
@@ -59,12 +77,13 @@ export default function ExecutionBatchManager() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [bs, rs, cfg, its, cats] = await Promise.all([
+      const [bs, rs, cfg, its, cats, nm] = await Promise.all([
         executionRepo.listBatches(),
         wholesaleRepo.listPlanningRuns("all"),
         executionRepo.listWritebackConfig("xoro"),
         wholesaleRepo.listItems(),
         wholesaleRepo.listCategories(),
+        executionRepo.listNameMaps(),
       ]);
       const ws = await wholesaleRepo.listPlanningRuns("wholesale");
       const ec = await wholesaleRepo.listPlanningRuns("ecom");
@@ -73,6 +92,7 @@ export default function ExecutionBatchManager() {
       setWritebackConfig(cfg);
       setItems(its);
       setCategories(cats);
+      setNameMaps(nm);
     } catch (e) {
       setToast({ text: "Load failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
@@ -90,47 +110,50 @@ export default function ExecutionBatchManager() {
     setAudit(au);
   }, [selected]);
 
+  async function deleteSelectedBatch() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE execution batch "${selected.batch_name}" (${selected.status})?\n\n` +
+      `This removes the batch and all its actions. It cannot be undone. ` +
+      `Any Tangerine POs already created from it are NOT affected.`,
+      { title: "Delete batch", confirmText: "Delete" },
+    );
+    if (!ok) return;
+    try {
+      await executionRepo.deleteBatch(selected.id);
+      setSelectedId(null);
+      setTab("list");
+      setToast({ text: "Batch deleted", kind: "success" });
+      await refresh();
+    } catch (e) {
+      setToast({ text: "Delete failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
+
   useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
   useEffect(() => { void loadSelected(); /* eslint-disable-line */ }, [selectedId]);
 
   return (
     <div style={S.app}>
-      <div style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>IP</div>
-          <div>
-            <div style={S.navTitle}>Demand & Inventory Planning</div>
-            <div style={S.navSub}>Execution · Phase 6</div>
-          </div>
-        </div>
-        <div style={S.navRight}>
-          <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
-          <a href="/planning/ecom" style={{ ...S.btnSecondary, textDecoration: "none" }}>Ecom</a>
-          <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply</a>
-          <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }}>Scenarios</a>
-          <a href="/planning/accuracy" style={{ ...S.btnSecondary, textDecoration: "none" }}>Accuracy</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>PLM</a>
-        </div>
-      </div>
-
       <div style={S.content}>
         <SystemHealthBanner />
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Execution batch</strong>
-            <select style={S.select} value={selectedId ?? ""} onChange={(e) => { setSelectedId(e.target.value); setTab("detail"); }}>
-              <option value="">— pick —</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.batch_name} · {b.batch_type} · {b.status}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect value={selectedId || null} onChange={(v) => { setSelectedId(v); setTab("detail"); }} inputStyle={S.select}
+              options={[{ value: "", label: "— pick —" }, ...batches.map((b) => ({ value: b.id, label: `${b.batch_name} · ${b.batch_type} · ${b.status}` }))]} />
             <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New batch</button>
             {selected && (
               <button style={S.btnSecondary} onClick={() => setShowAudit(true)}>
                 Audit ({audit.length})
               </button>
+            )}
+            {selected && (
+              <button
+                style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+                onClick={deleteSelectedBatch}
+                title="Permanently delete this batch and its actions"
+              >Delete</button>
             )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -145,6 +168,12 @@ export default function ExecutionBatchManager() {
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabBtn active={tab === "list"} onClick={() => setTab("list")}>Batches ({batches.length})</TabBtn>
           <TabBtn active={tab === "detail"} onClick={() => setTab("detail")} disabled={!selected}>Detail</TabBtn>
+          {tab === "list" && (
+            <div style={{ marginLeft: "auto" }}>
+              <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                                onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+            </div>
+          )}
         </div>
 
         {tab === "list" && (
@@ -153,28 +182,28 @@ export default function ExecutionBatchManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th style={S.th}>Name</th>
-                    <th style={S.th}>Type</th>
-                    <th style={S.th}>Status</th>
-                    <th style={S.th}>Created</th>
-                    <th style={S.th}>Approved</th>
-                    <th style={S.th}>Note</th>
+                    <th hidden={!visibleColumns.has("name")} style={S.th}>Name</th>
+                    <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
+                    <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
+                    <th hidden={!visibleColumns.has("created")} style={S.th}>Created</th>
+                    <th hidden={!visibleColumns.has("approved")} style={S.th}>Approved</th>
+                    <th hidden={!visibleColumns.has("note")} style={S.th}>Note</th>
                   </tr>
                 </thead>
                 <tbody>
                   {batches.map((b) => (
                     <tr key={b.id} style={{ cursor: "pointer", background: b.id === selectedId ? PAL.panelAlt : undefined }}
                         onClick={() => { setSelectedId(b.id); setTab("detail"); }}>
-                      <td style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
-                      <td style={S.td}>{b.batch_type}</td>
-                      <td style={S.td}>
+                      <td hidden={!visibleColumns.has("name")} style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
+                      <td hidden={!visibleColumns.has("type")} style={S.td}>{b.batch_type}</td>
+                      <td hidden={!visibleColumns.has("status")} style={S.td}>
                         <span style={{ ...S.chip, background: BATCH_STATUS_COLOR[b.status] + "33", color: BATCH_STATUS_COLOR[b.status] }}>
                           {b.status.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
-                      <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
-                      <td style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
+                      <td hidden={!visibleColumns.has("created")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(b.created_at.slice(0, 10))}</td>
+                      <td hidden={!visibleColumns.has("approved")} style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{b.approved_at ? formatDate(b.approved_at.slice(0, 10)) : "—"}</td>
+                      <td hidden={!visibleColumns.has("note")} style={{ ...S.td, fontSize: 12, color: PAL.textMuted }}>{b.note ?? ""}</td>
                     </tr>
                   ))}
                   {!loading && batches.length === 0 && (
@@ -196,6 +225,7 @@ export default function ExecutionBatchManager() {
             run={selectedRun}
             items={items}
             categories={categories}
+            nameMaps={nameMaps}
             onChange={async () => { await refresh(); await loadSelected(); }}
             onToast={(t) => setToast(t)}
           />
@@ -248,30 +278,96 @@ function TabBtn({ active, onClick, disabled, children }: { active: boolean; onCl
   );
 }
 
+type BuildSource = "scenario" | "run";
+
 function NewBatchModal({ runs, onClose, onCreated, onToast }: {
   runs: IpPlanningRun[];
   onClose: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
 }) {
+  // Approved scenarios are the normal build source — the Scenarios screen is
+  // where a plan gets approved, and that approval is recorded on the SCENARIO
+  // (status='approved'), NOT on the underlying planning run. The old form only
+  // offered a run picker, so an approved scenario was invisible here and the
+  // run-level approval gate rejected the build. We now load approved scenarios
+  // and let the planner build straight from one (passing scenario_id, which
+  // the service uses to derive the run + satisfy the approval gate).
+  const [scenarios, setScenarios] = useState<IpScenario[]>([]);
+  const [scenariosLoaded, setScenariosLoaded] = useState(false);
+  const approvedScenarios = useMemo(
+    () => scenarios.filter((s) => s.status === "approved"),
+    [scenarios],
+  );
+
+  const [source, setSource] = useState<BuildSource>("run");
+  const [scenarioId, setScenarioId] = useState("");
   const [runId, setRunId] = useState(runs[0]?.id ?? "");
   const [batchType, setBatchType] = useState<IpExecutionBatchType>("buy_plan");
-  const [name, setName] = useState(`Buy plan ${new Date().toISOString().slice(0, 10)}`);
+  const [name, setName] = useState("");
+  // Once the planner types a name we stop auto-rewriting it.
+  const [nameEdited, setNameEdited] = useState(false);
   const [note, setNote] = useState("");
   const [allowUnapproved, setAllowUnapproved] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    let alive = true;
+    scenarioRepo.listScenarios()
+      .then((list) => {
+        if (!alive) return;
+        setScenarios(list);
+        const firstApproved = list.find((s) => s.status === "approved");
+        // Default to building from an approved scenario when one exists —
+        // that's what the planner expects after approving in Scenarios.
+        if (firstApproved) { setSource("scenario"); setScenarioId(firstApproved.id); }
+        setScenariosLoaded(true);
+      })
+      .catch(() => { if (alive) setScenariosLoaded(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const runById = useMemo(() => new Map(runs.map((r) => [r.id, r])), [runs]);
+
+  // Auto-name: include the scenario name when building from a scenario, e.g.
+  // "0412 june 2026 — Buy plan 2026-06-04". Stops once the planner edits it.
+  useEffect(() => {
+    if (nameEdited) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const label = batchType.replace(/_/g, " ");
+    const base = label.charAt(0).toUpperCase() + label.slice(1);
+    const scen = source === "scenario"
+      ? scenarios.find((s) => s.id === scenarioId && s.status === "approved")
+      : undefined;
+    setName(scen ? `${scen.scenario_name} — ${base} ${today}` : `${base} ${today}`);
+  }, [source, scenarioId, batchType, scenarios, nameEdited]);
+
   async function save() {
-    if (!runId) { onToast({ text: "Pick a planning run", kind: "error" }); return; }
     setSaving(true);
     try {
-      const b = await buildExecutionBatchFromRecommendations({
-        planning_run_id: runId,
-        batch_name: name.trim(),
-        batch_type: batchType,
-        note: note.trim() || null,
-        allowUnapproved,
-      });
+      let input;
+      if (source === "scenario") {
+        const scen = approvedScenarios.find((s) => s.id === scenarioId);
+        if (!scen) { onToast({ text: "Pick an approved scenario", kind: "error" }); setSaving(false); return; }
+        input = {
+          planning_run_id: scen.planning_run_id,
+          scenario_id: scen.id,
+          batch_name: name.trim(),
+          batch_type: batchType,
+          note: note.trim() || null,
+          allowUnapproved,
+        };
+      } else {
+        if (!runId) { onToast({ text: "Pick a planning run", kind: "error" }); setSaving(false); return; }
+        input = {
+          planning_run_id: runId,
+          batch_name: name.trim(),
+          batch_type: batchType,
+          note: note.trim() || null,
+          allowUnapproved,
+        };
+      }
+      const b = await buildExecutionBatchFromRecommendations(input);
       await onCreated(b.id);
     } catch (e) {
       onToast({ text: "Create failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
@@ -279,6 +375,9 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
       setSaving(false);
     }
   }
+
+  const selectedScenario = approvedScenarios.find((s) => s.id === scenarioId);
+  const derivedRun = selectedScenario ? runById.get(selectedScenario.planning_run_id) : undefined;
 
   return (
     <div style={S.drawerOverlay} onClick={onClose}>
@@ -290,20 +389,52 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
         <div style={S.drawerBody}>
           <div style={{ display: "grid", gap: 10 }}>
             <div>
-              <label style={S.label}>Planning run</label>
-              <select style={{ ...S.select, width: "100%" }} value={runId} onChange={(e) => setRunId(e.target.value)}>
-                {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
-              </select>
+              <label style={S.label}>Build from</label>
+              <SearchableSelect value={source} onChange={(v) => setSource(v as BuildSource)} inputStyle={{ ...S.select, width: "100%" }} options={[
+                { value: "scenario", label: `Approved scenario${scenariosLoaded ? ` (${approvedScenarios.length})` : "…"}` },
+                { value: "run", label: "Planning run (direct)" },
+              ]} />
             </div>
+
+            {source === "scenario" ? (
+              <div>
+                <label style={S.label}>Approved scenario</label>
+                {approvedScenarios.length > 0 ? (
+                  <SearchableSelect value={scenarioId || null} onChange={(v) => setScenarioId(v)} inputStyle={{ ...S.select, width: "100%" }}
+                    options={[{ value: "", label: "— pick —" }, ...approvedScenarios.map((s) => ({ value: s.id, label: `${s.scenario_name} · ${s.scenario_type} · approved` }))]} />
+                ) : (
+                  <div style={{ color: PAL.textMuted, fontSize: 12 }}>
+                    {scenariosLoaded
+                      ? "No approved scenarios yet. Approve one in Scenarios, or build from a planning run."
+                      : "Loading scenarios…"}
+                  </div>
+                )}
+                {derivedRun && (
+                  <div style={{ color: PAL.textMuted, fontSize: 11, marginTop: 4 }}>
+                    Pulls recommendations from run: {derivedRun.name} · {derivedRun.planning_scope}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <label style={S.label}>Planning run</label>
+                <SearchableSelect value={runId || null} onChange={(v) => setRunId(v)} inputStyle={{ ...S.select, width: "100%" }}
+                  options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))} />
+                <div style={{ color: PAL.textMuted, fontSize: 11, marginTop: 4 }}>
+                  Requires a run-level approval (or the override below).
+                </div>
+              </div>
+            )}
+
             <div>
               <label style={S.label}>Batch type</label>
-              <select style={{ ...S.select, width: "100%" }} value={batchType} onChange={(e) => setBatchType(e.target.value as IpExecutionBatchType)}>
-                {BATCH_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
-              </select>
+              <SearchableSelect value={batchType} onChange={(v) => setBatchType(v as IpExecutionBatchType)} inputStyle={{ ...S.select, width: "100%" }}
+                options={BATCH_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))} />
             </div>
             <div>
               <label style={S.label}>Batch name</label>
-              <input style={{ ...S.input, width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} />
+              <input style={{ ...S.input, width: "100%" }} value={name}
+                     onChange={(e) => { setName(e.target.value); setNameEdited(true); }} />
             </div>
             <div>
               <label style={S.label}>Note</label>

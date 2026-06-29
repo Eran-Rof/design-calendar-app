@@ -13,6 +13,8 @@ import { scenarioRepo } from "../scenarios/services/scenarioRepo";
 import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import { confirmDialog } from "../../shared/ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export interface PlanningRunControlsProps {
   runs: IpPlanningRun[];
@@ -172,6 +174,37 @@ export default function PlanningRunControls({
     await onChange();
   }
 
+  // Permanently delete a planning run. CASCADE wipes all of its data
+  // (forecasts / recommendations / projected / scenarios / approvals /
+  // exports); a run with execution batches is RESTRICTed by the DB, which we
+  // translate into a clear message.
+  async function deleteRun() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE planning run "${selected.name}"?\n\n` +
+      `This also deletes ALL of its data — forecasts, recommendations, projected inventory, ` +
+      `scenarios, approvals and exports tied to this run. It cannot be undone.\n\n` +
+      `(A run that already has execution batches can't be deleted — remove those in the Execution screen first.)`,
+      { title: "Delete planning run", confirmText: "Delete run" },
+    );
+    if (!ok) return;
+    try {
+      await wholesaleRepo.deletePlanningRun(selected.id);
+      onToast({ text: `Deleted planning run "${selected.name}"`, kind: "info" });
+      if (selectedRunId === selected.id) onSelect("");
+      await refreshSavedBuilds();
+      await onChange();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      onToast({
+        text: /23503|foreign key|violates/i.test(msg)
+          ? "Can't delete — this run has execution batches. Delete them in the Execution screen first."
+          : "Delete failed — " + msg,
+        kind: "error",
+      });
+    }
+  }
+
   // Load the saved-build list once on mount and again after any
   // mutation (save / fork / delete). Filtered to scenario_type
   // 'saved_build' so what-if/promo scenarios stay on their own page.
@@ -292,22 +325,31 @@ export default function PlanningRunControls({
           </span>
         )}
         {!collapsed && (<>
-        <select style={S.select}
-                value={selectedRunId ?? ""}
-                onChange={(e) => onSelect(e.target.value)}>
-          <option value="">— pick —</option>
-          {/* Filter out saved-build runs from the main dropdown — they
-              live in their own selector below so the working-run list
-              stays focused on live planning runs. */}
-          {runs
-            .filter((r) => !savedBuilds.some((s) => s.planning_run_id === r.id))
-            .map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
-              </option>
-            ))}
-        </select>
+        {/* Filter out saved-build runs from the main dropdown — they
+            live in their own selector below so the working-run list
+            stays focused on live planning runs. */}
+        <div style={{ minWidth: 260 }}>
+          <SearchableSelect
+            value={selectedRunId ?? ""}
+            onChange={(v) => onSelect(v)}
+            inputStyle={S.select}
+            placeholder="— pick —"
+            options={[
+              { value: "", label: "— pick —" },
+              ...runs
+                .filter((r) => !savedBuilds.some((s) => s.planning_run_id === r.id))
+                .map((r) => ({
+                  value: r.id,
+                  label: `${r.name} · ${r.status} · ${formatDate(r.horizon_start)}–${formatDate(r.horizon_end)}`,
+                })),
+            ]}
+          />
+        </div>
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
+        {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
+          <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
+                  title="Permanently delete this planning run and all its data">Delete run</button>
+        )}
         {selected && (
           <>
             {showBuild && (
@@ -380,19 +422,19 @@ export default function PlanningRunControls({
             through a separate page. Selecting a saved build switches
             the active run to its underlying planning_run_id. */}
         <span style={{ color: PAL.textDim, fontSize: 12, marginLeft: 8 }}>Saved builds:</span>
-        <select
-          style={{ ...S.select, minWidth: 220 }}
+        <SearchableSelect
           value={selectedSavedBuild?.planning_run_id ?? ""}
-          onChange={(e) => onLoadSavedBuild(e.target.value)}
+          onChange={(v) => onLoadSavedBuild(v)}
           disabled={savedBuildsLoading}
-        >
-          <option value="">{savedBuildsLoading ? "Loading…" : (savedBuilds.length === 0 ? "— none yet —" : "— pick —")}</option>
-          {savedBuilds.map((s) => (
-            <option key={s.id} value={s.planning_run_id}>
-              {s.scenario_name} · {formatDate(s.created_at.slice(0, 10))}
-            </option>
-          ))}
-        </select>
+          inputStyle={{ ...S.select, minWidth: 220 }}
+          options={[
+            { value: "", label: savedBuildsLoading ? "Loading…" : (savedBuilds.length === 0 ? "— none yet —" : "— pick —") },
+            ...savedBuilds.map((s) => ({
+              value: s.planning_run_id,
+              label: `${s.scenario_name} · ${formatDate(s.created_at.slice(0, 10))}`,
+            })),
+          ]}
+        />
         {selectedSavedBuild && (
           <button
             style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
@@ -431,7 +473,7 @@ export default function PlanningRunControls({
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget && !saveBuildBusy) setShowSaveModal(false); }}
         >
-          <div style={{ background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10, padding: 18, minWidth: 440, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div style={{ background: PAL.panel, border: `1px solid ${PAL.border}`, borderRadius: 10, padding: 18, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <strong style={{ color: PAL.text, fontSize: 14 }}>{selectedSavedBuild ? "Fork & save snapshot" : "Save this build as a snapshot"}</strong>
             </div>
@@ -498,7 +540,7 @@ export default function PlanningRunControls({
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
           onClick={(e) => { if (e.target === e.currentTarget && !deleteSucceeded) setPendingDeleteSaved(null); }}
         >
-          <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, minWidth: 420, maxWidth: 520, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div style={{ background: PAL.panel, border: `1px solid ${deleteSucceeded ? PAL.green : PAL.red}`, borderRadius: 10, padding: 18, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
             {deleteSucceeded ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -545,7 +587,7 @@ export default function PlanningRunControls({
         >
           <div style={{
             background: PAL.panel, border: `1px solid ${wipeStage === "confirm" ? PAL.red : PAL.border}`, borderRadius: 10,
-            padding: 18, minWidth: 440, maxWidth: 540, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            padding: 18, width: "min(540px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}>
             {wipeStage === "choice" && (<>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -561,7 +603,7 @@ export default function PlanningRunControls({
                   </div>
                 </div>
                 <div style={{ marginTop: 8, padding: "8px 10px", background: `${PAL.red}11`, border: `1px solid ${PAL.red}55`, borderRadius: 6 }}>
-                  <div style={{ color: PAL.red, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>⚠ Wipe + rebuild (destructive)</div>
+                  <div style={{ color: PAL.red, fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Wipe + rebuild (destructive)</div>
                   <div style={{ color: PAL.textDim, fontSize: 12 }}>
                     Deletes <strong>every row tied to this run</strong> before rebuilding: forecast, recommendations, <strong>TBD stock-buy rows</strong>, <strong>bucket buys</strong>, and the override audit log. <strong>Planner edits — Buyer / Override / Buy / Unit Cost — are wiped</strong>. There is no undo.
                   </div>

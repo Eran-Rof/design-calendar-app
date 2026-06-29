@@ -56,7 +56,7 @@ const S: Record<string, React.CSSProperties> = {
 
   // Modal
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
-  modal:        { background: "#1E293B", borderRadius: 16, width: 520, maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column" },
+  modal:        { background: "#1E293B", borderRadius: 16, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column" },
   modalHeader:  { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #334155" },
   modalTitle:   { margin: 0, fontSize: 18, fontWeight: 700, color: "#F1F5F9" },
   modalBody:    { padding: 20, overflowY: "auto" },

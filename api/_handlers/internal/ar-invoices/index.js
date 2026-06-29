@@ -6,6 +6,7 @@
 //          ?from=<YYYY-MM-DD>  / ?to=<YYYY-MM-DD>   (invoice_date window)
 //          ?include_void=true  (default false; void hidden)
 //          ?q=<search>         (invoice_number ilike)
+//          ?sales_order_id=<uuid>  (invoices generated from that SO; M10-C link)
 //          ?limit=N (default 100, max 500)
 // POST — create a draft AR invoice. Body:
 //          {
@@ -99,7 +100,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const parsed = parseListQuery(req.url, req.headers?.host || "localhost");
     if (parsed.error) return res.status(400).json({ error: parsed.error });
-    const { status, customerId, from, to, includeVoid, q, limit } = parsed.data;
+    const { status, customerId, from, to, includeVoid, q, limit, salesOrderId } = parsed.data;
 
     let query = admin
       .from("ar_invoices")
@@ -126,6 +127,7 @@ export default async function handler(req, res) {
       query = query.neq("gl_status", "void");
     }
     if (customerId) query = query.eq("customer_id", customerId);
+    if (salesOrderId) query = query.eq("sales_order_id", salesOrderId);
     if (from)       query = query.gte("invoice_date", from);
     if (to)         query = query.lte("invoice_date", to);
     if (q)          query = query.ilike("invoice_number", `%${q}%`);
@@ -253,6 +255,7 @@ export function parseListQuery(rawUrl, host) {
   const includeVoid = url.searchParams.get("include_void") === "true";
   const q           = (url.searchParams.get("q") || "").trim();
   const source      = (url.searchParams.get("source") || "").trim();
+  const salesOrderId = (url.searchParams.get("sales_order_id") || "").trim();
   let limit = parseInt(url.searchParams.get("limit") || "100", 10);
   if (Number.isNaN(limit) || limit < 1) limit = 100;
   if (limit > 500) limit = 500;
@@ -272,8 +275,11 @@ export function parseListQuery(rawUrl, host) {
   if (source && !SOURCE_VALUES.includes(source)) {
     return { error: `source must be one of ${SOURCE_VALUES.join(", ")}` };
   }
+  if (salesOrderId && !UUID_RE.test(salesOrderId)) {
+    return { error: "sales_order_id must be a uuid" };
+  }
 
-  return { data: { status, customerId, from, to, includeVoid, q, source, limit } };
+  return { data: { status, customerId, from, to, includeVoid, q, source, limit, salesOrderId } };
 }
 
 /**

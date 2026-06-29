@@ -7,6 +7,7 @@ import { uid } from "../utils/dates";
 import { ROLES } from "../utils/constants";
 import { fileToDataURL } from "../utils/helpers";
 import Avatar from "./Avatar";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, roles = ROLES, setRoles }: {
   users: any[];
@@ -71,7 +72,6 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
 
   if (!isAdmin) return (
     <div style={{ padding: 32, textAlign: "center", color: TH.textMuted }}>
-      <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
       <div style={{ fontSize: 15, fontWeight: 600, color: TH.textSub }}>Admin access required</div>
       <div style={{ fontSize: 13, marginTop: 6 }}>Only admins can manage users.</div>
     </div>
@@ -108,10 +108,16 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
       <label style={S.lbl}>Microsoft Teams Email</label>
       <input style={S.inp} value={form.teamsEmail || ""} onChange={(e) => set("teamsEmail", e.target.value)} placeholder="user@ringoffireclothing.com (optional — enables auto Teams login)" />
       <label style={S.lbl}>System Role</label>
-      <select style={S.inp} value={form.role} onChange={(e) => set("role", e.target.value)}>
-        <option value="admin">Admin (full access)</option>
-        <option value="user">User (restricted)</option>
-      </select>
+      <SearchableSelect
+        theme="light"
+        value={form.role || null}
+        onChange={(v) => set("role", v)}
+        options={[
+          { value: "admin", label: "Admin (full access)" },
+          { value: "user", label: "User (restricted)" },
+        ]}
+        inputStyle={S.inp}
+      />
       {editing === "new" && (
         <div style={{ border: `1px solid ${createTeamMember ? TH.primary : TH.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, background: createTeamMember ? TH.accent : TH.surfaceHi, transition: "all 0.15s" }}>
           <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: createTeamMember ? 14 : 0 }}>
@@ -121,9 +127,13 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
           {createTeamMember && (
             <div>
               <label style={S.lbl}>Team Role</label>
-              <select style={{ ...S.inp, marginBottom: 12 }} value={tmRole} onChange={(e) => setTmRole(e.target.value)}>
-                {availableRoles.map((r) => <option key={r}>{r}</option>)}
-              </select>
+              <SearchableSelect
+                theme="light"
+                value={tmRole || null}
+                onChange={(v) => setTmRole(v)}
+                options={availableRoles.map((r) => ({ value: r, label: r }))}
+                inputStyle={{ ...S.inp, marginBottom: 12 }}
+              />
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <input style={{ ...S.inp, marginBottom: 0, flex: 1 }} value={newRoleInput} onChange={(e) => setNewRoleInput(e.target.value)} placeholder="Add new role…" onKeyDown={(e) => e.key === "Enter" && addRoleOnTheFly()} />
                 <button onClick={addRoleOnTheFly} disabled={!newRoleInput.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: TH.primary, color: "#fff", cursor: newRoleInput.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", fontSize: 12, fontWeight: 700, opacity: newRoleInput.trim() ? 1 : 0.5, whiteSpace: "nowrap" }}>+ Add Role</button>
@@ -139,10 +149,16 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
       {!(editing === "new" && createTeamMember) && (
         <>
           <label style={S.lbl}>Link to Team Member</label>
-          <select style={S.inp} value={form.teamMemberId || ""} onChange={(e) => set("teamMemberId", e.target.value || null)}>
-            <option value="">-- None --</option>
-            {team.map((m: any) => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
-          </select>
+          <SearchableSelect
+            theme="light"
+            value={form.teamMemberId || null}
+            onChange={(v) => set("teamMemberId", v || null)}
+            options={[
+              { value: "", label: "-- None --" },
+              ...team.map((m: any) => ({ value: m.id, label: `${m.name} (${m.role})` })),
+            ]}
+            inputStyle={S.inp}
+          />
         </>
       )}
       {form.role === "user" && (
@@ -179,7 +195,7 @@ function UserManager({ users, setUsers, team, setTeam, isAdmin, currentUser, rol
               <div style={{ fontSize: 14, fontWeight: 700, color: TH.text }}>{u.name}</div>
               <div style={{ fontSize: 12, color: TH.textMuted }}>
                 @{u.username} · <span style={{ color: u.role === "admin" ? TH.primary : "#6D28D9", fontWeight: 600 }}>{u.role}</span>
-                {u.teamMemberId && <span style={{ color: "#059669", marginLeft: 6 }}>· 👥 team member</span>}
+                {u.teamMemberId && <span style={{ color: "#059669", marginLeft: 6 }}>· team member</span>}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>

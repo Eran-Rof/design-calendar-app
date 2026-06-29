@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
-import { showAlert } from "../ui/AppDialog";
+import { showAlert, showConfirm } from "../ui/AppDialog";
 
 interface ApiKey {
   id: string;
@@ -69,7 +69,7 @@ export default function VendorApiKeys() {
   useEffect(() => { void load(); }, []);
 
   async function revoke(id: string) {
-    if (!confirm("Revoke this key? Existing integrations using it will stop working.")) return;
+    if (!await showConfirm({ title: "Revoke key?", message: "Existing integrations using it will stop working.", tone: "danger", confirmLabel: "Revoke" })) return;
     const t = await token();
     const r = await fetch(`/api/vendor/api-keys/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${t}` } });
     if (!r.ok) { await showAlert({ title: "Error", message: await r.text(), tone: "danger" }); return; }
@@ -195,7 +195,7 @@ function OneTimeKeyModal({ name, value, onClose }: { name: string; value: string
     <div style={overlay}>
       <div style={{ ...modalBox, width: 560 }}>
         <h3 style={{ margin: "0 0 10px", color: TH.text, fontSize: 16 }}>Key '{name}' created</h3>
-        <div style={{ padding: "10px 12px", background: "#FFFAF0", border: "1px solid #FED7AA", borderRadius: 6, color: "#C05621", fontSize: 13, marginBottom: 12 }}>
+        <div style={{ padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, color: "#FBBF24", fontSize: 13, marginBottom: 12 }}>
           <b>Save this key now.</b> It will not be shown again. If you lose it, revoke it and create a new one.
         </div>
         <div style={{ padding: "10px 12px", background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 6, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12, wordBreak: "break-all", marginBottom: 12 }}>
@@ -263,4 +263,4 @@ const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px 
 const btnPrimary = { padding: "8px 16px", borderRadius: 6, border: "none", background: TH.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "8px 16px", borderRadius: 6, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
-const modalBox = { background: TH.surface, borderRadius: 10, padding: 22, maxWidth: "92vw", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" as const };
+const modalBox = { background: TH.surface, borderRadius: 10, padding: 22, maxWidth: "92vw", boxSizing: "border-box" as const, boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" as const };

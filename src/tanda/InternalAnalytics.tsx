@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from "recharts";
 import { AppDatePicker } from "../shared/components/AppDatePicker";
+import { fmtMoney } from "../shared/money";
+import ExportButton from "./exports/ExportButton";
+import type { ExportColumn } from "./exports/useTableExport";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -65,6 +68,13 @@ export default function InternalAnalytics() {
   if (err) return <div style={{ color: C.danger }}>Error: {err}</div>;
   if (!spend || !forecast) return null;
 
+  // Export the per-vendor spend breakdown backing the "Top vendors" chart.
+  // Spend values arrive in dollars (not cents) from the analytics endpoint.
+  const spendByVendorColumns: ExportColumn<{ vendor: string; spend: number }>[] = [
+    { key: "vendor", header: "Vendor" },
+    { key: "spend",  header: "Spend", format: "currency_dollars" },
+  ];
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
@@ -74,6 +84,12 @@ export default function InternalAnalytics() {
           <span style={{ color: C.textMuted }}>→</span>
           <AppDatePicker value={to} onCommit={setTo} style={inp} />
           <button onClick={() => void load()} style={btnPrimary}>Apply</button>
+          <ExportButton
+            rows={spend.by_vendor.map((v) => ({ vendor: v.name, spend: v.spend }))}
+            filename="spend-by-vendor"
+            sheetName="Spend by Vendor"
+            columns={spendByVendorColumns}
+          />
         </div>
       </div>
 
@@ -141,12 +157,12 @@ export default function InternalAnalytics() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
-                <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Vendor</th>
-                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Avg / mo</th>
+                <th style={{ textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Vendor</th>
+                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Avg / mo</th>
                 {forecast.vendors[0]?.forecast.map((f, i) => (
-                  <th key={i} style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>{f.period_start.slice(0, 7)}</th>
+                  <th key={i} style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>{f.period_start.slice(0, 7)}</th>
                 ))}
-                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}` }}>Conf.</th>
+                <th style={{ textAlign: "right", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, background: C.card, position: "sticky", top: 0, zIndex: 2 }}>Conf.</th>
               </tr>
             </thead>
             <tbody>
@@ -222,7 +238,7 @@ function Phase9Analytics() {
             <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>Overall</div>
             {esg.slice(0, 10).map((s) => (
               <div key={s.id} style={{ display: "contents" }}>
-                <div>{s.vendor?.name || s.vendor_id}</div>
+                <div>{s.vendor?.name || "—"}</div>
                 <div style={{ color: C.success }}>{Number(s.environmental_score).toFixed(0)}</div>
                 <div style={{ color: C.primary }}>{Number(s.social_score).toFixed(0)}</div>
                 <div style={{ color: C.warn }}>{Number(s.governance_score).toFixed(0)}</div>
@@ -314,7 +330,7 @@ function FinancialAnalytics() {
     <>
       <Panel title="Early-payment ROI (YTD)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-          <Stat label="Discount captured" value={`$${Math.round(d.early_payment.ytd_discount_captured).toLocaleString()}`} tone="success" />
+          <Stat label="Discount captured" value={`$${fmtMoney(d.early_payment.ytd_discount_captured)}`} tone="success" />
           <Stat label="Annualized return" value={`${d.early_payment.ytd_avg_annualized_return_pct.toFixed(1)}%`} />
           <Stat label="Cost of capital" value={`${d.early_payment.cost_of_capital_pct.toFixed(1)}%`} tone="muted" />
           <Stat label="Net benefit" value={`${d.early_payment.net_benefit_vs_capital_pct > 0 ? "+" : ""}${d.early_payment.net_benefit_vs_capital_pct.toFixed(1)}%`} tone={d.early_payment.net_benefit_vs_capital_pct > 0 ? "success" : "danger"} />
@@ -339,8 +355,8 @@ function FinancialAnalytics() {
 
       <Panel title="SCF utilization (funded by month, 12mo)">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 10 }}>
-          <Stat label="Total capacity" value={`$${Math.round(d.scf_utilization.current_total_capacity).toLocaleString()}`} />
-          <Stat label="Current utilization" value={`$${Math.round(d.scf_utilization.current_total_utilization).toLocaleString()}`} tone="success" />
+          <Stat label="Total capacity" value={`$${fmtMoney(d.scf_utilization.current_total_capacity)}`} />
+          <Stat label="Current utilization" value={`$${fmtMoney(d.scf_utilization.current_total_utilization)}`} tone="success" />
           <Stat label="% used" value={`${d.scf_utilization.utilization_pct.toFixed(0)}%`} tone={d.scf_utilization.utilization_pct > 80 ? "danger" : "success"} />
         </div>
         {d.scf_utilization.by_month.length > 0 && (

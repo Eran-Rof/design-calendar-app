@@ -19,7 +19,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const numInputStyle: React.CSSProperties = { ...inputStyle, width: "8ch", textAlign: "right" };
@@ -69,6 +69,15 @@ export default function InternalReceiving() {
   const [statusFilter, setStatusFilter] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
+  // Deep-link from the PO modal's 📥 Receive button: ?po=<purchase_order_id>
+  // auto-opens a new receipt for that PO. One-shot on mount.
+  const [initialPoId, setInitialPoId] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const po = new URLSearchParams(window.location.search).get("po");
+      if (po) { setInitialPoId(po); setEditing(null); setModalOpen(true); }
+    } catch { /* noop */ }
+  }, []);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -97,22 +106,22 @@ export default function InternalReceiving() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📥 Receiving</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Receiving</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New receipt</button>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All statuses</option>
-          {["draft", "pending_approval", "approved", "posted"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 200 }}
+            options={[{ value: "", label: "All statuses" }, ...["draft", "pending_approval", "approved", "posted"].map((s) => ({ value: s, label: s }))]} />
+        </div>
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <ExportButton rows={exportRows} columns={EXPORT_COLUMNS} filename="receiving" sheetName="Receiving" />
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>PO #</th><th style={th}>Receipt date</th><th style={th}>Status</th>
@@ -138,20 +147,21 @@ export default function InternalReceiving() {
       {modalOpen && (
         <ReceiptModal
           receipt={editing}
-          onClose={() => { setModalOpen(false); setEditing(null); }}
-          onSaved={() => { setModalOpen(false); setEditing(null); void load(); }}
+          initialPoId={initialPoId}
+          onClose={() => { setModalOpen(false); setEditing(null); setInitialPoId(null); }}
+          onSaved={() => { setModalOpen(false); setEditing(null); setInitialPoId(null); void load(); }}
         />
       )}
     </div>
   );
 }
 
-function ReceiptModal({ receipt, onClose, onSaved }: { receipt: Receipt | null; onClose: () => void; onSaved: () => void }) {
+function ReceiptModal({ receipt, initialPoId, onClose, onSaved }: { receipt: Receipt | null; initialPoId?: string | null; onClose: () => void; onSaved: () => void }) {
   const isNew = receipt === null;
   const editable = isNew || receipt?.status === "draft";
 
   const [savedId, setSavedId] = useState<string | null>(receipt?.id || null);
-  const [poId, setPoId] = useState(receipt?.purchase_order_id || "");
+  const [poId, setPoId] = useState(receipt?.purchase_order_id || initialPoId || "");
   const [receiptDate, setReceiptDate] = useState(receipt?.receipt_date || new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState(receipt?.notes || "");
   const [lines, setLines] = useState<RLine[]>([]);
@@ -324,7 +334,7 @@ function ReceiptModal({ receipt, onClose, onSaved }: { receipt: Receipt | null; 
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 980, maxWidth: 1180, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New receipt" : `Receipt — ${receipt?.purchase_order?.po_number || "(no PO #)"} — ${receipt?.status}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -405,7 +415,9 @@ function ReceiptModal({ receipt, onClose, onSaved }: { receipt: Receipt | null; 
           Posting creates the inventory layer at landed cost and queues any rollup AP invoices for bookkeeper approval.
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Post / Save / Close stay reachable as the receipt-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>
           {editable && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
           {editable && savedId && <button onClick={() => void postReceipt()} style={btnPrimary} disabled={submitting} title="Create the inventory layer at landed cost and queue rollup AP invoices">{submitting ? "…" : "Post receipt"}</button>}

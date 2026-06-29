@@ -20,6 +20,7 @@ import type {
   IpFutureDemandRequest,
   IpPlannerOverride,
   IpPlanningRun,
+  IpSupplySource,
   IpWholesaleForecast,
   IpWholesaleRecommendation,
 } from "../types/wholesale";
@@ -280,7 +281,7 @@ export const wholesaleRepo = {
     // Explicit column list: skips external_refs (Xoro JSONB import
     // payload, can be many KB per row) and other columns no IP caller
     // reads. JSONB blob was previously the bulk of every fetch.
-    const COLS = "id,sku_code,style_code,description,category_id,color,size,unit_cost,moq_units,pack_size,attributes";
+    const COLS = "id,sku_code,style_code,description,category_id,color,size,inseam,unit_cost,moq_units,pack_size,attributes";
     const PAGE = 500;
     const out: IpItem[] = [];
     let lastSku: string | null = null;
@@ -356,14 +357,21 @@ export const wholesaleRepo = {
       500,
     );
   },
-  async listInventorySnapshots(): Promise<IpInventorySnapshot[]> {
+  async listInventorySnapshots(supplySource: IpSupplySource = "xoro"): Promise<IpInventorySnapshot[]> {
     // Trimmed: drops warehouse_code / qty_on_order / qty_in_transit /
     // raw_payload_id. `source` is kept — used as dedup-priority key.
+    //
+    // Source filter (M31 dir-B): 'tangerine' reconciles against native
+    // Tangerine on-hand only; 'xoro' (default) uses everything EXCEPT
+    // tangerine (manual / xoro / shopify) — byte-identical to the prior
+    // unfiltered behavior, since no tangerine rows existed before. This
+    // stops the two supply sources from summing together.
+    const sourceFilter = supplySource === "tangerine" ? "&source=eq.tangerine" : "&source=neq.tangerine";
     return sbGetAll<IpInventorySnapshot>(
-      "ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,source&order=snapshot_date.desc",
+      `ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,source${sourceFilter}&order=snapshot_date.desc`,
     );
   },
-  async listOpenPos(channel: "wholesale" | "ecom" | "all" = "wholesale"): Promise<IpOpenPoRow[]> {
+  async listOpenPos(channel: "wholesale" | "ecom" | "all" = "wholesale", supplySource: IpSupplySource = "xoro"): Promise<IpOpenPoRow[]> {
     // Trimmed: drops vendor_id / buyer_name / po_line_number /
     // order_date / qty_ordered / qty_received / currency / status /
     // source / raw_payload_id / source_line_key / last_seen_at. Big
@@ -374,10 +382,21 @@ export const wholesaleRepo = {
     // planning grid never sees ecom POs (which were polluting
     // receipts and understating buy recs). Pass "ecom" from the
     // ecom planning service; "all" is for diagnostics only.
+    //
+    // Source filter (M31 dir-B): native Tangerine POs aren't
+    // channel-segmented, so 'tangerine' takes all tangerine open POs and
+    // skips the channel filter. 'xoro' excludes tangerine rows (and keeps
+    // the channel scope) — identical to the prior behavior.
+    if (supplySource === "tangerine") {
+      return withRetryOn57014("listOpenPos",
+        () => sbGetAll<IpOpenPoRow>(
+          `ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number,channel&source=eq.tangerine&order=expected_date.asc`,
+        ));
+    }
     const channelFilter = channel === "all" ? "" : `&channel=eq.${channel}`;
     return withRetryOn57014("listOpenPos",
       () => sbGetAll<IpOpenPoRow>(
-        `ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number,channel${channelFilter}&order=expected_date.asc`,
+        `ip_open_purchase_orders?select=sku_id,qty_open,expected_date,unit_cost,customer_id,po_number,channel&source=neq.tangerine${channelFilter}&order=expected_date.asc`,
       ));
   },
   async listOpenSos(): Promise<IpOpenSoRow[]> {
@@ -448,6 +467,12 @@ export const wholesaleRepo = {
     return sbGet<IpPlanningRun>(
       `ip_planning_runs?select=*&planning_scope=eq.${scope}&order=created_at.desc&limit=200`,
     );
+  },
+  // EVERY run regardless of scope — for the Planning Admin "Runs" panel, so the
+  // operator can see/delete reconciliation + orphaned scenario runs that the
+  // scope-filtered workbench dropdowns hide.
+  async listAllPlanningRuns(): Promise<IpPlanningRun[]> {
+    return sbGet<IpPlanningRun>(`ip_planning_runs?select=*&order=created_at.desc&limit=500`);
   },
   async getPlanningRun(id: string): Promise<IpPlanningRun | null> {
     const rows = await sbGet<IpPlanningRun>(`ip_planning_runs?select=*&id=eq.${id}&limit=1`);

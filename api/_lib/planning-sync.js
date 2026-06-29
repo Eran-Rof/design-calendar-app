@@ -82,6 +82,32 @@ function toIsoDate(raw) {
   return d.toISOString().slice(0, 10);
 }
 
+// Build a map of PO number → expected DDP arrival date from Tanda milestones.
+// The "In House / DDP" milestone (days_before_ddp = 0) is the ops-maintained
+// expected arrival; we prefer its actual_date once set, else its expected_date.
+// When a PO carries several DDP rows (variant milestones) take the LATEST date
+// (so we never project an arrival earlier than the ops team expects).
+//
+// M31 / P17 WIP-timing refinement: "inbound PO is WIP" — the open-PO qty is the
+// in-production supply, so rather than add a (double-counting) separate WIP
+// bucket, we use the milestone DDP to land that inbound PO in the correct
+// planning month. Pure (IO is in syncOpenPosFromTandaPos) so it's unit-testable.
+export function buildDdpDateMap(milestoneRows) {
+  const map = new Map();
+  for (const r of milestoneRows || []) {
+    const d = r && r.data;
+    if (!d) continue;
+    if (Number(d.days_before_ddp) !== 0) continue;
+    const poNum = String(d.po_number || "").trim();
+    if (!poNum) continue;
+    const date = toIsoDate(d.actual_date || d.expected_date);
+    if (!date) continue;
+    const prev = map.get(poNum);
+    if (!prev || date > prev) map.set(poNum, date);
+  }
+  return map;
+}
+
 // ── On-hand from ATS Excel snapshot ──────────────────────────────────────────
 //
 // One chunk of the supply sync. Returns next_start so callers can
@@ -606,6 +632,7 @@ export async function syncOpenPosFromTandaPos(admin) {
     skipped_zero_open: 0,
     skipped_eom: 0,
     cleaned: 0,
+    expected_date_from_milestone: 0,
     errors: [],
   };
 
@@ -624,6 +651,26 @@ export async function syncOpenPosFromTandaPos(admin) {
     if (data.length < PAGE) break;
   }
   result.pos_scanned = allPos.length;
+
+  // 1b. Tanda milestone DDP dates — the ops-maintained expected arrival per PO,
+  // used to refine each open-PO's expected_date so in-production supply (WIP)
+  // lands in the right planning month. Best-effort: if milestones can't be read
+  // we fall back to the Xoro payload date below (no behavior change).
+  const ddpByPo = new Map();
+  try {
+    const milestoneRows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await admin
+        .from("tanda_milestones")
+        .select("data")
+        .eq("data->>days_before_ddp", "0")
+        .range(offset, offset + 999);
+      if (error || !data || data.length === 0) break;
+      milestoneRows.push(...data);
+      if (data.length < 1000) break;
+    }
+    for (const [k, v] of buildDdpDateMap(milestoneRows)) ddpByPo.set(k, v);
+  } catch { /* milestones optional — fall back to Xoro dates */ }
 
   // 2. Item master.
   const itemMap = new Map();
@@ -703,7 +750,13 @@ export async function syncOpenPosFromTandaPos(admin) {
     if (lines.length === 0) { result.skipped_no_lines++; continue; }
 
     const orderDate = toIsoDate(po.DateOrder);
-    const expectedDate = toIsoDate(po.DateExpectedDelivery ?? po.VendorReqDate);
+    // Prefer the Tanda "In House / DDP" milestone date (ops-maintained arrival)
+    // over the Xoro payload date so the in-production PO (WIP) is bucketed into
+    // the correct planning month; fall back to the Xoro date when no milestone.
+    const xoroExpected = toIsoDate(po.DateExpectedDelivery ?? po.VendorReqDate);
+    const milestoneDdp = ddpByPo.get(poNumber) || null;
+    const expectedDate = milestoneDdp || xoroExpected;
+    if (milestoneDdp && milestoneDdp !== xoroExpected) result.expected_date_from_milestone++;
     const currency = po.CurrencyCode ?? null;
     const status = po.StatusName ?? null;
     const buyerName = po.BuyerName ?? null;

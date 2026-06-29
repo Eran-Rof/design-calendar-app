@@ -11,9 +11,13 @@
 // panel is for admin troubleshooting only.
 
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
+import { useItemResolver } from "./hooks/useItemResolver";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SCANNER_SESSIONS_TABLE_KEY = "tangerine:scannersessions:columns";
@@ -72,6 +76,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -104,6 +109,16 @@ export default function InternalScannerSessions() {
     SCANNER_SESSION_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // target (composite) and device (truncated id) stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:scannersessions:sort",
+    accessors: {
+      created: (s) => s.created_at,
+      last_scan: (s) => s.scanned_at,
+      submitted: (s) => s.submitted_at,
+    },
+  });
 
   async function load() {
     setLoading(true);
@@ -148,20 +163,30 @@ export default function InternalScannerSessions() {
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
         <label style={{ color: C.textSub, fontSize: 12 }}>Status</label>
-        <select style={inputStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">(any)</option>
-          <option value="open">open</option>
-          <option value="submitted">submitted</option>
-          <option value="cancelled">cancelled</option>
-        </select>
+        <SearchableSelect
+          inputStyle={inputStyle}
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v)}
+          options={[
+            { value: "", label: "(any)" },
+            { value: "open", label: "open" },
+            { value: "submitted", label: "submitted" },
+            { value: "cancelled", label: "cancelled" },
+          ]}
+        />
         <label style={{ color: C.textSub, fontSize: 12 }}>Mode</label>
-        <select style={inputStyle} value={modeFilter} onChange={(e) => setModeFilter(e.target.value)}>
-          <option value="">(any)</option>
-          <option value="receive">receive</option>
-          <option value="pick">pick</option>
-          <option value="transfer">transfer</option>
-          <option value="count">count</option>
-        </select>
+        <SearchableSelect
+          inputStyle={inputStyle}
+          value={modeFilter}
+          onChange={(v) => setModeFilter(v)}
+          options={[
+            { value: "", label: "(any)" },
+            { value: "receive", label: "receive" },
+            { value: "pick", label: "pick" },
+            { value: "transfer", label: "transfer" },
+            { value: "count", label: "count" },
+          ]}
+        />
         <button style={{ ...btnSecondary, marginLeft: "auto" }} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SCANNER_SESSIONS_TABLE_KEY}
@@ -189,17 +214,17 @@ export default function InternalScannerSessions() {
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("created")}>Created</th>
-              <th style={th} hidden={!isVisible("mode")}>Mode</th>
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
+              <SortableTh label="Mode" sortKey="mode" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("mode")} />
               <th style={th} hidden={!isVisible("target")}>Target</th>
-              <th style={th} hidden={!isVisible("status")}>Status</th>
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
               <th style={th} hidden={!isVisible("device")}>Device</th>
-              <th style={th} hidden={!isVisible("last_scan")}>Last Scan</th>
-              <th style={th} hidden={!isVisible("submitted")}>Submitted</th>
+              <SortableTh label="Last Scan" sortKey="last_scan" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("last_scan")} />
+              <SortableTh label="Submitted" sortKey="submitted" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("submitted")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
@@ -210,16 +235,16 @@ export default function InternalScannerSessions() {
                 <span style={{ color: C.textMuted }}>No sessions match the current filter.</span>
               </td></tr>
             )}
-            {rows.map((s) => (
+            {sorted.map((s) => (
               <tr key={s.id} style={s.status === "cancelled" ? { opacity: 0.6 } : {}}>
                 <td style={{ ...td, color: C.textMuted, fontFamily: "monospace" }} hidden={!isVisible("created")}>
                   {new Date(s.created_at).toLocaleString()}
                 </td>
                 <td style={td} hidden={!isVisible("mode")}>{s.mode}</td>
-                <td style={td} hidden={!isVisible("target")}>{s.target_kind}{s.target_id ? ` / ${s.target_id.slice(0, 8)}…` : ""}</td>
+                <td style={td} hidden={!isVisible("target")}>{s.target_kind}</td>
                 <td style={{ ...td, color: statusColor(s.status), fontWeight: 600 }} hidden={!isVisible("status")}>{s.status}</td>
-                <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: C.textMuted }} hidden={!isVisible("device")}>
-                  {s.device_user_id.slice(0, 8)}…
+                <td style={{ ...td, fontSize: 11, color: C.textMuted }} hidden={!isVisible("device")}>
+                  —
                 </td>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("last_scan")}>
                   {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : "—"}
@@ -244,6 +269,8 @@ export default function InternalScannerSessions() {
 }
 
 function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; onClose: () => void }) {
+  const itemIds = session.events.map((e) => e.resolved_item_id).filter(Boolean) as string[];
+  const { itemMap } = useItemResolver(itemIds, itemIds.length > 0);
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -251,11 +278,11 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
     }}>
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
-        padding: 24, width: 880, maxHeight: "90vh", display: "flex", flexDirection: "column",
+        padding: 24, width: "min(880px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column",
       }}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>
-            Session {session.id.slice(0, 8)}…
+            {session.mode} session · {new Date(session.created_at).toLocaleString()}
           </h2>
           <span style={{
             marginLeft: 12, padding: "2px 8px", borderRadius: 4,
@@ -273,13 +300,13 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
         }}>
           <Stat label="Mode" value={session.mode} />
           <Stat label="Target Kind" value={session.target_kind} />
-          <Stat label="Target ID" value={session.target_id || "—"} mono />
-          <Stat label="Device User" value={session.device_user_id} mono />
+          <Stat label="Target ID" value="—" />
+          <Stat label="Device User" value="—" />
           <Stat label="Created" value={new Date(session.created_at).toLocaleString()} />
           <Stat label="Submitted" value={session.submitted_at ? new Date(session.submitted_at).toLocaleString() : "—"} />
           <Stat label="Last Scan" value={session.scanned_at ? new Date(session.scanned_at).toLocaleString() : "—"} />
           <Stat label="Event Count" value={String(session.events.length)} />
-          <Stat label="Entity" value={session.entity_id} mono />
+          <Stat label="Entity" value="—" />
         </div>
 
         {Object.keys(session.client_meta || {}).length > 0 && (
@@ -325,8 +352,8 @@ function SessionDetailModal({ session, onClose }: { session: SessionWithEvents; 
                     {new Date(ev.client_timestamp).toLocaleString()}
                   </td>
                   <td style={{ ...td, fontFamily: "monospace" }}>{ev.scanned_barcode}</td>
-                  <td style={{ ...td, fontFamily: "monospace", fontSize: 11, color: ev.resolved_item_id ? C.text : C.danger }}>
-                    {ev.resolved_item_id ? `${ev.resolved_item_id.slice(0, 8)}…` : "unresolved"}
+                  <td style={{ ...td, fontSize: 11, color: ev.resolved_item_id ? C.text : C.danger }}>
+                    {ev.resolved_item_id ? (itemMap.get(ev.resolved_item_id)?.sku_code || "—") : "unresolved"}
                   </td>
                   <td style={td}>{ev.qty}</td>
                   <td style={{ ...td, color: C.textSub }}>{ev.notes || "—"}</td>

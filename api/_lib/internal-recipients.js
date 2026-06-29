@@ -28,6 +28,7 @@ const CATEGORY_VARS = {
   finance:       "INTERNAL_FINANCE_EMAILS",
   edi:           "INTERNAL_EDI_EMAILS",
   vendor_alert:  "INTERNAL_VENDOR_ALERT_EMAILS",
+  style_review:  "INTERNAL_STYLE_REVIEW_EMAILS",
 };
 
 const ROLE_TO_CATEGORY = {
@@ -153,6 +154,124 @@ export async function resolveInternalRecipients(admin, category, options = {}) {
 
   const emails = Array.from(byKey.values()).filter(Boolean);
   return { emails, empty: emails.length === 0, varsConsulted: base.varsConsulted, subscriberCount };
+}
+
+/**
+ * Build a lower(email) -> PLM-login id map from the app_data['users'] blob.
+ *
+ * The internal NotificationsShell delivers an in-app bell row to whoever's
+ * logged-in PLM-login id equals notifications.recipient_internal_id. There is
+ * NO real "users" table — the PLM user roster lives in a single app_data row
+ * (key='users') whose `value` is a JSON array of user objects. Each element
+ * carries an `id` (the slug matched against recipient_internal_id) and a
+ * `teamsEmail` (the staffer's actual email). We key the map on the LOWERCASED
+ * teamsEmail so an internal recipient resolved by email can be auto-linked to
+ * the bell WITHOUT anyone hand-editing employees.metadata.plm_user_id.
+ *
+ * Falls back to an `email`/`mail` field if a future blob shape carries one.
+ * Never throws — returns an empty Map on any hiccup so callers degrade to the
+ * pre-existing employees.metadata.plm_user_id behavior (email-only when unset).
+ *
+ * @param {object} admin service-role Supabase client
+ * @returns {Promise<Map<string,string>>} lower(email) -> plm user id
+ */
+export async function loadPlmLoginIdsByEmail(admin) {
+  const map = new Map();
+  try {
+    if (!admin) return map;
+    const { data, error } = await admin
+      .from("app_data").select("value").eq("key", "users").maybeSingle();
+    if (error) throw error;
+    if (!data?.value) return map;
+    let users = data.value;
+    if (typeof users === "string") { try { users = JSON.parse(users); } catch { return map; } }
+    if (!Array.isArray(users)) return map;
+    for (const u of users) {
+      if (!u || typeof u !== "object") continue;
+      const id = u.id != null ? String(u.id).trim() : "";
+      if (!id) continue;
+      const email = (u.teamsEmail || u.email || u.mail || "").toString().trim().toLowerCase();
+      if (!email) continue;
+      // First-seen wins so a duplicate email can't clobber the primary link.
+      if (!map.has(email)) map.set(email, id);
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] PLM-login email map load failed: ${String(err)}`);
+  }
+  return map;
+}
+
+/**
+ * Like resolveInternalRecipients, but returns per-recipient detail so the
+ * caller can ALSO target the in-app bell, not just email. Env-var recipients
+ * carry no PLM-login link (plm_user_id null → email-only); subscribed
+ * employees carry employees.metadata.plm_user_id (when set) which the internal
+ * NotificationsShell matches as recipient_internal_id, plus employees.apps for
+ * in-app app routing.
+ *
+ * AUTO-LINK FALLBACK: any recipient still missing a plm_user_id after the
+ * employee-metadata pass is matched by email (case-insensitive) against the
+ * PLM-login roster in app_data['users'] (teamsEmail → id). This makes the bell
+ * work for env-var recipients and for employees who never had
+ * metadata.plm_user_id hand-set — as long as their email matches a PLM login.
+ * Batched into a single app_data read for all recipients.
+ *
+ * Never throws — degrades to env-only on a DB hiccup.
+ *
+ * @param {object} admin    service-role Supabase client
+ * @param {string} category one of NOTIFICATION_CATEGORIES
+ * @param {object} [options] same shape as getInternalRecipients options
+ * @returns {Promise<{ recipients: Array<{email:string,plm_user_id:string|null,apps:string[]|null}>, emails: string[], empty: boolean }>}
+ */
+export async function resolveInternalRecipientsDetailed(admin, category, options = {}) {
+  const base = getInternalRecipients(category, options);
+  const byKey = new Map(); // lower(email) -> { email, plm_user_id, apps }
+  for (const e of base.emails) byKey.set(e.toLowerCase(), { email: e, plm_user_id: null, apps: null });
+
+  try {
+    if (admin && CATEGORY_VARS[category]) {
+      const { data, error } = await admin
+        .from("employees")
+        .select("email, apps, metadata")
+        .eq("is_active", true)
+        .contains("notification_subscriptions", [category]);
+      if (error) throw error;
+      for (const row of data || []) {
+        const raw = (row.email || "").trim();
+        if (!raw) continue;
+        const key = raw.toLowerCase();
+        const meta = (row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)) ? row.metadata : {};
+        const plmUserId = (typeof meta.plm_user_id === "string" && meta.plm_user_id.trim()) ? meta.plm_user_id.trim() : null;
+        const apps = Array.isArray(row.apps) && row.apps.length > 0 ? row.apps : null;
+        const existing = byKey.get(key);
+        if (existing) {
+          if (!existing.plm_user_id && plmUserId) existing.plm_user_id = plmUserId;
+          if (!existing.apps && apps) existing.apps = apps;
+        } else {
+          byKey.set(key, { email: raw, plm_user_id: plmUserId, apps });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[internal-recipients] detailed lookup failed for category="${category}": ${String(err)}`);
+  }
+
+  // AUTO-LINK: fill any still-null plm_user_id by matching the recipient's
+  // email to a PLM login (app_data['users'].teamsEmail). One batched read.
+  const needsLink = Array.from(byKey.values()).some((r) => !r.plm_user_id);
+  if (needsLink) {
+    const emailToPlmId = await loadPlmLoginIdsByEmail(admin);
+    if (emailToPlmId.size > 0) {
+      for (const [key, rec] of byKey) {
+        if (rec.plm_user_id) continue;
+        const linked = emailToPlmId.get(key);
+        if (linked) rec.plm_user_id = linked;
+      }
+    }
+  }
+
+  const recipients = Array.from(byKey.values());
+  return { recipients, emails: recipients.map((r) => r.email), empty: recipients.length === 0 };
 }
 
 /**

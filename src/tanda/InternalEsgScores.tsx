@@ -78,7 +78,7 @@ export default function InternalEsgScores() {
           </div>
           {rows.map((s) => (
             <div key={s.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 100px 100px 100px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
-              <div style={{ fontWeight: 600 }}>{s.vendor?.name || s.vendor_id}</div>
+              <div style={{ fontWeight: 600 }}>{s.vendor?.name || "—"}</div>
               <div style={{ color: C.textSub, fontSize: 11 }}>{s.period_start} → {s.period_end}</div>
               <div style={{ color: C.success, fontWeight: 700 }}>{Number(s.environmental_score).toFixed(0)}</div>
               <div style={{ color: C.primary, fontWeight: 700 }}>{Number(s.social_score).toFixed(0)}</div>

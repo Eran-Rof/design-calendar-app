@@ -19,7 +19,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const numInputStyle: React.CSSProperties = { ...inputStyle, width: "10ch", textAlign: "right" };
@@ -116,7 +116,7 @@ export default function InternalCustomsEntries() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛃 Customs Entries</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Customs Entries</h2>
         <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New entry</button>
       </div>
 
@@ -128,7 +128,7 @@ export default function InternalCustomsEntries() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={th}>Entry #</th><th style={th}>Date</th><th style={th}>Port</th>
@@ -281,7 +281,7 @@ function EntryModal({ entry, onClose, onSaved }: { entry: Entry | null; onClose:
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 1040, maxWidth: 1260, maxHeight: "90vh", overflowY: "auto", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1260px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New customs entry" : `Customs entry — ${entry?.entry_number}`}</h3>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -343,7 +343,9 @@ function EntryModal({ entry, onClose, onSaved }: { entry: Entry | null; onClose:
           Header value/duty/§301/MPF/HMF totals are summed from the lines. Landed-cost revaluation onto FIFO inventory layers posts in a later chunk — this entry is record-only.
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        {/* Sticky action footer — pinned to the bottom of the scrolling modal so
+            Save / Close stay reachable as the entry-line grid grows. */}
+        <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div>{savedId && <button onClick={() => void del()} style={btnDanger} disabled={submitting}>Delete entry</button>}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={btnSecondary} disabled={submitting}>Close</button>

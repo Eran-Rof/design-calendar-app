@@ -1,4 +1,4 @@
-// src/tanda/InternalB2BPriceList.tsx
+﻿// src/tanda/InternalB2BPriceList.tsx
 //
 // Tangerine P18-F — internal B2B Price List admin panel.
 // Manage wholesale prices for the B2B portal. A row is keyed by
@@ -7,6 +7,7 @@
 // Wraps /api/internal/b2b-price-list and /api/internal/b2b-price-list/:id.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -73,6 +74,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -85,13 +87,13 @@ function fmtPrice(cents: number, currency: string): string {
 }
 function styleLabel(s: EmbeddedStyle | Style | null): string {
   if (!s) return "—";
-  const code = s.style_code || s.id.slice(0, 8);
+  const code = s.style_code || "—";
   return s.style_name ? `${code} — ${s.style_name}` : code;
 }
 function customerLabel(row: PriceRow): string {
   if (!row.customer_id) return "Default (all customers)";
   if (row.customer) return row.customer.customer_code ? `${row.customer.name} (${row.customer.customer_code})` : row.customer.name;
-  return row.customer_id.slice(0, 8);
+  return "—";
 }
 
 export default function InternalB2BPriceList() {
@@ -100,7 +102,7 @@ export default function InternalB2BPriceList() {
   const [styles, setStyles] = useState<Style[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PriceRow | null>(null);
@@ -124,7 +126,7 @@ export default function InternalB2BPriceList() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/b2b-price-list?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -136,14 +138,14 @@ export default function InternalB2BPriceList() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   useEffect(() => {
-    fetch("/api/internal/customer-master?limit=500")
+    fetch("/api/internal/customer-master?limit=5000")
       .then((r) => r.json())
       .then((arr: unknown) => { if (Array.isArray(arr)) setCustomers(arr as Customer[]); })
       .catch(() => {});
-    fetch("/api/internal/style-master?limit=500")
+    fetch("/api/internal/style-master?limit=10000")
       .then((r) => r.json())
       .then((data: unknown) => {
         if (Array.isArray(data)) {
@@ -184,7 +186,6 @@ export default function InternalB2BPriceList() {
           placeholder="Search tier…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 240 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -233,7 +234,7 @@ export default function InternalB2BPriceList() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -361,7 +362,7 @@ function PriceFormModal({ mode, row, customers, styles, onClose, onSaved }: Moda
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 540, maxWidth: 680, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add price" : "Edit price"}

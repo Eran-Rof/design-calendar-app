@@ -8,11 +8,14 @@
 // Click a row → /costing?view=rfq-edit&id=<rfq_id>
 
 import React, { useEffect, useState } from "react";
-import { listRfqs, deleteRfq, publishRfq, awardRfq } from "../services/costingApi";
+import { listRfqs, deleteRfq, publishRfq, awardRfq, stripExcelPrefix, getRfq } from "../services/costingApi";
 import { fmtDateDisplay, navigate } from "../helpers";
 import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
-import type { RfqListRow, RfqStatus } from "../types";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
+import type { RfqListRow, RfqStatus, RfqDetail, RfqLineItem, RfqQuoteSummary } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
   draft:     { bg: "#F3F4F6", fg: "#6B7280" },
@@ -40,6 +43,23 @@ export default function RfqListView() {
   const [sending, setSending] = useState<Set<string>>(new Set());
   // RFQ ids with an in-flight Award (disable + show "Awarding…").
   const [awarding, setAwarding] = useState<Set<string>>(new Set());
+  // Inline expand: which RFQ row is expanded + lazy-loaded detail cache.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailById, setDetailById] = useState<Record<string, RfqDetail>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (!detailById[id]) {
+      setDetailLoadingId(id);
+      try {
+        const d = await getRfq(id);
+        setDetailById((m) => ({ ...m, [id]: d }));
+      } catch { /* error shown inline */ }
+      finally { setDetailLoadingId((cur) => (cur === id ? null : cur)); }
+    }
+  };
 
   // Debounced search — wait 200ms after the last keystroke before firing.
   useEffect(() => {
@@ -78,7 +98,31 @@ export default function RfqListView() {
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)));
 
-  const onOpen = (id: string) => navigate("rfq-edit", id);
+  // Additive per-column sort over the already-fetched rows (the server
+  // returns a default order; a header click reorders client-side). Sortable
+  // columns map to direct scalar fields or a trivially-correct accessor; the
+  // checkbox, Status badge, and Actions columns stay inert.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "costing:rfqs:sort",
+    accessors: {
+      vendor_name: (r) => r.vendor_name ?? "",
+      customer_name: (r) => stripExcelPrefix(r.customer_name) ?? "",
+      project_name: (r) => r.project_name ?? "",
+      due: (r) => (r.due_date || r.delivery_required_by) ?? "",
+    },
+  });
+
+  // Row click: open the source costing project in a new tab when available
+  // (so the operator can edit lines + regenerate the RFQ from the project).
+  // Falls back to the RFQ edit view for rows without a linked project.
+  const onOpenProject = (r: RfqListRow) => {
+    if (r.source_costing_project_id) {
+      window.open(`/costing?project=${r.source_costing_project_id}`, "_blank", "noopener");
+    } else {
+      navigate("rfq-edit", r.id);
+    }
+  };
+  const onOpenRfq = (id: string) => navigate("rfq-edit", id);
   const setNotice = useCostingStore((s) => s.setNotice);
   const onDelete = (r: RfqListRow) => {
     const label = r.title || r.vendor_name || r.id;
@@ -122,6 +166,38 @@ export default function RfqListView() {
     );
   };
 
+  // Bulk "Send to Vendor" — publish all selected RFQs at once (publish + notify
+  // their invited vendors). Idempotent server-side, so re-sending an already-
+  // published RFQ is fine.
+  const onBulkSend = () => {
+    const ids = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    appConfirm(
+      `Send ${ids.length} RFQ${ids.length === 1 ? "" : "s"} to their invited vendors? This publishes each and notifies the vendor(s).`,
+      `Send ${ids.length}`,
+      async () => {
+        setSending((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
+        const failed: string[] = [];
+        let notified = 0;
+        await Promise.all(
+          ids.map(async (id) => {
+            try { const r = await publishRfq(id); notified += r.notified || 0; }
+            catch { failed.push(id); }
+          }),
+        );
+        const sent = new Set(ids.filter((id) => !failed.includes(id)));
+        setRows((prev) => prev.map((x) => (sent.has(x.id) ? { ...x, status: "published" } : x)));
+        setSending((prev) => { const next = new Set(prev); ids.forEach((id) => next.delete(id)); return next; });
+        setSelected(new Set());
+        if (failed.length === 0) {
+          setNotice(`Sent ${ids.length} RFQ${ids.length === 1 ? "" : "s"} — ${notified} vendor notification${notified === 1 ? "" : "s"} sent.`, "info");
+        } else {
+          setNotice(`Sent ${sent.size} of ${ids.length}; ${failed.length} failed.`, "error");
+        }
+      },
+    );
+  };
+
   // "Send to Vendor" — publish + notify the invited vendor(s). Idempotent on
   // the server, so the same action re-sends on an already-published RFQ.
   const onSend = (r: RfqListRow) => {
@@ -129,8 +205,8 @@ export default function RfqListView() {
     const isDraft = r.status === "draft";
     appConfirm(
       isDraft
-        ? `Send RFQ "${r.title || r.id}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
-        : `Re-send RFQ "${r.title || r.id}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
+        ? `Send RFQ "${r.title || r.code || "RFQ"}" to ${vendorLabel}? This publishes it and notifies the invited vendor(s).`
+        : `Re-send RFQ "${r.title || r.code || "RFQ"}" to ${vendorLabel}? The invited vendor(s) will be notified again.`,
       isDraft ? "Send" : "Re-send",
       async () => {
         setSending((prev) => new Set(prev).add(r.id));
@@ -195,31 +271,41 @@ export default function RfqListView() {
             padding: "6px 10px", fontSize: 13, outline: "none",
           }}
         />
-        <select
+        <SearchableSelect
           value={status}
-          onChange={(e) => setStatus(e.target.value as RfqStatus | "")}
-          style={{
+          onChange={(v) => setStatus(v as RfqStatus | "")}
+          options={[{ value: "", label: "All statuses" }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s }))]}
+          placeholder="All statuses"
+          inputStyle={{
             background: "#1E293B", color: "#E2E8F0",
             border: "1px solid #334155", borderRadius: 4,
             padding: "6px 10px", fontSize: 13, outline: "none",
-            colorScheme: "dark",
           }}
-        >
-          <option value="">All statuses</option>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        />
         {selected.size > 0 && (
-          <button
-            onClick={onBulkDelete}
-            title="Delete all selected RFQs (with confirmation)"
-            style={{
-              marginLeft: "auto",
-              background: "#7F1D1D", color: "#FEE2E2",
-              border: "1px solid #B91C1C", borderRadius: 4,
-              padding: "6px 12px", fontSize: 12, fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >Delete {selected.size} selected</button>
+          <>
+            <button
+              onClick={onBulkSend}
+              title="Send all selected RFQs to their invited vendors (publish + notify)"
+              style={{
+                marginLeft: "auto",
+                background: "#1E3A8A", color: "#DBEAFE",
+                border: "1px solid #3B82F6", borderRadius: 4,
+                padding: "6px 12px", fontSize: 12, fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >Send {selected.size} selected</button>
+            <button
+              onClick={onBulkDelete}
+              title="Delete all selected RFQs (with confirmation)"
+              style={{
+                background: "#7F1D1D", color: "#FEE2E2",
+                border: "1px solid #B91C1C", borderRadius: 4,
+                padding: "6px 12px", fontSize: 12, fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >Delete {selected.size} selected</button>
+          </>
         )}
         <span style={{ marginLeft: selected.size > 0 ? 0 : "auto", fontSize: 11, color: "#94A3B8" }}>
           {loading ? "Searching…" : `${rows.length} RFQ${rows.length === 1 ? "" : "s"}`}
@@ -245,36 +331,38 @@ export default function RfqListView() {
                   style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                 />
               </Th>
-              <Th>Title</Th>
-              <Th>Vendor</Th>
-              <Th>Customer</Th>
-              <Th>Project</Th>
-              <Th align="right">Lines</Th>
-              <Th align="right">Est Qty</Th>
-              <Th align="right">Est Budget</Th>
-              <Th align="right">Target Cost / Unit</Th>
-              <Th>Status</Th>
-              <Th>Due</Th>
-              <Th>Created</Th>
+              <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Vendor" sortKey="vendor_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Customer" sortKey="customer_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Project" sortKey="project_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Lines" sortKey="line_count" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Est Qty" sortKey="estimated_quantity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Est Budget" sortKey="estimated_budget" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Target Cost / Unit" sortKey="target_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle("right")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Due" sortKey="due" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
+              <SortableTh label="Created" sortKey="created_at" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStyle()} />
               <Th></Th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={13} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
+              <tr><td colSpan={14} style={{ padding: 24, textAlign: "center", color: "#64748B" }}>
                 {q || status ? "No RFQs match the filter." : "No RFQs yet — generate one from a Costing project."}
               </td></tr>
             )}
-            {rows.map((r) => {
+            {sortedRows.map((r) => {
               const sc = STATUS_COLOR[r.status] || STATUS_COLOR.draft;
+              const isExpanded = expandedId === r.id;
               return (
+                <React.Fragment key={r.id}>
                 <tr
-                  key={r.id}
-                  onClick={() => onOpen(r.id)}
-                  style={{ borderTop: "1px solid #334155", cursor: "pointer" }}
+                  onClick={() => onOpenProject(r)}
+                  style={{ borderTop: "1px solid #334155", cursor: "pointer", background: isExpanded ? "#243042" : "transparent" }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "#334155"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  title="Click to view + edit"
+                  onMouseLeave={(e) => { e.currentTarget.style.background = isExpanded ? "#243042" : "transparent"; }}
+                  title={r.source_costing_project_id ? "Open source project in new tab" : "Click to view + edit RFQ"}
                 >
                   <Td align="center">
                     <input
@@ -286,9 +374,41 @@ export default function RfqListView() {
                       style={{ cursor: "pointer", accentColor: "#60A5FA" }}
                     />
                   </Td>
-                  <Td><span style={{ color: "#60A5FA", fontWeight: 600 }}>{r.title || "(untitled)"}</span></Td>
+                  <Td>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void toggleExpand(r.id); }}
+                        title={isExpanded ? "Collapse line items" : "Expand to see styles + quoted prices"}
+                        style={{
+                          background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                          color: "#94A3B8", fontSize: 11, lineHeight: 1, width: 12, flexShrink: 0,
+                        }}
+                      >{isExpanded ? "▾" : "▸"}</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
+                        title="Open RFQ"
+                        style={{
+                          background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 12, color: "#CBD5E1", whiteSpace: "nowrap",
+                          textDecoration: "underline", textDecorationColor: "#475569",
+                        }}
+                      >{r.code || "—"}</button>
+                    </div>
+                  </Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onOpenRfq(r.id); }}
+                      title="Open RFQ"
+                      style={{
+                        background: "transparent", border: "none", padding: 0, cursor: "pointer",
+                        color: "#60A5FA", fontWeight: 600, textAlign: "left",
+                        textDecoration: "underline", textDecorationColor: "#3B82F6",
+                      }}
+                    >{r.title || "(untitled)"}</button>
+                  </Td>
                   <Td>{r.vendor_name || "—"}</Td>
-                  <Td>{r.customer_name || "—"}</Td>
+                  <Td>{stripExcelPrefix(r.customer_name) || "—"}</Td>
                   <Td>{r.project_name || "—"}</Td>
                   <Td align="right">{r.line_count}</Td>
                   <Td align="right">{typeof r.estimated_quantity === "number" ? fmtQty.format(r.estimated_quantity) : "—"}</Td>
@@ -359,6 +479,18 @@ export default function RfqListView() {
                     </div>
                   </Td>
                 </tr>
+                {isExpanded && (
+                  <tr style={{ background: "#0F172A" }}>
+                    <td colSpan={14} style={{ padding: 0, borderTop: "1px solid #334155" }}>
+                      <RfqExpandPanel
+                        detail={detailById[r.id]}
+                        loading={detailLoadingId === r.id}
+                        currency={r.currency || "USD"}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -368,9 +500,76 @@ export default function RfqListView() {
   );
 }
 
+function thStyle(align?: "left" | "right" | "center"): React.CSSProperties {
+  return { textAlign: align || "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" };
+}
 function Th({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
-  return <th style={{ textAlign: align || "left", padding: "8px 12px", fontWeight: 600, fontSize: 11, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" }}>{children}</th>;
+  return <th style={thStyle(align)}>{children}</th>;
 }
 function Td({ children, align }: { children: React.ReactNode; align?: "left" | "right" | "center" }) {
   return <td style={{ padding: "8px 12px", color: "#E2E8F0", textAlign: align || "left" }}>{children}</td>;
+}
+
+// Inline-expand panel: each RFQ line (style) × the vendors' quoted unit prices.
+// Lets the operator see, at a glance, which styles a vendor has actually quoted.
+function RfqExpandPanel({ detail, loading, currency }: { detail?: RfqDetail; loading: boolean; currency: string }) {
+  const pad: React.CSSProperties = { padding: "12px 16px 12px 34px", color: "#94A3B8", fontSize: 12 };
+  if (loading && !detail) return <div style={pad}>Loading line items…</div>;
+  if (!detail) return <div style={pad}>Could not load line items.</div>;
+  const items: RfqLineItem[] = detail.line_items || [];
+  const quotes: RfqQuoteSummary[] = detail.quotes || [];
+  if (items.length === 0) return <div style={pad}>This RFQ has no line items.</div>;
+
+  // quoteId → (rfq_line_item_id → unit_price)
+  const lookup = new Map<string, Map<string, number | null>>();
+  for (const q of quotes) {
+    const m = new Map<string, number | null>();
+    for (const l of q.lines) m.set(l.rfq_line_item_id, l.unit_price);
+    lookup.set(q.id, m);
+  }
+  const money = (n: number | null | undefined) =>
+    typeof n === "number" && Number.isFinite(n) ? `${currency} ${n.toFixed(2)}` : "—";
+  const cellL: React.CSSProperties = { padding: "5px 10px", textAlign: "left", whiteSpace: "nowrap" };
+  const cellR: React.CSSProperties = { padding: "5px 10px", textAlign: "right", whiteSpace: "nowrap" };
+
+  return (
+    <div style={{ padding: "10px 16px 14px 34px" }}>
+      <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr style={{ color: "#94A3B8", textTransform: "uppercase", fontSize: 10, letterSpacing: ".04em" }}>
+            <th style={cellL}>Style / Item</th>
+            <th style={cellR}>Qty</th>
+            <th style={cellR}>Target</th>
+            {quotes.map((q) => (
+              <th key={q.id} style={cellR}>{q.vendor_name || "Vendor"}{q.status ? ` · ${q.status}` : ""}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((li) => (
+            <tr key={li.id} style={{ borderTop: "1px solid #1E293B" }}>
+              <td style={cellL}>
+                <span style={{ fontWeight: 600, color: "#E2E8F0" }}>{li.style_code || li.description || "(item)"}</span>
+                {li.color ? <span style={{ color: "#94A3B8" }}> · {li.color}</span> : null}
+              </td>
+              <td style={cellR}>{typeof li.quantity === "number" ? li.quantity.toLocaleString() : "—"}</td>
+              <td style={{ ...cellR, color: "#94A3B8" }}>{money(li.target_price)}</td>
+              {quotes.map((q) => {
+                const price = lookup.get(q.id)?.get(li.id);
+                const quoted = typeof price === "number";
+                return (
+                  <td key={q.id} style={{ ...cellR, color: quoted ? "#A7F3D0" : "#64748B", fontWeight: quoted ? 600 : 400 }}>
+                    {money(price ?? null)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {quotes.length === 0 && (
+        <div style={{ marginTop: 8, color: "#64748B", fontSize: 11 }}>No vendor has submitted quoted prices yet.</div>
+      )}
+    </div>
+  );
 }

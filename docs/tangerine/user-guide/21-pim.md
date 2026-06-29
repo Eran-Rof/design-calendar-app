@@ -10,7 +10,7 @@ PIM is the centralized product catalog — categories, per-style attributes, mar
 
 | Panel | Purpose |
 |---|---|
-| **Product Catalog** | List view per style with primary thumbnail + publish status + category. Click row → opens 3-tab detail editor for that style |
+| **Product Catalog** | List view at **style × color** grain — each style expands into one row per distinct color it carries (colors come from `ip_item_master`, the Xoro-synced SKU master). Columns: Image, Style Number, Style Name, **Color**, Category, Brand, Publish Status, Last Updated. A style with no colors on file still shows once with a blank ("—") color. Search matches style code, name, **or color**; export and column show/hide include Color. Click any row (even a color row) → opens the 3-tab detail editor for that **style** (detail is per-style, not per-color) |
 
 The detail editor's three tabs:
 

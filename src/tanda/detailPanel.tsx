@@ -14,6 +14,7 @@ import { PoMatrixTab } from "./detail/poMatrixTab";
 import { AttachmentsTab } from "./detail/attachmentsTab";
 import { NotesTab } from "./detail/notesTab";
 import { HistoryTab } from "./detail/historyTab";
+import SearchableSelect from "./components/SearchableSelect";
 
 // ── DetailPanelCtx ──────────────────────────────────────────────────────────
 // Strict prop bag passed by TandA.tsx into the detail panel. Replaces the
@@ -59,6 +60,10 @@ export interface DetailPanelCtx {
   setSelected: (v: XoroPO | null) => void;
   setView: (v: View) => void;
   setNewNote: Dispatch<SetStateAction<string>>;
+  /** Width (px) of the shared left NavDrawer, so the full-screen detail panel
+   *  starts to the RIGHT of it instead of sliding under it (the drawer has a
+   *  higher z-index and would otherwise overlap the panel's left edge). */
+  navOffset: number;
 
   // ── Section collapse toggles ──
   matrixCollapsed: boolean;
@@ -248,6 +253,26 @@ const OUTLOOK_BLUE = "#0078D4";
 export { daysUntil, computeMatrixRows, computeCascadeInfo, sortCategoryMilestones } from "./detailHelpers";
 import { daysUntil, computeMatrixRows } from "./detailHelpers";
 
+// Self-contained "Copy from" template picker for the Create-Template modal.
+// Owns its own selection state (the host `detailPanel` is a plain function, not
+// a hook-using component, so it can't hold state itself) and mirrors the choice
+// into the caller-supplied ref so the Create button can read it on click.
+function CopyFromSelect({ vendorList, valueRef }: { vendorList: string[]; valueRef: React.MutableRefObject<string> }) {
+  const [val, setVal] = useState("__default__");
+  valueRef.current = val;
+  return (
+    <SearchableSelect
+      value={val}
+      onChange={v => setVal(v)}
+      options={[
+        { value: "__default__", label: "Default Template" },
+        ...vendorList.map(v => ({ value: v, label: v })),
+      ]}
+      inputStyle={{ ...S.select, width: "100%" }}
+    />
+  );
+}
+
 function InfoCell({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={S.infoCell}>
@@ -276,9 +301,12 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
         </div>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Category</label>
-          <select style={{ ...S.select, width: "100%" }} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-            {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.category}
+            onChange={v => setForm(f => ({ ...f, category: v }))}
+            options={WIP_CATEGORIES.map(c => ({ value: c, label: c }))}
+            inputStyle={{ ...S.select, width: "100%" }}
+          />
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -288,9 +316,12 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
         </div>
         <div>
           <label style={{ color: "#94A3B8", fontSize: 11, display: "block", marginBottom: 3 }}>Default Status</label>
-          <select style={{ ...S.select, width: "100%" }} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-            {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.status}
+            onChange={v => setForm(f => ({ ...f, status: v }))}
+            options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+            inputStyle={{ ...S.select, width: "100%" }}
+          />
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -306,7 +337,7 @@ export function WipTemplateEditor({ templates, onSave }: { templates: WipTemplat
 }
 
 export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
-  const { selected, detailMode, setDetailMode, setSelected, setView, setNewNote, matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed, poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed, editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants, addingPhase, setAddingPhase, newPhaseForm, setNewPhaseForm, acceptedBlocked, setAcceptedBlocked, blockedModal, setBlockedModal, confirmModal, setConfirmModal, collapsedCats, setCollapsedCats, showCreateTpl, setShowCreateTpl, attachments, setAttachments, attachInputRef, uploadingAttachment, setUploadingAttachment, milestones, setMilestones, wipTemplates, setWipTemplates, dcVendors, designTemplates, notes, newNote, user, emailToken, teamsToken, msDisplayName, pos, toast, setToast, handleExportPOExcel, ensureMilestones, saveMilestone, saveMilestones, generateMilestones, regenerateMilestones, cascadeDueDateChange, vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked, uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments, addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails, authenticateEmail, dtlReplyToEmail, dtlSendEmail, emailMarkAsRead, deleteMainEmail, loadEmailAttachments, emailAttachments, emailAttachmentsLoading, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput, teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory, dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading, dtlEmailTab, setDtlEmailTab, dtlSentEmails, dtlSentLoading, dtlComposeTo, setDtlComposeTo, dtlComposeSubject, setDtlComposeSubject, dtlComposeBody, setDtlComposeBody, dtlSendErr, setDtlSendErr, dtlReply, setDtlReply, dtlNextLink, dtlLoadingOlder, setDtlLoadingOlder, teamsChannelMap, teamsMessages, setTeamsMessages, teamsLoading, teamsNewMsg, setTeamsNewMsg, teamsContacts, teamsContactsLoading, teamsContactsError, dtlDMTo, setDtlDMTo, dtlDMMsg, setDtlDMMsg, dtlDMSending, setDtlDMSending, dtlDMErr, setDtlDMErr, dtlDMContactSearch, setDtlDMContactSearch, dtlDMContactDropdown, setDtlDMContactDropdown, dtlDMContactSearchResults, setDtlDMContactSearchResults, dtlDMContactSearchLoading, setDtlDMContactSearchLoading, dmConversations, setDmConversations, dmActiveChatId, setDmActiveChatId, dmScrollRef } = ctx;
+  const { selected, detailMode, setDetailMode, setSelected, setView, setNewNote, navOffset, matrixCollapsed, setMatrixCollapsed, lineItemsCollapsed, setLineItemsCollapsed, poInfoCollapsed, setPoInfoCollapsed, progressCollapsed, setProgressCollapsed, editingNote, setEditingNote, editingNoteId, setEditingNoteId, editingNoteText, setEditingNoteText, msNoteText, setMsNoteText, expandedVariants, setExpandedVariants, addingPhase, setAddingPhase, newPhaseForm, setNewPhaseForm, acceptedBlocked, setAcceptedBlocked, blockedModal, setBlockedModal, confirmModal, setConfirmModal, collapsedCats, setCollapsedCats, showCreateTpl, setShowCreateTpl, attachments, setAttachments, attachInputRef, uploadingAttachment, setUploadingAttachment, milestones, setMilestones, wipTemplates, setWipTemplates, dcVendors, designTemplates, notes, newNote, user, emailToken, teamsToken, msDisplayName, pos, toast, setToast, handleExportPOExcel, ensureMilestones, saveMilestone, saveMilestones, generateMilestones, regenerateMilestones, cascadeDueDateChange, vendorHasTemplate, templateVendorList, getVendorTemplates, saveVendorTemplates, openCategoryWithCheck, isCatBlocked, uploadAttachment, loadAttachments, deleteAttachment, undoDeleteAttachment, purgeExpiredAttachments, addNote, editNote, deleteNote, addHistory, deletePO, setSearch, setTeamsSelPO, setTeamsTab, loadDtlEmails, loadDtlFullEmail, loadDtlThread, loadDtlSentEmails, authenticateEmail, dtlReplyToEmail, dtlSendEmail, emailMarkAsRead, deleteMainEmail, loadEmailAttachments, emailAttachments, emailAttachmentsLoading, teamsLoadPOMessages, teamsStartChat, teamsSendMessage, teamsGraphPost, teamsGraph, loadTeamsContacts, handleTeamsContactInput, teamsSendDirect, sendDmReply, loadDmMessages, msSignOut, selectedNotes, selectedHistory, dtlEmails, dtlEmailLoading, dtlEmailErr, dtlEmailSel, dtlEmailThread, dtlThreadLoading, dtlEmailTab, setDtlEmailTab, dtlSentEmails, dtlSentLoading, dtlComposeTo, setDtlComposeTo, dtlComposeSubject, setDtlComposeSubject, dtlComposeBody, setDtlComposeBody, dtlSendErr, setDtlSendErr, dtlReply, setDtlReply, dtlNextLink, dtlLoadingOlder, setDtlLoadingOlder, teamsChannelMap, teamsMessages, setTeamsMessages, teamsLoading, teamsNewMsg, setTeamsNewMsg, teamsContacts, teamsContactsLoading, teamsContactsError, dtlDMTo, setDtlDMTo, dtlDMMsg, setDtlDMMsg, dtlDMSending, setDtlDMSending, dtlDMErr, setDtlDMErr, dtlDMContactSearch, setDtlDMContactSearch, dtlDMContactDropdown, setDtlDMContactDropdown, dtlDMContactSearchResults, setDtlDMContactSearchResults, dtlDMContactSearchLoading, setDtlDMContactSearchLoading, dmConversations, setDmConversations, dmActiveChatId, setDmActiveChatId, dmScrollRef } = ctx;
 
     if (!selected) return null;
     const items = selected.Items ?? selected.PoLineArr ?? [];
@@ -345,6 +376,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
     // Block detail panel — show create-template modal first
     if (showCreateTpl) {
       const vendorN = showCreateTpl;
+      const copyFromRef: React.MutableRefObject<string> = { current: "__default__" };
       return (
         <div style={S.modalOverlay} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
           <div style={{ ...S.modal, width: 500 }} onClick={e => e.stopPropagation()}>
@@ -358,18 +390,14 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
               </p>
               <div style={{ marginBottom: 16 }}>
                 <label style={S.label}>Copy from</label>
-                <select style={{ ...S.select, width: "100%" }} id="modalCopyFrom">
-                  <option value="__default__">Default Template</option>
-                  {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <CopyFromSelect vendorList={templateVendorList()} valueRef={copyFromRef} />
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button style={{ ...S.btnSecondary, flex: 1 }} onClick={() => { setShowCreateTpl(null); setSelected(null); }}>
                   Cancel
                 </button>
                 <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
-                  const copyEl = document.getElementById("modalCopyFrom") as HTMLSelectElement;
-                  const copyFrom = copyEl?.value || "__default__";
+                  const copyFrom = copyFromRef.current || "__default__";
                   const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                   const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
                   await saveVendorTemplates(vendorN, newTpls);
@@ -415,7 +443,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
     });
 
     return (
-      <div style={{ position: "fixed", inset: 0, top: 56, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%" }}>
+      <div style={{ position: "fixed", top: 56, right: 0, bottom: 0, left: navOffset, background: "#0F172A", zIndex: 90, overflowY: "auto", display: "flex", flexDirection: "column", fontSize: "120%", transition: "left 0.2s ease" }}>
         <div id="po-detail-content" style={{ maxWidth: "90%", margin: "0 auto", width: "100%", padding: "24px 20px", flex: 1 }}>
           {/* Header — sticky, includes all PO info */}
           <div style={{ ...S.detailHeader, borderLeft: `4px solid ${statusColor}`, borderRadius: 12, marginBottom: 16, position: "sticky", top: 0, zIndex: 10, background: "#0F172A", flexDirection: "column", gap: 10 }}>
@@ -436,11 +464,11 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="#fff" fillOpacity=".2" stroke="#fff" strokeWidth="1.5"/><path d="M14 2v6h6" stroke="#fff" strokeWidth="1.5"/><path d="M8 13l2.5 4M8 17l2.5-4M13 13v4M15.5 13v4M13 15h2.5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   Excel
                 </button>
-                <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>🖨️ Print</button>
-                <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
+                <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 14px", display: "flex", alignItems: "center", gap: 4 }} onClick={() => printPODetail()}>Print</button>
+                <button onClick={() => setConfirmModal({ title: "Delete PO", message: `Delete PO ${selected.PoNumber}? This will permanently remove the PO, all milestones, notes, and history.`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deletePO(selected.PoNumber ?? "") })}
                   style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 6, padding: "4px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
                   onMouseEnter={e => { e.currentTarget.style.background = "#EF4444"; e.currentTarget.style.color = "#fff"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>🗑 Delete PO</button>
+                  onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#EF4444"; }}>Delete PO</button>
                 <button style={{ ...S.closeBtn, fontSize: 16, padding: "4px 10px" }} onClick={() => { setSelected(null); setSearch(""); }}>✕ Close</button>
               </div>
             </div>
@@ -518,7 +546,7 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
                   <span style={{ color: "#94A3B8", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Production Progress</span>
                   <span style={{ color: "#10B981", fontSize: 14, fontWeight: 800, fontFamily: "monospace" }}>{pct}%</span>
                   <span style={{ color: "#6B7280", fontSize: 11 }}>{complete}/{active} milestones</span>
-                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>⚠ {delayed} delayed</span>}
+                  {delayed > 0 && <span style={{ color: "#EF4444", fontSize: 11, fontWeight: 600 }}>{delayed} delayed</span>}
                 </div>
                 {!progressCollapsed && <div style={{ background: "#0F172A", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
@@ -571,8 +599,8 @@ export function detailPanel(ctx: DetailPanelCtx): React.ReactElement | null {
             <button style={tabStyle("po")} onClick={() => setDetailMode("po")}>PO / Matrix</button>
             <button style={tabStyle("milestones")} onClick={() => setDetailMode("milestones")}>Milestones</button>
             <button style={tabStyle("notes")} onClick={() => setDetailMode("notes")}>Notes</button>
-            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>📎 Files</button>
-            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>📧 Email/Teams</button>
+            <button style={tabStyle("attachments")} onClick={() => { setDetailMode("attachments"); const pn = selected.PoNumber ?? ""; if (pn && !attachments[pn]) loadAttachments(pn); }}>Files</button>
+            <button style={tabStyle("email")} onClick={() => { setDetailMode("email"); setDtlEmailTab("inbox"); const pn = selected.PoNumber ?? ""; if (pn && emailToken && !dtlEmails[pn]?.length) loadDtlEmails(pn); }}>Email/Teams</button>
             <button style={tabStyle("history")} onClick={() => setDetailMode("history")}>History</button>
             <button style={tabStyle("all")} onClick={() => setDetailMode("all")}>All</button>
           </div>

@@ -11,12 +11,15 @@
 // 2_10_NET30) — operators add edge-case terms here (NET75, special discounts).
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const PAYMENT_TERMS_TABLE_KEY = "tangerine:paymentterms:columns";
 const PAYMENT_TERM_COLUMNS: ColumnDef[] = [
@@ -61,16 +64,24 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
 };
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
+// Sized to match its siblings in the add/edit grid: SAME WIDTH as the Due Date
+// (Due days) input — full column, width:100% like inputStyle — and SAME HEIGHT
+// as the Name input — box-sizing:border-box + flex-centering and no fixed
+// minHeight so the box height equals a single-line text input (pattern from
+// InternalFabricCodes.tsx readonlyCodeStyle).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  width: "100%", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -99,17 +110,23 @@ export default function InternalPaymentTerms() {
   const [rows, setRows] = useState<PaymentTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentTerm | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     PAYMENT_TERMS_TABLE_KEY,
     PAYMENT_TERM_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:paymentterms:sort",
+    // discount_pct may arrive as a numeric string — coerce so it sorts numerically.
+    accessors: { discount_pct: (r) => (typeof r.discount_pct === "number" ? r.discount_pct : parseFloat(r.discount_pct as string)) },
+  });
 
   const { getRowProps } = useRowClickEdit<PaymentTerm>({
     onRowClick: (r) => setEditing(r),
@@ -122,7 +139,7 @@ export default function InternalPaymentTerms() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/payment-terms?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -134,7 +151,7 @@ export default function InternalPaymentTerms() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   async function del(pt: PaymentTerm) {
     if (!(await confirmDialog(`Delete payment term ${pt.code} (${pt.name})?\nWill fail if any vendor / customer / invoice still references it — toggle is_active=false in that case.`))) return;
@@ -168,7 +185,6 @@ export default function InternalPaymentTerms() {
           placeholder="Search code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -201,6 +217,7 @@ export default function InternalPaymentTerms() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 
@@ -210,7 +227,7 @@ export default function InternalPaymentTerms() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -222,17 +239,17 @@ export default function InternalPaymentTerms() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("due_days")}>Due days</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_pct")}>Disc. %</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("discount_days")}>Disc. days</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Due days" sortKey="due_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("due_days")} />
+                <SortableTh label="Disc. %" sortKey="discount_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("discount_pct")} />
+                <SortableTh label="Disc. days" sortKey="discount_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("discount_days")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((pt) => (
+              {sorted.map((pt) => (
                 <ScrollHighlightRow
                   key={pt.id}
                   rowId={pt.id}
@@ -338,7 +355,7 @@ function PaymentTermFormModal({ mode, term, onClose, onSaved }: ModalProps) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add payment term" : `Edit ${term!.code}`}

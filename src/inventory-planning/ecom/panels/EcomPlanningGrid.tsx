@@ -6,6 +6,31 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+
+const TABLE_KEY = "ip.ecom_planning_grid";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "channel", label: "Channel" },
+  { key: "category", label: "Category" },
+  { key: "sku", label: "SKU" },
+  { key: "week", label: "Week" },
+  { key: "trailing4", label: "4W" },
+  { key: "trailing13", label: "13W" },
+  { key: "trend", label: "Trend" },
+  { key: "system", label: "System" },
+  { key: "override", label: "Override" },
+  { key: "final", label: "Final" },
+  { key: "protected", label: "Protected" },
+  { key: "return", label: "Return" },
+  { key: "on_hand", label: "On Hand" },
+  { key: "ats", label: "ATS" },
+  { key: "short", label: "Short" },
+  { key: "excess", label: "Excess" },
+  { key: "buy", label: "Buy" },
+  { key: "buy_dollars", label: "Buy $" },
+  { key: "flags", label: "Flags" },
+];
 
 export interface EcomPlanningGridProps {
   rows: IpEcomGridRow[];
@@ -27,6 +52,7 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
   const [filterPromo, setFilterPromo] = useState<"all" | "promo" | "not">("all");
   const [sortKey, setSortKey] = useState<SortKey>("channel");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const channels = useMemo(() => {
     const m = new Map<string, string>();
@@ -87,96 +113,96 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 220 }} placeholder="Search channel or SKU"
                value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)}>
-          <option value="all">All channels</option>
-          {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterActive} onChange={(e) => setFilterActive(e.target.value as "all" | "active" | "inactive")}>
-          <option value="active">Active only</option>
-          <option value="all">Active + inactive</option>
-          <option value="inactive">Inactive only</option>
-        </select>
-        <select style={S.select} value={filterLaunch} onChange={(e) => setFilterLaunch(e.target.value as "all" | "launch" | "not")}>
-          <option value="all">Launch: any</option>
-          <option value="launch">Launching</option>
-          <option value="not">Not launching</option>
-        </select>
-        <select style={S.select} value={filterPromo} onChange={(e) => setFilterPromo(e.target.value as "all" | "promo" | "not")}>
-          <option value="all">Promo: any</option>
-          <option value="promo">Promo weeks</option>
-          <option value="not">No promo</option>
-        </select>
+        <SearchableSelect value={filterChannel} onChange={(v) => setFilterChannel(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All channels" }, ...channels.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterCategory} onChange={(v) => setFilterCategory(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterActive} onChange={(v) => setFilterActive(v as "all" | "active" | "inactive")} inputStyle={S.select} options={[
+          { value: "active", label: "Active only" },
+          { value: "all", label: "Active + inactive" },
+          { value: "inactive", label: "Inactive only" },
+        ]} />
+        <SearchableSelect value={filterLaunch} onChange={(v) => setFilterLaunch(v as "all" | "launch" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Launch: any" },
+          { value: "launch", label: "Launching" },
+          { value: "not", label: "Not launching" },
+        ]} />
+        <SearchableSelect value={filterPromo} onChange={(v) => setFilterPromo(v as "all" | "promo" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Promo: any" },
+          { value: "promo", label: "Promo weeks" },
+          { value: "not", label: "No promo" },
+        ]} />
         <button style={S.btnSecondary} onClick={() => {
           setSearch(""); setFilterChannel("all"); setFilterCategory("all");
           setFilterActive("active"); setFilterLaunch("all"); setFilterPromo("all");
         }}>Clear</button>
+        <div style={{ marginLeft: "auto" }}>
+          <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
+                            onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
+        </div>
       </div>
 
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
-              <Th label="Channel" k="channel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <th style={S.th}>Category</th>
-              <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="Week" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              <Th label="4W" k="trailing4" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <th style={{ ...S.th, textAlign: "right" }}>13W</th>
-              <Th label="Trend" k="trend" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <th style={{ ...S.th, textAlign: "right" }}>System</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Override</th>
-              <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric />
-              <th style={{ ...S.th, textAlign: "right" }}>Protected</th>
-              <th style={{ ...S.th, textAlign: "right" }}>Return</th>
-              <th style={{ ...S.th, textAlign: "right" }}>On Hand</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.accent }}>ATS</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.red }}>Short</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.yellow }}>Excess</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
-              <th style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
-              <th style={S.th}>Flags</th>
+              <Th label="Channel" k="channel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={!visibleColumns.has("channel")} />
+              <th hidden={!visibleColumns.has("category")} style={S.th}>Category</th>
+              <Th label="SKU" k="sku" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={!visibleColumns.has("sku")} />
+              <Th label="Week" k="period" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={!visibleColumns.has("week")} />
+              <Th label="4W" k="trailing4" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={!visibleColumns.has("trailing4")} />
+              <th hidden={!visibleColumns.has("trailing13")} style={{ ...S.th, textAlign: "right" }}>13W</th>
+              <Th label="Trend" k="trend" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={!visibleColumns.has("trend")} />
+              <th hidden={!visibleColumns.has("system")} style={{ ...S.th, textAlign: "right" }}>System</th>
+              <th hidden={!visibleColumns.has("override")} style={{ ...S.th, textAlign: "right" }}>Override</th>
+              <Th label="Final" k="final" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={!visibleColumns.has("final")} />
+              <th hidden={!visibleColumns.has("protected")} style={{ ...S.th, textAlign: "right" }}>Protected</th>
+              <th hidden={!visibleColumns.has("return")} style={{ ...S.th, textAlign: "right" }}>Return</th>
+              <th hidden={!visibleColumns.has("on_hand")} style={{ ...S.th, textAlign: "right" }}>On Hand</th>
+              <th hidden={!visibleColumns.has("ats")} style={{ ...S.th, textAlign: "right", color: PAL.accent }}>ATS</th>
+              <th hidden={!visibleColumns.has("short")} style={{ ...S.th, textAlign: "right", color: PAL.red }}>Short</th>
+              <th hidden={!visibleColumns.has("excess")} style={{ ...S.th, textAlign: "right", color: PAL.yellow }}>Excess</th>
+              <th hidden={!visibleColumns.has("buy")} style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy</th>
+              <th hidden={!visibleColumns.has("buy_dollars")} style={{ ...S.th, textAlign: "right", color: PAL.green }}>Buy $</th>
+              <th hidden={!visibleColumns.has("flags")} style={S.th}>Flags</th>
             </tr>
           </thead>
           <tbody>
             {filtered.slice(0, 500).map((r) => (
               <tr key={r.forecast_id} style={{ cursor: "pointer" }} onClick={() => onSelectRow(r)}>
-                <td style={S.td}>{r.channel_name}</td>
-                <td style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
-                <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
-                <td style={S.td}>{formatPeriodCode(r.period_code)}</td>
-                <td style={S.tdNum}>{formatQty(r.trailing_4w_qty)}</td>
-                <td style={S.tdNum}>{formatQty(r.trailing_13w_qty)}</td>
-                <td style={{ ...S.tdNum, color: trendColor(r.trend_pct) }}>
+                <td hidden={!visibleColumns.has("channel")} style={S.td}>{r.channel_name}</td>
+                <td hidden={!visibleColumns.has("category")} style={{ ...S.td, color: PAL.textDim }}>{r.category_name ?? "–"}</td>
+                <td hidden={!visibleColumns.has("sku")} style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>{r.sku_code}</td>
+                <td hidden={!visibleColumns.has("week")} style={S.td}>{formatPeriodCode(r.period_code)}</td>
+                <td hidden={!visibleColumns.has("trailing4")} style={S.tdNum}>{formatQty(r.trailing_4w_qty)}</td>
+                <td hidden={!visibleColumns.has("trailing13")} style={S.tdNum}>{formatQty(r.trailing_13w_qty)}</td>
+                <td hidden={!visibleColumns.has("trend")} style={{ ...S.tdNum, color: trendColor(r.trend_pct) }}>
                   {r.trend_pct == null ? "–" : `${r.trend_pct >= 0 ? "+" : ""}${(r.trend_pct * 100).toFixed(0)}%`}
                 </td>
-                <td style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
+                <td hidden={!visibleColumns.has("system")} style={S.tdNum}>{formatQty(r.system_forecast_qty)}</td>
+                <td hidden={!visibleColumns.has("override")} style={{ ...S.tdNum, color: r.override_qty !== 0 ? PAL.yellow : PAL.textMuted }}>
                   {r.override_qty > 0 ? "+" : ""}{formatQty(r.override_qty)}
                 </td>
-                <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>{formatQty(r.final_forecast_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.protected_ecom_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.return_rate && r.return_rate > 0.2 ? PAL.red : PAL.textDim }}>
+                <td hidden={!visibleColumns.has("final")} style={{ ...S.tdNum, color: PAL.green, fontWeight: 700 }}>{formatQty(r.final_forecast_qty)}</td>
+                <td hidden={!visibleColumns.has("protected")} style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.protected_ecom_qty)}</td>
+                <td hidden={!visibleColumns.has("return")} style={{ ...S.tdNum, color: r.return_rate && r.return_rate > 0.2 ? PAL.red : PAL.textDim }}>
                   {r.return_rate == null ? "–" : `${(r.return_rate * 100).toFixed(0)}%`}
                 </td>
-                <td style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
-                <td style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.available_supply_qty)}</td>
-                <td style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted, fontWeight: r.projected_shortage_qty > 0 ? 700 : 400 }}>
+                <td hidden={!visibleColumns.has("on_hand")} style={S.tdNum}>{formatQty(r.on_hand_qty)}</td>
+                <td hidden={!visibleColumns.has("ats")} style={{ ...S.tdNum, color: PAL.accent }}>{formatQty(r.available_supply_qty)}</td>
+                <td hidden={!visibleColumns.has("short")} style={{ ...S.tdNum, color: r.projected_shortage_qty > 0 ? PAL.red : PAL.textMuted, fontWeight: r.projected_shortage_qty > 0 ? 700 : 400 }}>
                   {r.projected_shortage_qty > 0 ? formatQty(r.projected_shortage_qty) : "–"}
                 </td>
-                <td style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
+                <td hidden={!visibleColumns.has("excess")} style={{ ...S.tdNum, color: r.projected_excess_qty > 0 ? PAL.yellow : PAL.textMuted }}>
                   {r.projected_excess_qty > 0 ? formatQty(r.projected_excess_qty) : "–"}
                 </td>
-                <td onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
+                <td hidden={!visibleColumns.has("buy")} onClick={(e) => e.stopPropagation()} style={{ ...S.td, padding: "2px 4px" }}>
                   <BuyCell value={r.planned_buy_qty} onSave={(qty) => onUpdateBuyQty(r.forecast_id, qty)} />
                 </td>
-                <td style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
+                <td hidden={!visibleColumns.has("buy_dollars")} style={{ ...S.tdNum, color: r.planned_buy_qty && r.item_cost ? PAL.green : PAL.textMuted, fontFamily: "monospace" }}>
                   {r.planned_buy_qty && r.item_cost ? `$${(r.planned_buy_qty * r.item_cost).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "–"}
                 </td>
-                <td style={S.td}>
+                <td hidden={!visibleColumns.has("flags")} style={S.td}>
                   <FlagChip on={r.promo_flag} color={PAL.accent} label="P" />
                   <FlagChip on={r.launch_flag} color={PAL.green} label="L" />
                   <FlagChip on={r.markdown_flag} color={PAL.yellow} label="M" />
@@ -225,13 +251,14 @@ function FlagChip({ on, color, label }: { on: boolean; color: string; label: str
   );
 }
 
-function Th({ label, k, sortKey, sortDir, onSort, numeric }: {
+function Th({ label, k, sortKey, sortDir, onSort, numeric, hidden }: {
   label: string; k: SortKey; sortKey: SortKey; sortDir: "asc" | "desc";
-  onSort: (k: SortKey) => void; numeric?: boolean;
+  onSort: (k: SortKey) => void; numeric?: boolean; hidden?: boolean;
 }) {
   const active = sortKey === k;
   return (
-    <th style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : PAL.textMuted }}
+    <th hidden={hidden}
+        style={{ ...S.th, cursor: "pointer", textAlign: numeric ? "right" : "left", color: active ? PAL.text : PAL.textMuted }}
         onClick={() => onSort(k)}>
       {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
     </th>

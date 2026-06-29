@@ -76,6 +76,33 @@ export default async function handler(req, res) {
         console.warn("[costing/projects] ip_customer_master enrichment failed:", e.message);
       }
     }
+    // Per-project line-status breakdown (status is per LINE, stored lifecycle).
+    // Reads costing_lines.status directly — the 7-value event-driven enum.
+    const projectIds = (data || []).map((p) => p.id);
+    if (projectIds.length > 0) {
+      try {
+        const { data: lineRows } = await admin.from("costing_lines")
+          .select("id, project_id, status")
+          .in("project_id", projectIds).range(0, 9999);
+        const VALID = new Set(["draft","sent","quoted","awarded","lost","revised","closed"]);
+        const counts = new Map();
+        for (const l of lineRows || []) {
+          const eff = (l.status && VALID.has(l.status)) ? l.status : "draft";
+          let c = counts.get(l.project_id);
+          if (!c) {
+            c = { draft: 0, sent: 0, quoted: 0, awarded: 0, lost: 0, revised: 0, closed: 0, total: 0 };
+            counts.set(l.project_id, c);
+          }
+          c[eff]++; c.total++;
+        }
+        const empty = { draft: 0, sent: 0, quoted: 0, awarded: 0, lost: 0, revised: 0, closed: 0, total: 0 };
+        for (const p of data || []) {
+          p._status_counts = counts.get(p.id) || { ...empty };
+        }
+      } catch (e) {
+        console.warn("[costing/projects] line-status breakdown failed:", e.message);
+      }
+    }
     return res.status(200).json(data || []);
   }
 
@@ -129,7 +156,15 @@ export default async function handler(req, res) {
     };
 
     const { data, error } = await admin.from("costing_projects").insert(insert).select("*").single();
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (error.code === "23505") {
+        // Unique constraint: an active project with this name already exists.
+        return res.status(409).json({
+          error: `A project named "${insert.project_name}" already exists. Rename or delete/close the existing project first.`,
+        });
+      }
+      return res.status(500).json({ error: error.message });
+    }
     return res.status(201).json(data);
   }
 

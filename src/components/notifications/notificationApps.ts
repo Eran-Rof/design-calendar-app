@@ -17,6 +17,7 @@ export type AppKey =
   | "gs1"
   | "planning"
   | "rof"
+  | "costing"
   | "plm"
   | "vendor";
 
@@ -91,6 +92,16 @@ const ROF_EVENTS = [
   "phase_change_proposed",
 ];
 
+// Costing — the RFQ lifecycle (RFQs are created, compared, and awarded from the
+// Costing app). These show in the Costing app's bell and are kept OFF the PLM
+// launcher (see PLM_HIDDEN) so RFQ noise doesn't pile up on the home screen.
+const COSTING_EVENTS = [
+  "rfq_quote_submitted", "rfq_quote_revised", "rfq_quote_received",
+  "rfq_revised", "rfq_message",
+  "rfq_invited", "rfq_published", "rfq_closed",
+  "rfq_awarded", "rfq_awarded_internal",
+];
+
 const APP_EVENTS: Record<AppKey, string[] | null> = {
   tanda: TANDA_EVENTS,
   design: DESIGN_EVENTS,
@@ -99,11 +110,19 @@ const APP_EVENTS: Record<AppKey, string[] | null> = {
   gs1: GS1_EVENTS,
   planning: PLANNING_EVENTS,
   rof: ROF_EVENTS,
+  costing: COSTING_EVENTS,
   plm: null,
   vendor: null,
 };
 
+// Events that belong to the Costing app and should NOT clutter the PLM launcher
+// bell. The launcher still shows everything else (null = show-all behavior).
+const PLM_HIDDEN = new Set(COSTING_EVENTS);
+
 export function eventMatchesApp(eventType: string, app: AppKey): boolean {
+  // PLM launcher = show everything EXCEPT events owned by a dedicated app
+  // (currently the Costing RFQ events — routed to the Costing bell instead).
+  if (app === "plm") return !PLM_HIDDEN.has(eventType);
   const allowed = APP_EVENTS[app];
   if (allowed === null) return true;
   return allowed.includes(eventType);

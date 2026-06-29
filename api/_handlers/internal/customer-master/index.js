@@ -12,8 +12,12 @@
 //        country, payment_terms, default_currency, tax_exempt,
 //        tax_exempt_certificate, credit_limit, credit_limit_cents,
 //        status, billing_address, shipping_address,
-//        contact_name, contact_title, email, phone, website, wechat_id,
-//        default_gl_ar_account_id, default_gl_revenue_account_id }
+//        contact_name, contact_title, email, phone, website, wechat_id }
+//
+// GL routing accounts (AR / revenue / returns / COGS) live on the GL Accounts
+// tab and use the default_ar_/revenue_/returns_/cogs_account_id columns — the
+// only ones the SO + AR posting engines read. The older default_gl_ar/revenue
+// pair is retired (no longer written or shown); the columns remain in the DB.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
@@ -27,11 +31,42 @@ const CODE_PREFIX = "CUST-";
 const CUSTOMER_TYPES = ["wholesale", "ecom", "showroom", "employee", "other"];
 const STATUS_VALUES  = ["active", "inactive", "on_hold"];
 
+// Conservative Title-Case for NEW customer names: only re-cases tokens that are
+// all-lowercase, leaving acronyms (ROF, BMO, EDI, FBM, USA), mixed-case brands
+// (eBay, McGraw), and known legal suffixes (LLC, Inc., Ltd.) untouched. Existing
+// names are NOT touched here — bulk initcap would mangle acronyms/suffixes.
+// Mirrors titleCaseVendorName in vendor-master/index.js.
+const PRESERVE_TOKENS = new Set([
+  "LLC", "L.L.C.", "INC", "INC.", "LTD", "LTD.", "CO", "CO.", "CORP", "CORP.",
+  "HK", "EDI", "USA", "US", "UK", "EU", "ROF", "BMO", "DBA", "PLC", "GMBH",
+  "FBM", "JLC", "NV", "SC", "SW", "SWFM", "CSX",
+]);
+export function titleCaseCustomerName(raw) {
+  const s = String(raw).trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  return s
+    .split(" ")
+    .map((tok) => {
+      // Already mixed-case (e.g. "Corp", "eBay", "McGraw") — leave verbatim so
+      // we never re-mangle a nicely-cased token into an acronym.
+      if (/[a-z]/.test(tok) && /[A-Z]/.test(tok)) return tok;
+      const upper = tok.toUpperCase();
+      // Preserve known acronyms / legal suffixes verbatim (upper-cased). Only
+      // reached for uniformly-cased tokens (all-caps or all-lowercase).
+      if (PRESERVE_TOKENS.has(upper)) return upper;
+      // Leave anything already containing an uppercase letter alone (acronyms,
+      // brand casing) — only fix fully-lowercase tokens.
+      if (/[A-Z]/.test(tok)) return tok;
+      // Fully lowercase word → capitalize first letter.
+      return tok.charAt(0).toUpperCase() + tok.slice(1);
+    })
+    .join(" ");
+}
+
 // Columns returned for LIST responses. tax_exempt_certificate intentionally omitted.
 const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P16 — SO routing defaults (brand/channel prefill + per-line revenue routing).
   "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id", "default_cogs_account_id",
@@ -45,6 +80,7 @@ const LIST_COLUMNS = [
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -53,8 +89,31 @@ const LIST_COLUMNS = [
   "default_ar_account_id",
   "price_list_id",
   "status", "billing_address", "shipping_address", "attributes",
+  "contacts",
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
+
+// Up to 12 contacts, each {id,name,email,phone,title,department} (strings only).
+// `id` is a stable per-contact key (lets customer_contact_notes attach to a
+// contact); preserved verbatim. Blank rows are dropped; beyond `max` truncated.
+export function sanitizeContacts(raw, max) {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw)) return { error: "contacts must be an array" };
+  const keys = ["id", "name", "email", "phone", "title", "department"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) {
+      const val = c[k];
+      if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
+    }
+    // An id-only row (no name/email/phone) is still blank → dropped below.
+    if (Object.keys(row).filter((k) => k !== "id").length) out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -94,7 +153,7 @@ export default async function handler(req, res) {
     const includeInactive = url.searchParams.get("include_inactive") === "true";
     const customerType = (url.searchParams.get("customer_type") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "200", 10) || 200, 500);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10) || 1000, 5000);
 
     let query = admin
       .from("customers")
@@ -134,6 +193,10 @@ export default async function handler(req, res) {
     const buildRow = (code) => ({
       entity_id: entityId,
       name: v.data.name,
+      // customer_code is NOT NULL (legacy Xoro ref). App-created customers have no
+      // Xoro ref, so default it to the generated code (CUST-NNNNN) — fixes the
+      // "null value in column customer_code" error when adding a customer on the fly.
+      customer_code: v.data.customer_code != null && String(v.data.customer_code).trim() !== "" ? String(v.data.customer_code).trim() : code,
       code,
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,
@@ -150,13 +213,12 @@ export default async function handler(req, res) {
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
-      default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
-      default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
       // P4-family sales-rep / default / GL-routing columns.
       sales_rep_1_id: v.data.sales_rep_1_id || null,
       sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
       sales_rep_2_id: v.data.sales_rep_2_id || null,
       sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      closeout_commission_pct: v.data.closeout_commission_pct ?? null,
       default_brand_id: v.data.default_brand_id || null,
       default_channel_id: v.data.default_channel_id || null,
       default_revenue_account_id: v.data.default_revenue_account_id || null,
@@ -169,6 +231,7 @@ export default async function handler(req, res) {
       phone: v.data.phone || null,
       website: v.data.website || null,
       wechat_id: v.data.wechat_id || null,
+      contacts: v.data.contacts || [],
     });
 
     const { data, error } = await insertWithAutoCode(
@@ -201,9 +264,16 @@ export function validateInsert(body) {
     return { error: "tax_exempt_certificate must be set via the dedicated PII workflow, not this endpoint" };
   }
   const out = { ...body };
-  out.name = String(out.name).trim();
+  // Conservative Title-Case on NEW names (acronym/suffix-safe). Existing names
+  // are never bulk-updated through this path.
+  out.name = titleCaseCustomerName(out.name);
   if (out.code != null) {
     out.code = String(out.code).trim() || null;
+  }
+  if ("contacts" in out) {
+    const c = sanitizeContacts(out.contacts, 12);
+    if (c && c.error) return { error: c.error };
+    out.contacts = c;
   }
 
   if (out.customer_type != null && out.customer_type !== "") {
@@ -280,10 +350,6 @@ export function validateInsert(body) {
   } else {
     out.payment_terms_id = null;
   }
-  // UUID FK fields — coerce empty string to null.
-  for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
-    if (out[k] === "" || out[k] == null) out[k] = null;
-  }
   // P4-family UUID FK fields — coerce empty string to null + validate UUID.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   for (const k of [
@@ -298,7 +364,7 @@ export function validateInsert(body) {
     }
   }
   // P4-family commission percentages — numeric, 0..100.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (out[k] === "" || out[k] == null) {
       out[k] = null;
     } else {

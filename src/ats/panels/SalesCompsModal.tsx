@@ -18,6 +18,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
@@ -213,17 +214,24 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
         {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-        <select value={single} onChange={e => onChange(e.target.value ? [e.target.value as T] : [])} style={inputStyle}>
-          <option value="">All</option>
-          {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
-        </select>
+        <SearchableSelect
+          value={single}
+          onChange={v => onChange(v ? [v as T] : [])}
+          options={[
+            { value: "", label: "All" },
+            ...options.map(o => ({ value: o, label: fmt(o) })),
+          ]}
+          inputStyle={inputStyle}
+        />
       </div>
     );
   }
 
   const filtered = search.trim() === ""
     ? options
-    : options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+    // Match against the formatted label (e.g. "RYB1416 — ARENA Loose Relaxed")
+    // so the operator can find a style by its description, not just its code.
+    : options.filter(o => fmt(o).toLowerCase().includes(search.toLowerCase()));
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
@@ -267,7 +275,11 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
           ...(openDir === "down"
             ? { top: "calc(100% + 4px)" }
             : { bottom: "calc(100% + 4px)" }),
-          left: 0, right: 0, zIndex: 1100,
+          // Grow to fit the widest option (e.g. "RYB1416 — ARENA Loose
+          // Relaxed") rather than clamping to the field width, so the style
+          // description is readable. At least the field width; capped so it
+          // never runs off-screen.
+          left: 0, right: "auto", minWidth: "100%", width: "max-content", maxWidth: "min(560px, 92vw)", zIndex: 1100,
           background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
           maxHeight: 260, display: "flex", flexDirection: "column", padding: 4,
           boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
@@ -285,7 +297,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             {filtered.map(o => (
               <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                 <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(o)}</span>
+                <span style={{ whiteSpace: "normal", wordBreak: "break-word" }}>{fmt(o)}</span>
               </label>
             ))}
           </div>
@@ -372,6 +384,21 @@ export const SalesCompsModal: React.FC<Props> = ({
   const categories    = useMemo(() => [...allCategories].sort(),    [allCategories]);
   const subCategories = useMemo(() => [...allSubCategories].sort(), [allSubCategories]);
   const styles        = useMemo(() => [...allStyles].sort(),        [allStyles]);
+  // style_code → clean style description, sourced from the enriched grid rows
+  // (master fields). Lets the Style picker show the description beside the code.
+  const styleDescByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      const code = (r.master_style ?? "").trim();
+      const desc = (r.master_description ?? "").trim();
+      if (code && desc && !m.has(code)) m.set(code, desc);
+    }
+    return m;
+  }, [rows]);
+  const styleOptionLabel = (code: string) => {
+    const d = styleDescByCode.get(code);
+    return d ? `${code} — ${d}` : code;
+  };
   const stores        = useMemo(() => {
     if (allStores.length > 0) return [...allStores].sort();
     return ["ROF", "ROF ECOM", "PT", "PT ECOM"];
@@ -1177,7 +1204,7 @@ export const SalesCompsModal: React.FC<Props> = ({
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, minWidth: 540, maxWidth: result ? 920 : 560, maxHeight: "90vh", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ position: "relative", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, width: result ? "min(920px, 95vw)" : "min(560px, 95vw)", maxHeight: "90vh", boxSizing: "border-box", color: C.text, fontFamily: "inherit", boxShadow: "0 16px 48px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -1251,10 +1278,10 @@ export const SalesCompsModal: React.FC<Props> = ({
                 section above the fold even when DevTools is open. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi />
-              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
+              <SelectField label="Warehouses" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
-              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
+              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi optionLabel={styleOptionLabel} />
               <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi />
             </div>
 
@@ -1390,6 +1417,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                   rows={built}
                   totals={builtTotals}
                   customerFacing={customerFacing}
+                  descByLabel={dim === "style" ? styleDescByCode : undefined}
                 />
               );
             })}
@@ -1466,7 +1494,7 @@ interface CompsTotalsProp {
   combined: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
   hasMixed: boolean;
 }
-function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean }): React.ReactElement {
+function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
   // Helper: render one totals row. Used three times below — once for
   // the combined total (single-grain modes), or twice (one per grain
   // when hasMixed is true and we're in explode-OFF mode).
@@ -1512,7 +1540,7 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
             const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
             return (
               <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
-                <td style={td()}>{r.label}</td>
+                <td style={td()}>{r.label}{descByLabel?.get(r.label) && <span style={{ color: C.textMuted, fontWeight: 400 }}> — {descByLabel.get(r.label)}</span>}</td>
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
                 {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}

@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { TH } from "../../utils/theme";
 import { useGS1Store } from "../store/gs1Store";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { fmtDateDisplay } from "../../utils/tandaTypes";
+
+const TABLE_KEY = "gs1.packing_list_upload";
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "file_name", label: "File Name" },
+  { key: "status", label: "Status" },
+  { key: "blocks", label: "Blocks" },
+  { key: "labels", label: "Labels" },
+  { key: "date", label: "Date" },
+  { key: "actions", label: "Actions" },
+];
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -45,6 +57,8 @@ export default function PackingListUploadPanel() {
     bomBuilding, buildBomsForUpload,
     setActiveTab,
   } = useGS1Store();
+
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [genMsg,  setGenMsg]  = useState("");
@@ -104,7 +118,7 @@ export default function PackingListUploadPanel() {
       {/* Unresolved parse issue warning */}
       {parseIssues.filter(i => i.severity === "error").length > 0 && (
         <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700 }}>⚠ {parseIssues.filter(i => i.severity === "error").length} parse error{parseIssues.filter(i => i.severity === "error").length > 1 ? "s" : ""}</span>
+          <span style={{ fontWeight: 700 }}>{parseIssues.filter(i => i.severity === "error").length} parse error{parseIssues.filter(i => i.severity === "error").length > 1 ? "s" : ""}</span>
           — Some blocks failed to parse. Review the issues below before generating GTINs or creating batches.
         </div>
       )}
@@ -254,7 +268,17 @@ export default function PackingListUploadPanel() {
 
       {/* Upload history */}
       <div style={{ background: TH.surface, borderRadius: 10, padding: "16px 20px", boxShadow: `0 1px 4px ${TH.shadow}` }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 15, color: TH.textSub }}>Upload History</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, color: TH.textSub }}>Upload History</h3>
+          <TablePrefsButton
+            tableKey={TABLE_KEY}
+            columns={ALL_COLUMNS}
+            visibleColumns={visibleColumns}
+            onToggle={toggleColumn}
+            onReset={resetToDefault}
+            onSetAll={setAllVisible}
+          />
+        </div>
         {uploadLoading && !currentUpload
           ? <p style={{ color: TH.textMuted, fontSize: 13 }}>Loading…</p>
           : uploads.length === 0
@@ -263,18 +287,23 @@ export default function PackingListUploadPanel() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["File Name", "Status", "Blocks", "Labels", "Date", ""].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("file_name")}>File Name</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("status")}>Status</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("blocks")}>Blocks</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("labels")}>Labels</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("date")}>Date</th>
+                    <th style={TH_STYLE} hidden={!visibleColumns.has("actions")}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {uploads.map(u => (
                     <tr key={u.id} style={{ cursor: "pointer" }} onClick={() => selectUpload(u)}>
-                      <td style={TD_STYLE}>{u.file_name}</td>
-                      <td style={TD_STYLE}><StatusBadge status={u.parse_status} /></td>
-                      <td style={TD_STYLE}>{u.parse_summary?.blocks_found ?? "—"}</td>
-                      <td style={TD_STYLE}>{u.parse_summary?.total_labels?.toLocaleString() ?? "—"}</td>
-                      <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }}>{new Date(u.uploaded_at).toLocaleDateString()}</td>
-                      <td style={TD_STYLE}>
+                      <td style={TD_STYLE} hidden={!visibleColumns.has("file_name")}>{u.file_name}</td>
+                      <td style={TD_STYLE} hidden={!visibleColumns.has("status")}><StatusBadge status={u.parse_status} /></td>
+                      <td style={TD_STYLE} hidden={!visibleColumns.has("blocks")}>{u.parse_summary?.blocks_found ?? "—"}</td>
+                      <td style={TD_STYLE} hidden={!visibleColumns.has("labels")}>{u.parse_summary?.total_labels?.toLocaleString() ?? "—"}</td>
+                      <td style={{ ...TD_STYLE, color: TH.textMuted, fontSize: 12 }} hidden={!visibleColumns.has("date")}>{fmtDateDisplay(u.uploaded_at)}</td>
+                      <td style={TD_STYLE} hidden={!visibleColumns.has("actions")}>
                         <button onClick={e => { e.stopPropagation(); selectUpload(u); }}
                           style={{ background: "transparent", border: `1px solid ${TH.border}`, borderRadius: 5, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
                           View

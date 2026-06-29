@@ -23,6 +23,7 @@ import {
   downloadMemoryFile,
 } from "./memoryFile";
 import { MentionAutocomplete, expandMentionsForServer } from "./MentionAutocomplete";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 import {
   fileToAttachment,
   imagesFromDataTransferItems,
@@ -777,7 +778,6 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           background: "linear-gradient(180deg, #1E293B 0%, #0F172A 100%)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>✨</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#F1F5F9" }}>Ask Claude</div>
               <div style={{ fontSize: 11, color: "#64748B" }}>Ask me anything ROF related</div>
@@ -832,7 +832,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                   padding: "2px 8px", marginRight: 4, fontFamily: "inherit",
                 }}
               >
-                💡 {insights.length}
+                Insights {insights.length}
               </button>
             )}
             {/* Discoverable link to the operator-facts admin (Tier 2H).
@@ -1327,21 +1327,21 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                         }}
                       />
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <select
+                        <SearchableSelect
                           value={m.captureScope || "self"}
-                          onChange={e => {
-                            const v = e.target.value as "self" | "global";
-                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureScope: v } : x));
+                          onChange={v => {
+                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, captureScope: v as "self" | "global" } : x));
                           }}
-                          style={{
+                          options={[
+                            { value: "self", label: "Just me" },
+                            { value: "global", label: "Everyone" },
+                          ]}
+                          inputStyle={{
                             background: "#0F172A", color: "#F1F5F9",
                             border: "1px solid #334155", borderRadius: 4,
                             padding: "4px 8px", fontSize: 11, fontFamily: "inherit",
                           }}
-                        >
-                          <option value="self">Just me</option>
-                          <option value="global">Everyone</option>
-                        </select>
+                        />
                         <button
                           type="button"
                           onClick={() => captureMessageAsFact(m.id)}
@@ -1376,7 +1376,7 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
               )}
               {m.cached && (
                 <div style={{ marginTop: 6, fontSize: 10, color: "#94A3B8", fontStyle: "italic", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>⚡ Cached answer{typeof m.cachedAgeSeconds === "number" ? ` · ${formatAge(m.cachedAgeSeconds)} ago` : ""}</span>
+                  <span>Cached answer{typeof m.cachedAgeSeconds === "number" ? ` · ${formatAge(m.cachedAgeSeconds)} ago` : ""}</span>
                 </div>
               )}
             </div>

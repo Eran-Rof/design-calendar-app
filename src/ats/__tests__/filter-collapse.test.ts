@@ -171,3 +171,72 @@ describe("filter + collapse: gender filter", () => {
     expect(f.map(r => r.sku).sort()).toEqual(["A", "B"]);
   });
 });
+
+describe("collapse: style aggregate shows the clean style description", () => {
+  const data: ATSRow[] = [
+    row({ sku: "RYB100 - Black", store: "ROF", master_category: "DENIM", master_style: "RYB100", master_description: "LAIDBACK Baggy Fit", onHand: 5 }),
+    row({ sku: "RYB100 - Indigo", store: "ROF", master_category: "DENIM", master_style: "RYB100", master_description: "LAIDBACK Baggy Fit", onHand: 7 }),
+    row({ sku: "RYB200 - Sand", store: "ROF", master_category: "DENIM", master_style: "RYB200", master_description: "SLIM Tapered", onHand: 3 }),
+  ];
+
+  it("style-level collapse surfaces master_description (not the '(N items)' count)", () => {
+    const collapsed = collapseRows(sortRows(data, null, "asc"), "style", new Set());
+    const ryb100 = collapsed.find(r => r.master_style === "RYB100")!;
+    expect(ryb100.__collapsed?.level).toBe("style");
+    expect(ryb100.master_description).toBe("LAIDBACK Baggy Fit"); // grid cell renders master_description ?? description
+    expect(ryb100.description).toBe("(2 items)");                 // count preserved as the fallback
+    const ryb200 = collapsed.find(r => r.master_style === "RYB200")!;
+    expect(ryb200.master_description).toBe("SLIM Tapered");
+  });
+
+  it("category-level collapse keeps the count (no single style description)", () => {
+    const collapsed = collapseRows(sortRows(data, null, "asc"), "category", new Set());
+    const denim = collapsed.find(r => r.master_category === "DENIM")!;
+    expect(denim.master_description).toBeNull();
+    expect(denim.description).toBe("(3 items)");
+  });
+
+  it("style-level collapse with no clean description falls back to the count", () => {
+    const noDesc: ATSRow[] = [
+      row({ sku: "RYB300 - Red", store: "ROF", master_category: "TOPS", master_style: "RYB300", master_description: null, onHand: 1 }),
+    ];
+    const collapsed = collapseRows(sortRows(noDesc, null, "asc"), "style", new Set());
+    const ryb300 = collapsed.find(r => r.master_style === "RYB300")!;
+    expect(ryb300.master_description).toBeNull();
+    expect(ryb300.description).toBe("(1 items)");
+  });
+});
+
+// Regression: Excel export was sourced from the collapse-aware row set, so a
+// collapsed grid exported NOTHING (the export drops `__collapsed` aggregates)
+// and prepack rows lost their ppkMult. The fix feeds the export the LEAF set
+// (sortedLeaves) regardless of grid collapse. This test pins the invariant the
+// export relies on: leaf rows survive the export's `!__collapsed` filter and
+// keep ppkMult; the collapsed set does not.
+describe("export uses leaf rows on any grid view (blank-on-collapse + PPK explode regression)", () => {
+  const leaves: ATSRow[] = [
+    row({ sku: "RYB100PPK - Black", store: "ROF", master_category: "DENIM", master_style: "RYB100PPK", onHand: 240, ppkMult: 24 }),
+    row({ sku: "RYB100PPK - Indigo", store: "ROF", master_category: "DENIM", master_style: "RYB100PPK", onHand: 120, ppkMult: 24 }),
+    row({ sku: "RYB200 - Sand", store: "ROF", master_category: "DENIM", master_style: "RYB200", onHand: 7, ppkMult: 1 }),
+  ];
+  // Mirror NavBar.prepareExportArgs: baseRows.filter(r => !r.__collapsed).
+  const exportSelect = (rows: ATSRow[]) => rows.filter(r => !r.__collapsed);
+
+  it("collapsed display set exports BLANK (the bug); leaf set exports every row", () => {
+    const collapsedSet = collapseRows(sortRows(leaves, null, "asc"), "style", new Set());
+    expect(exportSelect(collapsedSet)).toHaveLength(0); // aggregates only → dropped → blank
+    // sortedLeaves is what the export now uses — collapse never applied.
+    const leafSet = sortRows(leaves, null, "asc");
+    expect(exportSelect(leafSet).map(r => r.sku).sort()).toEqual(["RYB100PPK - Black", "RYB100PPK - Indigo", "RYB200 - Sand"]);
+  });
+
+  it("leaf rows retain ppkMult so the export can explode PPK quantities", () => {
+    const leafSet = exportSelect(sortRows(leaves, null, "asc"));
+    const ppk = leafSet.filter(r => (r.ppkMult ?? 1) > 1);
+    expect(ppk.map(r => r.ppkMult)).toEqual([24, 24]);
+    // explodePpk=true → qty shown as-is (already unit-grain); off → / ppkMult.
+    const black = leafSet.find(r => r.sku === "RYB100PPK - Black")!;
+    expect(black.onHand).toBe(240);                 // exploded units
+    expect(black.onHand / (black.ppkMult ?? 1)).toBe(10); // pack-grain
+  });
+});

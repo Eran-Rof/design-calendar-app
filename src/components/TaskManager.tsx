@@ -5,6 +5,7 @@ import { DEFAULT_TASK_TEMPLATES, STATUS_CONFIG } from "../utils/constants";
 import { SB_URL, SB_KEY } from "../utils/supabase";
 import { uid } from "../utils/dates";
 import { DEFAULT_WIP_TEMPLATES_DC } from "./VendorManager";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // ─── ADD TASK MODAL ───────────────────────────────────────────────────────────
 
@@ -16,7 +17,6 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVen
 
   if (!isAdmin) return (
     <div style={{ padding: "20px", textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
-      <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
       <div style={{ fontWeight: 600, color: TH.text, marginBottom: 4 }}>Admin Only</div>
       <div>Only admins can manage task templates.</div>
     </div>
@@ -157,11 +157,17 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVen
         </div>
         <div>
           <label style={S.lbl}>Position — Place After</label>
-          <select style={S.inp} value={insertAfter} onChange={e => handlePositionChange(e.target.value)}>
-            <option value="__start__">— Beginning (first task)</option>
-            {templates.filter(t => t.id !== form.id).map(t => <option key={t.id} value={t.id}>After: {t.phase}</option>)}
-            <option value="__end__">— End (last task)</option>
-          </select>
+          <SearchableSelect
+            theme="light"
+            value={insertAfter || null}
+            onChange={v => handlePositionChange(v)}
+            options={[
+              { value: "__start__", label: "— Beginning (first task)" },
+              ...templates.filter(t => t.id !== form.id).map(t => ({ value: t.id, label: `After: ${t.phase}` })),
+              { value: "__end__", label: "— End (last task)" },
+            ]}
+            inputStyle={S.inp}
+          />
         </div>
       </div>
 
@@ -209,9 +215,13 @@ function TaskManager({ taskTemplates, setTaskTemplates, isAdmin, vendors, setVen
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
         <div>
           <label style={S.lbl}>Default Status</label>
-          <select style={S.inp} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-            {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            theme="light"
+            value={form.status || null}
+            onChange={v => setForm(f => ({ ...f, status: v }))}
+            options={Object.keys(STATUS_CONFIG).map(s => ({ value: s, label: s }))}
+            inputStyle={S.inp}
+          />
         </div>
         <div />
       </div>

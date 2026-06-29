@@ -68,6 +68,12 @@ export interface PlanningGridRowProps {
   onUpdateTbdCustomer?: (row: IpPlanningGridRow, id: string, name: string) => Promise<void>;
   onAddTbdNewCustomer?: (row: IpPlanningGridRow, name: string) => Promise<void>;
   onDeleteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // Promote a planner-added new style+color into the company masters
+  // (ip_item_master + style_master) so it's visible in Tangerine + ATS.
+  onPromoteTbdRow?: (row: IpPlanningGridRow) => Promise<void>;
+  // style|color keys already promoted this session — flips the button to a
+  // read-only "✓ in DB" so the planner doesn't re-promote.
+  promotedTbdKeys?: Set<string>;
   onUpdateSystemOverride: (forecastId: string, qty: number | null) => Promise<void>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   saveAggBuyerOrOverride: (
@@ -111,6 +117,8 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
     onUpdateTbdCustomer,
     onAddTbdNewCustomer,
     onDeleteTbdRow,
+    onPromoteTbdRow,
+    promotedTbdKeys,
     onUpdateSystemOverride,
     onUpdateUnitCost,
     saveAggBuyerOrOverride,
@@ -237,10 +245,13 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
               <span
                 style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 11 }}
                 title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
-              >⚠</span>
+              >•</span>
             )}
           </>
         )}
+      </td>
+      <td style={{ ...S.td, color: PAL.textDim, textAlign: "center", ...colHide("inseam") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
+        {r.sku_inseam ?? "—"}
       </td>
       <td style={{ ...S.td, padding: r.is_tbd ? "0 4px" : undefined, ...colHide("customer") }} onClick={(e) => { if (r.is_tbd) e.stopPropagation(); }}>
         {!r.is_aggregate && r.is_tbd && onUpdateTbdCustomer ? (
@@ -254,6 +265,36 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
               onSave={(id, name) => onUpdateTbdCustomer(r, id, name)}
               onAddNew={onAddTbdNewCustomer ? (name) => onAddTbdNewCustomer(r, name) : undefined}
             />
+            {r.is_user_added && onPromoteTbdRow
+              && r.sku_style && r.sku_style.toUpperCase() !== "TBD"
+              && r.sku_color && r.sku_color.toUpperCase() !== "TBD"
+              && (() => {
+                const promoted = promotedTbdKeys?.has(`${r.sku_style}|${r.sku_color}`);
+                return promoted ? (
+                  <span
+                    title="Added to the company database (Tangerine + ATS)"
+                    style={{ color: PAL.green, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}
+                  >✓ in DB</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); void onPromoteTbdRow(r); }}
+                    title={`Add "${r.sku_style} / ${r.sku_color}" to the company database (Style Master + item master) so it shows in Tangerine + ATS. Someone will be notified to complete the details.`}
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${PAL.accent}`,
+                      color: PAL.accent,
+                      borderRadius: 6,
+                      padding: "1px 6px",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      lineHeight: 1.2,
+                      whiteSpace: "nowrap",
+                    }}
+                  >Add to DB</button>
+                );
+              })()}
             {r.is_user_added && onDeleteTbdRow && (
               <button
                 type="button"

@@ -24,7 +24,6 @@ import { S, PAL } from "../../components/styles";
 import { TabButton } from "../../components/TabButton";
 import PlanningRunControls from "../../panels/PlanningRunControls";
 import Toast, { type ToastMessage } from "../../components/Toast";
-import StaleDataBanner from "../../shared/components/StaleDataBanner";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import EcomPlanningGrid from "./EcomPlanningGrid";
 import EcomForecastChart from "./EcomForecastChart";
@@ -191,29 +190,8 @@ export default function EcomPlanningWorkbench() {
 
   return (
     <div style={S.app}>
-      <div style={S.nav}>
-        <div style={S.navLeft}>
-          <div style={S.navLogo}>IP</div>
-          <div>
-            <div style={S.navTitle}>Demand & Inventory Planning</div>
-            <div style={S.navSub}>Ecom workbench · Phase 2</div>
-          </div>
-        </div>
-        <div style={S.navRight}>
-          <a href="/planning/wholesale" style={{ ...S.btnSecondary, textDecoration: "none" }}>Wholesale</a>
-          <a href="/planning/supply" style={{ ...S.btnSecondary, textDecoration: "none" }}>Supply →</a>
-          <a href="/planning/scenarios" style={{ ...S.btnSecondary, textDecoration: "none" }} title="What-if scenarios, base vs scenario diff, exports & approvals">Scenarios</a>
-          <a href="/planning/data-quality" style={{ ...S.btnSecondary, textDecoration: "none" }}>Data quality</a>
-          <a href="/" style={{ ...S.btnSecondary, textDecoration: "none" }}>Back to PLM</a>
-        </div>
-      </div>
-
       <div style={S.content}>
         <SystemHealthBanner />
-        <StaleDataBanner
-          watch={["shopify_orders", "shopify_products", "ecom_forecast"]}
-          dismissKey="ecom_workbench"
-        />
         <PlanningRunControls
           runs={runs}
           selectedRunId={selectedRunId}

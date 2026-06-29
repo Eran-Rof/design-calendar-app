@@ -1,7 +1,7 @@
 // Spec sheet templates modal extracted from TechPack.tsx. Grid of
 // both built-in (BUILTIN_TEMPLATES) and planner-uploaded templates.
 // Per-card actions: Use Template (pre-fills the create modal),
-// Download Excel (blank-rows template), 🗑️ Delete (planner-uploaded
+// Download Excel (blank-rows template), Delete (planner-uploaded
 // only — built-ins can't be deleted).
 //
 // The Use / Download / Upload handlers flow back through props so
@@ -91,7 +91,7 @@ export function TemplatesModal({
                     onMouseEnter={e => e.currentTarget.style.color = "#EF4444"}
                     onMouseLeave={e => e.currentTarget.style.color = "#6B7280"}
                     onClick={() => onDelete(t)}
-                  >🗑️</button>
+                  >Delete</button>
                 )}
               </div>
               <div style={{ color: "#94A3B8", fontSize: 12, lineHeight: 1.5 }}>{t.description}</div>
@@ -123,7 +123,6 @@ export function TemplatesModal({
           ))}
           {allTemplates.length === 0 && (
             <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "#6B7280" }}>
-              <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
               <p>No templates yet. Upload an Excel file to create one.</p>
             </div>
           )}

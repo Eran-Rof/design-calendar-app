@@ -11,6 +11,7 @@
 // input and preserves the typed order exactly.
 
 import { useEffect, useState } from "react";
+import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -23,6 +24,7 @@ const SIZE_SCALE_COLUMNS: ColumnDef[] = [
   { key: "code",      label: "Code" },
   { key: "name",      label: "Name" },
   { key: "sizes",     label: "Sizes" },
+  { key: "inseams",   label: "Inseams" },
   { key: "is_active", label: "Active" },
 ];
 
@@ -32,6 +34,7 @@ type SizeScale = {
   code: string;
   name: string;
   sizes: string[];
+  inseams: string[];
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -60,14 +63,19 @@ const inputStyle: React.CSSProperties = {
 // Chunk M — greyed, read-only display for server-generated codes (operator item 14).
 const readonlyCodeStyle: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, border: `1px dashed ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  // Narrower than the full grid column (the code is always ~11 chars), and
+  // flex-centered with no extra minHeight so its height matches the Name input.
+  width: "calc(100% - 10ch)", boxSizing: "border-box",
+  display: "flex", alignItems: "center",
   fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600,
-  minHeight: 19, opacity: 0.85,
+  opacity: 0.85,
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -89,7 +97,7 @@ export default function InternalSizeScales() {
   const [rows, setRows] = useState<SizeScale[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<SizeScale | null>(null);
@@ -100,7 +108,7 @@ export default function InternalSizeScales() {
   // create flow shifts every scale with sort_order > insertBelowOrder by +1.
   const [insertBelowOrder, setInsertBelowOrder] = useState<number | null>(null);
 
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     SIZE_SCALES_TABLE_KEY,
     SIZE_SCALE_COLUMNS,
   );
@@ -117,7 +125,7 @@ export default function InternalSizeScales() {
     setErr(null);
     try {
       const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
+      if (qDebounced.trim()) params.set("q", qDebounced.trim());
       if (includeInactive) params.set("include_inactive", "true");
       const r = await fetch(`/api/internal/size-scales?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -129,7 +137,7 @@ export default function InternalSizeScales() {
     }
   }
 
-  useEffect(() => { void load(); }, [includeInactive]);
+  useEffect(() => { void load(); }, [qDebounced, includeInactive]);
 
   // Close the context menu on outside-click or Esc.
   useEffect(() => {
@@ -209,7 +217,6 @@ export default function InternalSizeScales() {
           placeholder="Search code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -224,18 +231,20 @@ export default function InternalSizeScales() {
         <ExportButton
           rows={rows.map((r) => ({
             ...r,
-            sizes_joined: Array.isArray(r.sizes) ? r.sizes.join(" · ") : "",
+            sizes_joined:   Array.isArray(r.sizes) ? r.sizes.join(" · ") : "",
+            inseams_joined: Array.isArray(r.inseams) ? r.inseams.join(" · ") : "",
           })) as unknown as Array<Record<string, unknown>>}
           filename="size-scales"
           sheetName="Size Scales"
           columns={[
-            { key: "code",         header: "Code" },
-            { key: "name",         header: "Name" },
-            { key: "sizes_joined", header: "Sizes" },
-            { key: "sort_order",   header: "Sort", format: "number" },
-            { key: "is_active",    header: "Active" },
-            { key: "created_at",   header: "Created", format: "datetime" },
-            { key: "updated_at",   header: "Updated", format: "datetime" },
+            { key: "code",           header: "Code" },
+            { key: "name",           header: "Name" },
+            { key: "sizes_joined",   header: "Sizes" },
+            { key: "inseams_joined", header: "Inseams" },
+            { key: "sort_order",     header: "Sort", format: "number" },
+            { key: "is_active",      header: "Active" },
+            { key: "created_at",     header: "Created", format: "datetime" },
+            { key: "updated_at",     header: "Updated", format: "datetime" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
         <TablePrefsButton
@@ -244,6 +253,7 @@ export default function InternalSizeScales() {
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 
@@ -253,7 +263,7 @@ export default function InternalSizeScales() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -268,6 +278,7 @@ export default function InternalSizeScales() {
                 <th style={th} hidden={!isVisible("code")}>Code</th>
                 <th style={th} hidden={!isVisible("name")}>Name</th>
                 <th style={th} hidden={!isVisible("sizes")}>Sizes</th>
+                <th style={th} hidden={!isVisible("inseams")}>Inseams</th>
                 <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
@@ -292,6 +303,11 @@ export default function InternalSizeScales() {
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sizes")}>
                     {Array.isArray(ss.sizes) ? ss.sizes.join(" · ") : ""}
                   </td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("inseams")}>
+                    {Array.isArray(ss.inseams) && ss.inseams.length > 0
+                      ? ss.inseams.join(" · ")
+                      : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
                   <td style={td} hidden={!isVisible("is_active")}>{ss.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(ss); }} style={btnSecondary}>Edit</button>
@@ -314,10 +330,10 @@ export default function InternalSizeScales() {
           }}
         >
           <button style={ctxMenuItem} onClick={() => startAddBelow(menu.row)}>
-            ➕ Add size scale below
+            Add size scale below
           </button>
           <button style={ctxMenuItem} onClick={() => { const r = menu.row; setMenu(null); setEditing(r); }}>
-            ✏️ Edit
+            Edit
           </button>
         </div>
       )}
@@ -358,16 +374,19 @@ interface ModalProps {
 
 function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
-    name:       scale?.name ?? "",
-    sizesText:  scale?.sizes ? scale.sizes.join(", ") : "",
-    sort_order: scale?.sort_order != null ? String(scale.sort_order)
+    name:        scale?.name ?? "",
+    sizesText:   scale?.sizes ? scale.sizes.join(", ") : "",
+    inseamsText: scale?.inseams ? scale.inseams.join(", ") : "",
+    sort_order:  scale?.sort_order != null ? String(scale.sort_order)
       : seedSortOrder != null ? String(seedSortOrder) : "0",
-    is_active:  scale?.is_active ?? true,
+    is_active:   scale?.is_active ?? true,
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const parsedSizes = parseSizes(form.sizesText);
+  // Inseams parse the same way as sizes; an empty list is valid (size-only scale).
+  const parsedInseams = parseSizes(form.inseamsText);
 
   async function submit() {
     setSubmitting(true);
@@ -388,6 +407,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         body = {
           name:       form.name.trim(),
           sizes:      parsedSizes,
+          inseams:    parsedInseams,
           sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
           is_active:  form.is_active,
         };
@@ -398,6 +418,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
         body = {
           name:       form.name.trim(),
           sizes:      parsedSizes,
+          inseams:    parsedInseams,
           sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
           is_active:  form.is_active,
         };
@@ -423,7 +444,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, minWidth: 520, maxWidth: 640, color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {mode === "add" ? "Add size scale" : `Edit ${scale!.code}`}
@@ -454,7 +475,7 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
               step="1"
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
-              style={inputStyle}
+              style={{ ...inputStyle, width: "calc(100% - 10ch)", boxSizing: "border-box" }}
               placeholder="0"
             />
           </Field>
@@ -482,16 +503,34 @@ function SizeScaleFormModal({ mode, scale, seedSortOrder, beforeCreate, onClose,
           </Field>
         </div>
 
+        <div style={{ marginTop: 12 }}>
+          <Field label="Inseams (comma-separated, in order) — optional, for bottoms">
+            <input
+              type="text"
+              value={form.inseamsText}
+              onChange={(e) => setForm({ ...form, inseamsText: e.target.value })}
+              style={inputStyle}
+              placeholder="30, 32, 34  (leave blank for tops / accessories)"
+            />
+          </Field>
+        </div>
+
         <div style={{
           marginTop: 14, padding: "10px 12px",
           background: "#0b1220", border: `1px dashed ${C.cardBdr}`,
           borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6,
         }}>
-          <div style={{ marginBottom: 6 }}>Preview ({parsedSizes.length} size{parsedSizes.length === 1 ? "" : "s"}, in order):</div>
+          <div style={{ marginBottom: 6 }}>Sizes preview ({parsedSizes.length} size{parsedSizes.length === 1 ? "" : "s"}, in order):</div>
           {parsedSizes.length === 0 ? (
             <span style={{ fontStyle: "italic" }}>Type comma-separated sizes above to preview the ordered scale.</span>
           ) : (
             <div>{parsedSizes.map((s, i) => <span key={`${s}-${i}`} style={chipStyle}>{s}</span>)}</div>
+          )}
+          <div style={{ marginTop: 10, marginBottom: 6 }}>Inseams preview ({parsedInseams.length} inseam{parsedInseams.length === 1 ? "" : "s"}, in order):</div>
+          {parsedInseams.length === 0 ? (
+            <span style={{ fontStyle: "italic" }}>No inseams — a size-only scale (tops, accessories). Add inseams for pants / shorts.</span>
+          ) : (
+            <div>{parsedInseams.map((s, i) => <span key={`in-${s}-${i}`} style={chipStyle}>{s}&quot;</span>)}</div>
           )}
         </div>
 

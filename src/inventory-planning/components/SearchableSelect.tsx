@@ -3,7 +3,7 @@
 // sub-cats). Same value/onChange contract as a native select with an "all"
 // sentinel for the "no filter" option.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { S, PAL } from "./styles";
 
 export interface SearchableSelectProps {
@@ -24,6 +24,22 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelLeave = useCallback(() => {
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelLeave();
+    leaveTimerRef.current = setTimeout(() => {
+      setOpen(false);
+      setQuery("");
+    }, 200);
+  }, [cancelLeave]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -58,7 +74,7 @@ export function SearchableSelect({
   }
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }} onMouseEnter={cancelLeave} onMouseLeave={scheduleClose}>
       <button
         type="button"
         style={{

@@ -16,6 +16,7 @@ import { useState } from "react";
 import type { CreateTechPackFormValues } from "../factories";
 import { subCategoriesFor, type CategoryLike } from "../listLogic";
 import { CATEGORIES } from "../constants";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 interface DCBrand { id: string; name: string; }
@@ -156,20 +157,30 @@ export function CreateModal({
             <div>
               <label style={S.label}>Brand</label>
               <div style={{ display: "flex", gap: 6 }}>
-                <select style={{ ...S.select, flex: 1 }} value={createForm.brand} onChange={e => setCreateForm(f => ({ ...f, brand: e.target.value }))}>
-                  <option value="">Select brand...</option>
-                  {dcBrands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-                </select>
+                <div style={{ flex: 1 }}>
+                  <SearchableSelect
+                    value={createForm.brand || null}
+                    onChange={v => setCreateForm(f => ({ ...f, brand: v }))}
+                    options={dcBrands.map(b => ({ value: b.name, label: b.name }))}
+                    placeholder="Select brand..."
+                    inputStyle={S.select}
+                  />
+                </div>
                 <button style={S.btnSmall} title="Add new brand" onClick={onAddBrand}>+</button>
               </div>
             </div>
             <div>
               <label style={S.label}>Season</label>
               <div style={{ display: "flex", gap: 6 }}>
-                <select style={{ ...S.select, flex: 1 }} value={createForm.season} onChange={e => setCreateForm(f => ({ ...f, season: e.target.value }))}>
-                  <option value="">Select season...</option>
-                  {dcSeasons.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <div style={{ flex: 1 }}>
+                  <SearchableSelect
+                    value={createForm.season || null}
+                    onChange={v => setCreateForm(f => ({ ...f, season: v }))}
+                    options={dcSeasons.map(s => ({ value: s, label: s }))}
+                    placeholder="Select season..."
+                    inputStyle={S.select}
+                  />
+                </div>
                 <button style={S.btnSmall} title="Add new season" onClick={onAddSeason}>+</button>
               </div>
             </div>
@@ -179,17 +190,23 @@ export function CreateModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div>
               <label style={S.label}>Gender</label>
-              <select style={{ ...S.select, width: "100%" }} value={createForm.gender} onChange={e => setCreateForm(f => ({ ...f, gender: e.target.value }))}>
-                <option value="">Select gender...</option>
-                {dcGenders.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
+              <SearchableSelect
+                value={createForm.gender || null}
+                onChange={v => setCreateForm(f => ({ ...f, gender: v }))}
+                options={dcGenders.map(g => ({ value: g, label: g }))}
+                placeholder="Select gender..."
+                inputStyle={{ ...S.select, width: "100%" }}
+              />
             </div>
             <div>
               <label style={S.label}>Vendor</label>
-              <select style={{ ...S.select, width: "100%" }} value={createForm.vendor} onChange={e => setCreateForm(f => ({ ...f, vendor: e.target.value }))}>
-                <option value="">Select vendor...</option>
-                {dcVendors.map(v => <option key={v.id} value={v.name}>{v.name}{v.country ? ` (${v.country})` : ""}</option>)}
-              </select>
+              <SearchableSelect
+                value={createForm.vendor || null}
+                onChange={v => setCreateForm(f => ({ ...f, vendor: v }))}
+                options={dcVendors.map(v => ({ value: v.name, label: `${v.name}${v.country ? ` (${v.country})` : ""}` }))}
+                placeholder="Select vendor..."
+                inputStyle={{ ...S.select, width: "100%" }}
+              />
             </div>
           </div>
 
@@ -197,20 +214,27 @@ export function CreateModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div>
               <label style={S.label}>Category</label>
-              <select style={{ ...S.select, width: "100%" }} value={createForm.category} onChange={e => setCreateForm(f => ({ ...f, category: e.target.value, subCategory: "" }))}>
-                <option value="">Select category...</option>
-                {dcCategories.length > 0
-                  ? dcCategories.map((c: any) => <option key={c.id ?? c.name} value={c.name}>{c.name}</option>)
-                  : CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)
+              <SearchableSelect
+                value={createForm.category || null}
+                onChange={v => setCreateForm(f => ({ ...f, category: v, subCategory: "" }))}
+                options={dcCategories.length > 0
+                  ? dcCategories.map((c: any) => ({ value: c.name, label: c.name }))
+                  : CATEGORIES.map(c => ({ value: c, label: c }))
                 }
-              </select>
+                placeholder="Select category..."
+                inputStyle={{ ...S.select, width: "100%" }}
+              />
             </div>
             <div>
               <label style={S.label}>Sub Category</label>
-              <select style={{ ...S.select, width: "100%", opacity: subCats.length === 0 ? 0.5 : 1 }} value={createForm.subCategory} onChange={e => setCreateForm(f => ({ ...f, subCategory: e.target.value }))} disabled={subCats.length === 0}>
-                <option value="">{subCats.length === 0 ? "Select category first" : "Select sub category..."}</option>
-                {subCats.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={createForm.subCategory || null}
+                onChange={v => setCreateForm(f => ({ ...f, subCategory: v }))}
+                options={subCats.map(s => ({ value: s, label: s }))}
+                placeholder={subCats.length === 0 ? "Select category first" : "Select sub category..."}
+                disabled={subCats.length === 0}
+                inputStyle={{ ...S.select, width: "100%", opacity: subCats.length === 0 ? 0.5 : 1 }}
+              />
             </div>
           </div>
 

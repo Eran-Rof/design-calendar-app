@@ -7,12 +7,17 @@
 // gl_detail(p_account_id, p_from, p_to).
 //
 // Query params:
-//   account_id = UUID       (required)
-//   from       = YYYY-MM-DD (required)
-//   to         = YYYY-MM-DD (required)
+//   account_id = UUID            (required)
+//   from       = YYYY-MM-DD      (required)
+//   to         = YYYY-MM-DD      (required)
+//   basis      = ACCRUAL | CASH  (optional; default ACCRUAL)
+//
+// When a basis is supplied the basis-aware gl_detail_b RPC is used so the
+// drill-down matches the basis the financial report is showing; ACCRUAL/absent
+// stays on the original gl_detail RPC for backwards compatibility.
 //
 // Response shape:
-//   { account_id, from, to, rows: [{ posting_date, je_id, description,
+//   { account_id, from, to, basis, rows: [{ posting_date, je_id, description,
 //     debit_cents, credit_cents, running_balance_cents, source_module, source_id }] }
 
 import { createClient } from "@supabase/supabase-js";
@@ -21,6 +26,7 @@ export const config = { maxDuration: 30 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const VALID_BASIS = new Set(["ACCRUAL", "CASH"]);
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -65,6 +71,7 @@ export function validateQuery(params) {
   const accountId = (params.get("account_id") || "").trim();
   const fromRaw = (params.get("from") || "").trim();
   const toRaw = (params.get("to") || "").trim();
+  const basisRaw = (params.get("basis") || "").trim().toUpperCase();
 
   if (!accountId)         return { error: "account_id is required (UUID)" };
   if (!isUuid(accountId)) return { error: "account_id must be a UUID" };
@@ -73,8 +80,11 @@ export function validateQuery(params) {
   if (!isISODate(fromRaw)) return { error: "from must be YYYY-MM-DD" };
   if (!isISODate(toRaw))   return { error: "to must be YYYY-MM-DD" };
   if (fromRaw > toRaw)     return { error: "from must be on or before to" };
+  if (basisRaw && !VALID_BASIS.has(basisRaw)) {
+    return { error: "basis must be ACCRUAL or CASH" };
+  }
 
-  return { data: { account_id: accountId, from: fromRaw, to: toRaw } };
+  return { data: { account_id: accountId, from: fromRaw, to: toRaw, basis: basisRaw || "ACCRUAL" } };
 }
 
 export default async function handler(req, res) {
@@ -97,17 +107,28 @@ export default async function handler(req, res) {
   if (!check.ok) return res.status(check.status).json({ error: check.error });
 
   try {
-    const { data, error } = await admin.rpc("gl_detail", {
-      p_account_id: v.data.account_id,
-      p_from: v.data.from,
-      p_to: v.data.to,
-    });
+    // CASH (or any explicit basis) uses the basis-aware RPC; ACCRUAL stays on
+    // the original gl_detail for backwards compatibility.
+    const useBasisAware = v.data.basis && v.data.basis !== "ACCRUAL";
+    const { data, error } = useBasisAware
+      ? await admin.rpc("gl_detail_b", {
+          p_account_id: v.data.account_id,
+          p_from: v.data.from,
+          p_to: v.data.to,
+          p_basis: v.data.basis,
+        })
+      : await admin.rpc("gl_detail", {
+          p_account_id: v.data.account_id,
+          p_from: v.data.from,
+          p_to: v.data.to,
+        });
     if (error) return res.status(500).json({ error: error.message });
 
     return res.status(200).json({
       account_id: v.data.account_id,
       from: v.data.from,
       to: v.data.to,
+      basis: v.data.basis,
       rows: data || [],
     });
   } catch (e) {

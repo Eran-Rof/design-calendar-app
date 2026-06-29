@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Report {
   id: string;
@@ -78,13 +80,18 @@ export default function InternalSustainability() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Review vendor submissions. Approval triggers ESG score calculation.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="submitted">Submitted</option>
-            <option value="under_review">Under review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={status}
+            onChange={(v) => setStatus(v)}
+            options={[
+              { value: "submitted", label: "Submitted" },
+              { value: "under_review", label: "Under review" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows.map((r) => ({ ...r, vendor_name: r.vendor?.name || r.vendor_id, certifications_list: (r.certifications || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
             filename="sustainability-reports"
@@ -123,7 +130,7 @@ export default function InternalSustainability() {
               <div style={{ fontWeight: 600 }}>{r.vendor?.name || r.vendor_id}</div>
               <div style={{ color: C.textSub }}>{r.reporting_period_start} → {r.reporting_period_end}</div>
               <div><StatusChip status={r.status} /></div>
-              <div style={{ color: C.textMuted, fontSize: 11 }}>{new Date(r.submitted_at).toLocaleDateString()}</div>
+              <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(r.submitted_at)}</div>
               <div style={{ textAlign: "right" }}>
                 <button onClick={() => setSelected(r)} style={btnSecondary}>Review</button>
               </div>
@@ -194,6 +201,6 @@ function StatusChip({ status }: { status: string }) {
   return <span style={{ fontSize: 10, color: "#fff", background: color, padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{status.replace("_", " ")}</span>;
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;

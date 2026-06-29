@@ -11,6 +11,7 @@ import { fmtCurrency } from "../utils";
 import { filterMaterials } from "../listLogic";
 import { MATERIAL_TYPES } from "../constants";
 import { EMPTY_MATERIAL_FORM, type MaterialFormValues } from "../factories";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 export interface MaterialsViewProps {
@@ -85,16 +86,18 @@ export function MaterialsView({
           value={matSearch}
           onChange={e => setMatSearch(e.target.value)}
         />
-        <select style={S.select} value={matTypeFilter} onChange={e => setMatTypeFilter(e.target.value)}>
-          <option value="">All Types</option>
-          {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <SearchableSelect
+          value={matTypeFilter || null}
+          onChange={v => setMatTypeFilter(v)}
+          options={[{ value: "", label: "All Types" }, ...MATERIAL_TYPES.map(t => ({ value: t, label: t }))]}
+          placeholder="All Types"
+          inputStyle={S.select}
+        />
         <span style={{ color: "#6B7280", fontSize: 13 }}>{filteredMats.length} materials</span>
       </div>
 
       {filteredMats.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={{ fontSize: 40 }}>🧵</div>
           <p>No materials found. Add your first material!</p>
         </div>
       ) : (
@@ -123,7 +126,7 @@ export function MaterialsView({
                 ))}
               </span>
               <span style={{ width: 60, display: "flex", gap: 4 }}>
-                <button style={S.iconBtn} onClick={() => openEditModal(m)}>✏️</button>
+                <button style={S.iconBtn} onClick={() => openEditModal(m)}>Edit</button>
                 <button
                   style={S.iconBtn}
                   onClick={() => setConfirmDialog({
@@ -131,7 +134,7 @@ export function MaterialsView({
                     message: `Delete "${m.name}"? This cannot be undone.`,
                     onConfirm: () => { void saveMaterials(materials.filter(x => x.id !== m.id)); },
                   })}
-                >🗑️</button>
+                >Delete</button>
               </span>
             </div>
           ))}

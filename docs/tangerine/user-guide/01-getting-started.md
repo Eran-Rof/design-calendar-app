@@ -18,9 +18,13 @@ Both share the same login surface and the same `/tangerine` URL — access is ga
 
 Direct URL: `https://<your-domain>/tangerine`
 
-> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in email appears in the top-right of the top nav with a "Sign out" button next to it.
+> **Note (Chunk T2, 2026-05-26):** Tangerine has its own auth gate — even though the underlying Microsoft OAuth is shared with the other PLM-suite apps, you must explicitly sign in to use Tangerine. If you've already signed in via Design Calendar / Tanda in this browser, Tangerine reuses that session and skips the login screen entirely. The signed-in user appears in the top-right of the top nav (avatar + name) with a "Sign out" button next to it.
+
+> **Nav UX refresh (2026-06-05):** the top-right user area now shows a small **circular avatar** before your name — your Microsoft profile photo if you have one set, otherwise your initials on a coloured circle (the redundant "Signed in" label was removed). Hidden **Procurement** and **Pricing** module groups are now visible in the nav (see below), and every group dropdown lists its panels **alphabetically by name**.
 >
 > **Earlier note (Chunk T1, 2026-05-26):** Tangerine is its own top-level app at `/tangerine` — previously the 6 admin panels were buried inside the Tanda PO WIP app's Vendors flyout. Bookmarks to `/tanda` will no longer find them. Update yours to `/tangerine`.
+
+> **Standalone front door (`/login`, 2026-06-04):** there is now a dedicated, Tangerine-branded sign-in page at **`/login`** (Microsoft-365 only). It's the planned single entry point for the whole suite — sign in once, then launch every app from the 🧩 Apps menu. It's reachable directly today; an already-signed-in browser passes straight through. When the operator flips **`VITE_TANGERINE_AS_HOME=true`** (Vercel), the root `/` redirects here and the legacy PLM launcher is retired (see OPERATOR-TODO). A `?next=<path>` param controls the post-login destination (default `/tangerine`).
 
 ### The login screen
 
@@ -54,19 +58,36 @@ The **very first time** an operator signs into Tangerine with their work Microso
 
 The call is **idempotent**: signing in again does nothing destructive — entity_users uses `ON CONFLICT (auth_id, entity_id) DO NOTHING`, and the employee link only fires when `auth_user_id IS NULL`.
 
-The auto-provision call is **non-blocking** — if it fails (network glitch, server misconfig), the MS sign-in still succeeds and you can still use Tangerine; you'll see a console warning, and you can paste a uuid manually into the relevant panel inputs as a fallback.
+The auto-provision call is **non-blocking** — if it fails (network glitch, server misconfig), the MS sign-in still succeeds and you can still use Tangerine; you'll see a console warning. Panels resolve your identity from the cached sign-in — there are no UUID boxes to paste into; if a user-scoped panel can't find your identity, sign out and back in to refresh it.
 
 > **What this replaces:** the old workaround was three manual steps — open Supabase dashboard → Auth → Add user → paste email → click Create; then SQL editor → `INSERT INTO entity_users (auth_id, entity_id, role) VALUES (...)`; then `UPDATE employees SET auth_user_id = ... WHERE code='EB001'`. All three are now automatic on the first sign-in.
 
 ### Signing out
 
-In the top-right of the Tangerine top nav, you'll see your signed-in email with a "Sign out" button next to it. Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
+In the top-right of the Tangerine top nav, you'll see your avatar + name with a "Sign out" button next to it (hover the name for your email). Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
 
 Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. They share the same MS token but each has its own session lifecycle.
 
 ## The Tangerine nav layout
 
-Tangerine has its own **independent top nav** with **7 group dropdowns** across the top + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each group dropdown opens a menu of the modules in that group; clicking a module navigates and closes the dropdown.
+Tangerine has its own **independent top nav** with **section dropdowns** across the top (Master Data · Accounting · **Treasury** · Vendors · **Procurement** · Inventory · Sales · Customers · **ESG** · Admin) + an Apps launcher dropdown on the right that links out to the other PLM-suite apps. Each section dropdown nests its module groups; clicking a module navigates and closes the dropdown. Within any dropdown, **modules are listed alphabetically by name** so destinations are easy to scan. The **browser tab title follows the open module** — e.g. opening Journal Entries sets the tab to "Journal Entries · Tangerine" — so multiple Tangerine tabs are easy to tell apart.
+
+> **Procurement & Pricing now visible (2026-06-05):** the **🚚 Procurement** section (Purchase Orders · Receiving · QC Inspections · Customs Entries · Broker Invoices · 3-Way Match · Procurement Recon · Bookkeeper Approval · EDI) is its own top-level dropdown, placed right after **Vendors**. The **Pricing** group (Price Lists · Promotions) now appears inside the **🛒 Sales** dropdown. Both were built but previously hidden because their groups weren't mapped into any nav section.
+
+> **26 more panels surfaced (2026-06-05):** another wave of built-but-hidden Tangerine panels is now reachable from the nav:
+> - **💰 Treasury** (new top-level section): **Payments · Reconciliation · FX · Virtual Cards · Supply Chain Finance · Discount Offers · Tax**. "Reconciliation" is the parallel-run recon dashboard (AP/AR/Cash/GL/Inventory variance tracking).
+> - **🌱 ESG** (new top-level section) → **ESG & Compliance** group: **Sustainability · ESG Scores · Diversity · Compliance Audit · Compliance Automation**.
+> - **Workflow** group folded into the **🔧 Admin** dropdown: **Workflow Rules · Approvals Queue · Workspaces**.
+> - **📊 Reports** dropdown gains **Analytics · Insights · Anomalies · Benchmark · Preferred Vendors**.
+
+> **Vendor Health moved to Vendors (2026-06-05):** the old **Reports → Health Scores** panel is now **🏭 Vendors → ❤️ Vendor Health** (same panel, same `?m=health_scores` route — just relocated and renamed). Each vendor's overall health score also now appears as a tile in that vendor's **Vendor Scorecard** header.
+> - **🚚 Procurement** gains **RFQs** (the RFQ list; an individual RFQ's detail view still opens from a row).
+> - **🛒 Marketplaces** (inside Sales) gains **Marketplace** (vendor-sourcing listings) and **Marketplace Inquiries**.
+> - **🔧 Admin** gains **Entities** (entity registry; edit branding from a row) and **Onboarding**.
+
+Immediately to the **right of Favorites** (before the section dropdowns) is a **🔍 Find a panel** type-ahead box — start typing a panel name and the closest matches appear; <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> opens the top hit, <kbd>Esc</kbd> clears. It matches on **panel names** (so "master" shows Style/Vendor/Customer Master, not every panel that happens to live in the *Master Data* group); if nothing matches a panel name, it falls back to matching a **group name** so you can still jump by section.
+
+> **Nav now fits any screen (2026-06-05):** with Treasury, ESG and Procurement added, the top nav had grown wide. It's now **responsive** — the section-dropdown row flexes, tightening its spacing and (on narrower screens) **wrapping to a second line** so every group button stays reachable without a horizontal page scrollbar at common widths (1280–1920). **Favorites, 🔍 Find a panel, 🧩 Apps, and your avatar/name stay fixed and always visible**; the Find-a-panel box also moved to sit right after Favorites (see above).
 
 > **Nav layout changed 2026-05-27 night:** the original flat row of 22 module buttons got too crowded after P4 shipped (the Accounting group alone grew to 9 modules). Modules are now grouped under: 📚 Master Data · 💼 Accounting · 📦 Inventory · ✅ Approvals · 🔔 Notifications · 👥 HR · ⚙️ Operations. The active module's parent group is highlighted, so you always know where you are. Click outside or press <kbd>Esc</kbd> to close a dropdown without selecting.
 
@@ -107,7 +128,8 @@ flowchart LR
 
 - **Top-left:** Tangerine logo + "ERP" subtitle. Click anywhere on the logo to return to the home landing.
 - **Center:** 7 group buttons. Click a group to expand a dropdown of its modules. The group whose currently-active module you're on is highlighted. Click outside or press <kbd>Esc</kbd> to close without selecting.
-- **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, Vendor Portal). Clicking any link navigates the browser to that app's URL in the same tab.
+- **Right:** **🧩 Apps ▾** dropdown — opens a grid of the other apps in the suite (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning, **Costing**, Vendor Portal). Clicking any link **opens that app in a new browser tab** (so the shell you're in stays put). The same applies from the PLM home launcher and the Design Calendar header links (T&A, Costing).
+- **Tangerine on the PLM launcher:** the PLM home launcher now also shows a gated **🍊 Tangerine ERP** card (opens `/tangerine` in a new tab). Like every other launcher app it carries a per-user permission — admins grant or revoke it under **PLM → User Management → Tangerine ERP** (default: granted, consistent with the other apps). A user explicitly denied `tangerine` access sees the 🔒 locked tile and is blocked at the `/tangerine` route too. (Microsoft-365 direct sign-in to Tangerine — for users who never touch the PLM launcher — is unaffected.)
 - **📈 Planning (M31):** the standalone Inventory Planning app (forecasting, supply reconciliation, scenarios, accuracy, execution) is surfaced as a first-class **📈 Planning** link in the top nav and as a **Planning (M31)** section on the home landing that deep-links each screen (Wholesale / Ecom / Supply / Scenarios / Accuracy / Execution) — opening in a new tab. It appears only for users with the shared **planning** access permission. Note: Planning still reads its own Xoro/Shopify-backed data; it is not yet wired to live Tangerine sales/inventory/PO data. **Buy plan → Tangerine PO (M31):** in the planning **Execution** screen, an approved buy plan can be turned into **draft native Tangerine purchase orders** (one per vendor) with the **🍊 Create Tangerine POs** button — they land in **Procurement → Purchase Orders** as drafts for you to review + issue. (Requires each planning vendor to be linked to a Tangerine vendor via `ip_vendor_master.portal_vendor_id`.)
 
 **Home landing** (when no module is selected, e.g. just after login): shows module cards organized by the same group structure (Master Data / Accounting / Inventory / Planning / etc.), plus a "Other apps in the suite" grid at the bottom.
@@ -121,6 +143,12 @@ flowchart LR
 ### What happened to the old "Vendors ▾ flyout" location?
 
 Through Chunks 7/7b/7c/8a/8b/8c (May 25-26) the 6 admin panels temporarily lived in the Tanda PO WIP app's "Vendors ▾" dropdown — a poor architectural home for ERP master data. Chunk T1 (2026-05-26) moved them to their own `/tangerine` app and removed them from Tanda's menu entirely. If you have muscle memory pointing at Tanda, retrain it: **the panels are at `/tangerine`** now.
+
+## UI conventions
+
+### Search filters as you type
+
+Every master-data panel (Style Master, Vendor Master, Customer Master, Genders, Countries, Fabric Codes, Factors, Payment Terms, Season Master, Size Scales, Style Classifications, Employee Departments/Titles, B2B Accounts/Price List, Price Lists, Promotions, Purchase Orders, Sales Orders, Prepack Matrix, PIM Catalog, Pack GTIN Master, …) filters **live as you type** — there's no need to press **Enter** or click a **Search** button. Results refresh automatically about a fifth of a second after you stop typing. Any **Search** button still present simply forces an immediate refresh; you can ignore it. Press **Esc** in a search box to clear it.
 
 ## Reading these docs
 
@@ -153,3 +181,14 @@ If steps 1–6 all work, your Tangerine install is healthy.
 - **PII fields** (vendor `tax_id`, vendor `bank_account_encrypted`, customer `tax_exempt_certificate`) are **never** rendered in the admin UI. Dedicated PII workflows are planned but not built yet — see [04-concepts.md § PII handling](04-concepts.md#pii-handling).
 - **Account picker in JE entry** filters to `status='active' AND is_postable=true`. Roll-up parent accounts (which you may have created in COA with `is_postable=false`) don't appear in the picker by design.
 - **Period status badges** change color: green=open, yellow=soft_close, red=closed. Clicking the inline dropdown changes status in real-time (with a confirm prompt).
+
+## Ask AI
+
+A floating **✨ Ask AI** button (bottom-right of every Tangerine screen) opens a chat assistant. Ask it two kinds of question and it picks the right source:
+
+- **Your data** — "What's our total open AR right now?", "List the open purchase orders by vendor", "How is customer X trending?" It queries the live database read-only (it never invents numbers; if a figure isn't available it says so).
+- **How to use the app** — "How do I post a manual journal entry?", "Where is the fixed-asset register?", "What does GR/IR mean?" It searches **this user guide** (the `search_user_guide` tool) and answers from the relevant chapter.
+
+The Tangerine assistant runs on **Claude Opus** for stronger reasoning across the full accounting/inventory schema; the other apps' assistants stay on the faster Haiku model. Answers stream in live. It cannot see PII columns (bank/card/tax-id) — those are excluded server-side.
+
+> **For maintainers:** the assistant reads a bundled snapshot of this guide at `api/_lib/ai/userGuideContent.js`, generated by `scripts/gen-user-guide-ai.mjs`. Re-run `node scripts/gen-user-guide-ai.mjs` after editing the guide so the assistant stays current (same discipline as keeping `menuKeys.js` in sync).

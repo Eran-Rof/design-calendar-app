@@ -9,12 +9,13 @@
 // Live margin is recomputed via the techpack/calc.ts adapter — that file has
 // 21 unit tests pinning the rounding + tier thresholds; we don't fork.
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useCostingStore } from "../store/costingStore";
 import { computeLineMath } from "../hooks/useCostingMath";
-import { usePlanFlow } from "../hooks/usePlanFlow";
+import { usePlanFlow, effectiveLineStatus } from "../hooks/usePlanFlow";
 import StylePickerCell from "./StylePickerCell";
 import MasterPickerCell from "./MasterPickerCell";
+import LineStatusCell from "./LineStatusCell";
 import ColorPickerCell from "./ColorPickerCell";
 import VendorGridCell from "./VendorGridCell";
 import ComplianceChipCell from "./ComplianceChipCell";
@@ -23,37 +24,36 @@ import FabricPickerCell from "./FabricPickerCell";
 import HistoricalCostCell from "./HistoricalCostCell";
 import RowAttachmentsCell from "./RowAttachmentsCell";
 import ColumnsButton from "./ColumnsButton";
-import DateRangePresets from "../../tanda/components/DateRangePresets.tsx";
+import CostSuggestModal from "./CostSuggestModal";
+import SizeCurveModal from "./SizeCurveModal";
+import DateRangePresets from "../../tanda/components/DateRangePresets";
 import { usePersistedHiddenColumns } from "../../inventory-planning/panels/wholesale-planning/hooks/usePersistedHiddenColumns";
-import { fetchStyleSeedSku, generateRfqs } from "../services/costingApi";
+import { fetchStyleSeedSku, generateRfqs, searchStyles } from "../services/costingApi";
 import { resolveCost } from "../../shared/costResolution";
-import { appConfirm } from "../../utils/theme";
-import { confirmDialog } from "../../shared/ui/warn";
+import { confirmDialog, notify } from "../../shared/ui/warn";
+import { marginTierColor } from "../../techpack/calc";
+import {
+  isDdpProject, lineCostBasis, lineMarginPct, solveCostFromMargin, solveSellFromMargin,
+  rowMissingFields, projectHeaderMissing, num as cnum,
+} from "../lib/completeness";
 import type { CostingLine } from "../types";
 import type { StyleHit } from "../services/costingApi";
 
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Grand-total project amounts (footer cost/sales) render as whole dollars — no decimals.
+const fmtMoney0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const fmtQty   = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const fmtPct   = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fmtPct   = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Uniform sizing for the grid's toolbar action buttons (Add row / Copy / Delete
+// / Vendor RFQ) so they all stay the SAME width as each other and don't grow
+// when a " (N)" selected-row-count suffix appears on selection.
+const TOOLBAR_BTN: React.CSSProperties = { minWidth: 128, boxSizing: "border-box", textAlign: "center" };
 
 function n(v: number | null | undefined): number {
   if (v == null) return 0;
   const x = typeof v === "number" ? v : Number(v);
   return isFinite(x) ? x : 0;
-}
-
-// Per-row action button — same height + padding for $ Qts and × so the
-// end-of-row doesn't look ragged. minWidth so the × button isn't a tiny
-// square wedged against $ Qts.
-function ACTION_BTN_STYLE(bg: string, fg: string, border: string): React.CSSProperties {
-  return {
-    background: bg, color: fg,
-    border: `1px solid ${border}`, borderRadius: 3,
-    padding: "3px 8px", fontSize: 10, fontWeight: 600,
-    cursor: "pointer", lineHeight: 1.4,
-    minWidth: 30, height: 22,
-    display: "inline-flex", alignItems: "center", justifyContent: "center",
-  };
 }
 
 interface ColumnDef {
@@ -67,17 +67,18 @@ interface ColumnDef {
 const COLUMNS: ColumnDef[] = [
   { key: "_drag",          label: "",         width: 24,  align: "center" },
   { key: "_select",        label: "",         width: 28,  align: "center" },
+  { key: "_status",        label: "Status",   width: 110 },
   { key: "style_code",     label: "Style#",   width: 130 },
   { key: "description",    label: "Description", width: 220 },
-  { key: "size_scale_label", label: "Scale",  width: 80 },
-  { key: "fabric_code",    label: "Fabric",   width: 110 },
+  { key: "size_scale_label", label: "Scale",  width: 140 },
+  { key: "fabric_code",    label: "Fabric",   width: 200 },
   { key: "fit",            label: "Fit",      width: 90 },
   { key: "color",          label: "Color",    width: 100 },
   { key: "bottom_closure", label: "Closures", width: 100 },
   { key: "waist_type",     label: "Waist",    width: 90 },
   { key: "comment",        label: "Comment",  width: 160 },
   { key: "target_qty",     label: "Qty",      width: 80,  align: "right", numeric: true },
-  { key: "_vendor",        label: "Vendor",   width: 130 },
+  { key: "_vendor",        label: "Vendor",   width: 200 },
   { key: "avg_cost",       label: "Avg Cost", width: 130, align: "right" },
   { key: "_history",       label: "PO History", width: 100, align: "center" },
   { key: "target_cost",    label: "Tgt Cost", width: 80,  align: "right", numeric: true },
@@ -87,8 +88,10 @@ const COLUMNS: ColumnDef[] = [
   { key: "insurance",      label: "Insur",    width: 70,  align: "right", numeric: true },
   { key: "other_costs",    label: "Other",    width: 70,  align: "right", numeric: true },
   { key: "_landed",        label: "Landed",   width: 80,  align: "right" },
+  // Slim column; its header is stacked on two lines ("Sell Tgt" / "Frm Mrgn")
+  // in the header render. label stays one-line plain for the column-toggle list.
+  { key: "_sell_from_margin", label: "Sell Tgt Frm Mrgn", width: 78, align: "right" },
   { key: "sell_target",    label: "Sell Tgt", width: 80,  align: "right", numeric: true },
-  { key: "sell_price",     label: "Sell",     width: 80,  align: "right", numeric: true },
   { key: "_margin",        label: "Margin %", width: 80,  align: "right" },
   // LY comp — qty col dropped, replaced by sales-price (LY Sls Prc).
   // Mgn now computed display-side from (sls_prc - cost) / sls_prc.
@@ -101,7 +104,6 @@ const COLUMNS: ColumnDef[] = [
   { key: "t3_margin_pct",  label: "T3 Mgn %",    width: 80,  align: "right" },
   { key: "_compliance",    label: "Compliance", width: 180 },
   { key: "_docs",          label: "Docs",     width: 56, align: "center" },
-  { key: "_actions",       label: "",         width: 90, align: "center" },
 ];
 
 const TOTAL_WIDTH = COLUMNS.reduce((s, c) => s + c.width, 0);
@@ -113,7 +115,61 @@ export default function CostingGrid() {
   const selectedLineId = useCostingStore((s) => s.selectedLineId);
   const stageFilter = useCostingStore((s) => s.stageFilter);
   const addLine = useCostingStore((s) => s.addLine);
+  const duplicateLine = useCostingStore((s) => s.duplicateLine);
   const updateLine = useCostingStore((s) => s.updateLine);
+
+  // Track pending revision prompts: after editing a sent/quoted line, wait 30 s
+  // (to allow multiple rapid edits) then ask the operator whether to notify the
+  // vendor of a revised RFQ. Key = lineId, value = setTimeout handle.
+  const revisionTimers = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const scheduleRevisionPrompt = React.useCallback((lineId: string) => {
+    // Clear any existing timer for this line — user is still editing.
+    const existing = revisionTimers.current.get(lineId);
+    if (existing !== undefined) clearTimeout(existing);
+
+    const handle = setTimeout(async () => {
+      revisionTimers.current.delete(lineId);
+      const ok = await confirmDialog(
+        "This line is on an active RFQ. Do you want to send the vendor an updated RFQ with these changes?",
+        { title: "Vendor data revised", confirmText: "Yes, send revision", cancelText: "Cancel" },
+      );
+      if (ok) {
+        // Mark the line as revised so the status shows "Rvsd RFQ".
+        // The vendor will see the updated costing data on their next RFQ view.
+        void updateLine(lineId, { status: "revised" as Parameters<typeof updateLine>[1]["status"] });
+      }
+    }, 30_000);
+
+    revisionTimers.current.set(lineId, handle);
+  }, [updateLine]);
+
+  // Wrap updateLine: quoted lines get an immediate confirm before saving;
+  // sent/quoted lines get a 30-second debounced revision prompt after saving.
+  const updateLineGuarded = React.useCallback(async (id: string, patch: Parameters<typeof updateLine>[1]) => {
+    const line = useCostingStore.getState().lines.find((l) => l.id === id);
+    const statusBefore = line?.status;
+
+    if (statusBefore === "quoted") {
+      const ok = await confirmDialog(
+        "This line has an active vendor quote. Saving will overwrite the quoted values.",
+        { title: "Line has been quoted", confirmText: "Save changes", cancelText: "Cancel" },
+      );
+      if (!ok) return;
+    }
+
+    const result = await updateLine(id, patch);
+
+    // After saving, schedule a revision prompt for sent/quoted lines (but not
+    // if the patch itself is only a status change — no data to revise).
+    const isStatusOnlyPatch = Object.keys(patch).length === 1 && "status" in patch;
+    if (!isStatusOnlyPatch && (statusBefore === "sent" || statusBefore === "quoted")) {
+      scheduleRevisionPrompt(id);
+    }
+
+    return result;
+  }, [updateLine, scheduleRevisionPrompt]);
+
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const reorderLines = useCostingStore((s) => s.reorderLines);
   const setSelectedLine = useCostingStore((s) => s.setSelectedLine);
@@ -135,11 +191,15 @@ export default function CostingGrid() {
   // Other are not entered separately) and rename "Tgt Cost" → "Trgt DDP".
   // Match /DDP/i against the project's payment_terms_name snapshot so "DDP",
   // "DDP 30", "DDP 60" etc. all trigger it.
-  const isDdp = !!project?.payment_terms_name && /DDP/i.test(project.payment_terms_name);
-  const DDP_HIDDEN = new Set(["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"]);
+  const isDdp = isDdpProject(project);
+  // The FOB→Landed component columns. Grouped under one "FOB / Landed Target"
+  // band in the header (item 4) and hidden entirely in DDP mode (the vendor
+  // quotes a single delivered price into "Tgt DDP Cost").
+  const FOB_GROUP = ["fob_cost", "duty_rate", "freight", "insurance", "other_costs", "_landed"];
+  const DDP_HIDDEN = new Set(FOB_GROUP);
   const displayColumns = COLUMNS
     .filter((c) => !(isDdp && DDP_HIDDEN.has(c.key)))
-    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Trgt DDP" } : c));
+    .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Tgt DDP Cost" } : c));
 
   const visibleColumns = displayColumns.filter((c) => !hiddenColumns.has(c.key));
   const visibleWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
@@ -180,7 +240,43 @@ export default function CostingGrid() {
       return;
     }
     const projectId = project.id;
-    const lineIds = Array.from(selectedRowIds);
+    let lineIds = Array.from(selectedRowIds);
+
+    // Item 2 — block sending incomplete rows. Offer to fix (cancel) or delete
+    // the incomplete rows and send only the complete ones.
+    const selectedLines = lines.filter((l) => selectedRowIds.has(l.id));
+    const incomplete = selectedLines.filter((l) => rowMissingFields(l, isDdp).length > 0);
+    if (incomplete.length > 0) {
+      const completeIds = selectedLines
+        .filter((l) => rowMissingFields(l, isDdp).length === 0)
+        .map((l) => l.id);
+      const proceed = await confirmDialog(
+        `${incomplete.length} selected row${incomplete.length === 1 ? " is" : "s are"} incomplete and can't be sent. ` +
+          `Fix them, or delete the incomplete row${incomplete.length === 1 ? "" : "s"}` +
+          `${completeIds.length > 0 ? " and send the rest" : ""}?`,
+        {
+          title: "Incomplete rows",
+          danger: true,
+          confirmText: completeIds.length > 0 ? "Delete incomplete & send rest" : "Delete incomplete",
+          cancelText: "Go back & fix",
+          listItems: incomplete.map((l) =>
+            `${l.style_code || "(no style)"} — missing: ${rowMissingFields(l, isDdp).join(", ")}`,
+          ),
+        },
+      );
+      if (!proceed) return; // operator chose to fix
+      for (const l of incomplete) {
+        // eslint-disable-next-line no-await-in-loop
+        await deleteLine(l.id);
+      }
+      setSelectedRowIds(new Set(completeIds));
+      if (completeIds.length === 0) {
+        setNotice("Incomplete rows deleted. Nothing left to send.", "info");
+        return;
+      }
+      lineIds = completeIds;
+    }
+
     setGenerating(true);
     try {
       let res = await generateRfqs(projectId, lineIds);
@@ -215,7 +311,12 @@ export default function CostingGrid() {
       const parts = [];
       if (res.created.length > 0) {
         const vendorSummary = res.created.map((c) => `${c.vendor} (${c.line_count})`).join(", ");
-        parts.push(`${res.created.length} RFQ${res.created.length === 1 ? "" : "s"} created: ${vendorSummary}`);
+        // RFQs are auto-sent to the vendor on create now (one step — no separate
+        // "Send to Vendor" click). `sent` is true unless the auto-send hiccupped
+        // (that case is surfaced in res.errors below), so reflect it in the toast.
+        const allSent = res.created.every((c) => c.sent !== false);
+        const verb = allSent ? "sent to vendor" : "created (some not sent — see errors)";
+        parts.push(`${res.created.length} RFQ${res.created.length === 1 ? "" : "s"} ${verb}: ${vendorSummary}`);
       }
       if (res.skipped_no_vendor && res.skipped_no_vendor.length > 0) {
         parts.push(`${res.skipped_no_vendor.length} line${res.skipped_no_vendor.length === 1 ? "" : "s"} skipped (no vendor picked)`);
@@ -279,8 +380,111 @@ export default function CostingGrid() {
 
   const [dragId, setDragId] = useState<string | null>(null);
 
+  // Right-click context menu — opened per row at the cursor. Holds the target
+  // line id + screen coords. Null = closed. Closes on outside-click / Escape /
+  // scroll so it never strands over a moved row.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; lineId: string } | null>(null);
+  // AI cost co-pilot modal — opened from the row context menu.
+  const [suggestLineId, setSuggestLineId] = useState<string | null>(null);
+  // AI size-curve modal — opened from the row context menu.
+  const [sizeCurveLineId, setSizeCurveLineId] = useState<string | null>(null);
+  const openContextMenu = (e: React.MouseEvent, lineId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, lineId });
+  };
+  const closeContextMenu = () => setCtxMenu(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeContextMenu(); };
+    // Capture-phase outside-click + scroll close. The menu's own onMouseDown
+    // stops propagation so clicking an item doesn't self-close before firing.
+    const onDown = () => closeContextMenu();
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onDown, true);
+    };
+  }, [ctxMenu]);
+
+  const onDuplicateRow = async (lineId: string) => {
+    closeContextMenu();
+    const created = await duplicateLine(lineId);
+    if (created) {
+      await reseedCopyFromStyle(created);
+      setNotice("Row duplicated below — pick a vendor for the new line.", "info");
+    }
+  };
+
   const onAdd = async () => {
+    // Item 5 — gate row creation on a complete project header.
+    const missing = projectHeaderMissing(project);
+    if (missing.length > 0) {
+      await confirmDialog(
+        "Fill in the project header before adding rows. Missing:",
+        {
+          title: "Project header incomplete",
+          confirmText: "OK",
+          cancelText: "",
+          listItems: missing,
+        },
+      );
+      return;
+    }
     await addLine({});
+  };
+
+  // Item 9 — operator edits Margin %. BIDIRECTIONAL so a margin always does
+  // something sensible regardless of which leg is already filled:
+  //  • Sell Tgt already set → back-solve the COST (DDP → Tgt DDP Cost; else FOB
+  //    so landed hits the implied cost), holding the sell fixed. (worked already)
+  //  • Sell Tgt NOT set, but a cost basis exists → CREATE the Sell Tgt from the
+  //    cost + margin (sell = cost / (1 − m/100)), same math as "Sell Tgt Frm
+  //    Mrgn", and remember the margin link (sell_target_margin_pct).
+  const onMarginEdit = (line: CostingLine, raw: string) => {
+    const m = Number(String(raw).replace(/[^0-9.\-]/g, ""));
+    if (!isFinite(m)) return;
+    if (cnum(line.sell_target) > 0) {
+      const patch = solveCostFromMargin(line, isDdp, m);
+      if (patch) void updateLineGuarded(line.id, patch);
+      return;
+    }
+    // No Sell Tgt yet → derive it from the cost basis + entered margin.
+    if (!(lineCostBasis(line, isDdp) > 0)) {
+      notify(isDdp
+        ? "Enter a Sell Tgt or a Tgt DDP Cost first — margin needs one to solve the other."
+        : "Enter a Sell Tgt or a cost (FOB/Landed) first — margin needs one to solve the other.", "info");
+      return;
+    }
+    const sell = solveSellFromMargin(line, isDdp, m);
+    if (sell == null) { notify("Margin must be below 100%.", "info"); return; }
+    void updateLineGuarded(line.id, { sell_target: sell, sell_target_margin_pct: m });
+  };
+
+  // "Sell Tgt Frm Mrgn" — operator types a target gross-margin %; auto-derive
+  // Sell Tgt = cost basis / (1 − margin/100), holding cost fixed. Stores the
+  // entered margin (sell_target_margin_pct) so the cell keeps showing it until
+  // the operator overrides Sell Tgt directly (which clears it → cell blanks).
+  const onSellFromMarginEdit = (line: CostingLine, raw: string) => {
+    const trimmed = String(raw).trim();
+    if (trimmed === "") {
+      // Cleared the margin field → forget the derived-from-margin link.
+      if (line.sell_target_margin_pct != null) void updateLineGuarded(line.id, { sell_target_margin_pct: null });
+      return;
+    }
+    const m = Number(trimmed.replace(/[^0-9.\-]/g, ""));
+    if (!isFinite(m)) return;
+    if (!(lineCostBasis(line, isDdp) > 0)) {
+      notify(isDdp ? "Enter a Tgt DDP Cost first — margin needs a cost to solve the sell price."
+                   : "Enter a cost (FOB/Landed) first — margin needs a cost to solve the sell price.", "info");
+      return;
+    }
+    const sell = solveSellFromMargin(line, isDdp, m);
+    if (sell == null) { notify("Margin must be below 100%.", "info"); return; }
+    void updateLineGuarded(line.id, { sell_target_margin_pct: m, sell_target: sell });
   };
 
   // Style pick — prefill + seed target_cost.
@@ -314,7 +518,20 @@ export default function CostingGrid() {
         }
       }
     }
-    await updateLine(line.id, patch);
+    await updateLineGuarded(line.id, patch);
+  };
+
+  // After a Copy/Duplicate, re-derive the new line's OWN style data from the
+  // Style Master — fabric + avg cost via the same seed path as a fresh style
+  // pick, and the comp effect re-fetches its LY/T3 sales. So the copy carries
+  // its own data rather than inheriting whatever was edited on the source.
+  const reseedCopyFromStyle = async (line: CostingLine) => {
+    if (!line.style_code) return;
+    try {
+      const hits = await searchStyles(line.style_code, { limit: 50 });
+      const hit = hits.find((h) => h.style_code === line.style_code) || hits[0];
+      if (hit) await onStylePick(line, hit);
+    } catch { /* non-fatal — the copied values remain in place */ }
   };
 
   const onDragStart = (id: string) => (e: React.DragEvent) => {
@@ -343,29 +560,95 @@ export default function CostingGrid() {
   let totalSales = 0;
   for (const line of lines) {
     const qty = n(line.target_qty);
-    const m = computeLineMath(line);
-    const landed = m.landed_cost > 0 ? m.landed_cost : n(line.target_cost);
+    // Cost basis: DDP → Tgt DDP Cost; otherwise landed (FOB-derived).
+    const cost = lineCostBasis(line, isDdp);
     totalQty += qty;
-    totalCost += qty * landed;
-    totalSales += qty * n(line.sell_price);
+    totalCost += qty * cost;
+    totalSales += qty * n(line.sell_target);
   }
   const weightedMargin = totalSales > 0 ? ((totalSales - totalCost) / totalSales) * 100 : 0;
 
   return (
     <div style={{ marginTop: 20 }}>
+      {/* Awarded rows render all their fonts green. !important overrides the
+          per-cell inline colors; in-cell popovers portal to document.body so
+          they're outside .costing-row-awarded and keep their normal palette. */}
+      <style>{`.costing-row-awarded, .costing-row-awarded * { color: #34D399 !important; }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#E2E8F0", letterSpacing: ".04em", textTransform: "uppercase" }}>
-          Costing grid · {stageFilter ? `${visibleLines.length} of ${lines.length}` : lines.length} {lines.length === 1 ? "line" : "lines"}
-          {stageFilter && <span style={{ color: "#F59E0B", marginLeft: 8, fontSize: 11 }}>(filtered: {stageFilter})</span>}
-        </h3>
+        {stageFilter && (
+          <span style={{ color: "#F59E0B", fontSize: 11, fontWeight: 600 }}>Filtered: {stageFilter}</span>
+        )}
+        {(() => {
+          const headerOk = projectHeaderMissing(project).length === 0;
+          return (
+            <button
+              onClick={onAdd}
+              title={headerOk ? "Add a new costing row" : "Complete the project header first"}
+              style={{
+                ...TOOLBAR_BTN,
+                background: headerOk ? "#10B981" : "#334155",
+                color: headerOk ? "#fff" : "#64748B",
+                border: headerOk ? "none" : "1px solid #475569",
+                padding: "5px 14px", borderRadius: 4,
+                cursor: "pointer",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >+ Add row</button>
+          );
+        })()}
         <button
-          onClick={onAdd}
+          onClick={async () => {
+            const ids = Array.from(selectedRowIds);
+            for (const id of ids) {
+              const c = await duplicateLine(id);
+              if (c) await reseedCopyFromStyle(c);
+            }
+            setSelectedRowIds(new Set());
+            setNotice(`${ids.length} row${ids.length === 1 ? "" : "s"} copied below — update vendor for each new line.`, "info");
+          }}
+          disabled={selectedRowIds.size === 0}
+          title={selectedRowIds.size === 0 ? "Select a row first to copy it" : `Copy ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
           style={{
-            background: "#10B981", color: "#fff", border: "none",
-            padding: "5px 14px", borderRadius: 4, cursor: "pointer",
+            ...TOOLBAR_BTN,
+            background: selectedRowIds.size > 0 ? "#6366F1" : "transparent",
+            color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
+            border: `1px solid ${selectedRowIds.size > 0 ? "#6366F1" : "#334155"}`,
+            padding: "5px 14px", borderRadius: 4,
+            cursor: selectedRowIds.size === 0 ? "not-allowed" : "pointer",
             fontSize: 12, fontWeight: 600,
           }}
-        >+ Add row</button>
+        >Copy{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
+        <button
+          onClick={async () => {
+            const ids = Array.from(selectedRowIds);
+            const selectedLines = lines.filter((l) => ids.includes(l.id));
+            const ok = await confirmDialog(
+              `Delete ${ids.length} selected row${ids.length === 1 ? "" : "s"}? This also removes their vendor + compliance data.`,
+              {
+                title: "Delete rows",
+                danger: true,
+                confirmText: `Delete ${ids.length} row${ids.length === 1 ? "" : "s"}`,
+                cancelText: "Cancel",
+                listItems: selectedLines.map((l) => l.style_code || "(no style)"),
+              },
+            );
+            if (!ok) return;
+            for (const id of ids) await deleteLine(id);
+            setSelectedRowIds(new Set());
+            setNotice(`${ids.length} row${ids.length === 1 ? "" : "s"} deleted.`, "info");
+          }}
+          disabled={selectedRowIds.size === 0}
+          title={selectedRowIds.size === 0 ? "Select rows to delete" : `Delete ${selectedRowIds.size} selected row${selectedRowIds.size === 1 ? "" : "s"}`}
+          style={{
+            ...TOOLBAR_BTN,
+            background: selectedRowIds.size > 0 ? "#EF4444" : "transparent",
+            color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
+            border: `1px solid ${selectedRowIds.size > 0 ? "#EF4444" : "#334155"}`,
+            padding: "5px 14px", borderRadius: 4,
+            cursor: selectedRowIds.size === 0 ? "not-allowed" : "pointer",
+            fontSize: 12, fontWeight: 600,
+          }}
+        >✕ Delete{selectedRowIds.size > 0 ? ` (${selectedRowIds.size})` : ""}</button>
         <button
           onClick={onGenerateRfqs}
           disabled={generating}
@@ -375,6 +658,7 @@ export default function CostingGrid() {
               : `Generate one RFQ per vendor across ${selectedRowIds.size} selected line${selectedRowIds.size === 1 ? "" : "s"}`
           }
           style={{
+            ...TOOLBAR_BTN,
             background: selectedRowIds.size > 0 ? "#3B82F6" : "transparent",
             color: selectedRowIds.size > 0 ? "#fff" : "#64748B",
             border: `1px solid ${selectedRowIds.size > 0 ? "#3B82F6" : "#334155"}`,
@@ -394,7 +678,7 @@ export default function CostingGrid() {
 
             Tangerine T7 <DateRangePresets/> chips (LY / This Month / Last
             Month / …) feed the same draft. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 12 }}>
           <span style={{ fontSize: 10, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Comp period</span>
           <input
             type="date"
@@ -421,6 +705,20 @@ export default function CostingGrid() {
               colorScheme: "dark",
             }}
           />
+          {/* Preset dropdown — shared <DateRangePresets> in dropdown form so the
+              comp-period row stays on the Vendor RFQ line and matches the preset
+              dropdowns across the Tangerine panels. */}
+          <DateRangePresets
+            variant="dropdown"
+            from={compFrom}
+            to={compTo}
+            onChange={(fromVal, toVal) => {
+              // "Custom…" returns empty strings — clear and let the operator
+              // pick from/to manually; otherwise apply the computed range.
+              if (!fromVal && !toVal) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
+              applyCompRange(fromVal, toVal);
+            }}
+          />
           {(compFrom || compTo) && (
             <button
               type="button"
@@ -433,16 +731,6 @@ export default function CostingGrid() {
               }}
             >reset</button>
           )}
-          <DateRangePresets
-            from={compFrom}
-            to={compTo}
-            onChange={(from, to) => {
-              // "Custom…" returns empty strings — clear and let the operator
-              // pick manually; otherwise apply the computed range.
-              if (!from && !to) { setCompFrom(""); setCompTo(""); setCompPeriod(null); return; }
-              applyCompRange(from, to);
-            }}
-          />
         </div>
         <div style={{ marginLeft: "auto" }}>
           <ColumnsButton
@@ -459,9 +747,36 @@ export default function CostingGrid() {
         border: "1px solid #334155", borderRadius: 6,
         background: "#1E293B", overflowX: "auto",
       }}>
-        {/* Header — cells use flex:0 0 width + box-sizing:border-box so the
-            border doesn't push width outward, matching body + footer exactly. */}
-        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A", position: "sticky", top: 0, zIndex: 5 }}>
+        {/* Header — a sticky 2-tier block: a grouping band over the FOB→Landed
+            columns (item 4), then the column labels. Cells use flex:0 0 width +
+            box-sizing:border-box so borders don't push width, matching body. */}
+        <div style={{ position: "sticky", top: 0, zIndex: 5 }}>
+        {!isDdp && (() => {
+          const grp = visibleColumns.filter((c) => FOB_GROUP.includes(c.key));
+          if (grp.length === 0) return null;
+          const grpWidth = grp.reduce((s, c) => s + c.width, 0);
+          const firstKey = grp[0].key;
+          return (
+            <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A" }}>
+              {visibleColumns.map((c) => {
+                if (c.key === firstKey) {
+                  return (
+                    <div key="_fobband" style={{
+                      flex: `0 0 ${grpWidth}px`, boxSizing: "border-box",
+                      borderRight: "1px solid #475569", borderBottom: "1px solid #334155",
+                      padding: "5px 8px", textAlign: "center",
+                      fontSize: 9, fontWeight: 700, color: "#FBBF24",
+                      textTransform: "uppercase", letterSpacing: ".08em",
+                    }}>FOB / Landed Target</div>
+                  );
+                }
+                if (FOB_GROUP.includes(c.key)) return null; // merged into the band cell
+                return <div key={`band_${c.key}`} style={{ flex: `0 0 ${c.width}px`, boxSizing: "border-box" }} />;
+              })}
+            </div>
+          );
+        })()}
+        <div style={{ display: "flex", minWidth: visibleWidth, background: "#0F172A" }}>
           {visibleColumns.map((c) => {
             // Select-all checkbox in the _select column header.
             if (c.key === "_select") {
@@ -484,16 +799,23 @@ export default function CostingGrid() {
                 </div>
               );
             }
+            // Narrow margin-derive column: stack the header on two lines
+            // ("Sell Tgt" / "Frm Mrgn") so the column can stay slim.
+            const headerContent = c.key === "_sell_from_margin"
+              ? (<><div>Sell Tgt</div><div>Frm Mrgn %</div></>)
+              : c.label;
             return (
               <div key={c.key} style={{
                 flex: `0 0 ${c.width}px`, boxSizing: "border-box", overflow: "hidden",
-                padding: "8px 10px", fontSize: 10, fontWeight: 700,
+                padding: c.key === "_sell_from_margin" ? "5px 4px" : "8px 10px",
+                fontSize: 10, fontWeight: 700, lineHeight: 1.1,
                 color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em",
                 textAlign: c.align || "left",
                 borderRight: "1px solid #475569",
-              }}>{c.label}</div>
+              }}>{headerContent}</div>
             );
           })}
+        </div>
         </div>
 
         {/* Body */}
@@ -510,12 +832,20 @@ export default function CostingGrid() {
         {visibleLines.map((line) => {
           const math = computeLineMath(line);
           const isFocused = selectedLineId === line.id;
+          // Awarded line → render the whole row's fonts green. Keyed on the
+          // EFFECTIVE per-line status (a Closed line that was awarded is no
+          // longer green). The scoped `.costing-row-awarded *` rule below uses
+          // !important to override the cells' inline colors; popovers portal to
+          // document.body so they stay unaffected.
+          const isAwarded = effectiveLineStatus(line) === "awarded";
           return (
             <div
               key={line.id}
+              className={isAwarded ? "costing-row-awarded" : undefined}
               // Row click only highlights — does NOT open the vendor panel.
               // The "$ Qts" button in actions column is the explicit panel trigger.
               onClick={() => setSelectedLine(line.id)}
+              onContextMenu={(e) => openContextMenu(e, line.id)}
               onDragOver={onDragOver}
               onDrop={onDrop(line.id)}
               // Hover background — visible against the row's #0F172A page bg.
@@ -571,6 +901,18 @@ export default function CostingGrid() {
                   );
                 }
 
+                // Per-line status pill (Draft / On RFQ / Awarded / Closed).
+                if (c.key === "_status") {
+                  return (
+                    <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
+                      <LineStatusCell
+                        line={line}
+                        onChange={(s) => updateLine(line.id, { status: s })}
+                      />
+                    </div>
+                  );
+                }
+
                 // Style picker
                 if (c.key === "style_code") {
                   return (
@@ -578,7 +920,7 @@ export default function CostingGrid() {
                       <StylePickerCell
                         value={line.style_code}
                         onPick={(s) => onStylePick(line, s)}
-                        onChange={(v) => updateLine(line.id, { style_code: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { style_code: v })}
                         cellStyle={{ padding: "4px 6px" }}
                       />
                     </div>
@@ -687,18 +1029,66 @@ export default function CostingGrid() {
                   );
                 }
 
-                // Margin — computed + tier color background
+                // Margin — auto-filled from Sell Tgt vs cost basis (item 8) and
+                // EDITABLE: typing a margin back-solves the cost (item 9).
+                // Sell Tgt Frm Mrgn — type a target margin % → auto-derives Sell
+                // Tgt (sell = cost / (1 − m/100)). Shows the stored margin; blanks
+                // when the operator overrides Sell Tgt directly (handled in the
+                // sell_target numeric onBlur, which clears sell_target_margin_pct).
+                if (c.key === "_sell_from_margin") {
+                  const mv = line.sell_target_margin_pct;
+                  const hasMv = typeof mv === "number" && isFinite(mv);
+                  return (
+                    <div key={c.key} style={{ ...style, padding: 0 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                        <input
+                          key={`sfm_${line.id}_${hasMv ? mv.toFixed(2) : ""}`}
+                          defaultValue={hasMv ? fmtPct.format(mv) : ""}
+                          type="text"
+                          inputMode="decimal"
+                          title={isDdp
+                            ? "Type a target margin % → sets Sell Tgt from Tgt DDP Cost. Editing Sell Tgt directly clears this."
+                            : "Type a target margin % → sets Sell Tgt from the cost basis (Landed). Editing Sell Tgt directly clears this."}
+                          placeholder="—"
+                          onBlur={(e) => onSellFromMarginEdit(line, e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          style={{
+                            flex: 1, minWidth: 0, padding: "4px 2px 4px 6px", fontSize: 12, fontWeight: 600,
+                            textAlign: "right", background: "transparent",
+                            border: "1px solid transparent", color: "#93C5FD", outline: "none",
+                          }}
+                        />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#93C5FD", paddingRight: 6, opacity: hasMv ? 1 : 0.45, pointerEvents: "none" }}>%</span>
+                      </div>
+                    </div>
+                  );
+                }
+
                 if (c.key === "_margin") {
+                  const marginVal = lineMarginPct(line, isDdp);
+                  const hasMargin = cnum(line.sell_target) > 0 && marginVal !== 0;
+                  const color = marginTierColor(marginVal);
                   return (
                     <div key={c.key} style={{
-                      ...style,
-                      background: math.margin_pct ? math.tierColor + "33" : undefined,
-                      color: math.tierColor,
-                      fontWeight: 700,
-                    }}>
-                      <span style={{ width: "100%", padding: "0 6px" }}>
-                        {math.margin_pct ? fmtPct.format(math.margin_pct) + "%" : "—"}
-                      </span>
+                      ...style, padding: 0,
+                      background: hasMargin ? color + "33" : undefined,
+                    }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        key={`margin_${line.id}_${marginVal.toFixed(2)}`}
+                        defaultValue={hasMargin ? fmtPct.format(marginVal) : ""}
+                        type="text"
+                        title={isDdp
+                          ? "Edit margin → with no Sell Tgt set yet it creates the Sell Tgt from the cost; with a Sell Tgt set it back-solves Tgt DDP Cost"
+                          : "Edit margin → with no Sell Tgt set yet it creates the Sell Tgt from the cost; with a Sell Tgt set it back-solves FOB so Landed hits target"}
+                        placeholder="—"
+                        onBlur={(e) => onMarginEdit(line, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        style={{
+                          width: "100%", padding: "4px 6px", fontSize: 12, fontWeight: 700,
+                          textAlign: "right", background: "transparent",
+                          border: "1px solid transparent", color, outline: "none",
+                        }}
+                      />
                     </div>
                   );
                 }
@@ -711,26 +1101,6 @@ export default function CostingGrid() {
                   return (
                     <div key={c.key} style={{ ...style, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
                       <RowAttachmentsCell lineId={line.id} styleCode={line.style_code} />
-                    </div>
-                  );
-                }
-
-                // Row actions — only delete now (vendor quotes side panel
-                // removed in favour of the toolbar Vendor RFQ flow). Kept the
-                // shared button style helper so width/height stays aligned
-                // with any future additions.
-                if (c.key === "_actions") {
-                  return (
-                    <div key={c.key} style={{ ...style, gap: 4, justifyContent: "center" }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => appConfirm(
-                          `Delete this line${line.style_code ? ` (${line.style_code})` : ""}? This also removes its vendor + compliance data.`,
-                          "Delete",
-                          () => deleteLine(line.id),
-                        )}
-                        title="Delete row"
-                        style={ACTION_BTN_STYLE("transparent", "#F87171", "#7F1D1D")}
-                      >× Delete</button>
                     </div>
                   );
                 }
@@ -754,7 +1124,13 @@ export default function CostingGrid() {
                         onBlur={(e) => {
                           const raw = e.target.value.replace(/[^0-9.\-]/g, "");
                           const num = raw === "" ? null : Number(raw);
-                          updateLine(line.id, { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>);
+                          const patch = { [key]: isFinite(num as number) ? num : null } as Partial<CostingLine>;
+                          // Overriding Sell Tgt by hand breaks the derived-from-margin
+                          // link → blank the "Sell Tgt Frm Mrgn" cell.
+                          if (key === "sell_target" && line.sell_target_margin_pct != null) {
+                            patch.sell_target_margin_pct = null;
+                          }
+                          void updateLineGuarded(line.id, patch);
                         }}
                         style={{
                           width: "100%", padding: "4px 6px", fontSize: 12,
@@ -774,7 +1150,7 @@ export default function CostingGrid() {
                       <MasterPickerCell
                         kind={kind as "fit" | "closure" | "waist" | "comment"}
                         value={(line[c.key as keyof CostingLine] as string | null) ?? null}
-                        onChange={(v) => updateLine(line.id, { [c.key]: v } as Partial<CostingLine>)}
+                        onChange={(v) => updateLineGuarded(line.id, { [c.key]: v } as Partial<CostingLine>)}
                       />
                     </div>
                   );
@@ -786,7 +1162,7 @@ export default function CostingGrid() {
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <ScalePickerCell
                         value={line.size_scale_label}
-                        onChange={(v) => updateLine(line.id, { size_scale_label: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { size_scale_label: v })}
                       />
                     </div>
                   );
@@ -804,7 +1180,7 @@ export default function CostingGrid() {
                     <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                       <FabricPickerCell
                         value={codes}
-                        onChange={(next) => updateLine(line.id, {
+                        onChange={(next) => updateLineGuarded(line.id, {
                           fabric_codes: next,
                           fabric_code: next.length > 0 ? next[0] : null,
                         })}
@@ -823,21 +1199,27 @@ export default function CostingGrid() {
                       <ColorPickerCell
                         value={line.color}
                         styleCode={line.style_code}
-                        onChange={(v) => updateLine(line.id, { color: v })}
+                        onChange={(v) => updateLineGuarded(line.id, { color: v })}
                       />
                     </div>
                   );
                 }
 
-                // Default: text input bound to the field name.
+                // Default: text input bound to the field name (e.g. Description).
                 const key = c.key as keyof CostingLine;
                 const v = line[key];
                 return (
                   <div key={c.key} style={style} onClick={(e) => e.stopPropagation()}>
                     <input
+                      // key tied to the value so this uncontrolled input REMOUNTS
+                      // when the field changes programmatically — e.g. picking a
+                      // different style repopulates Description. Without it the cell
+                      // keeps showing the previous style's text (defaultValue is read
+                      // once on mount only).
+                      key={`${c.key}_${(v as string | null) ?? ""}`}
                       defaultValue={(v as string | null) ?? ""}
                       type="text"
-                      onBlur={(e) => updateLine(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
+                      onBlur={(e) => void updateLineGuarded(line.id, { [key]: e.target.value || null } as Partial<CostingLine>)}
                       style={{
                         width: "100%", padding: "4px 6px", fontSize: 12,
                         background: "transparent", border: "1px solid transparent",
@@ -879,17 +1261,19 @@ export default function CostingGrid() {
                   </div>
                 );
               }
-              if (c.key === "_landed") {
+              // Total cost lands under Landed (non-DDP) or Tgt DDP Cost (DDP,
+              // where the Landed column is hidden).
+              if (c.key === "_landed" || (isDdp && c.key === "target_cost")) {
                 return (
-                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total cost = sum of qty × landed">
-                    {fmtMoney.format(totalCost)}
+                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total cost = Σ qty × cost basis">
+                    {fmtMoney0.format(totalCost)}
                   </div>
                 );
               }
-              if (c.key === "sell_price") {
+              if (c.key === "sell_target") {
                 return (
-                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total sales = sum of qty × sell">
-                    {fmtMoney.format(totalSales)}
+                  <div key={c.key} style={{ ...style, color: "#A7F3D0", justifyContent: "flex-end" }} title="Total sales = Σ qty × Sell Tgt">
+                    {fmtMoney0.format(totalSales)}
                   </div>
                 );
               }
@@ -908,6 +1292,93 @@ export default function CostingGrid() {
           </div>
         )}
       </div>
+
+      {/* Right-click context menu — anchored at the cursor. Dark costing
+          theme. onMouseDown stops propagation so the window-level outside-
+          click listener doesn't close it before the item's onClick fires. */}
+      {ctxMenu && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: ctxMenu.y,
+            left: ctxMenu.x,
+            zIndex: 1000,
+            background: "#0F172A",
+            border: "1px solid #334155",
+            borderRadius: 6,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            padding: 4,
+            minWidth: 220,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onDuplicateRow(ctxMenu.lineId)}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            Duplicate row (pick new vendor)
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSuggestLineId(ctxMenu.lineId); closeContextMenu(); }}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            AI cost suggestion
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSizeCurveLineId(ctxMenu.lineId); closeContextMenu(); }}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", color: "#E2E8F0",
+              border: "none", borderRadius: 4,
+              padding: "8px 12px", fontSize: 12, fontWeight: 500,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#1E293B"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            AI size curve
+          </button>
+        </div>
+      )}
+
+      {/* AI cost co-pilot modal */}
+      {suggestLineId && (() => {
+        const sline = lines.find((l) => l.id === suggestLineId);
+        if (!sline) return null;
+        return (
+          <CostSuggestModal
+            line={sline}
+            onApply={(patch) => updateLineGuarded(sline.id, patch)}
+            onClose={() => setSuggestLineId(null)}
+          />
+        );
+      })()}
+
+      {/* AI size-curve modal */}
+      {sizeCurveLineId && (() => {
+        const sline = lines.find((l) => l.id === sizeCurveLineId);
+        if (!sline) return null;
+        return <SizeCurveModal line={sline} onClose={() => setSizeCurveLineId(null)} />;
+      })()}
     </div>
   );
 }

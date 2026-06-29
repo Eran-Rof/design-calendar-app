@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   const entityId = url.searchParams.get("entity_id") || req.headers["x-entity-id"];
 
   let query = admin.from("fabric_codes")
-    .select("id, entity_id, code, name, composition_text, fabric_weight_gsm, country_of_origin_iso2, hts_code, default_vendor_id, is_active")
+    .select("id, entity_id, code, name, composition_text, fabric_weight_gsm, country_of_origin_iso2, default_vendor_id, is_active")
     .eq("is_active", true)
     .limit(25);
   if (entityId) query = query.eq("entity_id", entityId);

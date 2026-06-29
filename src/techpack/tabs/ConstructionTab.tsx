@@ -77,7 +77,7 @@ export function ConstructionTab({ tp, updateSelected, uploadImage, setLightboxIm
               <button
                 style={{ ...S.iconBtn, alignSelf: "flex-end", color: "#EF4444" }}
                 onClick={() => removeDetail(c.id)}
-              >🗑️</button>
+              >Delete</button>
             </div>
             <label style={S.label}>Detail</label>
             <textarea

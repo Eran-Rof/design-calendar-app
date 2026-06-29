@@ -271,7 +271,7 @@ export default function InternalAPAging() {
               {filtered.map((r) => (
                 <tr key={r.vendor_id}>
                   <td style={td} hidden={!visibleColumns.has("vendor")}>
-                    <strong>{r.vendor_name || r.vendor_code || r.vendor_id}</strong>
+                    <strong>{r.vendor_name || r.vendor_code || "—"}</strong>
                     {r.vendor_code && r.vendor_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>({r.vendor_code})</span>
                     )}

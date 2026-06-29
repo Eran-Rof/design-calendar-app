@@ -10,6 +10,7 @@ function FilterBar({
   filterCustomer, setFilterCustomer,
   filterVendor, setFilterVendor,
   canViewAll,
+  onUndo, undoCount = 0,
 }) {
   const [open, setOpen] = useState(false);
   const [openSection, setOpenSection] = useState(null);
@@ -111,7 +112,7 @@ function FilterBar({
             display: "flex", alignItems: "center", gap: 5,
           }}
         >
-          ⚙ Filters
+          Filters
           {hasActive && (
             <span style={{ background: "#C8210A", color: "#fff", borderRadius: 10, fontSize: 9, padding: "1px 5px", fontWeight: 700 }}>
               {totalActive}
@@ -140,6 +141,23 @@ function FilterBar({
           </div>
         )}
       </div>
+
+      {/* Undo — moved here from the top bar; follows the Filters button. */}
+      <button
+        onClick={onUndo}
+        disabled={!undoCount}
+        title={undoCount > 0 ? `Undo last change (${undoCount} available)` : "Nothing to undo"}
+        style={{
+          padding: "3px 10px", borderRadius: 6,
+          border: `1px solid ${undoCount > 0 ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.1)"}`,
+          background: undoCount > 0 ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+          color: undoCount > 0 ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)",
+          cursor: undoCount > 0 ? "pointer" : "default", fontFamily: "inherit", fontSize: 11, fontWeight: 600,
+          display: "flex", alignItems: "center", gap: 5,
+        }}
+      >
+        ↩ Undo{undoCount > 1 ? ` (${undoCount})` : ""}
+      </button>
 
       {/* Active filter chips */}
       {activeChips.map((chip, i) => (

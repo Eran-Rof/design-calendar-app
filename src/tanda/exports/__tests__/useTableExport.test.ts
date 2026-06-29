@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   inferColumns,
   formatCell,
+  formatCellDisplay,
+  excelDateCell,
   buildAoA,
+  buildDisplayAoA,
   toCsvRow,
   toCsv,
   todayStamp,
@@ -33,11 +36,17 @@ describe("formatCell", () => {
     expect(formatCell("5",  { key: "x", format: "number" })).toBe(5);
     expect(formatCell("ab", { key: "x", format: "number" })).toBe("");
   });
-  it("date with Date instance", () => {
-    expect(formatCell(new Date("2026-05-28T00:00:00Z"), { key: "x", format: "date" })).toBe("2026-05-28");
+  it("date with Date instance → US MM/DD/YYYY", () => {
+    expect(formatCell(new Date("2026-05-28T00:00:00Z"), { key: "x", format: "date" })).toBe("05/28/2026");
   });
-  it("date with string passthrough", () => {
-    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("2026-05-28");
+  it("date with ISO string → US MM/DD/YYYY", () => {
+    expect(formatCell("2026-05-28", { key: "x", format: "date" })).toBe("05/28/2026");
+  });
+  it("datetime with ISO string → US MM/DD/YYYY HH:MM", () => {
+    // Date part is TZ-stable; assert the date and that a HH:MM tail is present.
+    expect(formatCell("2026-05-28T14:30:00Z", { key: "x", format: "datetime" })).toMatch(
+      /^05\/28\/2026 \d{2}:\d{2}$/,
+    );
   });
   it("object → JSON", () => {
     expect(formatCell({ a: 1 })).toBe('{"a":1}');
@@ -46,6 +55,38 @@ describe("formatCell", () => {
     expect(formatCell("hello")).toBe("hello");
     expect(formatCell(42)).toBe(42);
     expect(formatCell(true)).toBe(true);
+  });
+});
+
+describe("excelDateCell (xlsx real-date cells)", () => {
+  it("date string → Date on the right calendar day + mm/dd/yyyy numFmt", () => {
+    const dc = excelDateCell("2026-05-28", "date");
+    expect(dc).not.toBeNull();
+    expect(dc!.numFmt).toBe("mm/dd/yyyy");
+    expect(dc!.value).toBeInstanceOf(Date);
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4); // May (0-indexed)
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("Date instance → same calendar day", () => {
+    const dc = excelDateCell(new Date("2026-05-28T00:00:00Z"), "date");
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4);
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("datetime → Date + mm/dd/yyyy hh:mm numFmt", () => {
+    // 14:30Z keeps the date stable across realistic runner TZs.
+    const dc = excelDateCell("2026-05-28T14:30:00Z", "datetime");
+    expect(dc!.numFmt).toBe("mm/dd/yyyy hh:mm");
+    expect(dc!.value).toBeInstanceOf(Date);
+    expect(dc!.value.getFullYear()).toBe(2026);
+    expect(dc!.value.getMonth()).toBe(4);
+    expect(dc!.value.getDate()).toBe(28);
+  });
+  it("empty/unparseable → null (caller falls back to string)", () => {
+    expect(excelDateCell(null, "date")).toBeNull();
+    expect(excelDateCell("", "date")).toBeNull();
+    expect(excelDateCell("not a date", "date")).toBeNull();
   });
 });
 
@@ -63,6 +104,52 @@ describe("buildAoA", () => {
     expect(aoa).toEqual([
       ["Code", "Amount"],
       ["1100", 123.45],
+      ["1200", ""],
+    ]);
+  });
+});
+
+describe("formatCellDisplay (PDF / print rendering)", () => {
+  it("null/undefined → empty string", () => {
+    expect(formatCellDisplay(null)).toBe("");
+    expect(formatCellDisplay(undefined)).toBe("");
+  });
+  it("currency_cents → $X.XX", () => {
+    expect(formatCellDisplay(12345, { key: "x", format: "currency_cents" })).toBe("$123.45");
+    expect(formatCellDisplay(100000, { key: "x", format: "currency_cents" })).toBe("$1,000.00");
+    expect(formatCellDisplay("abc", { key: "x", format: "currency_cents" })).toBe("");
+  });
+  it("currency_dollars → $X.XX", () => {
+    expect(formatCellDisplay(9.5, { key: "x", format: "currency_dollars" })).toBe("$9.50");
+  });
+  it("percent → X.X%", () => {
+    expect(formatCellDisplay(12.34, { key: "x", format: "percent" })).toBe("12.3%");
+  });
+  it("number passes through toLocaleString", () => {
+    expect(formatCellDisplay(1000, { key: "x", format: "number" })).toBe((1000).toLocaleString());
+  });
+  it("number with digits is fixed", () => {
+    expect(formatCellDisplay(3, { key: "x", format: "number", digits: 2 })).toBe("3.00");
+  });
+  it("date → US MM/DD/YYYY", () => {
+    expect(formatCellDisplay("2026-05-28", { key: "x", format: "date" })).toBe("05/28/2026");
+  });
+  it("plain text passthrough", () => {
+    expect(formatCellDisplay("hello")).toBe("hello");
+  });
+});
+
+describe("buildDisplayAoA", () => {
+  it("emits header then display-formatted body rows", () => {
+    type R = { code: string; amt: number | null };
+    const cols: Array<import("../useTableExport").ExportColumn<R>> = [
+      { key: "code", header: "Code" },
+      { key: "amt", header: "Amount", format: "currency_cents" },
+    ];
+    const aoa = buildDisplayAoA<R>([{ code: "1100", amt: 12345 }, { code: "1200", amt: null }], cols);
+    expect(aoa).toEqual([
+      ["Code", "Amount"],
+      ["1100", "$123.45"],
       ["1200", ""],
     ]);
   });

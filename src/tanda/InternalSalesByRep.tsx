@@ -6,6 +6,15 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+
+const SALES_BY_REP_TABLE_KEY = "tanda.sales_by_rep";
+const SALES_BY_REP_COLUMNS: ColumnDef[] = [
+  { key: "sales_rep",  label: "Sales Rep" },
+  { key: "invoices",   label: "Invoices" },
+  { key: "gross",      label: "Gross" },
+  { key: "commission", label: "Commission" },
+];
 
 type Row = {
   sales_rep_id: string;
@@ -70,6 +79,12 @@ export default function InternalSalesByRep() {
   const [fromDate, setFromDate] = useState<string>(isoMinusDays(90));
   const [toDate, setToDate] = useState<string>(todayISO());
 
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
+    SALES_BY_REP_TABLE_KEY,
+    SALES_BY_REP_COLUMNS,
+  );
+  const isVisible = (k: string): boolean => visibleColumns.has(k);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -119,7 +134,7 @@ export default function InternalSalesByRep() {
           To
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
         </label>
-        <DateRangePresets
+        <DateRangePresets variant="dropdown"
           from={fromDate}
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
@@ -137,6 +152,14 @@ export default function InternalSalesByRep() {
             { key: "gross_cents",      header: "Gross",      format: "currency_cents" },
             { key: "commission_cents", header: "Commission", format: "currency_cents" },
           ]}
+        />
+        <TablePrefsButton
+          tableKey={SALES_BY_REP_TABLE_KEY}
+          columns={SALES_BY_REP_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggle={toggleColumn}
+          onReset={resetToDefault}
+          onSetAll={setAllVisible}
         />
       </div>
 
@@ -157,30 +180,30 @@ export default function InternalSalesByRep() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Sales Rep</th>
-                <th style={{ ...th, textAlign: "right" }}>Invoices</th>
-                <th style={{ ...th, textAlign: "right" }}>Gross</th>
-                <th style={{ ...th, textAlign: "right" }}>Commission</th>
+                <th style={th} hidden={!isVisible("sales_rep")}>Sales Rep</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("invoices")}>Invoices</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("gross")}>Gross</th>
+                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("commission")}>Commission</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.sales_rep_id}>
-                  <td style={td}>
+                  <td style={td} hidden={!isVisible("sales_rep")}>
                     <strong>{r.sales_rep_name || r.sales_rep_id}</strong>
                   </td>
-                  <td style={tdNum}>{r.invoice_count}</td>
-                  <td style={tdNum}>{fmtCents(r.gross_cents)}</td>
-                  <td style={tdNum}>{fmtCents(r.commission_cents)}</td>
+                  <td style={tdNum} hidden={!isVisible("invoices")}>{r.invoice_count}</td>
+                  <td style={tdNum} hidden={!isVisible("gross")}>{fmtCents(r.gross_cents)}</td>
+                  <td style={tdNum} hidden={!isVisible("commission")}>{fmtCents(r.commission_cents)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
-                <td style={{ ...td, fontWeight: 700, color: C.textSub }}>TOTAL</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{totals.invoice_count}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.gross)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.commission)}</td>
+                <td style={{ ...td, fontWeight: 700, color: C.textSub }} hidden={!isVisible("sales_rep")}>TOTAL</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("invoices")}>{totals.invoice_count}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("gross")}>{fmtCents(totals.gross)}</td>
+                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!isVisible("commission")}>{fmtCents(totals.commission)}</td>
               </tr>
             </tfoot>
           </table>

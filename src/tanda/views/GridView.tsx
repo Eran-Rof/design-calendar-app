@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import XLSXStyle from "xlsx-js-style";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook } from "../../shared/excelLogo";
 import {
   type XoroPO, type Milestone, type WipTemplate, type View,
   MILESTONE_STATUS_COLORS, MILESTONE_STATUSES, fmtDate, fmtCurrency, milestoneUid, isLineClosed, todayLocalIso,
@@ -11,6 +11,7 @@ import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
 import { PoMatrixPopover } from "./PoMatrixPopover";
+import { SearchableSelect } from "../components/SearchableSelect";
 import {
   PAGE_SIZE,
   MAX_UNDO,
@@ -36,6 +37,7 @@ import {
   styleColorKey,
   itemSizeLabel,
   sizeSort,
+  buildSizeVocab,
 } from "./gridView/gridUtils";
 import { NotesModal } from "./gridView/NotesModal";
 
@@ -94,6 +96,44 @@ export function GridView({
       return next;
     });
   };
+
+  // Canonical size vocabulary from the live Tangerine size_scales — drives the
+  // style/color grouping so size detection follows the actual scales (incl.
+  // paren sizes like S(7-8) and month sizes), not a fixed list. Loads once;
+  // until it arrives the grouping uses the structural fallback in isSizeToken.
+  const [sizeVocab, setSizeVocab] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${SB_URL}/rest/v1/size_scales?select=sizes,inseams`, { headers: SB_HEADERS })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => { if (!cancelled && Array.isArray(rows)) setSizeVocab(buildSizeVocab(rows)); })
+      .catch(() => { /* fall back to structural detection */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Hidden-section (phase) state. Mirrors hiddenCols but keyed by phase
+  // name, so the planner can collapse whole milestone sections (Lab Dip,
+  // Strike Off, Trim, …) out of the grid. Persisted under gv_hidden_phases.
+  // Only affects on-screen rendering — the Excel export still emits every
+  // section (same precedent as hiddenCols not touching the export).
+  const [hiddenPhases, setHiddenPhases] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("gv_hidden_phases");
+      if (!raw) return new Set();
+      return new Set(JSON.parse(raw) as string[]);
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("gv_hidden_phases", JSON.stringify(Array.from(hiddenPhases))); } catch { /* ignore */ }
+  }, [hiddenPhases]);
+  const togglePhase = (p: string) => {
+    setHiddenPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
   const [colDropOpen, setColDropOpen] = useState(false);
   const colDropRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -150,6 +190,33 @@ export function GridView({
   const [search, setSearch]                     = useState("");
   const [filterVendor, setFilterVendor]         = useState("All");
   const [filterBuyer, setFilterBuyer]           = useState("All");
+
+  // ── Named-range filter on the PO# column (row-2 header cell) ──────────────
+  // The planner picks EITHER a PO-creation-date range (DateOrder) or a
+  // PO-number range (trailing 6 digits of PoNumber). "From" alone means
+  // "this value or newer/greater"; an optional "To" closes the range.
+  // Results auto-sort ascending by the chosen axis. Persisted under
+  // gv_range_filter so the selection survives reloads.
+  type RangeMode = "date" | "po";
+  interface RangeFilter { mode: RangeMode; from: string; to: string; }
+  const [rangeFilter, setRangeFilter] = useState<RangeFilter | null>(() => {
+    try {
+      const raw = localStorage.getItem("gv_range_filter");
+      return raw ? (JSON.parse(raw) as RangeFilter) : null;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (rangeFilter) localStorage.setItem("gv_range_filter", JSON.stringify(rangeFilter));
+      else localStorage.removeItem("gv_range_filter");
+    } catch { /* ignore */ }
+  }, [rangeFilter]);
+  // Popover open + anchor. Fixed-positioned at the button so it escapes the
+  // grid's overflow:scroll clip (same approach as the matrix peek popover).
+  const [rangeAnchor, setRangeAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Draft form values while the popover is open; committed on Apply.
+  const [rangeDraft, setRangeDraft]   = useState<RangeFilter>({ mode: "date", from: "", to: "" });
+
   const [expandedPoNum, setExpandedPoNum]       = useState<string | null>(null);
   // While ANY PO is expanded, force the freeze through Days from DDP
   // (all 8 fixed cols). This pins the expansion strip + line item
@@ -175,6 +242,7 @@ export function GridView({
   } | null>(null);
   // Vendors the user dismissed this session — state so dismissal triggers re-render.
   const [dismissedTplVendors, setDismissedTplVendors] = useState<Set<string>>(new Set());
+  const [tplCopyFrom, setTplCopyFrom] = useState("__default__");
   // When the set of available vendor templates grows (user or background load),
   // un-dismiss those vendors so they don't get permanently hidden if they were
   // dismissed before wipTemplates finished loading.
@@ -250,12 +318,43 @@ export function GridView({
     return Math.round((dt - t) / 86400000);
   }, [todayIso]);
 
+  // Trailing numeric portion (last up to 6 digits) of a PO number, e.g.
+  // "ROF-P001263" → 1263. Powers the named-range PO-number filter + sort.
+  const poNumLast6 = useCallback((poNum: string | null | undefined): number | null => {
+    const m = String(poNum ?? "").match(/(\d+)\s*$/);
+    if (!m) return null;
+    const n = parseInt(m[1].slice(-6), 10);
+    return isNaN(n) ? null : n;
+  }, []);
+
+  // True when a PO falls inside the named range. Shared by the rows filter
+  // and the auto-revert effect so the predicate lives in exactly one place.
+  const matchesRange = useCallback((p: XoroPO, rf: RangeFilter): boolean => {
+    if (rf.mode === "date") {
+      const d = normDateISO(p.DateOrder);
+      if (!d) return false;
+      if (rf.from && d < rf.from) return false;
+      if (rf.to   && d > rf.to)   return false;
+      return true;
+    }
+    const n = poNumLast6(p.PoNumber);
+    if (n == null) return false;
+    const from = rf.from ? parseInt(rf.from, 10) : null;
+    const to   = rf.to   ? parseInt(rf.to,   10) : null;
+    if (from != null && n < from) return false;
+    if (to   != null && n > to)   return false;
+    return true;
+  }, [poNumLast6]);
+
   // ── Rows ────────────────────────────────────────────────────────────────
   const rows = useMemo(() => {
     const s = search.toLowerCase();
+    const rf = rangeFilter;
     const filtered = pos.filter(p => {
       if (filterVendor !== "All" && (p.VendorName ?? "") !== filterVendor) return false;
       if (filterBuyer  !== "All" && (p.BuyerName  ?? "") !== filterBuyer)  return false;
+      // Named-range filter — PO creation date (DateOrder) OR trailing PO #.
+      if (rf && !matchesRange(p, rf)) return false;
       if (!s) return true;
       return (
         (p.PoNumber   ?? "").toLowerCase().includes(s) ||
@@ -264,7 +363,30 @@ export function GridView({
         (p.BuyerPo    ?? "").toLowerCase().includes(s)
       );
     });
-    if (!sortKey) return filtered;
+    // An explicit header sort always wins. Otherwise, when a named range is
+    // active, auto-sort ascending by the chosen axis (date or PO number) —
+    // "sort results by date or number depending on the search selection".
+    if (!sortKey) {
+      if (rf) {
+        return [...filtered].sort((a, b) => {
+          if (rf.mode === "date") {
+            const da = normDateISO(a.DateOrder) || "";
+            const db = normDateISO(b.DateOrder) || "";
+            if (da === db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return da < db ? -1 : 1;
+          }
+          const na = poNumLast6(a.PoNumber);
+          const nb = poNumLast6(b.PoNumber);
+          if (na == null && nb == null) return 0;
+          if (na == null) return 1;
+          if (nb == null) return -1;
+          return na - nb;
+        });
+      }
+      return filtered;
+    }
     const dirMul = sortDir === "asc" ? 1 : -1;
     const cmp = (av: any, bv: any) => {
       // Nulls + empty strings sort to the END regardless of direction
@@ -288,9 +410,29 @@ export function GridView({
       }
     };
     return [...filtered].sort((a, b) => cmp(get(a), get(b)));
-  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp]);
+  }, [pos, search, filterVendor, filterBuyer, sortKey, sortDir, daysFromDdp, rangeFilter, poNumLast6, matchesRange]);
 
-  useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir]);
+  useEffect(() => setPage(0), [search, filterVendor, filterBuyer, sortKey, sortDir, rangeFilter]);
+
+  // Auto-revert: if the active named range matches ZERO POs (independent of the
+  // search/vendor/buyer filters), drop it and fall back to the full PO list so
+  // the planner is never stranded on an empty grid. A transient notice explains
+  // why. Scoped to the range predicate only — other filters returning nothing
+  // is a legitimate empty result and is left alone.
+  const [rangeNotice, setRangeNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!rangeFilter) return;
+    if (pos.some(p => matchesRange(p, rangeFilter))) return;
+    const label = rangeFilter.mode === "date" ? "date range" : "PO-number range";
+    setRangeFilter(null);
+    setRangeNotice(`No POs matched that ${label} — showing all POs.`);
+  }, [rangeFilter, pos, matchesRange]);
+  // Clear the notice shortly after it appears (or immediately on next change).
+  useEffect(() => {
+    if (!rangeNotice) return;
+    const t = setTimeout(() => setRangeNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [rangeNotice]);
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -356,7 +498,9 @@ export function GridView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageRows, milestones, ensureMilestones, vendorHasTemplate, getVendorTemplates, regenerateMilestones]);
 
-  const phases = useMemo(() => {
+  // Every phase present across the visible POs, in template order. This is
+  // the full set used by the export and the Sections hide-menu.
+  const allPhases = useMemo(() => {
     const order = new Map<string, number>();
     rows.forEach(p => {
       (milestones[p.PoNumber ?? ""] || []).forEach(m => {
@@ -366,6 +510,15 @@ export function GridView({
     });
     return [...order.entries()].sort((a, b) => a[1] - b[1]).map(([phase]) => phase);
   }, [rows, milestones]);
+
+  // The phases actually rendered on screen — allPhases minus the sections the
+  // planner has hidden. Every grid render path (column template, headers, data
+  // rows, expanded strips) reads this, so hiding a section reflows the grid
+  // without touching the export, which keeps using allPhases.
+  const phases = useMemo(
+    () => allPhases.filter(p => !hiddenPhases.has(p)),
+    [allPhases, hiddenPhases],
+  );
 
   // ── Mutations ───────────────────────────────────────────────────────────
   // pushUndo accepts a batch (array) of milestones — all are restored together on undo.
@@ -632,26 +785,37 @@ export function GridView({
   }, [ddpChangeModal, pushUndo, saveMilestone, user, cascadeFromDDP, persistDDP, addNote]);
 
   // ── Excel export ────────────────────────────────────────────────────────
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Export every section regardless of which the planner has hidden on
+    // screen — a hidden section is a view preference, not a data exclusion.
+    const phases = allPhases;
+    // Canonical "ATS look" — see src/shared/excelLogo.ts.
     const HDR: any = {
       font:      { bold: true, color: { rgb: "FFFFFF" }, sz: 10, name: "Calibri" },
-      fill:      { fgColor: { rgb: "217346" }, patternType: "solid" },
+      fill:      { fgColor: { rgb: "1F497D" }, patternType: "solid" },
       alignment: { horizontal: "center", vertical: "center", wrapText: true },
-      border: { top: { style: "thin", color: { rgb: "145A2E" } }, bottom: { style: "medium", color: { rgb: "145A2E" } }, left: { style: "thin", color: { rgb: "145A2E" } }, right: { style: "thin", color: { rgb: "145A2E" } } },
+      border: { top: { style: "thin", color: { rgb: "4472C4" } }, bottom: { style: "medium", color: { rgb: "4472C4" } }, left: { style: "thin", color: { rgb: "4472C4" } }, right: { style: "thin", color: { rgb: "4472C4" } } },
     };
-    const HDR2: any = { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" }, font: { ...HDR.font, sz: 9 } };
+    const HDR2: any = { ...HDR, fill: { fgColor: { rgb: "1F497D" }, patternType: "solid" }, font: { ...HDR.font, sz: 9 } };
     const cellBase: any = { font: { sz: 10, name: "Calibri" }, alignment: { vertical: "center" }, border: { top: { style: "thin", color: { rgb: "D0D8E4" } }, bottom: { style: "thin", color: { rgb: "D0D8E4" } }, left: { style: "thin", color: { rgb: "D0D8E4" } }, right: { style: "thin", color: { rgb: "D0D8E4" } } } };
-    const cellAlt: any  = { ...cellBase, fill: { fgColor: { rgb: "F0FAF4" }, patternType: "solid" } };
+    const cellAlt: any  = { ...cellBase, fill: { fgColor: { rgb: "EEF3FA" }, patternType: "solid" } };
     const mono = (b: any): any => ({ ...b, font: { ...b.font, name: "Courier New" } });
 
     const fixedHdrs1 = ["PO #", "Vendor", "Buyer", "Buyer PO", "DDP", "Days from DDP"];
-    const phaseHdrs1: string[] = [];
-    const phaseHdrs2: string[] = [];
-    phases.forEach(p => { phaseHdrs1.push(p, "", "", "", ""); phaseHdrs2.push("Due Date", "Status", "Status Date", "Days", "Notes"); });
+    const subLabels = ["Due Date", "Status", "Status Date", "Days", "Notes"];
+    // Lighter-blue (ATS spacer color) separator cell preceding each phase block.
+    const SPACER_WCH = 1.8;
+    const spacer = (): any => ({ v: "", t: "s", s: { fill: { fgColor: { rgb: "3278CC" }, patternType: "solid" }, border: {} } });
 
-    const row1 = [...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })), ...phaseHdrs1.map(h => ({ v: h, t: "s", s: h ? HDR : { ...HDR, fill: { fgColor: { rgb: "1A5C38" }, patternType: "solid" } } }))];
-    const row2 = [...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })), ...phaseHdrs2.map(h => ({ v: h, t: "s", s: HDR2 }))];
+    const row1 = [
+      ...fixedHdrs1.map(h => ({ v: h, t: "s", s: HDR })),
+      ...phases.flatMap(p => [spacer(), ...[p, "", "", "", ""].map(h => ({ v: h, t: "s", s: HDR }))]),
+    ];
+    const row2 = [
+      ...fixedHdrs1.map(() => ({ v: "", t: "s", s: HDR2 })),
+      ...phases.flatMap(() => [spacer(), ...subLabels.map(h => ({ v: h, t: "s", s: HDR2 }))]),
+    ];
 
     const dataRows = rows.map((po, ri) => {
       const base = ri % 2 === 0 ? cellBase : cellAlt;
@@ -669,6 +833,7 @@ export function GridView({
       ];
       const phaseCells: any[] = [];
       phases.forEach(phase => {
+        phaseCells.push(spacer()); // separator preceding each Due Date column
         const m = phaseMap.get(phase);
         if (!m) { for (let i = 0; i < PHASE_COLS; i++) phaseCells.push({ v: "", t: "s", s: base }); return; }
         const daysRem = m.expected_date ? Math.ceil((new Date(m.expected_date + "T00:00:00").getTime() - today.getTime()) / 86400000) : null;
@@ -690,18 +855,36 @@ export function GridView({
       return [...fixed, ...phaseCells];
     });
 
-    const ws = XLSXStyle.utils.aoa_to_sheet([[]]);
-    XLSXStyle.utils.sheet_add_aoa(ws, [row1.map(c => c.v), row2.map(c => c.v), ...dataRows.map(r => r.map((c: any) => c.v))]);
-    const applyRow = (ri: number, cells: any[]) => cells.forEach((c, ci) => { const addr = XLSXStyle.utils.encode_cell({ r: ri, c: ci }); if (!ws[addr]) ws[addr] = { v: c.v, t: c.t }; ws[addr].s = c.s; });
-    applyRow(0, row1); applyRow(1, row2); dataRows.forEach((r, ri) => applyRow(ri + 2, r));
+    // Close the table with a defined rule under the last data row. Skip the
+    // separator columns so they stay clean vertical bands (no border).
+    const sepIdxs = new Set(phases.map((_, pi) => fixedHdrs1.length + pi * (PHASE_COLS + 1)));
+    const BOTTOM_RULE: any = { style: "medium", color: { rgb: "1F497D" } };
+    const lastRow = dataRows[dataRows.length - 1];
+    if (lastRow) {
+      for (let c = 0; c < lastRow.length; c++) {
+        if (sepIdxs.has(c)) continue;
+        const cell = lastRow[c];
+        lastRow[c] = { ...cell, s: { ...cell.s, border: { ...(cell.s?.border || {}), bottom: BOTTOM_RULE } } };
+      }
+    }
+
+    const aoa = [row1, row2, ...dataRows];
     const fixedWidths = [12, 22, 18, 14, 12, 14];
-    const phaseWidths = phases.flatMap(() => [12, 14, 12, 10, 30]);
-    ws["!cols"] = [...fixedWidths, ...phaseWidths].map(w => ({ wch: w }));
-    ws["!merges"] = phases.map((_, pi) => ({ s: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS }, e: { r: 0, c: fixedHdrs1.length + pi * PHASE_COLS + PHASE_COLS - 1 } }));
-    ws["!rows"] = [{ hpx: 28 }, { hpx: 18 }];
-    const wb = XLSXStyle.utils.book_new();
-    XLSXStyle.utils.book_append_sheet(wb, ws, "WIP Grid");
-    XLSXStyle.writeFile(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const phaseWidths = phases.flatMap(() => [SPACER_WCH, 12, 14, 12, 10, 30]); // leading spacer per phase
+    // Phase group-header merges, offset by the leading spacer in each block.
+    const merges = phases.map((_, pi) => {
+      const start = fixedHdrs1.length + pi * (PHASE_COLS + 1) + 1; // +1 = the leading spacer
+      return { s: { r: 0, c: start }, e: { r: 0, c: start + PHASE_COLS - 1 } };
+    });
+    const wb = newWorkbook();
+    renderStyledAoa(wb, "WIP Grid", aoa, {
+      banner: { title: "WIP Grid", subtitle: `Production work-in-progress · ${new Date().toISOString().slice(0, 10)}`, cols: aoa[0].length },
+      cols: [...fixedWidths, ...phaseWidths],
+      rowHeights: [22, 16],
+      merges,
+      freeze: { xSplit: 6, ySplit: 2 },
+    });
+    await downloadExcelWorkbook(wb, `WIP_Grid_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // ── Cell styles ─────────────────────────────────────────────────────────
@@ -761,6 +944,13 @@ export function GridView({
   // Left border on first column to close the outer frame.
   const firstCol: React.CSSProperties = { borderLeft: B_CELL };
 
+  // Shared input style for the Named-Range popover fields.
+  const rangeInput: React.CSSProperties = {
+    width: "100%", boxSizing: "border-box", background: "#0B1220",
+    border: "1px solid #334155", borderRadius: 6, color: "#F1F5F9",
+    fontSize: 12, padding: "6px 8px", outline: "none",
+  };
+
   const ct    = buildColTpl(phases.length, hiddenCols);
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
@@ -810,40 +1000,47 @@ export function GridView({
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
         <input
           style={{ ...S.input, flex: 1, minWidth: 240, marginBottom: 0 }}
-          placeholder="🔍 Search PO#, vendor, buyer, buyer PO…"
+          placeholder="Search PO#, vendor, buyer, buyer PO…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select style={{ ...S.select, width: 200 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-          <option value="All">All Vendors</option>
-          {vendors.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select style={{ ...S.select, width: 200 }} value={filterBuyer} onChange={e => setFilterBuyer(e.target.value)}>
-          <option value="All">All Buyers</option>
-          {buyerOptions.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterVendor}
+          onChange={v => setFilterVendor(v)}
+          options={[{ value: "All", label: "All Vendors" }, ...vendors.map(v => ({ value: v, label: v }))]}
+          inputStyle={{ ...S.select, width: 200 }}
+        />
+        <SearchableSelect
+          value={filterBuyer}
+          onChange={v => setFilterBuyer(v)}
+          options={[{ value: "All", label: "All Buyers" }, ...buyerOptions.map(b => ({ value: b, label: b }))]}
+          inputStyle={{ ...S.select, width: 200 }}
+        />
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
 
-        {/* Columns dropdown — toggle which fixed columns are shown.
-            Persisted to localStorage; matches the ATS / Planning
-            toolbar pattern. The chevron + notes columns aren't
-            listed because they're functional UI, not data. */}
+        {/* Columns & Sections dropdown — toggle which fixed columns AND which
+            milestone sections (Lab Dip, Strike Off, Trim, …) are shown.
+            Persisted to localStorage; matches the ATS / Planning toolbar
+            pattern. The chevron + notes columns aren't listed because they're
+            functional UI, not data. Hiding a section collapses its whole
+            phase block out of the grid (export still emits every section). */}
         <div ref={colDropRef} style={{ position: "relative" }}>
           <button
             onClick={() => setColDropOpen(o => !o)}
-            title="Show / hide grid columns"
+            title="Show / hide grid columns and milestone sections"
             style={{ ...S.btnSecondary, display: "flex", alignItems: "center", gap: 6 }}
           >
-            Columns
-            {hiddenCols.size > 0 && (
+            Columns &amp; Sections
+            {(hiddenCols.size + hiddenPhases.size) > 0 && (
               <span style={{ background: "#0EA5E9", color: "#fff", borderRadius: 8, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
-                {hiddenCols.size}
+                {hiddenCols.size + hiddenPhases.size}
               </span>
             )}
             <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
           </button>
           {colDropOpen && (
-            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: 8, zIndex: 50, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#0F172A", border: "1px solid #334155", borderRadius: 8, padding: 8, zIndex: 50, minWidth: 220, maxHeight: "70vh", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#64748B", padding: "2px 8px 4px" }}>Columns</div>
               {HIDEABLE_COL_KEYS.map((k) => {
                 const visible = !hiddenCols.has(k);
                 return (
@@ -853,8 +1050,37 @@ export function GridView({
                   </label>
                 );
               })}
-              {hiddenCols.size > 0 && (
-                <button onClick={() => setHiddenCols(new Set())} style={{ ...S.btnGhost, fontSize: 11, marginTop: 4, width: "100%", textAlign: "center" as const }}>
+              {allPhases.length > 0 && (
+                <>
+                  <div style={{ borderTop: "1px solid #1E293B", margin: "6px 0" }} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 8px 4px" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#64748B" }}>Sections</span>
+                    <span style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => setHiddenPhases(new Set())}
+                        disabled={hiddenPhases.size === 0}
+                        style={{ ...S.btnGhost, fontSize: 10, padding: "1px 4px", opacity: hiddenPhases.size === 0 ? 0.4 : 1 }}
+                      >All</button>
+                      <button
+                        onClick={() => setHiddenPhases(new Set(allPhases))}
+                        disabled={hiddenPhases.size === allPhases.length}
+                        style={{ ...S.btnGhost, fontSize: 10, padding: "1px 4px", opacity: hiddenPhases.size === allPhases.length ? 0.4 : 1 }}
+                      >None</button>
+                    </span>
+                  </div>
+                  {allPhases.map((p) => {
+                    const visible = !hiddenPhases.has(p);
+                    return (
+                      <label key={p} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: 6, color: visible ? "#E5E7EB" : "#6B7280", userSelect: "none" }}>
+                        <input type="checkbox" checked={visible} onChange={() => togglePhase(p)} style={{ accentColor: "#10B981", cursor: "pointer" }} />
+                        {p}
+                      </label>
+                    );
+                  })}
+                </>
+              )}
+              {(hiddenCols.size + hiddenPhases.size) > 0 && (
+                <button onClick={() => { setHiddenCols(new Set()); setHiddenPhases(new Set()); }} style={{ ...S.btnGhost, fontSize: 11, marginTop: 6, width: "100%", textAlign: "center" as const }}>
                   Show all
                 </button>
               )}
@@ -864,17 +1090,17 @@ export function GridView({
 
         {/* Freeze dropdown — pin leftmost columns through the
             chosen one when scrolling horizontally. */}
-        <select
-          value={freezeKey ?? ""}
-          onChange={(e) => setFreezeKey(e.target.value === "" ? null : e.target.value as HideableColKey)}
-          style={{ ...S.select, width: 180 }}
-          title="Pin leftmost columns through the selected one when scrolling horizontally"
-        >
-          <option value="">No freeze</option>
-          {HIDEABLE_COL_KEYS.filter(k => !hiddenCols.has(k)).map((k) => (
-            <option key={k} value={k}>Freeze through {COL_LABELS[k]}</option>
-          ))}
-        </select>
+        <div title="Pin leftmost columns through the selected one when scrolling horizontally">
+          <SearchableSelect
+            value={freezeKey ?? ""}
+            onChange={(v) => setFreezeKey(v === "" ? null : v as HideableColKey)}
+            options={[
+              { value: "", label: "No freeze" },
+              ...HIDEABLE_COL_KEYS.filter(k => !hiddenCols.has(k)).map((k) => ({ value: k, label: `Freeze through ${COL_LABELS[k]}` })),
+            ]}
+            inputStyle={{ ...S.select, width: 180 }}
+          />
+        </div>
 
         <button
           onClick={handleUndo}
@@ -890,7 +1116,7 @@ export function GridView({
           title="Download as Excel"
           style={{ background: "#217346", border: "1px solid #145A2E", color: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
         >
-          <span style={{ fontSize: 15 }}>⬇</span> Excel
+          Excel
         </button>
       </div>
 
@@ -906,7 +1132,7 @@ export function GridView({
             onClick={dismiss}
           >
             <div
-              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: 500, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+              style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 10, width: "min(500px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ padding: "16px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -919,16 +1145,17 @@ export function GridView({
                 </p>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ color: "#94A3B8", fontSize: 12, display: "block", marginBottom: 6 }}>Copy from</label>
-                  <select style={{ ...S.select, width: "100%" }} id="gridModalCopyFrom">
-                    <option value="__default__">Default Template</option>
-                    {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={tplCopyFrom}
+                    onChange={v => setTplCopyFrom(v)}
+                    options={[{ value: "__default__", label: "Default Template" }, ...templateVendorList().map(v => ({ value: v, label: v }))]}
+                    inputStyle={{ ...S.select, width: "100%" }}
+                  />
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
                   <button style={{ ...S.btnSecondary, flex: 1 }} onClick={dismiss}>Cancel</button>
                   <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
-                    const copyEl = document.getElementById("gridModalCopyFrom") as HTMLSelectElement;
-                    const copyFrom = copyEl?.value || "__default__";
+                    const copyFrom = tplCopyFrom || "__default__";
                     const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                     const newTpls = source.map((t: WipTemplate) => ({ ...t, id: milestoneUid() }));
                     await saveVendorTemplates(vendorN, newTpls);
@@ -964,7 +1191,15 @@ export function GridView({
 
         {/* ── Status bar + pagination ─────────────────────────────────── */}
         <div style={{ padding: "10px 14px", color: "#9CA3AF", fontSize: 13, borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}</span>
+          <span>
+            Showing {pageRows.length} of {rows.length} PO{rows.length !== 1 ? "s" : ""} · {phases.length} phase{phases.length !== 1 ? "s" : ""}
+            {hiddenPhases.size > 0 && (
+              <span style={{ marginLeft: 6, color: "#64748B" }}>({hiddenPhases.size} section{hiddenPhases.size !== 1 ? "s" : ""} hidden)</span>
+            )}
+            {rangeNotice && (
+              <span style={{ marginLeft: 10, color: "#FBBF24", fontWeight: 600 }}>⤢ {rangeNotice}</span>
+            )}
+          </span>
           {totalPages > 1 && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
@@ -979,7 +1214,11 @@ export function GridView({
         {rows.length === 0 ? (
           <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No POs match the filters.</div>
         ) : phases.length === 0 ? (
-          <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>No milestones generated yet for the visible POs.</div>
+          <div style={{ padding: 32, color: "#6B7280", fontSize: 13, textAlign: "center" }}>
+            {allPhases.length > 0
+              ? "All sections are hidden — use Columns & Sections ▸ Sections ▸ All to show them."
+              : "No milestones generated yet for the visible POs."}
+          </div>
         ) : (
           <div ref={tableWrapRef} className="gv-scroll" style={{ overflowX: "scroll", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ minWidth: "fit-content" }}>
@@ -1069,9 +1308,32 @@ export function GridView({
                     // above for why we can't use phaseDividerHost (would override the
                     // freeze CSS's position:sticky).
                     const showBoundary = i === 7 && effectiveFreezeCount > 0;
+                    // 3rd cell (PO #, i===2) hosts the Named-Range filter button.
+                    const isPoCol = i === 2;
                     return (
-                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}) }}>
+                      <span key={i} style={{ ...hdr2, ...(i === 0 ? firstCol : {}), ...(showBoundary ? { overflow: "visible" } : {}), ...(isPoCol ? { padding: 2 } : {}) }}>
                         {showBoundary && <span style={phaseDividerOverlayBoundary} />}
+                        {isPoCol && (
+                          <button
+                            onClick={(e) => {
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setRangeDraft(rangeFilter ?? { mode: "date", from: "", to: "" });
+                              setRangeAnchor(prev => (prev ? null : { x: r.left, y: r.bottom + 4 }));
+                            }}
+                            title="Filter PO# by a creation-date range or a PO-number range"
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                              width: "100%", background: rangeFilter ? "#4C1D95" : "transparent",
+                              border: rangeFilter ? "1px solid #7C3AED" : "1px dashed #334155",
+                              borderRadius: 4, color: rangeFilter ? "#DDD6FE" : "#64748B",
+                              fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4,
+                              padding: "3px 4px", cursor: "pointer", lineHeight: 1.1,
+                            }}
+                          >
+                            <span style={{ fontSize: 10 }}>⤢</span>
+                            {rangeFilter ? "Range •" : "Range"}
+                          </button>
+                        )}
                       </span>
                     );
                   })}
@@ -1090,7 +1352,7 @@ export function GridView({
                         {/* Right closing border on last phase Notes sub-label */}
                         <span style={{ ...hdr2, ...(isLastPhase ? phaseDividerHost : {}) }}>
                           {isLastPhase && <span style={phaseDividerOverlayRight} />}
-                          📝
+                          Notes
                         </span>
                       </React.Fragment>
                     );
@@ -1152,7 +1414,7 @@ export function GridView({
                           onClick={() => setNotesModal({ po, ms: poMs })}
                           title={tip}
                         >
-                          <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
+                          <span style={{ fontSize: 11, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>Notes</span>
                           {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
                         </span>
                       );
@@ -1181,14 +1443,12 @@ export function GridView({
 
                     {/* Buyer — dropdown from all customers + ROF Stock + PT Stock */}
                     <span style={{ ...cell, padding: 2 }}>
-                      <select
+                      <SearchableSelect
                         value={po.BuyerName || ""}
-                        onChange={e => persistBuyerName(poNum, e.target.value)}
-                        style={{ background: "transparent", border: "none", color: po.BuyerName ? "#D1D5DB" : "#4B5563", fontSize: 11, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
-                      >
-                        <option value="" style={{ background: "#0F172A", color: "#4B5563" }}>— unassigned —</option>
-                        {buyerOptions.map(b => <option key={b} value={b} style={{ background: "#0F172A", color: "#D1D5DB" }}>{b}</option>)}
-                      </select>
+                        onChange={v => persistBuyerName(poNum, v)}
+                        options={[{ value: "", label: "— unassigned —" }, ...buyerOptions.map(b => ({ value: b, label: b }))]}
+                        inputStyle={{ background: "transparent", border: "none", color: po.BuyerName ? "#D1D5DB" : "#4B5563", fontSize: 11, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
+                      />
                     </span>
 
                     {/* Buyer PO */}
@@ -1284,15 +1544,12 @@ export function GridView({
 
                           {/* Status */}
                           <span style={{ ...sub, padding: 2 }}>
-                            <select
+                            <SearchableSelect
                               value={m.status}
-                              onChange={e => updateStatus(po, m, e.target.value)}
-                              style={{ background: "transparent", border: "none", color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
-                            >
-                              {MILESTONE_STATUSES.map(s => (
-                                <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s], background: "#0F172A" }}>{s}</option>
-                              ))}
-                            </select>
+                              onChange={v => updateStatus(po, m, v)}
+                              options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                              inputStyle={{ background: "transparent", border: "none", color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
+                            />
                           </span>
 
                           {/* Status Date */}
@@ -1322,7 +1579,7 @@ export function GridView({
                           >
                             {isLastPhase && <span style={phaseDividerOverlayRight} />}
                             <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
-                              {phaseHasNotes ? `📝${noteCount}` : "📝"}
+                              {phaseHasNotes ? `Notes ${noteCount}` : "Notes"}
                             </span>
                           </span>
                         </React.Fragment>
@@ -1340,7 +1597,7 @@ export function GridView({
                     // Build style/color groups (strip trailing size from ItemNumber)
                     const groupMap = new Map<string, { key: string; desc: string; items: typeof allItems }>();
                     allItems.forEach((item, idx) => {
-                      const k = styleColorKey(item.ItemNumber || "", item.Description || "") || `item_${idx}`;
+                      const k = styleColorKey(item.ItemNumber || "", item.Description || "", sizeVocab) || `item_${idx}`;
                       if (!groupMap.has(k)) groupMap.set(k, { key: k, desc: item.Description || "", items: [] });
                       groupMap.get(k)!.items.push(item);
                     });
@@ -1348,7 +1605,7 @@ export function GridView({
 
                     // Collect all unique detected sizes (for matrix col headers)
                     const sizeSet = new Set<string>();
-                    allItems.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeSet.add(sz); });
+                    allItems.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || "", sizeVocab); if (sz) sizeSet.add(sz); });
                     const hasSizes   = sizeSet.size > 0;
                     const sortedSizes = [...sizeSet].sort(sizeSort);
 
@@ -1439,7 +1696,7 @@ export function GridView({
                                     <span style={{ ...hdr2, background: infoBg2 }}>Status Date</span>
                                     <span style={{ ...hdr2, background: infoBg2 }}>Days</span>
                                     <span style={{ ...hdr2, background: infoBg2, ...(isLast ? phaseDividerHost : {}) }}>
-                                      {isLast && <span style={phaseDividerOverlayRight} />}📝
+                                      {isLast && <span style={phaseDividerOverlayRight} />}Notes
                                     </span>
                                   </React.Fragment>
                                 );
@@ -1535,21 +1792,20 @@ export function GridView({
                                           </span>
                                         </span>
                                         <span style={{ ...sub, padding: 2 }}>
-                                          <select
+                                          <SearchableSelect
                                             value={itemStatus}
-                                            onChange={e => {
+                                            onChange={v => {
                                               if (closed) return;
                                               const iso = todayLocalIso();
                                               const vsNew = { ...(m.variant_statuses || {}) };
                                               const prev  = vsNew[varKey];
-                                              vsNew[varKey] = { status: e.target.value, status_date: e.target.value !== "Not Started" ? (prev?.status_date || iso) : null };
+                                              vsNew[varKey] = { status: v, status_date: v !== "Not Started" ? (prev?.status_date || iso) : null };
                                               saveMilestone({ ...m, variant_statuses: vsNew, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
                                             }}
                                             disabled={closed}
-                                            style={{ background: "transparent", border: "none", color: closed ? "#374151" : itemColor, fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: closed ? "default" : "pointer" }}
-                                          >
-                                            {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s], background: "#0F172A" }}>{s}</option>)}
-                                          </select>
+                                            options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                                            inputStyle={{ background: "transparent", border: "none", color: closed ? "#374151" : itemColor, fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: closed ? "default" : "pointer" }}
+                                          />
                                         </span>
                                         <span style={{ ...sub, padding: 2 }}>
                                           <MilestoneDateInput
@@ -1578,7 +1834,7 @@ export function GridView({
                                             >
                                               {isLast && <span style={phaseDividerOverlayRight} />}
                                               <span style={{ fontSize: 10, color: vnHas ? "#60A5FA" : "#374151" }}>
-                                                {vnHas ? `📝${vnCount}` : "📝"}
+                                                {vnHas ? `Notes ${vnCount}` : "Notes"}
                                               </span>
                                             </span>
                                           );
@@ -1619,7 +1875,7 @@ export function GridView({
                                       const totalQty = group.items.reduce((s, it) => s + (it.QtyOrder ?? 0), 0);
                                       // Map size → item
                                       const sizeMap = new Map<string, typeof allItems[0]>();
-                                      group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || ""); if (sz) sizeMap.set(sz, it); });
+                                      group.items.forEach(it => { const sz = itemSizeLabel(it.ItemNumber || "", sizeVocab); if (sz) sizeMap.set(sz, it); });
                                       // Delivery date
                                       const delivs = [...new Set(group.items.map(it => normDateISO(it.DateExpectedDelivery)).filter(Boolean))];
                                       const delivDisplay = delivs.length === 0 ? "—" : delivs.length === 1 ? fmtDate(delivs[0]) : "Mixed";
@@ -1713,11 +1969,11 @@ export function GridView({
           onClick={() => setDDPChangeModal(null)}
         >
           <div
-            style={{ background: "#0F172A", border: "1px solid #F97316", borderRadius: 10, width: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
+            style={{ background: "#0F172A", border: "1px solid #F97316", borderRadius: 10, width: "min(460px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>⚠ DDP Date Will Change</h2>
+              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>DDP Date Will Change</h2>
               <button onClick={() => setDDPChangeModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             </div>
             <div style={{ padding: "16px 20px" }}>
@@ -1747,6 +2003,91 @@ export function GridView({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Named-range filter popover (PO# column) ───────────────────────── */}
+      {rangeAnchor && (
+        <>
+          {/* Click-away scrim */}
+          <div style={{ position: "fixed", inset: 0, zIndex: 999 }} onClick={() => setRangeAnchor(null)} />
+          <div
+            style={{
+              position: "fixed",
+              left: Math.max(8, Math.min(rangeAnchor.x, window.innerWidth - 296)),
+              top: rangeAnchor.y,
+              zIndex: 1000, width: 288, boxSizing: "border-box",
+              background: "#0F172A", border: "1px solid #334155", borderRadius: 10,
+              boxShadow: "0 16px 48px rgba(0,0,0,0.55)", padding: 14,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#E5E7EB" }}>Named Range — PO #</span>
+              <button onClick={() => setRangeAnchor(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            </div>
+
+            {/* Mode toggle */}
+            <div style={{ display: "flex", marginBottom: 12, border: "1px solid #334155", borderRadius: 8, overflow: "hidden" }}>
+              {(["date", "po"] as RangeMode[]).map(mode => {
+                const on = rangeDraft.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setRangeDraft(d => ({ ...d, mode, from: "", to: "" }))}
+                    style={{ flex: 1, padding: "7px 4px", background: on ? "#4C1D95" : "transparent", color: on ? "#DDD6FE" : "#94A3B8", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    {mode === "date" ? "By Date" : "By PO #"}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontSize: 10, color: "#64748B", marginBottom: 10, lineHeight: 1.4 }}>
+              {rangeDraft.mode === "date"
+                ? "PO creation date (Order date). Leave “To” blank for that date or newer."
+                : "Last 6 digits of the PO number. Leave “To” blank for that number or greater."}
+            </div>
+
+            <label style={{ display: "block", fontSize: 10, color: "#94A3B8", marginBottom: 3, fontWeight: 600 }}>From</label>
+            {rangeDraft.mode === "date" ? (
+              <input type="date" value={rangeDraft.from} onChange={e => setRangeDraft(d => ({ ...d, from: e.target.value }))} style={rangeInput} />
+            ) : (
+              <input type="number" inputMode="numeric" placeholder="e.g. 1255" value={rangeDraft.from} onChange={e => setRangeDraft(d => ({ ...d, from: e.target.value }))} style={rangeInput} />
+            )}
+
+            <label style={{ display: "block", fontSize: 10, color: "#94A3B8", margin: "8px 0 3px", fontWeight: 600 }}>
+              To <span style={{ color: "#475569", fontWeight: 400 }}>(optional)</span>
+            </label>
+            {rangeDraft.mode === "date" ? (
+              <input type="date" value={rangeDraft.to} onChange={e => setRangeDraft(d => ({ ...d, to: e.target.value }))} style={rangeInput} />
+            ) : (
+              <input type="number" inputMode="numeric" placeholder="(no upper limit)" value={rangeDraft.to} onChange={e => setRangeDraft(d => ({ ...d, to: e.target.value }))} style={rangeInput} />
+            )}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                onClick={() => { setRangeFilter(null); setRangeAnchor(null); }}
+                title="Remove the range and show all POs"
+                style={{ ...S.btnSecondary, flex: 1, fontSize: 12, padding: "7px 8px" }}
+              >
+                Clear
+              </button>
+              <button
+                disabled={!rangeDraft.from}
+                onClick={() => {
+                  if (!rangeDraft.from) return;
+                  // Clear any header sort so the range's own axis ordering applies.
+                  setSortKey(null);
+                  setRangeFilter({ ...rangeDraft });
+                  setRangeAnchor(null);
+                }}
+                style={{ ...S.btnPrimary, flex: 2, fontSize: 12, padding: "7px 8px", opacity: rangeDraft.from ? 1 : 0.4, cursor: rangeDraft.from ? "pointer" : "not-allowed" }}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Right-click matrix peek ───────────────────────────────────────── */}

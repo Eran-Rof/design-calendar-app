@@ -217,6 +217,12 @@ export function validatePatch(body) {
     }
     header.ap_account_id = body.ap_account_id || null;
   }
+  if ("payment_terms_id" in body) {
+    if (body.payment_terms_id && !UUID_RE.test(body.payment_terms_id)) {
+      return { error: "payment_terms_id must be a uuid" };
+    }
+    header.payment_terms_id = body.payment_terms_id || null;
+  }
 
   if ("lines" in body) {
     if (!Array.isArray(body.lines) || body.lines.length === 0) {

@@ -10,11 +10,75 @@
 // Status flow: draft → issued → in_transit → received → cancelled.
 
 import { createClient } from "@supabase/supabase-js";
+import { normalizeHeader } from "./index.js";
+import { notifyVendor } from "../../../_lib/phase-notifications.js";
 
 export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
+
+function extractPpk(v) {
+  if (!v) return null;
+  const m = String(v).match(/PPK[\s_-]*(\d+)/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Roll up total weight / cartons / CBM for a PO's lines from the styles' Style
+// Master logistics. PPK sizes carry the carton size in the size token (PPK<N>):
+// the line qty IS cartons, units = qty × N. Non-PPK: line qty IS units, cartons
+// = ceil(total units / units_per_carton) computed once per style.
+async function computeLogisticsRollup(admin, lines) {
+  const itemIds = [...new Set(lines.map((l) => l.inventory_item_id).filter(Boolean))];
+  if (itemIds.length === 0) return { weight_kg: 0, cartons: 0, cbm_m3: 0, complete: true };
+  const { data: items } = await admin.from("ip_item_master").select("id, style_code, size").in("id", itemIds);
+  const itemById = new Map((items || []).map((i) => [i.id, i]));
+  const codes = [...new Set((items || []).map((i) => i.style_code).filter(Boolean))];
+  const { data: styles } = codes.length
+    ? await admin.from("style_master").select("style_code, unit_weight_kg, units_per_carton, carton_cbm_m3").in("style_code", codes)
+    : { data: [] };
+  const styleByCode = new Map((styles || []).map((s) => [s.style_code, s]));
+
+  // Accumulate per style so non-PPK cartons round once over the whole-style unit
+  // total. PPK and non-PPK units are tracked SEPARATELY: a PPK line's qty is its
+  // own carton count (qty × pack-size = units), while non-PPK qty is loose units
+  // that pack into cartons of units_per_carton. A style can carry both (packs +
+  // loose eaches), so the two carton contributions are ADDED, not chosen between.
+  const byStyle = new Map();
+  let complete = true;
+  for (const l of lines) {
+    const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
+    if (!it || !it.style_code) { complete = false; continue; }
+    const st = styleByCode.get(it.style_code) || {};
+    const per = extractPpk(it.size) || extractPpk(it.style_code);
+    // Only treat as PPK for carton math when we could actually parse a pack size;
+    // a "PPK" token with no number (no `per`) falls through to the loose-eaches
+    // path so we don't count one carton per single unit.
+    const isPpk = !!per && (/PPK/i.test(it.size || "") || /PPK/i.test(it.style_code || ""));
+    const qty = Number(l.qty_ordered) || 0;
+    const units = isPpk ? qty * per : qty;
+    const acc = byStyle.get(it.style_code) || { uw: Number(st.unit_weight_kg) || 0, upc: Number(st.units_per_carton) || 0, cbm: Number(st.carton_cbm_m3) || 0, units: 0, ppkUnits: 0, nonPpkUnits: 0, ppkCartons: 0 };
+    acc.units += units;
+    if (isPpk) { acc.ppkUnits += units; acc.ppkCartons += qty; } else acc.nonPpkUnits += qty;
+    byStyle.set(it.style_code, acc);
+  }
+  let weight = 0, cartons = 0, cbm = 0;
+  for (const a of byStyle.values()) {
+    const nonPpkCartons = a.upc > 0 ? Math.ceil(a.nonPpkUnits / a.upc) : 0;
+    const styleCartons = a.ppkCartons + nonPpkCartons;
+    // The roll-up is only "complete" if every field needed to compute it is set:
+    // weight needs unit_weight_kg; loose units need units_per_carton to form
+    // cartons; CBM needs carton_cbm_m3. Flag (don't silently drop) when missing.
+    if (a.uw <= 0 || a.cbm <= 0) complete = false;
+    if (a.nonPpkUnits > 0 && a.upc <= 0) complete = false;
+    weight += a.units * a.uw;
+    cartons += styleCartons;
+    cbm += styleCartons * a.cbm;
+  }
+  return { weight_kg: Math.round(weight * 1000) / 1000, cartons, cbm_m3: Math.round(cbm * 100000) / 100000, complete };
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -26,8 +90,10 @@ function client() {
   return u && k ? createClient(u, k, { auth: { persistSession: false } }) : null;
 }
 
-async function nextPoNumber(admin, entityId, year) {
-  const prefix = `PO-${year}-`;
+async function nextPoNumber(admin, entityId, year, rawPrefix) {
+  // Editable prefix (operator): sanitize to A–Z/0–9/-, fall back to 'PO'.
+  const base = (String(rawPrefix || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "") || "PO");
+  const prefix = `${base}-${year}-`;
   const { count } = await admin.from("purchase_orders")
     .select("id", { count: "exact", head: true })
     .eq("entity_id", entityId)
@@ -51,7 +117,20 @@ export default async function handler(req, res, params) {
     const { data: lines, error: lErr } = await admin.from("purchase_order_lines")
       .select("*").eq("purchase_order_id", id).order("line_number", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
-    return res.status(200).json({ ...po, lines: lines || [] });
+    // Decorate each line with its SKU decomposition so the PO modal regroups
+    // lines into the per-style size matrix on edit (mirrors the SO detail).
+    const itemIds = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
+    let skuById = new Map();
+    if (itemIds.length) {
+      const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, inseam, sku_code").in("id", itemIds);
+      skuById = new Map((skus || []).map((s) => [s.id, s]));
+    }
+    const decorated = (lines || []).map((l) => {
+      const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null };
+    });
+    const rollup = await computeLogisticsRollup(admin, lines || []);
+    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup });
   }
 
   if (req.method === "DELETE") {
@@ -80,20 +159,38 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
 
+    // Rich-header fields — only patch the ones actually present in the body.
+    const hn = normalizeHeader(body);
+    for (const k of Object.keys(hn)) {
+      if (k in body) patch[k] = hn[k];
+    }
+
     if ("status" in body) {
       if (!STATUSES.includes(body.status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+      // 'received' is not a manual flag — it's set only when a goods receipt is
+      // POSTED (procurement/receipts/:id/post rolls qty_received + flips the
+      // header). Reject a direct manual flip so the status always reflects a
+      // real, GL'd receipt. (in_transit stays a manual logistics flag.)
+      if (body.status === "received" && po.status !== "received") {
+        return res.status(409).json({ error: "Mark a PO received by posting a goods receipt in Receiving — not by a manual status change." });
+      }
       patch.status = body.status;
       // Assign the immutable PO number when first issued (po_number is immutable once set).
       if (body.status === "issued" && !po.po_number) {
         const year = (po.order_date || new Date().toISOString().slice(0, 10)).slice(0, 4);
-        patch.po_number = await nextPoNumber(admin, po.entity_id, year);
+        // Use the (possibly just-patched) editable prefix, else the stored one.
+        const prefix = ("po_prefix" in patch ? patch.po_prefix : po.po_prefix);
+        patch.po_number = await nextPoNumber(admin, po.entity_id, year, prefix);
       }
     }
 
-    // Replace lines if supplied (drafts only — issued POs are line-locked here).
+    // Replace lines if supplied. Drafts edit freely; an issued/in-transit/received
+    // PO is line-locked UNLESS this is an explicit revision (revise:true) — the
+    // operator's "✎ Edit" path, which also notifies the vendor below.
+    const isRevision = body.revise === true && po.status !== "cancelled";
     if (Array.isArray(body.lines)) {
-      if (po.status !== "draft" && !("status" in body)) {
-        return res.status(409).json({ error: "Lines can only be edited while the order is a draft." });
+      if (po.status !== "draft" && !("status" in body) && !isRevision) {
+        return res.status(409).json({ error: "Lines can only be edited on a draft, or via an explicit revision." });
       }
       const norm = [];
       let ln = 1;
@@ -101,11 +198,15 @@ export default async function handler(req, res, params) {
         const qty = Number(l.qty_ordered);
         if (!Number.isFinite(qty) || qty <= 0) continue;
         const unit = l.unit_cost_cents == null || l.unit_cost_cents === "" ? 0 : Math.round(Number(l.unit_cost_cents));
+        const dre = /^\d{4}-\d{2}-\d{2}$/;
         norm.push({
           purchase_order_id: id, line_number: ln++,
           inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_cost_cents: unit, line_total_cents: Math.round(qty * unit),
+          requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
+          vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
+          lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
       await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
@@ -121,6 +222,16 @@ export default async function handler(req, res, params) {
     if (Object.keys(patch).length === 0) return res.status(200).json(po);
     const { data, error } = await admin.from("purchase_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // Scenario 1 — at issue, stamp the PO number as the lot on every line that
+    // doesn't already carry an operator-set lot. Runs after any line replacement
+    // above so freshly-inserted lines are covered. Never overwrites a manual lot.
+    if (body.status === "issued" && data.po_number) {
+      await admin.from("purchase_order_lines")
+        .update({ lot_number: data.po_number })
+        .eq("purchase_order_id", id)
+        .is("lot_number", null);
+    }
 
     // P13/C0 — open-PO commitment tracking (off-balance-sheet, D3).
     // On first issue, record one po_commitments row per line; on cancel, close them.
@@ -146,7 +257,23 @@ export default async function handler(req, res, params) {
           .eq("purchase_order_id", id).in("status", ["open", "partial"]);
       }
     }
-    return res.status(200).json(data);
+
+    // Revision of a saved PO → notify the vendor's portal users (bell + email).
+    // Best-effort + no-op when the vendor has no portal users (notifyVendor → 0).
+    let vendor_notified = 0;
+    if (isRevision && po.status !== "draft") {
+      const origin = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : null);
+      try {
+        vendor_notified = await notifyVendor(admin, data.vendor_id, {
+          event_type: "po_revised",
+          title: `Purchase order ${data.po_number || ""} revised`.trim(),
+          body: "Ring of Fire revised this purchase order. Please review the updated quantities, pricing, or dates.",
+          link: data.po_number ? `/vendor/pos?q=${encodeURIComponent(data.po_number)}` : null,
+          metadata: { po_id: id, po_number: data.po_number || null },
+        }, { email: true, origin });
+      } catch { /* non-blocking */ }
+    }
+    return res.status(200).json({ ...data, vendor_notified });
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");

@@ -1,4 +1,4 @@
-// src/tanda/InternalCrmActivities.tsx
+﻿// src/tanda/InternalCrmActivities.tsx
 //
 // Tangerine P8-3 — CRM Activities admin panel (M25, arch §3 + §4).
 // Append-only activity log. Filters + add-modal for manual note/call/meeting.
@@ -12,6 +12,8 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const CRM_ACTIVITIES_TABLE_KEY = "tangerine:crmactivities:columns";
@@ -86,11 +88,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -114,7 +118,7 @@ function fmtDate(iso: string | null | undefined): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString("en-US", {
-      month: "short", day: "2-digit", year: "numeric",
+      month: "2-digit", day: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
@@ -149,6 +153,16 @@ export default function InternalCrmActivities() {
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
+  // Sortable scalar columns only. subject (JSX), customer/opportunity (lookups)
+  // and duration (formatted) stay non-sortable.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:crmactivities:sort",
+    accessors: {
+      type: (r) => r.activity_type,
+      occurred: (r) => r.occurred_at,
+    },
+  });
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -178,7 +192,7 @@ export default function InternalCrmActivities() {
 
   async function loadCustomers() {
     try {
-      const r = await fetch("/api/internal/customer-master?limit=500");
+      const r = await fetch("/api/internal/customer-master?limit=5000");
       if (!r.ok) return;
       const data = await r.json();
       const list = Array.isArray(data) ? data : (data?.rows ?? []);
@@ -246,7 +260,7 @@ export default function InternalCrmActivities() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          📋 Activities
+          Activities
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Append-only CRM activity log (M25)
@@ -290,10 +304,16 @@ export default function InternalCrmActivities() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 160 }}>
           <label style={labelStyle}>Type</label>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {ALL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...ALL_TYPES.map((t) => ({ value: t, label: t })),
+            ]}
+            placeholder="All"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Customer</label>
@@ -328,7 +348,7 @@ export default function InternalCrmActivities() {
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={inputStyle} />
         </div>
         <div style={{ paddingTop: 18 }}>
-          <DateRangePresets
+          <DateRangePresets variant="dropdown"
             from={fromDate}
             to={toDate}
             onChange={(f, t) => { setFromDate(f); setToDate(t); }}
@@ -358,16 +378,16 @@ export default function InternalCrmActivities() {
 
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`,
-        borderRadius: 8, overflow: "hidden",
+        borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th} hidden={!isVisible("type")}>Type</th>
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("type")} />
               <th style={th} hidden={!isVisible("subject")}>Subject / Body</th>
               <th style={th} hidden={!isVisible("customer")}>Customer</th>
               <th style={th} hidden={!isVisible("opportunity")}>Opportunity</th>
-              <th style={th} hidden={!isVisible("occurred")}>Occurred</th>
+              <SortableTh label="Occurred" sortKey="occurred" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("occurred")} />
               <th style={th} hidden={!isVisible("duration")}>Dur</th>
               <th style={th}>Actions</th>
             </tr>
@@ -379,7 +399,7 @@ export default function InternalCrmActivities() {
             {!loading && rows.length === 0 && (
               <tr><td style={td} colSpan={7}>No activities match.</td></tr>
             )}
-            {!loading && rows.map((r) => {
+            {!loading && sorted.map((r) => {
               const palette = TYPE_COLOR[r.activity_type] || TYPE_COLOR.system;
               return (
                 <tr key={r.id} style={{ opacity: r.is_hidden ? 0.55 : 1 }}>
@@ -501,9 +521,12 @@ function CreateActivityModal({ customers, opportunities, onClose, onCreated }: {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label="Type">
-          <select value={activityType} onChange={(e) => setActivityType(e.target.value)} style={inputStyle}>
-            {MANUAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={activityType || null}
+            onChange={(v) => setActivityType(v)}
+            options={MANUAL_TYPES.map((t) => ({ value: t, label: t }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Occurred at">
           <input
@@ -590,8 +613,8 @@ function Modal({ title, children, onClose }: {
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.card, border: `1px solid ${C.cardBdr}`,
-          borderRadius: 10, width: "100%", maxWidth: 800, maxHeight: "90vh",
-          overflow: "auto", padding: 18,
+          borderRadius: 10, width: "min(800px, 95vw)", maxHeight: "90vh",
+          overflowY: "auto", boxSizing: "border-box", padding: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
