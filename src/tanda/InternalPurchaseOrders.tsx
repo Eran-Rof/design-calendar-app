@@ -602,9 +602,13 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     else notify("Awarded prices + vendor applied — review before saving.", "success");
   }
 
+  // Item 15 — cancel date can't be earlier than the ship (window start) date.
+  const cancelBeforeShip = !!(shipWindowStart && cancelDate && cancelDate < shipWindowStart);
+
   async function save(): Promise<string | null> {
     setErr(null);
     if (!vendorId) { setErr("Pick a vendor."); return null; }
+    if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Ship window start date."); return null; }
     // The matrix body resolves every filled cell + flat line to a SKU. Map its
     // generic unit_price_cents onto the PO's unit_cost_cents.
     const resolved = (await bodyRef.current?.resolve()) || [];
@@ -806,7 +810,10 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             {/* Row 2 */}
             <Field label="Ship window start"><input type="date" value={shipWindowStart} onChange={(e) => setShipWindowStart(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Ship window end"><input type="date" value={shipWindowEnd} onChange={(e) => setShipWindowEnd(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Cancel date">
+              <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={{ ...inputStyle, borderColor: cancelBeforeShip ? C.warn : C.cardBdr }} />
+              {cancelBeforeShip && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Cancel date is before the Ship window start.</div>}
+            </Field>
             <Field label="Vendor-confirmed / ack."><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           </div>
         </Section>

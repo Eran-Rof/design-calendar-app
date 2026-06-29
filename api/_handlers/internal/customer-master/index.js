@@ -193,6 +193,10 @@ export default async function handler(req, res) {
     const buildRow = (code) => ({
       entity_id: entityId,
       name: v.data.name,
+      // customer_code is NOT NULL (legacy Xoro ref). App-created customers have no
+      // Xoro ref, so default it to the generated code (CUST-NNNNN) — fixes the
+      // "null value in column customer_code" error when adding a customer on the fly.
+      customer_code: v.data.customer_code != null && String(v.data.customer_code).trim() !== "" ? String(v.data.customer_code).trim() : code,
       code,
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,

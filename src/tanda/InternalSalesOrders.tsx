@@ -886,11 +886,24 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     })();
   }
 
+  // Item 16 — gate Add-style / Add-line with specific, click-time warnings.
+  function tryAddLine(kind: "section" | "flat") {
+    if (!customerId) { notify("Pick a customer first.", "error"); return; }
+    if (!shipToLocationId) { notify("Ship-to warehouse must be populated before adding styles.", "error"); return; }
+    if (!customerPo.trim()) { notify("Customer PO must be populated before adding styles.", "error"); return; }
+    if (!fulfillmentSource) { notify("Pick a Fulfillment source (ATS or Production) before adding styles.", "error"); return; }
+    if (kind === "section") bodyRef.current?.addSection(); else bodyRef.current?.addFlat();
+  }
+
+  // Item 15 — cancel date cannot be earlier than the start-ship date.
+  const cancelBeforeShip = !!(reqShip && cancelDate && cancelDate < reqShip);
+
   async function save(confirm: boolean) {
     setErr(null);
     if (!customerId) { setErr("Pick a customer."); return; }
     if (!shipToLocationId) { setErr("Pick a Ship-to address."); return; }
     if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
+    if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Start ship date."); return; }
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
     // SKUs). Done before the header build so a resolve error surfaces cleanly.
@@ -1278,6 +1291,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     setErr(null);
     if (!customerId) { setErr("Pick a customer."); return; }
     if (!shipToLocationId) { setErr("Pick a Ship-to address."); return; }
+    if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Start ship date."); return; }
     setSubmitting(true);
     try {
       const fa = moneyToNumber(factorApprovedDollars);
@@ -1452,7 +1466,10 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Order date"><input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
           <Field label="Start Ship"><input type="date" value={reqShip} onChange={(e) => setReqShip(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
-          <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!headerEditable} style={inputStyle} /></Field>
+          <Field label="Cancel date">
+            <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!headerEditable} style={{ ...inputStyle, borderColor: cancelBeforeShip ? C.warn : C.cardBdr }} />
+            {cancelBeforeShip && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Cancel date is before the Start ship date.</div>}
+          </Field>
           <Field label="Payment terms">
             <SearchableSelect value={paymentTermsId || null} onChange={(v) => setPaymentTermsId(v)}
               options={[{ value: "", label: "(select)" }, ...paymentTerms.map((t) => ({ value: t.id, label: t.name, searchHaystack: `${t.name} ${t.code || ""}` }))]} placeholder="(select)" disabled={!headerEditable} />
@@ -1577,13 +1594,13 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <input type="checkbox" checked={isCloseout} disabled={!headerEditable} onChange={(e) => setIsCloseout(e.target.checked)} />
               Closeout order
             </label>
-            {/* Item 2 — Add-style / Add-non-matrix buttons aligned with the
-                Fulfillment-source line; they drive the matrix body below through
-                its exposed handle. Same gate as the matrix's canAdd. */}
-            {(editable || canAddStyles) && !!customerId && !!shipToLocationId && !!customerPo.trim() && !!fulfillmentSource && (
+            {/* Item 16 — Add-style / Add-non-matrix buttons stay VISIBLE; clicking
+                without the prerequisites shows a specific warning (Customer PO and
+                ship-to warehouse are required) instead of being hidden. */}
+            {(editable || canAddStyles) && (
               <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-                <button type="button" onClick={() => bodyRef.current?.addSection()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Add style (matrix)</button>
-                <button type="button" onClick={() => bodyRef.current?.addFlat()} style={btnSecondary}>+ Add non-matrix line</button>
+                <button type="button" onClick={() => tryAddLine("section")} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Add style (matrix)</button>
+                <button type="button" onClick={() => tryAddLine("flat")} style={btnSecondary}>+ Add non-matrix line</button>
               </div>
             )}
           </div>
