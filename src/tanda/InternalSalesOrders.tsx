@@ -187,7 +187,9 @@ export default function InternalSalesOrders() {
   // window applies to: the order date or the start (requested) ship date.
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("order_date");
+  // Default the date-range field to Start ship date (operator request) rather
+  // than order date.
+  const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("requested_ship_date");
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
