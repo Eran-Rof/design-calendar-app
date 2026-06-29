@@ -25,9 +25,26 @@ function client() {
 }
 // `code` is intentionally omitted — auto-generated (TPL-NNNNN) + immutable (DB trigger).
 const FIELDS = ["name","kind","location_id","contact_name","email","phone","account_ref","billing_notes","is_active","notes","edi_protocol","edi_endpoint","edi_username","edi_credential_ref","inventory_sftp_path"];
+// Up to 8 contacts, each {name,title,department,email,phone} (strings only). Blank
+// rows dropped; truncated to 8. Mirrors customer-master sanitizeContacts.
+function sanitizeContacts(raw) {
+  if (!Array.isArray(raw)) return [];
+  const keys = ["name", "title", "department", "email", "phone"];
+  const out = [];
+  for (const c of raw) {
+    if (c == null || typeof c !== "object") continue;
+    const row = {};
+    for (const k of keys) { const v = c[k]; if (v != null && String(v).trim() !== "") row[k] = String(v).trim(); }
+    if (typeof c.id === "string" && c.id) row.id = c.id;
+    if (Object.keys(row).length) out.push(row);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
 function pick(body) {
   const o = {};
   for (const f of FIELDS) if (body[f] !== undefined) o[f] = body[f] === "" ? null : body[f];
+  if (body.contacts !== undefined) o.contacts = sanitizeContacts(body.contacts);
   return o;
 }
 

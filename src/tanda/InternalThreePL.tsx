@@ -12,6 +12,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useItemResolver, type ResolvedItem } from "./hooks/useItemResolver";
+import ContactList, { type Contact } from "./components/ContactList";
+import RowHistory from "./components/RowHistory";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -28,7 +30,7 @@ const tabBtn = (on: boolean): React.CSSProperties => ({ ...btnS, borderColor: on
 
 const SH_COLOR: Record<string, string> = { draft: C.textMuted, in_transit: C.violet, received: C.success, closed: C.success, cancelled: C.danger };
 
-type Provider = { id: string; code: string | null; name: string; kind: string; location_id: string | null; contact_name: string | null; email: string | null; phone: string | null; account_ref: string | null; billing_notes: string | null; is_active: boolean; notes: string | null; inventory_locations?: { code: string; name: string; kind: string } | null };
+type Provider = { id: string; code: string | null; name: string; kind: string; location_id: string | null; contact_name: string | null; email: string | null; phone: string | null; account_ref: string | null; billing_notes: string | null; is_active: boolean; notes: string | null; contacts?: Contact[] | null; inventory_locations?: { code: string; name: string; kind: string } | null };
 type ShLine = { id: string; line_number: number; inventory_item_id: string | null; description: string | null; qty: number | string };
 type Shipment = { id: string; shipment_number: string | null; tpl_provider_id: string; direction: string; status: string; reference: string | null; carrier: string | null; tracking_number: string | null; ship_date: string | null; notes: string | null; created_at: string; tpl_providers?: { name: string; code: string | null } | null; tpl_shipment_lines: ShLine[] };
 type NewLine = { sku_code: string; description: string; qty: string };
@@ -76,6 +78,7 @@ export default function InternalThreePL() {
 
 function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]; busy: boolean; setBusy: (b: boolean) => void; reload: () => Promise<void> }) {
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Provider | null>(null);
   // code is auto-generated server-side (TPL-NNNNN) + immutable — not entered here.
   const [f, setF] = useState({ name: "", kind: "contract_3pl", contact_name: "", email: "", phone: "", account_ref: "", billing_notes: "" });
 
@@ -133,22 +136,88 @@ function Providers({ providers, busy, setBusy, reload }: { providers: Provider[]
       )}
       <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr><th style={th}>Code</th><th style={th}>Name</th><th style={th}>Kind</th><th style={th}>Location</th><th style={th}>Contact</th><th style={th}>Billing</th><th style={th}>Active</th></tr></thead>
+        <thead><tr><th style={th}>Code</th><th style={th}>Name</th><th style={th}>Kind</th><th style={th}>Location</th><th style={th}>Contact</th><th style={th}>Contacts</th><th style={th}>Billing</th><th style={th}>Active</th></tr></thead>
         <tbody>
-          {providers.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={7}>No 3PL providers yet.</td></tr>}
+          {providers.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={8}>No 3PL providers yet.</td></tr>}
           {providers.map((p) => (
-            <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.5 }}>
+            <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.5, cursor: "pointer" }} onClick={() => setEditing(p)} title="Open to edit contacts, notes & history">
               <td style={{ ...td, fontFamily: "monospace" }}>{p.code || "—"}</td>
               <td style={td}>{p.name}</td>
               <td style={td}><span style={chip(C.violet)}>{p.kind}</span></td>
               <td style={td}>{p.inventory_locations?.name || "—"}</td>
               <td style={td}>{p.contact_name || "—"}{p.email ? ` · ${p.email}` : ""}</td>
+              <td style={td}>{Array.isArray(p.contacts) && p.contacts.length ? `${p.contacts.length}` : "—"}</td>
               <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{p.billing_notes || "—"}</td>
-              <td style={td}><button style={{ ...btnS, padding: "3px 8px" }} disabled={busy} onClick={() => toggleActive(p)}>{p.is_active ? "yes" : "no"}</button></td>
+              <td style={td}><button style={{ ...btnS, padding: "3px 8px" }} disabled={busy} onClick={(e) => { e.stopPropagation(); void toggleActive(p); }}>{p.is_active ? "yes" : "no"}</button></td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
+      {editing && (
+        <ProviderEditModal
+          provider={editing}
+          busy={busy}
+          setBusy={setBusy}
+          onClose={() => setEditing(null)}
+          onSaved={async () => { setEditing(null); await reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Provider edit modal (operator items 1 & 2): up-to-8 contacts (name/title/
+// department/email/phone), an editable notes field, and the T11 audit trail —
+// the same notes + audit wiring as Customer Master.
+function ProviderEditModal({ provider, busy, setBusy, onClose, onSaved }: { provider: Provider; busy: boolean; setBusy: (b: boolean) => void; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(provider.name || "");
+  const [contacts, setContacts] = useState<Contact[]>(Array.isArray(provider.contacts) ? provider.contacts : []);
+  const [notes, setNotes] = useState(provider.notes || "");
+  const [billingNotes, setBillingNotes] = useState(provider.billing_notes || "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim()) { notify("Name required", "error"); return; }
+    setSaving(true); setBusy(true);
+    try {
+      const r = await fetch("/api/internal/tpl-providers", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: provider.id, name: name.trim(), contacts, notes: notes.trim() || null, billing_notes: billingNotes.trim() || null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "save failed");
+      notify("Provider saved", "success");
+      onSaved();
+    } catch (e) { notify("Save failed — " + (e instanceof Error ? e.message : String(e)), "error"); }
+    finally { setSaving(false); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={onClose}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 22, width: "min(680px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>{provider.code ? `${provider.code} — ` : ""}{provider.name}</h2>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Edit provider contacts, notes & review the change history.</div>
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Name</label>
+        <input style={{ ...input, width: "100%", marginBottom: 14 }} value={name} onChange={(e) => setName(e.target.value)} />
+
+        {/* Item 1 — up to 8 contacts, each with title + department. */}
+        <ContactList label="Contacts" value={contacts} onChange={setContacts} max={8} fields={["name", "title", "department", "email", "phone"]} />
+
+        <label style={{ display: "block", margin: "14px 0 6px", fontSize: 12, color: C.textMuted }}>Notes</label>
+        <textarea style={{ ...input, width: "100%", minHeight: 60, resize: "vertical", marginBottom: 12 }} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="General notes about this provider" />
+
+        <label style={{ display: "block", marginBottom: 6, fontSize: 12, color: C.textMuted }}>Billing / fee notes</label>
+        <textarea style={{ ...input, width: "100%", minHeight: 44, resize: "vertical", marginBottom: 12 }} value={billingNotes} onChange={(e) => setBillingNotes(e.target.value)} />
+
+        {/* Item 2 — same audit-trail wiring as Customer Master. */}
+        <RowHistory source_table="tpl_providers" source_id={provider.id} />
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" style={btnS} onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" style={btnP} onClick={() => void save()} disabled={saving || busy}>{saving ? "Saving…" : "Save"}</button>
+        </div>
       </div>
     </div>
   );
