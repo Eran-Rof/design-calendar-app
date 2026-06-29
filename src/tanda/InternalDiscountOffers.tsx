@@ -5,6 +5,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import SearchableSelect from "./components/SearchableSelect";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Offer {
   id: string;
@@ -78,6 +79,21 @@ export default function InternalDiscountOffers() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [entityId, status]);
+
+  // #5 Sortable columns — div-grid "table".
+  const { sorted: sortedOffers, sortKey, sortDir, onHeaderClick } = useSort(offers, {
+    persistKey: "tangerine:discountoffers:sort",
+    accessors: {
+      vendor: (o) => o.vendor?.name || "",
+      early_pay: (o) => o.early_payment_date,
+      days_early: (o) => (o.days_early ?? null),
+      discount: (o) => Number(o.discount_amount),
+      net: (o) => Number(o.net_payment_amount),
+      apr: (o) => (o.annualized_return_pct ?? null),
+      status: (o) => o.status,
+      expires: (o) => o.expires_at,
+    },
+  });
 
   async function runJob() {
     if (!(await confirmDialog("Run the discount offer generator now for this entity?"))) return;
@@ -170,9 +186,16 @@ export default function InternalDiscountOffers() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 120px 100px 100px 100px 110px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Early pay</div><div>Days early</div><div>Discount</div><div>Net</div><div>APR</div><div>Status</div><div>Expires</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Early pay" k="early_pay" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Days early" k="days_early" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Discount" k="discount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Net" k="net" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="APR" k="apr" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Expires" k="expires" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
           </div>
-          {offers.map((o) => (
+          {sortedOffers.map((o) => (
             <div key={o.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 100px 120px 100px 100px 100px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{o.vendor?.name || "—"}</div>
@@ -189,6 +212,20 @@ export default function InternalDiscountOffers() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Clickable sortable header cell for the div-grid "table".
+function SortHeader({ label, k, activeKey, dir, onSort }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir; onSort: (key: string) => void;
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div onClick={() => onSort(k)} title={`Sort by ${label}`} style={{ cursor: "pointer", userSelect: "none", ...(active ? { color: C.text } : null) }}>
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
     </div>
   );
 }

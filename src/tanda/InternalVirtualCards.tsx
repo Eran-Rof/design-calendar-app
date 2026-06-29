@@ -5,6 +5,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Card {
   id: string;
@@ -63,6 +64,20 @@ export default function InternalVirtualCards() {
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [entityId, statusFilter]);
+
+  // #5 Sortable columns — div-grid "table".
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:virtualcards:sort",
+    accessors: {
+      vendor: (c) => c.vendor?.name || "",
+      card: (c) => c.card_number_last4,
+      limit: (c) => Number(c.credit_limit),
+      spent: (c) => Number(c.amount_spent),
+      provider: (c) => c.provider,
+      status: (c) => c.status,
+      issued: (c) => c.issued_at,
+    },
+  });
 
   async function cancel(c: Card) {
     if (!(await confirmDialog(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`))) return;
@@ -124,9 +139,16 @@ export default function InternalVirtualCards() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Card</div><div>Limit</div><div>Spent</div><div>Provider</div><div>Status</div><div>Issued</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Card" k="card" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Limit" k="limit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Spent" k="spent" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Provider" k="provider" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Issued" k="issued" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {rows.map((c) => (
+          {sortedRows.map((c) => (
             <div key={c.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{c.vendor?.name || "—"}</div>
@@ -254,6 +276,20 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Clickable sortable header cell for the div-grid "table".
+function SortHeader({ label, k, activeKey, dir, onSort }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir; onSort: (key: string) => void;
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div onClick={() => onSort(k)} title={`Sort by ${label}`} style={{ cursor: "pointer", userSelect: "none", ...(active ? { color: C.text } : null) }}>
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
     </div>
   );
 }
