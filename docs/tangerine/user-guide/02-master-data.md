@@ -130,6 +130,18 @@ Private-label / customer-customized goods are **one base style sold to many cust
 
 In the Style edit modal, the **Customer style numbers** section maps `customer → their style number` (plus optional notes). Click **+ Add customer #**, pick the customer (searchable), type their number, **Add**. A customer PO that cites their own number then resolves back to this base style — feeding the AI **Upload customer PO** flow and the manufacturing module. Stored in `style_customer_numbers` (one row per customer per style); managed in place, independent of the main Save.
 
+### Renumbering a style + aliases (#1453)
+
+You can now **edit the Style Number on an existing style** (e.g. drop a legacy Xoro inseam baked into the code — `RYB147730` → `RYB1477PPK` — and move the inseam to the **Inseams** field). The **Style Number** field is editable in the edit modal; change it and a note confirms the renumber.
+
+**Your history stays wired** — this is safe because all transactional history is keyed by the row's internal id, not the text code: inventory layers (on-hand/FIFO), purchase-order lines, sales-order lines, and wholesale sales history all stay attached automatically. On save, Tangerine:
+
+1. **Captures the old code as an alias** (shown in the **Aliases (old style codes)** field). Aliases keep *string-grain* lookups resolving the renamed style — the **Xoro order importer** and the **Prepack Matrix** both match through them, so an order or matrix that still carries the legacy code lands on the right (renamed) style.
+2. **Cascades the new code to the catalog** — updates the style code on the style's SKUs (`ip_item_master`) but **keeps each SKU code unchanged**, so anything keyed by SKU (costing, ATS, Xoro item numbers) keeps matching with zero disruption.
+3. **Re-keys the prepack matrix** to the new code.
+
+You can also **add or remove aliases by hand** in that field (e.g. to fold in a second legacy code). Old codes are stored uppercase in `style_master.aliases`, mirroring the alias mechanism already used for Vendors and Customers.
+
 ## 🎨 Color Master
 
 Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours — then **normalized** to a clean canonical set (1,106 raw spellings → 857: case, spacing, size-leaked-into-colour, and common abbreviations like `Lt`/`Dk`/`Hthr`/`Chrcl` are folded into one proper-cased name). The matching cleanup of the live SKU colours themselves is a separate, larger data-repair (tracked in OPERATOR-TODO); meanwhile the size matrix lines a declared colour up with existing SKU colours case-insensitively. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** square — derived from the colour name (CSS named colours + an apparel/denim/camo palette) or the stored hex.

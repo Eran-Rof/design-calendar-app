@@ -22,10 +22,32 @@ const MUTABLE_FIELDS = new Set([
   "base_fabric_code_id", "group_name", "category_name", "sub_category_name", "brand_id", "size_scale_id", "rise", "hts_code", "duty_rate_pct", "additional_tariff_pct",
   "unit_weight_kg", "units_per_carton", "carton_cbm_m3",
   "carton_length_in", "carton_width_in", "carton_height_in", "gross_weight_lb",
-  "cbm_confidence", "cbm_note", "cbm_inputs", "carton_cbm_override", "attributes",
+  "cbm_confidence", "cbm_note", "cbm_inputs", "carton_cbm_override", "attributes", "aliases",
 ]);
 
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, carton_length_in, carton_width_in, carton_height_in, gross_weight_lb, cbm_confidence, cbm_note, cbm_inputs, carton_cbm_override, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, aliases, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, carton_length_in, carton_width_in, carton_height_in, gross_weight_lb, cbm_confidence, cbm_note, cbm_inputs, carton_cbm_override, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+
+// Normalize an aliases payload → an ordered, de-duped (case-insensitive) array of
+// trimmed UPPERCASE codes (style codes are uppercase-canonical). Drops blanks.
+export function normalizeAliases(input) {
+  const arr = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const out = [];
+  for (const a of arr) {
+    const s = String(a ?? "").trim().toUpperCase();
+    if (s && !seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
+}
+
+// Append `code` (an old style_code) to an aliases array, de-duped (case-insensitive),
+// uppercase. Never adds a blank. Returns a new array.
+export function appendAlias(aliases, code) {
+  const merged = normalizeAliases(aliases);
+  const c = String(code ?? "").trim().toUpperCase();
+  if (c && !merged.includes(c)) merged.push(c);
+  return merged;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -71,6 +93,37 @@ export default async function handler(req, res, params) {
     }
     const v = validatePatch(body || {});
     if (v.error) return res.status(400).json({ error: v.error });
+
+    // ── Style RENAME (renumber) ────────────────────────────────────────────────
+    // style_code is NOT a plain mutable field — renaming is a wired operation: the
+    // OLD code is captured into `aliases` so string-keyed style-grain lookups still
+    // resolve it, and the new code cascades to the catalog. Transactional history
+    // (inventory layers, PO/SO lines, wholesale sales) is FK'd by UUID, so it stays
+    // attached automatically; sku_code is kept STABLE so SKU-level joins (costing,
+    // ATS, Xoro item numbers) survive untouched.
+    let renameFrom = null, renameTo = null;
+    if (typeof body?.style_code === "string" && body.style_code.trim() !== "") {
+      const newCode = body.style_code.trim().toUpperCase();
+      const { data: cur } = await admin
+        .from("style_master").select("style_code, aliases").eq("id", id).maybeSingle();
+      if (!cur) return res.status(404).json({ error: "Style not found" });
+      const oldCode = String(cur.style_code || "").trim();
+      if (newCode !== oldCode.toUpperCase()) {
+        // Reject a collision with another live style.
+        const { data: dup } = await admin
+          .from("style_master").select("id")
+          .ilike("style_code", newCode).is("deleted_at", null).neq("id", id).maybeSingle();
+        if (dup) return res.status(409).json({ error: `Style code ${newCode} is already used by another style` });
+        renameFrom = oldCode; renameTo = newCode;
+        v.data.style_code = newCode;
+        // Auto-capture the old code as an alias (merged with any operator edits).
+        v.data.aliases = appendAlias(
+          Object.prototype.hasOwnProperty.call(v.data, "aliases") ? v.data.aliases : cur.aliases,
+          oldCode,
+        );
+      }
+    }
+
     if (Object.keys(v.data).length === 0) {
       return res.status(400).json({ error: "No mutable fields supplied" });
     }
@@ -102,9 +155,34 @@ export default async function handler(req, res, params) {
       if (error.code === "23503") {
         return res.status(400).json({ error: "base_fabric_code_id does not reference an existing fabric" });
       }
+      if (error.code === "23505") {
+        return res.status(409).json({ error: `style_code already exists for this entity` });
+      }
       return res.status(500).json({ error: error.message });
     }
-    return res.status(200).json(data);
+
+    // Cascade a rename to the string-keyed catalog: update the denormalized
+    // ip_item_master.style_code (KEEP sku_code stable) and re-key any prepack
+    // matrix on the exact old code. Best-effort — the alias captured above is the
+    // durable safety net, and all transactional history is UUID-keyed, so a
+    // partial cascade never orphans data. Counts are returned for the toast.
+    let cascade = null;
+    if (renameFrom && renameTo) {
+      cascade = { items: 0, matrices: 0 };
+      try {
+        const { data: items } = await admin
+          .from("ip_item_master").update({ style_code: renameTo })
+          .eq("style_id", id).ilike("style_code", renameFrom).select("id");
+        cascade.items = (items || []).length;
+      } catch { /* non-fatal — alias resolves the old code */ }
+      try {
+        const { data: mats } = await admin
+          .from("prepack_matrices").update({ ppk_style_code: renameTo })
+          .ilike("ppk_style_code", renameFrom).select("id");
+        cascade.matrices = (mats || []).length;
+      } catch { /* non-fatal */ }
+    }
+    return res.status(200).json(cascade ? { ...data, _renamed: { from: renameFrom, to: renameTo, cascade } } : data);
   }
 
   if (req.method === "DELETE") {
@@ -215,5 +293,9 @@ export function validatePatch(body) {
     out.cbm_inputs = out.cbm_inputs && typeof out.cbm_inputs === "object" ? out.cbm_inputs : null;
   }
   if ("carton_cbm_override" in out) out.carton_cbm_override = out.carton_cbm_override === true || out.carton_cbm_override === "true";
+  // Aliases — array of old style codes (uppercase, de-duped). Renaming a style
+  // auto-appends the prior code here (see the PATCH handler); operators may also
+  // edit the list directly in Style Master.
+  if ("aliases" in out) out.aliases = normalizeAliases(out.aliases);
   return { data: out };
 }
