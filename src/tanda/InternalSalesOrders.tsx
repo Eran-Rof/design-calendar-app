@@ -291,9 +291,14 @@ export default function InternalSalesOrders() {
   useEffect(() => { consumeDrillParams(["q", "so", "customer", "style_id"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), storeFilter, customerFilter, searchDebounced]);
   useEffect(() => {
-    // Distinct selling-store list for the Store filter dropdown (Item 5).
-    fetch("/api/internal/sales-orders?facet=stores").then((r) => r.ok ? r.json() : [])
-      .then((a) => { if (Array.isArray(a)) setStoreOptions(a as string[]); }).catch(() => {});
+    // Warehouse list for the SO Warehouse field + filter — sourced from the
+    // canonical Warehouses master (inventory_locations kind='warehouse'). Existing
+    // orders' sale_store values were reconciled to these names (mig 20260925).
+    fetch("/api/internal/warehouses").then((r) => r.ok ? r.json() : [])
+      .then((a) => {
+        const list = Array.isArray(a) ? a : (a?.rows || a?.warehouses || []);
+        if (Array.isArray(list)) setStoreOptions(list.map((w: { name?: string }) => w?.name).filter((n): n is string => !!n));
+      }).catch(() => {});
   }, []);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
