@@ -716,13 +716,44 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           const q = s.qty[matrixCellKey(r.key, sz)] || 0;
           if (isPartialCarton(q)) partialCells.push({ label: `${r.color || "—"} ${sz}`, qty: q });
         }
+        // Per-style projected margin → flag a style selling BELOW its average
+        // cost. Mirrors the blended `totals` math, scoped to this section. Only
+        // fires when the style has REAL cost data (the 21% fallback can never be
+        // below cost) and the entered price is under that cost. Prepacks work too:
+        // the cell is a PACK and avg_cost_cents is the per-pack cost.
+        let secSell = 0, secCost = 0, secRealCostCells = 0;
+        const secCostByCell = new Map<string, MatrixSku>();
+        for (const sk of s.payload?.skus || []) secCostByCell.set(skuCellKey(sk.color, sk.size, sk.inseam || null), sk);
+        for (const [cell, n] of Object.entries(s.qty)) {
+          if (!(n > 0)) continue;
+          const [rowKey, size] = cell.split("__");
+          const [color, inseam] = rowKey.split("|");
+          const unit = Math.round((Number(s.unit[rowKey]) || 0) * 100);
+          secSell += Math.round(n * unit);
+          const sku = secCostByCell.get(skuCellKey(color || null, size, inseam || null));
+          const ac = sku?.avg_cost_cents != null ? Number(sku.avg_cost_cents) : null;
+          if (ac != null && ac > 0) { secCost += Math.round(n * ac); secRealCostCells += 1; }
+          else secCost += Math.round(n * unit * (1 - MARGIN_FALLBACK));
+        }
+        const secBelowCost = showMargin && secRealCostCells > 0 && secSell > 0 && secCost > secSell;
+        const secMarginPct = secSell > 0 ? ((secSell - secCost) / secSell) * 100 : 0;
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
               <SearchableSelect value={s.styleId || null} onChange={(v) => void pickStyle(s.id, v)} disabled={!editable}
                 options={styles.map((st) => ({ value: st.id, label: `${st.style_code}${st.style_name ? ` — ${st.style_name}` : st.description ? ` — ${st.description}` : ""}`, searchHaystack: `${st.style_code} ${st.style_name || ""} ${st.description || ""}` }))}
                 placeholder="(pick a style…)" />
-              {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                {secBelowCost && (
+                  <span
+                    title={`Average cost exceeds the unit price on this style — projected margin ${secMarginPct.toFixed(1)}%. Raise the unit price above the average cost to fix.`}
+                    style={{ fontSize: 11, fontWeight: 700, color: C.danger, border: `1px solid ${C.danger}`, borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap" }}
+                  >
+                    Below cost · {secMarginPct.toFixed(1)}%
+                  </span>
+                )}
+                {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
+              </div>
             </div>
             {showLineDates && (s.datesOpen === false ? (
               // Collapsed (a later style was added) — show a compact summary; click to edit.
