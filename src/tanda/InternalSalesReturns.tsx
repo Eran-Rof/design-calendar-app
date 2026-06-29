@@ -15,6 +15,8 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
 import { useItemResolver } from "./hooks/useItemResolver";
 import LineViewToggle, { type LineView } from "./components/LineViewToggle";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -174,14 +176,38 @@ export default function InternalSalesReturns() {
 
   function lineTotal(r: Rma) { return r.sales_return_lines.reduce((s, l) => s + Number(l.qty_returned) * l.unit_price_cents, 0); }
 
+  // #5 — tri-state column sort on the data grid. Derived columns (customer name,
+  // lines count, credit total) get explicit accessors; rma_number/status read
+  // straight off the row.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rmas, {
+    persistKey: "tangerine:salesreturns:sort",
+    accessors: {
+      rma_number: (r) => r.rma_number || "",
+      customer: (r) => r.customers?.name || custName.get(r.customer_id) || "",
+      lines: (r) => r.sales_return_lines.length,
+      credit: (r) => lineTotal(r),
+    },
+  });
+
   type ExportRow = { rma_number: string; customer: string; status: string; lines: number; credit_dollars: number };
-  const exportRows: ExportRow[] = rmas.map((r) => ({
-    rma_number: r.rma_number || "(draft)",
-    customer: r.customers?.name || custName.get(r.customer_id) || "",
-    status: r.status,
-    lines: r.sales_return_lines.length,
-    credit_dollars: lineTotal(r) / 100,
-  }));
+  const exportRows: ExportRow[] = useMemo(() => {
+    const body: ExportRow[] = rmas.map((r) => ({
+      rma_number: r.rma_number || "(draft)",
+      customer: r.customers?.name || custName.get(r.customer_id) || "",
+      status: r.status,
+      lines: r.sales_return_lines.length,
+      credit_dollars: lineTotal(r) / 100,
+    }));
+    // #23 — append a TOTAL row summing numeric columns (guard empty).
+    if (body.length > 0) {
+      body.push({
+        rma_number: "TOTAL", customer: "", status: "",
+        lines: body.reduce((s, r) => s + r.lines, 0),
+        credit_dollars: body.reduce((s, r) => s + r.credit_dollars, 0),
+      });
+    }
+    return body;
+  }, [rmas, custName]);
   const exportCols: ExportColumn<ExportRow>[] = [
     { key: "rma_number", header: "RMA #" },
     { key: "customer", header: "Customer" },
@@ -254,10 +280,17 @@ export default function InternalSalesReturns() {
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><th style={th}>RMA #</th><th style={th}>Customer</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Lines</th><th style={{ ...th, textAlign: "right" }}>Credit $</th><th style={th}>Actions</th></tr></thead>
+          <thead><tr>
+            <SortableTh label="RMA #" sortKey="rma_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Lines" sortKey="lines" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <SortableTh label="Credit $" sortKey="credit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <th style={th}>Actions</th>
+          </tr></thead>
           <tbody>
             {rmas.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={6}>No returns yet.</td></tr>}
-            {rmas.map((r) => (
+            {sorted.map((r) => (
               <Fragment key={r.id}>
                 <tr style={{ cursor: "pointer" }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
                   <td style={{ ...td, fontFamily: "monospace", color: C.primary }}>{r.rma_number || "(draft)"}</td>

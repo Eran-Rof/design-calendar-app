@@ -69,15 +69,11 @@ export default function ShipmentsView() {
     })();
   }, []);
 
-  const statusOptions = useMemo(() => {
-    return Array.from(new Set(rows.map((r) => r.current_status).filter((s): s is string => !!s))).sort();
-  }, [rows]);
-
-  const visible = useMemo(() => {
+  // Cascading-filter helper: does a row pass the search box + the OTHER two
+  // filters (everything except the one whose option list we're computing)?
+  const matchesSearch = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (vendorFilter && r.vendor_id !== vendorFilter) return false;
-      if (statusFilter && r.current_status !== statusFilter) return false;
+    return (r: ShipmentRow) => {
       if (!q) return true;
       return (
         r.number.toLowerCase().includes(q) ||
@@ -85,8 +81,39 @@ export default function ShipmentsView() {
         (r.sealine_scac ?? "").toLowerCase().includes(q) ||
         (vendors[r.vendor_id] ?? "").toLowerCase().includes(q)
       );
+    };
+  }, [search, vendors]);
+
+  // #9 cascading — each filter's options narrow to the rows the OTHER active
+  // filters + the search box already leave on the table.
+  const vendorOptionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (statusFilter && r.current_status !== statusFilter) continue;
+      if (!matchesSearch(r)) continue;
+      ids.add(r.vendor_id);
+    }
+    return ids;
+  }, [rows, statusFilter, matchesSearch]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (vendorFilter && r.vendor_id !== vendorFilter) continue;
+      if (!matchesSearch(r)) continue;
+      if (r.current_status) set.add(r.current_status);
+    }
+    if (statusFilter) set.add(statusFilter); // keep the active selection clearable
+    return Array.from(set).sort();
+  }, [rows, vendorFilter, statusFilter, matchesSearch]);
+
+  const visible = useMemo(() => {
+    return rows.filter((r) => {
+      if (vendorFilter && r.vendor_id !== vendorFilter) return false;
+      if (statusFilter && r.current_status !== statusFilter) return false;
+      return matchesSearch(r);
     });
-  }, [rows, vendors, vendorFilter, statusFilter, search]);
+  }, [rows, vendorFilter, statusFilter, matchesSearch]);
 
   return (
     <div>
@@ -96,6 +123,7 @@ export default function ShipmentsView() {
             placeholder="Search number / PO / carrier / vendor…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
           <SearchableSelect
@@ -104,6 +132,7 @@ export default function ShipmentsView() {
             options={[
               { value: "", label: "All vendors" },
               ...Object.entries(vendors)
+                .filter(([id]) => vendorOptionIds.has(id) || id === vendorFilter)
                 .sort(([, a], [, b]) => a.localeCompare(b))
                 .map(([id, name]) => ({ value: id, label: name })),
             ]}

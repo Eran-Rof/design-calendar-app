@@ -12,6 +12,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -100,6 +102,20 @@ export default function InternalDropShip() {
   function margin(o: Ds) { return o.drop_ship_lines.reduce((s, l) => s + Number(l.qty) * (l.customer_unit_price_cents - l.vendor_unit_cost_cents), 0); }
   function revenue(o: Ds) { return o.drop_ship_lines.reduce((s, l) => s + Number(l.qty) * l.customer_unit_price_cents, 0); }
 
+  // #5 — tri-state column sort on the data grid. Derived columns (customer /
+  // vendor names, revenue, margin) get explicit accessors; ds_number/status read
+  // straight off the row.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:dropship:sort",
+    accessors: {
+      ds_number: (o) => o.ds_number || "",
+      customer: (o) => o.customers?.name || custName.get(o.customer_id) || "",
+      vendor: (o) => o.vendors?.name || vendName.get(o.vendor_id) || "",
+      revenue: (o) => revenue(o),
+      margin: (o) => margin(o),
+    },
+  });
+
   async function createDs() {
     if (!custId) { notify("Pick a customer", "error"); return; }
     if (!vendId) { notify("Pick a vendor", "error"); return; }
@@ -135,13 +151,25 @@ export default function InternalDropShip() {
   }
 
   type ExportRow = { ds_number: string; customer: string; vendor: string; status: string; lines: number; revenue_dollars: number; margin_dollars: number };
-  const exportRows: ExportRow[] = rows.map((o) => ({
-    ds_number: o.ds_number || "(draft)",
-    customer: o.customers?.name || custName.get(o.customer_id) || "",
-    vendor: o.vendors?.name || vendName.get(o.vendor_id) || "",
-    status: o.status, lines: o.drop_ship_lines.length,
-    revenue_dollars: revenue(o) / 100, margin_dollars: margin(o) / 100,
-  }));
+  const exportRows: ExportRow[] = useMemo(() => {
+    const body: ExportRow[] = rows.map((o) => ({
+      ds_number: o.ds_number || "(draft)",
+      customer: o.customers?.name || custName.get(o.customer_id) || "",
+      vendor: o.vendors?.name || vendName.get(o.vendor_id) || "",
+      status: o.status, lines: o.drop_ship_lines.length,
+      revenue_dollars: revenue(o) / 100, margin_dollars: margin(o) / 100,
+    }));
+    // #23 — append a TOTAL row summing numeric columns (guard empty).
+    if (body.length > 0) {
+      body.push({
+        ds_number: "TOTAL", customer: "", vendor: "", status: "",
+        lines: body.reduce((s, r) => s + r.lines, 0),
+        revenue_dollars: body.reduce((s, r) => s + r.revenue_dollars, 0),
+        margin_dollars: body.reduce((s, r) => s + r.margin_dollars, 0),
+      });
+    }
+    return body;
+  }, [rows, custName, vendName]);
   const exportCols: ExportColumn<ExportRow>[] = [
     { key: "ds_number", header: "DS #" }, { key: "customer", header: "Customer" }, { key: "vendor", header: "Vendor" },
     { key: "status", header: "Status" }, { key: "lines", header: "Lines", format: "number" },
@@ -195,10 +223,18 @@ export default function InternalDropShip() {
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
         <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><th style={th}>DS #</th><th style={th}>Customer</th><th style={th}>Vendor</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Rev $</th><th style={{ ...th, textAlign: "right" }}>Margin $</th><th style={th}>Actions</th></tr></thead>
+          <thead><tr>
+            <SortableTh label="DS #" sortKey="ds_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Rev $" sortKey="revenue" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <SortableTh label="Margin $" sortKey="margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <th style={th}>Actions</th>
+          </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={7}>No drop-ship orders yet.</td></tr>}
-            {rows.map((o) => (
+            {sorted.map((o) => (
               <Fragment key={o.id}>
                 <tr style={{ cursor: "pointer" }} onClick={() => setExpanded(expanded === o.id ? null : o.id)}>
                   <td style={{ ...td, fontFamily: "monospace", color: C.primary }}>{o.ds_number || "(draft)"}</td>

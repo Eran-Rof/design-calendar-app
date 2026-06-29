@@ -13,6 +13,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -92,16 +94,43 @@ export default function InternalReceiving() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter]);
 
-  // Flatten for the WYSIWYG export.
-  const exportRows = useMemo(() => rows.map((r) => ({
-    po_number: r.purchase_order?.po_number || "",
-    receipt_date: r.receipt_date,
-    status: r.status,
-    line_count: r.line_count ?? 0,
-    total_received: r.total_received ?? 0,
-    total_accepted: r.total_accepted ?? 0,
-    landed_cost_cents: r.landed_cost_cents,
-  })), [rows]);
+  // Per-column sort for the receipts list (tri-state ▲▼). Derived columns use
+  // accessors so a header key need not map 1:1 to a Receipt field.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:receiving:sort",
+    accessors: {
+      po_number: (r) => r.purchase_order?.po_number || "",
+      line_count: (r) => r.line_count ?? 0,
+      total_received: (r) => r.total_received ?? 0,
+      landed_cost_cents: (r) => Number(r.landed_cost_cents ?? 0),
+    },
+  });
+
+  // Flatten for the WYSIWYG export, then append a numeric totals row.
+  const exportRows = useMemo(() => {
+    const flat = rows.map((r) => ({
+      po_number: r.purchase_order?.po_number || "",
+      receipt_date: r.receipt_date,
+      status: r.status,
+      line_count: r.line_count ?? 0,
+      total_received: r.total_received ?? 0,
+      total_accepted: r.total_accepted ?? 0,
+      landed_cost_cents: Number(r.landed_cost_cents ?? 0),
+    }));
+    if (flat.length === 0) return flat;
+    return [
+      ...flat,
+      {
+        po_number: "TOTAL",
+        receipt_date: "",
+        status: "",
+        line_count: flat.reduce((s, r) => s + (Number(r.line_count) || 0), 0),
+        total_received: flat.reduce((s, r) => s + (Number(r.total_received) || 0), 0),
+        total_accepted: flat.reduce((s, r) => s + (Number(r.total_accepted) || 0), 0),
+        landed_cost_cents: flat.reduce((s, r) => s + (Number(r.landed_cost_cents) || 0), 0),
+      },
+    ];
+  }, [rows]);
 
   return (
     <div style={{ color: C.text }}>
@@ -124,13 +153,17 @@ export default function InternalReceiving() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>PO #</th><th style={th}>Receipt date</th><th style={th}>Status</th>
-            <th style={{ ...th, textAlign: "right" }}>Lines</th><th style={{ ...th, textAlign: "right" }}>Received</th><th style={{ ...th, textAlign: "right" }}>Landed $</th>
+            <SortableTh label="PO #" sortKey="po_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Receipt date" sortKey="receipt_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Lines" sortKey="line_count" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
+            <SortableTh label="Received" sortKey="total_received" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
+            <SortableTh label="Landed $" sortKey="landed_cost_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
             {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No receipts.</td></tr>}
-            {rows.map((r) => (
+            {sorted.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(r); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.purchase_order?.po_number || <span style={{ color: C.textMuted }}>(no PO #)</span>}</td>
                 <td style={td}>{r.receipt_date}</td>

@@ -16,6 +16,8 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -115,6 +117,23 @@ export default function InternalEdiCustomers() {
     }
   }
 
+  // #5 — tri-state column sort for the trading-partner LIST table. Customer
+  // sorts by display name; active by boolean. Supported-docs is JSX-only.
+  const {
+    sorted: sortedRows,
+    sortKey,
+    sortDir,
+    onHeaderClick,
+  } = useSort(rows, {
+    persistKey: "tangerine:edi-customers:sort",
+    accessors: {
+      customer: (p) => p.customer_name || "",
+      partner_isa_qualifier: (p) => p.partner_isa_qualifier || "",
+      partner_isa_id: (p) => p.partner_isa_id || "",
+      is_active: (p) => (p.is_active ? 1 : 0),
+    },
+  });
+
   const exportRows = rows.map((p) => ({
     customer: p.customer_name, partner_isa_qualifier: p.partner_isa_qualifier || "",
     partner_isa_id: p.partner_isa_id || "", supported_docs: (p.supported_docs || []).join(" "),
@@ -147,6 +166,7 @@ export default function InternalEdiCustomers() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void load()}
+          onFocus={(e) => e.currentTarget.select()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -174,16 +194,16 @@ export default function InternalEdiCustomers() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Customer</th>
-                <th style={th}>ISA Qual</th>
-                <th style={th}>ISA ID</th>
+                <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                <SortableTh label="ISA Qual" sortKey="partner_isa_qualifier" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                <SortableTh label="ISA ID" sortKey="partner_isa_id" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
                 <th style={th}>Supported docs</th>
-                <th style={th}>Active</th>
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
                 <th style={{ ...th, width: 150 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => (
+              {sortedRows.map((p) => (
                 <tr key={p.id} style={!p.is_active ? { opacity: 0.5 } : undefined}>
                   <td style={td}>{p.customer_name || "—"}{p.customer_code ? <span style={{ color: C.textMuted }}> ({p.customer_code})</span> : null}</td>
                   <td style={{ ...td, fontFamily: "monospace" }}>{p.partner_isa_qualifier || "—"}</td>

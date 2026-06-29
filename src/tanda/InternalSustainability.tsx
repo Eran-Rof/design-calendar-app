@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -70,6 +70,36 @@ export default function InternalSustainability() {
     await load();
   }
 
+  // #23 — export rows with a TOTAL footer summing the numeric ESG metrics.
+  const exportRows = useMemo(() => {
+    const body = rows.map((r) => ({
+      ...r,
+      vendor_name: r.vendor?.name || r.vendor_id,
+      certifications_list: (r.certifications || []).join("; "),
+    })) as unknown as Array<Record<string, unknown>>;
+    if (rows.length > 0) {
+      const sum = (sel: (r: Report) => number | null) =>
+        rows.reduce((a, r) => a + (Number(sel(r)) || 0), 0);
+      body.push({
+        vendor_name: "TOTAL",
+        reporting_period_start: "",
+        reporting_period_end: "",
+        status: "",
+        scope1_emissions: sum((r) => r.scope1_emissions),
+        scope2_emissions: sum((r) => r.scope2_emissions),
+        scope3_emissions: sum((r) => r.scope3_emissions),
+        renewable_energy_pct: sum((r) => r.renewable_energy_pct),
+        waste_diverted_pct: sum((r) => r.waste_diverted_pct),
+        water_usage_liters: sum((r) => r.water_usage_liters),
+        certifications_list: "",
+        submitted_at: "",
+        reviewed_at: "",
+        rejection_reason: "",
+      });
+    }
+    return body;
+  }, [rows]);
+
   if (selected) return <ReportDetail report={selected} onBack={() => setSelected(null)} onReview={review} />;
 
   return (
@@ -93,7 +123,7 @@ export default function InternalSustainability() {
             inputStyle={selectSt}
           />
           <ExportButton
-            rows={rows.map((r) => ({ ...r, vendor_name: r.vendor?.name || r.vendor_id, certifications_list: (r.certifications || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
+            rows={exportRows}
             filename="sustainability-reports"
             sheetName="Sustainability"
             columns={[
