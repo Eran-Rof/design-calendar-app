@@ -465,6 +465,7 @@ import r_internal_scorecards_index from "./internal/scorecards/index.js";
 import r_internal_search_index from "./internal/search/index.js";
 import r_internal_seasons_id from "./internal/seasons/[id].js";
 import r_internal_seasons_index from "./internal/seasons/index.js";
+import r_internal_segment_pl_index from "./internal/segment-pl/index.js";
 import r_internal_service_items_id from "./internal/service-items/[id].js";
 import r_internal_service_items_index from "./internal/service-items/index.js";
 import r_internal_shopify_backfill from "./internal/shopify/backfill.js";
@@ -1283,6 +1284,7 @@ export const ROUTES = [
   { pattern: "/api/internal/part-types", handler: r_internal_part_types_index },
   { pattern: "/api/internal/sales-reps", handler: r_internal_sales_reps_index },
   { pattern: "/api/internal/scorecards", handler: r_internal_scorecards_index },
+  { pattern: "/api/internal/segment-pl", handler: r_internal_segment_pl_index },
   { pattern: "/api/internal/warehouses", handler: r_internal_warehouses_index },
   { pattern: "/api/internal/workspaces", handler: r_internal_workspaces_index },
   { pattern: "/api/sales/sync-invoices", handler: r_sales_sync_invoices },
