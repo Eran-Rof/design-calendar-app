@@ -98,6 +98,9 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
 type Style = {
   id: string;
   style_code: string;
+  /** Old style codes captured when the style was renumbered — keep string-grain
+   *  lookups (Xoro importer, prepack matrix) resolving the renamed style. */
+  aliases: string[] | null;
   style_name: string | null;
   description: string;
   category_id: string | null;
@@ -830,7 +833,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     cbm_unit_weight_lb:   (style?.cbm_inputs?.unit_weight_lb != null
                             ? String(style.cbm_inputs.unit_weight_lb)
                             : (style?.unit_weight_kg != null ? (style.unit_weight_kg * 2.20462).toFixed(3) : "")),
+    aliases:              style?.aliases ?? [],
   });
+  // The style code at modal open — used to detect a renumber so the UI can warn
+  // that the old code will be captured as an alias.
+  const originalStyleCode = style?.style_code ?? "";
   // The inputs the persisted estimate was generated from (cache key).
   const [cbmInputs, setCbmInputs] = useState<Record<string, unknown> | null>(style?.cbm_inputs ?? null);
   const [cbmLoading, setCbmLoading] = useState(false);
@@ -979,6 +986,14 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     return Array.isArray(fromAttr) ? fromAttr.map((x) => String(x).trim()).filter(Boolean) : [];
   });
   const [inseamDraft, setInseamDraft] = useState("");
+  const [aliasDraft, setAliasDraft] = useState("");
+  const addAlias = (raw: string) => {
+    const v = raw.trim().toUpperCase();
+    if (!v) return;
+    setForm((f) => (f.aliases.includes(v) ? f : { ...f, aliases: [...f.aliases, v] }));
+    setAliasDraft("");
+  };
+  const removeAlias = (v: string) => setForm((f) => ({ ...f, aliases: f.aliases.filter((x) => x !== v) }));
 
   // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
   const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
@@ -1363,6 +1378,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         cbm_inputs:           cbmInputs,
         carton_cbm_override:  form.carton_cbm_override,
         attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: serializeScalePack(), color_ids: colorIds, inseams },
+        aliases:              (form.aliases || []).map((a) => a.trim().toUpperCase()).filter(Boolean),
       };
       let url: string;
       let method: string;
@@ -1374,6 +1390,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         url = "/api/internal/style-master";
         method = "POST";
       } else {
+        // Renumber: send style_code only when it changed. The server captures the
+        // old code as an alias and cascades the new code to the catalog.
+        if (form.style_code.trim().toUpperCase() !== originalStyleCode.trim().toUpperCase() && form.style_code.trim() !== "") {
+          body.style_code = form.style_code.trim().toUpperCase();
+        }
         url = `/api/internal/style-master/${style!.id}`;
         method = "PATCH";
       }
@@ -1498,7 +1519,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 autoFocus
               />
             ) : (
-              <input type="text" value={form.style_code} disabled style={{ ...inputStyle, opacity: 0.6 }} />
+              <>
+                <input
+                  type="text"
+                  value={form.style_code}
+                  onChange={(e) => setForm({ ...form, style_code: e.target.value })}
+                  style={inputStyle}
+                  title="Renumber the style. The old code is kept as an alias so history and lookups still resolve it."
+                />
+                {form.style_code.trim().toUpperCase() !== originalStyleCode.trim().toUpperCase() && form.style_code.trim() !== "" && (
+                  <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
+                    Renumbering <b>{originalStyleCode}</b> → <b>{form.style_code.trim().toUpperCase()}</b>. The old code is kept as an alias; the new code cascades to the catalog (SKUs keep their codes, so all history stays linked).
+                  </div>
+                )}
+              </>
             )}
           </Field>
           <Field label="Style Name">
@@ -1853,6 +1887,37 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 {COMMON_INSEAMS.filter((v) => !inseams.includes(v)).map((v) => (
                   <button key={v} type="button" onClick={() => addInseam(v)} style={{ ...btnSecondary, padding: "4px 8px", fontSize: 12 }}>{v}</button>
                 ))}
+              </div>
+            </Field>
+          </div>
+
+          {/* Aliases — old style codes (auto-captured on renumber; also editable).
+              Keep string-grain lookups (Xoro importer, prepack matrix) resolving a
+              renamed style. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Aliases (old style codes)">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {form.aliases.length === 0 && (
+                  <span style={{ fontSize: 12, color: C.textMuted }}>No aliases. Renumbering this style auto-captures its old code here.</span>
+                )}
+                {form.aliases.map((v) => (
+                  <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px", fontFamily: "monospace" }}>
+                    {v}
+                    <button type="button" onClick={() => removeAlias(v)} title="Remove alias" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={aliasDraft}
+                  onChange={(e) => setAliasDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAlias(aliasDraft); } }}
+                  placeholder="e.g. RYB147730"
+                  style={{ ...inputStyle, width: "16ch" }}
+                />
+                <button type="button" onClick={() => addAlias(aliasDraft)} style={btnSecondary} disabled={!aliasDraft.trim()}>+ Add alias</button>
+                <span style={{ fontSize: 11, color: C.textMuted }}>old Xoro/legacy codes resolve to this style on import &amp; lookup.</span>
               </div>
             </Field>
           </div>

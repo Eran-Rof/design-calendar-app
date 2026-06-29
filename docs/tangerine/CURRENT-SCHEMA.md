@@ -3430,6 +3430,7 @@ _(no columns parsed)_
 - `id` uuid PK DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities` NOT NULL
 - `style_code` text NOT NULL
+- `aliases` text[] NOT NULL DEFAULT '{}' — old style codes captured on a renumber (mig `20260922000000`, GIN idx `idx_style_master_aliases`). Mirrors vendors/customers.aliases. Keeps string-grain lookups (Xoro importer `loadStyles`, prepack matrix) resolving a renamed style; UUID-keyed history (ip_item_master.style_id, *_lines.inventory_item_id, inventory_layers.item_id, ip_sales_history_wholesale.sku_id) needs no alias. Auto-appended by the style-master PATCH on a style_code change (which also cascades the new code to ip_item_master, keeping sku_code stable, and re-keys prepack_matrices).
 - `description` text NOT NULL
 - `category_id` uuid → `ip_category_master`
 - `gender_code` text

@@ -301,8 +301,14 @@ async function loadPaymentTerms() {
 }
 async function loadStyles() {
   const m = new Map();
-  const data = await pgGetPaged("style_master", `select=id,style_code&deleted_at=is.null`);
-  for (const s of data) if (s.style_code) m.set(s.style_code.toUpperCase(), s.id);
+  const data = await pgGetPaged("style_master", `select=id,style_code,aliases&deleted_at=is.null`);
+  for (const s of data) {
+    if (s.style_code) m.set(s.style_code.toUpperCase(), s.id);
+    // Renamed/renumbered styles keep their OLD codes in `aliases` so a Xoro order
+    // that still carries the legacy style code resolves to the renamed style
+    // (mirrors loadVendors/loadCustomers alias indexing). Don't shadow a live code.
+    for (const a of s.aliases || []) { const k = String(a).toUpperCase(); if (!m.has(k)) m.set(k, s.id); }
+  }
   return m;
 }
 
