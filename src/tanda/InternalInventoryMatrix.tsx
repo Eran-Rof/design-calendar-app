@@ -568,7 +568,7 @@ function SnapshotView({
   explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
   collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
-  showTotals: boolean; // totals strip above the headers (Qty + $ Cost + $ Retail stacked per column)
+  showTotals: boolean; // totals strip above the headers (Qty + $ Cost + $ Wholesale + Avg Cost + Avg Sale stacked per column)
 }) {
   // Zebra striping tint by row index — alternate rows get a clearly visible
   // background so long lists stay readable; mirrors the drill modals' zebra().
@@ -599,20 +599,28 @@ function SnapshotView({
   }, [grouped, sortKey, sortDir]);
 
   // Totals across the displayed rows, per quantity column. qty = unit counts;
-  // cost = qty × avg unit cost (avg_cost_cents); retail = qty × avg SO sale
-  // price (sale_price_cents). Avg Cost / Avg Sale are never totalled (per-unit).
-  // Mirrors the ATS totals view.
+  // cost = qty × avg unit cost (avg_cost_cents); wholesale = qty × avg wholesale
+  // SO sale price (sale_price_cents — the SO unit_price, i.e. the wholesale
+  // selling price, NOT a retail list price). avgCost / avgWhol are the per-unit
+  // means = $ total ÷ qty for that column (#10). Mirrors the ATS totals view.
   const totals = useMemo(() => {
     const qty: Record<string, number> = {};
     const cost: Record<string, number> = {};
-    const retail: Record<string, number> = {};
-    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; retail[k] = 0; }
+    const wholesale: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; }
     for (const r of sorted) {
       const c = (r.avg_cost_cents ?? 0) / 100;
       const p = (r.sale_price_cents ?? 0) / 100;
-      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; cost[k] += v * c; retail[k] += v * p; }
+      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; cost[k] += v * c; wholesale[k] += v * p; }
     }
-    return { qty, cost, retail };
+    // Per-unit averages = $ total ÷ qty (column-level blended unit cost / price).
+    const avgCost: Record<string, number> = {};
+    const avgWhol: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) {
+      avgCost[k] = qty[k] > 0 ? cost[k] / qty[k] : 0;
+      avgWhol[k] = qty[k] > 0 ? wholesale[k] / qty[k] : 0;
+    }
+    return { qty, cost, wholesale, avgCost, avgWhol };
   }, [sorted]);
 
   // Quantity cell — opens a URL in a new tab.
@@ -638,14 +646,15 @@ function SnapshotView({
   // card background so scrolling rows don't show through the header. When the
   // Totals strip is on it occupies the top band, so the column header sticks
   // just below it (top: TOTALS_H).
-  const TOTALS_H = 58; // three stacked lines (Qty / $ Cost / $ Retail)
+  const TOTALS_H = 92; // five stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Sale)
   const headerTop = showTotals ? TOTALS_H : 0;
   const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
   // Totals strip cells — sticky at the very top, above the column header.
   const totalsTh: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 3, height: TOTALS_H, background: C.card, borderBottom: `2px solid ${C.primary}`, fontFamily: "monospace", padding: "4px 10px" };
   const fmtUSD = (v: number) => (v ? `$${Math.round(v).toLocaleString()}` : "—");
-  // One totals cell stacks all three measures so a single Totals toggle shows
-  // Qty + $ Cost + $ Retail together (no Qty/$ mode choice).
+  const fmtUSD2 = (v: number) => (v ? `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");
+  // One totals cell stacks all five measures so a single Totals toggle shows
+  // Qty + $ Cost + $ Wholesale + Avg Cost + Avg Sale together (no mode choice).
   const totStack: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3, fontFamily: "monospace", fontSize: 11 };
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
@@ -658,9 +667,9 @@ function SnapshotView({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
             {/* Totals strip — above the column headers (ATS-modelled). Each
-                quantity column stacks all three measures: Qty (unit counts),
-                $ Cost (qty × avg cost) and $ Retail (qty × avg SO sale price).
-                Avg Cost / Avg Sale are per-unit, so they aren't totalled. */}
+                quantity column stacks five measures: Qty (unit counts), $ Cost
+                (qty × avg cost), $ Wholesale (qty × avg wholesale SO sale price),
+                Avg Cost (= $ Cost ÷ qty) and Avg Sale (= $ Wholesale ÷ qty). */}
             {showTotals && (() => {
               const visCols = SNAP_COLS.filter((c) => show(c.key as string));
               let labelled = false;
@@ -668,32 +677,37 @@ function SnapshotView({
                 <tr>
                   {show("image") && <th style={totalsTh} />}
                   {visCols.map((col) => {
-                    const isSum = (SNAP_SUM_COLS as readonly string[]).includes(col.key as string);
+                    const k = col.key as string;
+                    const isSum = (SNAP_SUM_COLS as readonly string[]).includes(k);
                     if (isSum) {
                       return (
-                        <th key={col.key as string} style={{ ...totalsTh, textAlign: "right" }}>
+                        <th key={k} style={{ ...totalsTh, textAlign: "right" }}>
                           <div style={totStack}>
-                            <span style={{ color: C.amber, fontWeight: 800 }}>{fmtQty(totals.qty[col.key as string])}</span>
-                            <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[col.key as string])}</span>
-                            <span style={{ color: C.base }}>{fmtUSD(totals.retail[col.key as string])}</span>
+                            <span style={{ color: C.amber, fontWeight: 800 }}>{fmtQty(totals.qty[k])}</span>
+                            <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[k])}</span>
+                            <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
+                            <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
+                            <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
                           </div>
                         </th>
                       );
                     }
-                    // First non-summed column carries the row legend (Qty / $ Cost / $ Retail).
+                    // First non-summed column carries the row legend.
                     if (!labelled) {
                       labelled = true;
                       return (
-                        <th key={col.key as string} style={{ ...totalsTh, textAlign: "right" }}>
+                        <th key={k} style={{ ...totalsTh, textAlign: "right" }}>
                           <div style={{ ...totStack, fontWeight: 700 }}>
                             <span style={{ color: C.amber }}>Qty</span>
                             <span style={{ color: C.textSub }}>$ Cost</span>
-                            <span style={{ color: C.base }}>$ Retail</span>
+                            <span style={{ color: C.base }}>$ Wholesale</span>
+                            <span style={{ color: C.green }}>Avg Cost</span>
+                            <span style={{ color: "#93C5FD" }}>Avg Sale</span>
                           </div>
                         </th>
                       );
                     }
-                    return <th key={col.key as string} style={totalsTh} />;
+                    return <th key={k} style={totalsTh} />;
                   })}
                 </tr>
               );
@@ -1083,8 +1097,10 @@ export default function InternalInventoryMatrix() {
   const [mergePpk, setMergePpk] = useState(false);
   // Totals strip (snapshot only), modelled on the ATS totals view: a single
   // toggle that shows a strip above the column headers stacking, for each
-  // quantity column, Qty (unit counts) + $ Cost (qty × avg cost) + $ Retail
-  // (qty × avg SO sale price) — all three together, no mode choice.
+  // quantity column, Qty (unit counts) + $ Cost (qty × avg cost) + $ Wholesale
+  // (qty × avg wholesale SO sale price) + Avg Cost + Avg Sale — all together, no
+  // mode choice. When the page has a PPK style this auto-forces per-unit explode
+  // (see effectiveExplodePpk) so the $ values reconcile.
   const [snapTotals, setSnapTotals] = useState(false);
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
@@ -1318,6 +1334,24 @@ export default function InternalInventoryMatrix() {
     [brandStyles, multiPage],
   );
 
+  // Does the current page of filtered styles include ANY PPK (prepack) style?
+  // PPK grain rule is canonical: a style is a pack iff /PPK/i.test(style_code)
+  // (NOT size/pack_size). Used to FORCE per-unit explode when Totals is on — a
+  // PPK row's qty (packs) × pack avg-cost/price is meaningless as a $ total; the
+  // explode converts both to per-each so $ Cost / $ Wholesale reconcile. (#11)
+  const pageHasPpk = useMemo(
+    () => brandStyles
+      .slice(multiPage * MULTI_PAGE_SIZE, multiPage * MULTI_PAGE_SIZE + MULTI_PAGE_SIZE)
+      .some((s) => /ppk/i.test(s.style_code || "")),
+    [brandStyles, multiPage],
+  );
+
+  // Effective explode flag for the snapshot: the operator's Explode toggle, OR a
+  // forced explode when Totals is showing AND the page contains a PPK style (so
+  // the Totals strip's $ values are per-unit, not pack × pack-price). Merge PPK
+  // also implies explode (it folds packs into eaches). (#11)
+  const effectiveExplodePpk = explodePpk || mergePpk || (snapTotals && pageHasPpk);
+
   // Snapshot view (default all-styles): fetch the aggregate rows for this page.
   useEffect(() => {
     if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
@@ -1326,14 +1360,14 @@ export default function InternalInventoryMatrix() {
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: explodePpk || undefined }),
+      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo, explodePpk]);
+  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo, effectiveExplodePpk]);
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1926,10 +1960,10 @@ export default function InternalInventoryMatrix() {
           )}
 
           {/* Totals — snapshot only. Single toggle: a totals strip above the
-              column headers stacks Qty + $ Cost + $ Retail for every quantity
-              column (no Qty/$ mode choice — all shown together). */}
+              column headers stacks Qty + $ Cost + $ Wholesale + Avg Cost +
+              Avg Sale for every quantity column (no mode choice — all shown). */}
           {!styleId && noStyleView === "snapshot" && (
-            <button type="button" title="Totals strip above the headers — Qty + $ Cost (qty × avg cost) + $ Retail (qty × avg SO sale price)"
+            <button type="button" title="Totals strip above the headers — Qty + $ Cost (qty × avg cost) + $ Wholesale (qty × avg wholesale SO price) + Avg Cost + Avg Sale per unit"
               style={{ background: snapTotals ? C.primary : C.card, color: snapTotals ? "#fff" : C.textMuted, border: `1px solid ${snapTotals ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
               onClick={() => setSnapTotals((v) => !v)}>Totals</button>
           )}
@@ -2062,17 +2096,17 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={explodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={effectiveExplodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} />
         </>
       )}
 
       {/* Drill modals */}
       {soldFor && (
-        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={explodePpk} onClose={() => setSoldFor(null)}
+        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={effectiveExplodePpk} onClose={() => setSoldFor(null)}
           onOpenInvoice={(arId, num, customer) => setDocModal({ kind: "ar", id: arId, number: num, party: customer })} />
       )}
       {purchasedFor && (
-        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={explodePpk} onClose={() => setPurchasedFor(null)}
+        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={effectiveExplodePpk} onClose={() => setPurchasedFor(null)}
           onOpenBill={(billId, ref, vendor) => setDocModal({ kind: "ap", id: billId, number: ref, party: vendor })} />
       )}
       {docModal && (
