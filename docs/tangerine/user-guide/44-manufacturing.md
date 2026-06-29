@@ -61,7 +61,7 @@ A **build order** runs a BOM to produce real finished-goods inventory, with all 
 
 The lifecycle:
 
-1. **New build** — pick the finished style and a **target quantity**. Creates a *draft*.
+1. **New build** — pick the finished style and a **target quantity**. Creates a *draft*. **Add a style on the fly (item 1):** if the style you want to build isn't on file, click **+ New style** next to the picker — a popup creates the **Style Master record + a finished-goods SKU** (style + colour + size, since a build's finished item is a sized variant SKU) and selects it. **Admins only** (signed-in users); a non-admin sees a warning. *The new style still needs an active **BOM** (Master Data → BOM) before you can Release the build — that's what makes it fully buildable.*
 2. **Release** — snapshots the style's active BOM into the build, scaling each component to `qty_per_unit × target × (1 + scrap%)`. Status → *released*.
 3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1305 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*.
 4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1305 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
