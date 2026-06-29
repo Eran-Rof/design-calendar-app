@@ -37,7 +37,7 @@ const SO_LIST_LIMIT = 500;
 const SO_COLUMNS: ColumnDef[] = [
   { key: "so_number",   label: "SO #" },
   { key: "customer",    label: "Customer" },
-  { key: "store",       label: "Store" },
+  { key: "store",       label: "Warehouse" },
   { key: "order_date",  label: "Order date" },
   { key: "start_ship",  label: "Start Ship" },
   { key: "cancel_date", label: "Cancel date" },
@@ -244,7 +244,7 @@ export default function InternalSalesOrders() {
   const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
-    { key: "store",      header: "Store" },
+    { key: "store",      header: "Warehouse" },
     { key: "order_date", header: "Order date", format: "date" },
     { key: "start_ship", header: "Start Ship", format: "date" },
     { key: "cancel_date", header: "Cancel date", format: "date" },
@@ -318,12 +318,12 @@ export default function InternalSalesOrders() {
           title="Filter by one or more statuses"
           minWidth={180}
         />
-        {/* Item 5 — selling-store filter (same logic as the Inventory Matrix store
-            filter): "All stores" + each distinct store. */}
+        {/* Warehouse filter (sale_store = the order's Xoro warehouse). Tangerine
+            has warehouses + brands, no sales stores — so this reads "Warehouse". */}
         <div style={{ width: 200 }}>
           <SearchableSelect value={storeFilter || null} onChange={(v) => setStoreFilter(v || "")}
-            options={[{ value: "", label: "All stores" }, ...storeOptions.map((s) => ({ value: s, label: s }))]}
-            placeholder="All stores" inputStyle={inputStyle} />
+            options={[{ value: "", label: "All warehouses" }, ...storeOptions.map((s) => ({ value: s, label: s }))]}
+            placeholder="All warehouses" inputStyle={inputStyle} />
         </div>
         <div style={{ width: 240 }}>
           <SearchableSelect value={customerFilter || null} onChange={(v) => setCustomerFilter(v)}
@@ -381,7 +381,7 @@ export default function InternalSalesOrders() {
               scroll. Opaque background so rows don't show through (mirrors the
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
-            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Store</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
+            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
@@ -887,10 +887,12 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   }
 
   // Item 16 — gate Add-style / Add-line with specific, click-time warnings.
+  // Warehouse (the order's sale_store) is a must, alongside the Customer PO.
   function tryAddLine(kind: "section" | "flat") {
     if (!customerId) { notify("Pick a customer first.", "error"); return; }
-    if (!shipToLocationId) { notify("Ship-to warehouse must be populated before adding styles.", "error"); return; }
+    if (!shipToLocationId) { notify("Ship-to address must be populated before adding styles.", "error"); return; }
     if (!customerPo.trim()) { notify("Customer PO must be populated before adding styles.", "error"); return; }
+    if (!saleStore.trim()) { notify("Warehouse must be populated before adding styles.", "error"); return; }
     if (!fulfillmentSource) { notify("Pick a Fulfillment source (ATS or Production) before adding styles.", "error"); return; }
     if (kind === "section") bodyRef.current?.addSection(); else bodyRef.current?.addFlat();
   }
@@ -903,6 +905,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     if (!customerId) { setErr("Pick a customer."); return; }
     if (!shipToLocationId) { setErr("Pick a Ship-to address."); return; }
     if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
+    if (!saleStore.trim()) { setErr("Pick a Warehouse."); return; }
     if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Start ship date."); return; }
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
@@ -1327,7 +1330,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
       {!isNew && so != null && <button onClick={() => setEmailOpen(true)} style={btnSecondary} disabled={submitting} title="Email this order confirmation to a customer contact, optionally with the attached documents">✉ Email confirmation</button>}
       {/* Item 13 — edit the header on a saved order without re-opening the lines. */}
       {!isNew && !editable && !headerEditMode && so?.status !== "cancelled" && (
-        <button onClick={() => setHeaderEditMode(true)} style={btnSecondary} disabled={submitting} title="Edit the order header (customer, ship-to, dates, terms, brand, channel, store, PO #, notes) without changing lines">✎ Edit header</button>
+        <button onClick={() => setHeaderEditMode(true)} style={btnSecondary} disabled={submitting} title="Edit the order header (customer, ship-to, dates, terms, brand, channel, warehouse, PO #, notes) without changing lines">✎ Edit header</button>
       )}
       {headerEditMode && (
         <button onClick={() => void saveHeaderOnly()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save header"}</button>
@@ -1487,11 +1490,13 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v)}
               options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code || ""} ${c.name}` }))]} placeholder="(select)" disabled={!headerEditable} />
           </Field>
-          <Field label="Store">
-            {/* Item 5 — selling store (Xoro SaleStoreName); drives the grid store filter. */}
+          <Field label="Warehouse *">
+            {/* The order's warehouse (sale_store, from Xoro SaleStoreName). Tangerine
+                has warehouses + brands, no sales stores. Required to add styles. */}
             <SearchableSelect value={saleStore || null} onChange={(v) => setSaleStore(v || "")}
-              options={[{ value: "", label: "(none)" }, ...Array.from(new Set([...storeOptions, ...(saleStore ? [saleStore] : [])])).map((s) => ({ value: s, label: s }))]}
-              placeholder="(none)" disabled={!headerEditable} />
+              options={[{ value: "", label: "(select)" }, ...Array.from(new Set([...storeOptions, ...(saleStore ? [saleStore] : [])])).map((s) => ({ value: s, label: s }))]}
+              placeholder="(select warehouse)" disabled={!headerEditable} />
+            {headerEditable && !saleStore.trim() && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Required to add styles.</div>}
           </Field>
         </div>
 
@@ -1625,6 +1630,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           if (!customerId) missing.push("Customer");
           if (!shipToLocationId) missing.push("Ship-to address");
           if (!customerPo.trim()) missing.push("Customer PO #");
+          if (!saleStore.trim()) missing.push("Warehouse");
           if (!fulfillmentSource) missing.push("Fulfillment source");
           if (missing.length === 0) return null;
           return (
