@@ -19,6 +19,8 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 > - **Direction selector** — instead of typing a signed number, pick **+ Add inventory** (increase on-hand) or **− Reduce inventory** (decrease) and enter a positive quantity. Saving shows a confirmation spelling out the direction and the journal entry it will book on Post (**add** → DR Inventory / CR Inventory Adjustments; **reduce** → CR Inventory / DR Inventory Adjustments).
 > - **Reason required** — a reason must be picked before saving (inline `*` warning + a blocking toast otherwise).
 > - **Add a reason on the fly** — type a new reason in the dropdown and click **"+ Add reason '…'"**; it's created in the Adjustment Reason Master and selected. **Admins only** (signed-in users) — a non-admin sees a warning and must pick an existing reason.
+>
+> **Adjustment list — who/when + user filter (2026):** the grid shows a **When** (date + time) and **By** (who created it) column, and a **user filter** lets you scope to your own or another user's adjustments. The creator is captured automatically (`created_by_user_id`) and resolved to a name server-side.
 
 ---
 
