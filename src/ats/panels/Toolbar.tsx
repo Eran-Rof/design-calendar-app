@@ -485,9 +485,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
         onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
       >
-        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Warehouse:</span>
         <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {storeFilter.includes("All") ? "All stores" : storeFilter.join(", ")}
+          {storeFilter.includes("All") ? "All warehouses" : storeFilter.join(", ")}
         </span>
         <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
       </button>

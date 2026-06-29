@@ -116,6 +116,9 @@ not** wired here — a naive row reorder would fight the frozen columns and the
 per-period cumulative/delta math. Sort/ordering in ATS stays driven by its own
 filter and grouping controls.
 
+## Wording: Warehouse (not Store)
+The toolbar location filter and the related labels (SO-line-items modal column, Sales-Comps location multi-select, and the Aged/Incomplete/Negative/Stock-vs-SO export headers) read **Warehouse**, not "Store" — Tangerine has warehouses + brands, no ROF sales stores. The underlying data field/values (`store` = `ROF / ROF ECOM / PT / PT ECOM`) and the **Excel input** column names (`Store` / `Sale Store`) are unchanged — only the on-screen + export-report wording.
+
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in
 - [inventory-planning-overview.md](inventory-planning-overview.md) — downstream consumer
