@@ -219,9 +219,12 @@ export default async function handler(req, res) {
       shipping_address: v.data.shipping_address || {},
       // P4-family sales-rep / default / GL-routing columns.
       sales_rep_1_id: v.data.sales_rep_1_id || null,
-      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
+      // sales_rep_*_commission_pct are NOT NULL default 0 — default to 0, not null,
+      // so an on-the-fly add (which omits them) doesn't override the default and trip
+      // the not-null constraint. closeout_commission_pct IS nullable, so it stays null.
+      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? 0,
       sales_rep_2_id: v.data.sales_rep_2_id || null,
-      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? 0,
       closeout_commission_pct: v.data.closeout_commission_pct ?? null,
       default_brand_id: v.data.default_brand_id || null,
       default_channel_id: v.data.default_channel_id || null,
