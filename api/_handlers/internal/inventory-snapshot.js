@@ -317,14 +317,24 @@ export default async function handler(req, res) {
       if (!billBundle.billDateOk.get(l.invoice_id)) continue;
       const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += (Number(l.quantity) || 0) * mult(l.inventory_item_id);
     }
-    // Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour.
+    // Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour. When
+    // exploded, a PPK SKU's avg cost is recorded at PACK grain (e.g. $136.80 for
+    // a 24-pack), but every qty column is now in EACHES (×24). So divide the pack
+    // cost by the same units-per-pack multiplier to get the per-each cost ($5.70)
+    // — otherwise the Totals strip's $ Cost = eaches × pack-cost reads ~24×
+    // inflated (the "millions" snapshot-totals bug). Mirrors the price/each split
+    // done above for the SO sale price.
     for (const it of itemRows) {
       let cents = null;
       if (it.sku_code) {
         if (avgBundle.costBySku.has(it.sku_code)) cents = avgBundle.costBySku.get(it.sku_code);
         else { const lk = looseKey(it.sku_code); if (avgBundle.costByLoose.has(lk)) cents = avgBundle.costByLoose.get(lk); }
       }
-      if (cents != null) { const b = bucketFor(it.style_id, it.color); b._costCents.push(cents); }
+      if (cents != null) {
+        const m = mult(it.id);
+        const perUnit = m > 1 ? cents / m : cents; // pack cost → per-each when exploded
+        const b = bucketFor(it.style_id, it.color); b._costCents.push(perUnit);
+      }
     }
 
     return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow), entity_id: eid });
