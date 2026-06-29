@@ -67,6 +67,17 @@ export type EditableSizeMatrixProps = {
     /** When set (e.g. 2), reformat the unit value to this many decimals on blur
      *  (plain, no grouping commas — callers parse the value with Number()). */
     forceDecimals?: number;
+    /** Optional per-each DRIVER column rendered immediately BEFORE this column.
+     *  Used for prepacks: the operator types a per-each price here and the caller
+     *  computes this column's value (the pack price) = each × pack size. Opt-in,
+     *  so every non-prepack grid that shares this component is unchanged. */
+    each?: {
+      label: string;
+      placeholder?: string;
+      values: Record<string, string>;
+      onChange: (rowKey: string, value: string) => void;
+      onSetAll?: (value: string) => void;
+    };
   };
   /** Optional editable per-row Lot value (free text) with a bulk "set all"
    *  header field. Grain is the row (style+color). Opt-in so SO / AR / adjustment
@@ -242,6 +253,7 @@ export function EditableSizeMatrix({
   allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
+  const [bulkEach, setBulkEach] = React.useState("");
   const [bulkLot, setBulkLot] = React.useState("");
   const [collapsed, setCollapsed] = React.useState(false);
 
@@ -319,6 +331,24 @@ export function EditableSizeMatrix({
               );
             })}
             <th style={{ ...thBase, textAlign: "center" }}>Total</th>
+            {unit?.each && (
+              <th style={{ ...thBase, textAlign: "right", minWidth: 96, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{unit.each.label}</div>
+                {unit.each.onSetAll && (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={bulkEach}
+                    onChange={(e) => setBulkEach(e.target.value)}
+                    onBlur={() => { const v = stampValue(bulkEach); if (v !== null) { unit.each!.onSetAll!(v); setBulkEach(v); } }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = stampValue(bulkEach); if (v !== null) { unit.each!.onSetAll!(v); setBulkEach(v); } } }}
+                    placeholder={unit.each.placeholder || "set all"}
+                    title="Type a per-each price and press Enter (or tab out) to stamp it onto every row; the pack price auto-fills."
+                    style={{ ...unitInput, borderColor: C.primary }}
+                  />
+                )}
+              </th>
+            )}
             {unit && (
               // paddingRight matches the per-row unit cell (6px) so the "set all"
               // input lines up exactly under the per-row price inputs below it.
@@ -406,6 +436,23 @@ export function EditableSizeMatrix({
                 <td style={{ padding: "6px 12px", textAlign: "center", color: rowQty ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                   {rowQty || "—"}
                 </td>
+                {unit?.each && (
+                  <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={unit.each.values[row.key] ?? ""}
+                      onChange={(e) => unit.each!.onChange(row.key, e.target.value)}
+                      onBlur={() => {
+                        const n = parseMoney(unit.each!.values[row.key] ?? "");
+                        if (n != null) unit.each!.onChange(row.key, n.toFixed(2));
+                      }}
+                      placeholder={unit.each.placeholder || "0.00"}
+                      aria-label={`${unit.each.label} ${row.color || ""}`}
+                      style={unitInput}
+                    />
+                  </td>
+                )}
                 {unit && (
                   <td style={{ padding: "4px 6px", textAlign: "right" }}>
                     <input
@@ -455,6 +502,7 @@ export function EditableSizeMatrix({
               </td>
             ))}
             <td style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{grandQty || "—"}</td>
+            {unit?.each && <td style={{ padding: "10px 12px" }} />}
             {unit && <td style={{ padding: "10px 12px" }} />}
             {unit?.showLineTotal && (
               <td style={{ padding: "10px 12px", textAlign: "right", color: grandExt ? C.green : C.emptyCell, fontWeight: 800, fontFamily: "monospace" }}>{grandExt ? `$${fmtMoney(grandExt)}` : "—"}</td>
