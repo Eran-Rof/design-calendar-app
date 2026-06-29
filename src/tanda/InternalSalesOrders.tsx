@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
+import QuickAddPartyModal from "./components/QuickAddPartyModal";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
@@ -33,6 +35,7 @@ const SO_LIST_LIMIT = 500;
 const SO_COLUMNS: ColumnDef[] = [
   { key: "so_number",   label: "SO #" },
   { key: "customer",    label: "Customer" },
+  { key: "store",       label: "Store" },
   { key: "order_date",  label: "Order date" },
   { key: "start_ship",  label: "Start Ship" },
   { key: "cancel_date", label: "Cancel date" },
@@ -86,6 +89,7 @@ type SO = {
   customer_po?: string | null;
   customer_po_is_placeholder?: boolean | null;
   is_bulk_order?: boolean | null;
+  sale_store?: string | null;
   fulfillment_source?: string | null;
   is_closeout?: boolean | null;
   factor_approval_status?: string | null; factor_reference?: string | null; factor_approved_cents?: number | string | null;
@@ -159,7 +163,12 @@ export default function InternalSalesOrders() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  // Item 6 — multi-select status filter (any combination of statuses).
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  // Item 5 — selling-store filter (Xoro SaleStoreName), mirrors the Inventory
+  // Matrix store filter. storeOptions is the distinct store list for the dropdown.
+  const [storeFilter, setStoreFilter] = useState("");
+  const [storeOptions, setStoreOptions] = useState<string[]>([]);
   // Scorecard drill-through: ?customer=<id> seeds the customer filter on mount
   // so a click from the Customer Scorecard lands here pre-filtered.
   const [customerFilter, setCustomerFilter] = useState(() => readDrillParam("customer"));
@@ -211,6 +220,7 @@ export default function InternalSalesOrders() {
       filteredRows.map((so) => ({
         so_number: so.so_number || "(draft)",
         customer: customerName[so.customer_id] || "—",
+        store: so.sale_store || "",
         order_date: so.order_date,
         start_ship: so.requested_ship_date || "",
         cancel_date: so.cancel_date || "",
@@ -228,6 +238,7 @@ export default function InternalSalesOrders() {
   const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
+    { key: "store",      header: "Store" },
     { key: "order_date", header: "Order date", format: "date" },
     { key: "start_ship", header: "Start Ship", format: "date" },
     { key: "cancel_date", header: "Cancel date", format: "date" },
@@ -245,7 +256,8 @@ export default function InternalSalesOrders() {
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
+      if (statusFilters.length) params.set("status", statusFilters.join(","));
+      if (storeFilter) params.set("store", storeFilter);
       if (customerFilter) params.set("customer_id", customerFilter);
       if (searchDebounced.trim()) {
         params.set("q", searchDebounced.trim());
@@ -264,14 +276,19 @@ export default function InternalSalesOrders() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  const anyFilter = !!(statusFilter || customerFilter || search.trim() || dateFrom || dateTo);
-  function clearFilters() { setStatusFilter(""); setCustomerFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  const anyFilter = !!(statusFilters.length || storeFilter || customerFilter || search.trim() || dateFrom || dateTo);
+  function clearFilters() { setStatusFilters([]); setStoreFilter(""); setCustomerFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
   // Consume the one-shot drill params (?q=/?so=/?customer=/?style_id=) AFTER the
   // useState initializers above have seeded from them, so leaving and returning to
   // this panel starts with a clean (unfiltered) list instead of silently re-
   // applying a stale search that can hide the whole list. Runs once on mount.
   useEffect(() => { consumeDrillParams(["q", "so", "customer", "style_id"]); }, []);
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, customerFilter, searchDebounced]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), storeFilter, customerFilter, searchDebounced]);
+  useEffect(() => {
+    // Distinct selling-store list for the Store filter dropdown (Item 5).
+    fetch("/api/internal/sales-orders?facet=stores").then((r) => r.ok ? r.json() : [])
+      .then((a) => { if (Array.isArray(a)) setStoreOptions(a as string[]); }).catch(() => {});
+  }, []);
   useEffect(() => {
     fetch("/api/internal/customer-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {});
@@ -285,10 +302,22 @@ export default function InternalSalesOrders() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ width: 180 }}>
-          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)}
-            options={[{ value: "", label: "All statuses" }, ...["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => ({ value: s, label: s }))]}
-            placeholder="All statuses" inputStyle={inputStyle} />
+        {/* Item 6 — multi-select status filter (pick any combination). */}
+        <MultiSelectDropdown
+          selected={statusFilters}
+          onChange={setStatusFilters}
+          options={["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"].map((s) => ({ value: s, label: s }))}
+          allLabel="All statuses"
+          placeholder="Search status…"
+          title="Filter by one or more statuses"
+          minWidth={180}
+        />
+        {/* Item 5 — selling-store filter (same logic as the Inventory Matrix store
+            filter): "All stores" + each distinct store. */}
+        <div style={{ width: 200 }}>
+          <SearchableSelect value={storeFilter || null} onChange={(v) => setStoreFilter(v || "")}
+            options={[{ value: "", label: "All stores" }, ...storeOptions.map((s) => ({ value: s, label: s }))]}
+            placeholder="All stores" inputStyle={inputStyle} />
         </div>
         <div style={{ width: 240 }}>
           <SearchableSelect value={customerFilter || null} onChange={(v) => setCustomerFilter(v)}
@@ -346,20 +375,21 @@ export default function InternalSalesOrders() {
               scroll. Opaque background so rows don't show through (mirrors the
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
-            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
+            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Store</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={13}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={13}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={14}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={14}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
               return (
               <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
+                <td style={td} hidden={!isVisible("store")}>{so.sale_store || <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(so.order_date)}</td>
                 <td style={td} hidden={!isVisible("start_ship")}>{so.requested_ship_date ? fmtDateDisplay(so.requested_ship_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("cancel_date")}>{so.cancel_date ? fmtDateDisplay(so.cancel_date) : "—"}</td>
@@ -386,6 +416,7 @@ export default function InternalSalesOrders() {
         <SOModal
           so={editing}
           customers={customers}
+          storeOptions={storeOptions}
           onClose={() => { setModalOpen(false); setEditing(null); }}
           onSaved={() => { setModalOpen(false); setEditing(null); void load(); }}
         />
@@ -394,7 +425,7 @@ export default function InternalSalesOrders() {
   );
 }
 
-function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers: Customer[]; onClose: () => void; onSaved: () => void }) {
+function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved }: { so: SO | null; customers: Customer[]; storeOptions: string[]; onClose: () => void; onSaved: () => void }) {
   const isNew = so === null;
   // "Add styles" mode lets a CONFIRMED (not yet allocated/shipped/invoiced) SO
   // re-open its line grids to append styles. Base editability is draft-only.
@@ -402,10 +433,22 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
   const editable = isNew || so?.status === "draft" || addMode;
   const canAddStyles = !isNew && so?.status === "confirmed" && !addMode;
 
+  // Item 1 — on-the-fly "+ New customer" rows created from this window are merged
+  // in front of the loaded list so they're immediately selectable here without a
+  // round-trip to the Customer Master screen.
+  const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
+  const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const customers = useMemo(
+    () => (extraCustomers.length ? [...extraCustomers, ...customersProp] : customersProp),
+    [extraCustomers, customersProp],
+  );
+
   const [customerId, setCustomerId] = useState(so?.customer_id || "");
   const [shipToLocationId, setShipToLocationId] = useState(so?.ship_to_location_id || "");
   const [brandId, setBrandId] = useState(so?.brand_id || "");
   const [channelId, setChannelId] = useState(so?.channel_id || "");
+  // Item 5 — selling store (Xoro SaleStoreName). Optional; drives the grid filter.
+  const [saleStore, setSaleStore] = useState(so?.sale_store || "");
   const [orderDate, setOrderDate] = useState(so?.order_date || new Date().toISOString().slice(0, 10));
   const [reqShip, setReqShip] = useState(so?.requested_ship_date || "");
   const [cancelDate, setCancelDate] = useState(so?.cancel_date || "");
@@ -899,6 +942,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
         customer_po: customerPo.trim() || null,
         customer_po_is_placeholder: customerPoIsPlaceholder,
         is_bulk_order: isBulkOrder,
+        sale_store: saleStore || null,
         fulfillment_source: fulfillmentSource || null,
         is_closeout: isCloseout,
         // Item 3 — factor / credit-insurance approval (manual).
@@ -1174,7 +1218,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
     const hasLines = (bodyRef.current?.getStyleCodes() || []).length > 0;
     if (isNew) {
       return hasLines || !!customerId || !!customerPo.trim() || !!notes.trim() || !!reqShip || !!cancelDate
-        || !!shipToLocationId || !!brandId || !!channelId || !!buyerId || !!paymentTermsId || !!fulfillmentSource;
+        || !!shipToLocationId || !!brandId || !!channelId || !!buyerId || !!paymentTermsId || !!fulfillmentSource || !!saleStore;
     }
     return addMode; // editing an existing SO — warn only once they start adding/editing lines
   }
@@ -1242,9 +1286,18 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Customer">
-            <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
-              options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
-              placeholder="(pick customer…)" disabled={!editable} />
+            {/* Item 1 — pick an existing customer or add one on the fly (+ New). */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <SearchableSelect value={customerId || null} onChange={(v) => pickCustomer(v)}
+                  options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
+                  placeholder="(pick customer…)" disabled={!editable} />
+              </div>
+              {editable && (
+                <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this order"
+                  style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
+              )}
+            </div>
           </Field>
           <Field label="Buyer (optional)">
             <SearchableSelect value={buyerId || null} onChange={(v) => setBuyerId(v)}
@@ -1350,7 +1403,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </Field>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field label="Brand">
             {/* Name only (no codes); code stays searchable. Auto-fills from the selected style. */}
             <SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)}
@@ -1360,6 +1413,12 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             {/* Name only (no codes); code stays searchable. Auto-fills from the customer. */}
             <SearchableSelect value={channelId || null} onChange={(v) => setChannelId(v)}
               options={[{ value: "", label: "(select)" }, ...channels.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.code || ""} ${c.name}` }))]} placeholder="(select)" disabled={!editable} />
+          </Field>
+          <Field label="Store">
+            {/* Item 5 — selling store (Xoro SaleStoreName); drives the grid store filter. */}
+            <SearchableSelect value={saleStore || null} onChange={(v) => setSaleStore(v || "")}
+              options={[{ value: "", label: "(none)" }, ...Array.from(new Set([...storeOptions, ...(saleStore ? [saleStore] : [])])).map((s) => ({ value: s, label: s }))]}
+              placeholder="(none)" disabled={!editable} />
           </Field>
         </div>
 
@@ -1437,42 +1496,57 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             Production Manager, hide on-hand) or ATS (ship from stock; show
             available qty). An uploaded customer PO auto-picks ATS + highlights
             the field for the operator to confirm. */}
-        <div style={{ marginTop: 16, marginBottom: 4, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source *</span>
-          <div style={{ width: 280 }}>
-            <SearchableSelect
-              value={fulfillmentSource || null}
-              onChange={(v) => { setFulfillmentSource(v); setFulfillmentReview(false); }}
-              disabled={!editable}
-              options={[
-                { value: "", label: "(select — required)" },
-                { value: "production", label: "Production — make it (notifies Production Mgr)" },
-                { value: "ats", label: "ATS — ship from available stock" },
-              ]}
-              placeholder="(select — required)"
-              inputStyle={{
-                ...inputStyle, width: 280,
-                borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
-                boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
-              }}
-            />
+        <div style={{ marginTop: 16, marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source *</span>
+            <div style={{ width: 280 }}>
+              <SearchableSelect
+                value={fulfillmentSource || null}
+                onChange={(v) => { setFulfillmentSource(v); setFulfillmentReview(false); }}
+                disabled={!editable}
+                options={[
+                  { value: "", label: "(select — required)" },
+                  { value: "production", label: "Production — make it (notifies Production Mgr)" },
+                  { value: "ats", label: "ATS — ship from available stock" },
+                ]}
+                placeholder="(select — required)"
+                inputStyle={{
+                  ...inputStyle, width: 280,
+                  borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
+                  boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
+                }}
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
+              <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
+              Closeout order
+            </label>
+            {/* Item 2 — Add-style / Add-non-matrix buttons aligned with the
+                Fulfillment-source line; they drive the matrix body below through
+                its exposed handle. Same gate as the matrix's canAdd. */}
+            {(editable || canAddStyles) && !!customerId && !!shipToLocationId && !!customerPo.trim() && !!fulfillmentSource && (
+              <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                <button type="button" onClick={() => bodyRef.current?.addSection()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Add style (matrix)</button>
+                <button type="button" onClick={() => bodyRef.current?.addFlat()} style={btnSecondary}>+ Add non-matrix line</button>
+              </div>
+            )}
           </div>
-          {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
-          {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
-          {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>Pick ATS or Production to start adding styles.</span>}
-          <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13, marginLeft: 8 }} title="Closeout order — commission uses the customer's closeout rate instead of the normal rep rate.">
-            <input type="checkbox" checked={isCloseout} disabled={!editable} onChange={(e) => setIsCloseout(e.target.checked)} />
-            Closeout order
-          </label>
+          {/* Item 3 — fulfillment helper messages on their own line BELOW the
+              selector (previously inline to the right of the dropdown). */}
+          {(fulfillmentReview || fulfillmentSource === "production" || (editable && !fulfillmentSource)) && (
+            <div style={{ marginTop: 6 }}>
+              {fulfillmentReview && <span style={{ fontSize: 11, color: C.primary }}>✓ Auto-set to <strong>ATS</strong> from the uploaded PO — confirm it's correct or change it.</span>}
+              {!fulfillmentReview && fulfillmentSource === "production" && <span style={{ fontSize: 11, color: C.warn }}>On-hand hidden; Production Manager is notified on confirm.</span>}
+              {!fulfillmentReview && editable && !fulfillmentSource && <span style={{ fontSize: 11, color: C.warn }}>Pick ATS or Production to start adding styles.</span>}
+            </div>
+          )}
         </div>
 
-        {/* The Add-style / Add-line buttons live in the matrix body itself
-            (always shown, even on a confirmed SO). */}
-
         {/* MX-SO — the line body IS the size matrix: per-style color×size grids
-            (95% of styles) + a "+ Add non-matrix line" button for one-offs.
-            The Add buttons stay hidden until the order prerequisites are filled:
-            customer, ship-to address, Customer PO #, and Fulfillment source. */}
+            (95% of styles) + a "+ Add non-matrix line" button for one-offs. The
+            Add buttons (above, on the Fulfillment-source line) stay hidden until
+            the order prerequisites are filled: customer, ship-to address,
+            Customer PO #, and Fulfillment source. */}
         {editable && (() => {
           const missing: string[] = [];
           if (!customerId) missing.push("Customer");
@@ -1492,6 +1566,7 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
             ref={bodyRef}
             editable={editable}
             canAdd={(editable || canAddStyles) && !!customerId && !!shipToLocationId && !!customerPo.trim() && !!fulfillmentSource}
+            hideAddButtons
             onRequestEdit={() => { if (!editable) setAddMode(true); }}
             items={items}
             seed={seed}
@@ -1537,6 +1612,24 @@ function SOModal({ so, customers, onClose, onSaved }: { so: SO | null; customers
           </div>
         </div>
       </div>
+
+      {/* Item 1 — on-the-fly "+ New customer" popup. Created customer is merged in
+          and selected without leaving this order. */}
+      {quickAddCustomer && (
+        <QuickAddPartyModal
+          kind="customer"
+          onClose={() => setQuickAddCustomer(false)}
+          onCreated={(row) => {
+            const c = row as unknown as Customer;
+            setExtraCustomers((prev) => [c, ...prev]);
+            setCustomerId(c.id);
+            setShipToLocationId("");
+            setBuyerId("");
+            setQuickAddCustomer(false);
+            notify(`Customer "${c.name}" added.`, "success");
+          }}
+        />
+      )}
 
       {/* 🤖 AI customer-PO upload dialog. */}
       {poUploadOpen && (

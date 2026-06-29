@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+import QuickAddPartyModal from "./components/QuickAddPartyModal";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import { openOrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
@@ -285,8 +286,17 @@ export default function InternalPurchaseOrders() {
   );
 }
 
-function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
+function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
   const isNew = po === null;
+  // Item 1 — on-the-fly "+ New vendor / + New customer" rows are merged in front
+  // of the loaded lists so they're immediately selectable without leaving the PO.
+  const [extraVendors, setExtraVendors] = useState<Vendor[]>([]);
+  const [quickAddVendor, setQuickAddVendor] = useState(false);
+  const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const vendors = useMemo(
+    () => (extraVendors.length ? [...extraVendors, ...vendorsProp] : vendorsProp),
+    [extraVendors, vendorsProp],
+  );
   // ✎ Edit unlocks a saved (issued/in-transit/received) PO for revision — the
   // operator can change anything; saving fires a "PO revised" notification to
   // the vendor's portal users (if connected). Drafts + new POs are editable as-is.
@@ -741,8 +751,17 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                 placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Customer">
-              <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
-                options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
+              {/* Item 1 — pick an existing customer or add one on the fly (+ New). */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
+                    options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
+                </div>
+                {editable && (
+                  <button type="button" onClick={() => setQuickAddCustomer(true)} title="Add a new customer without leaving this PO"
+                    style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
+                )}
+              </div>
             </Field>
             <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
             <Field label="PO number / status">
@@ -755,9 +774,18 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <Section title="Vendor / supplier">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Field label="Vendor">
-              <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
-                options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
-                placeholder="(pick vendor…)" disabled={!editable} />
+              {/* Item 1 — pick an existing vendor or add one on the fly (+ New). */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+                    options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
+                    placeholder="(pick vendor…)" disabled={!editable} />
+                </div>
+                {editable && (
+                  <button type="button" onClick={() => setQuickAddVendor(true)} title="Add a new vendor without leaving this PO"
+                    style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
+                )}
+              </div>
             </Field>
             <Field label="Vendor contact"><input type="text" value={vendorContact} onChange={(e) => setVendorContact(e.target.value)} disabled={!editable} style={inputStyle} placeholder="contact name" /></Field>
             <Field label="Vendor email"><input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} disabled={!editable} style={inputStyle} placeholder="name@vendor.com" /></Field>
@@ -918,6 +946,36 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
           {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save revision"}</button>}
         </div>
       </div>
+
+      {/* Item 1 — on-the-fly "+ New vendor / + New customer" popups. */}
+      {quickAddVendor && (
+        <QuickAddPartyModal
+          kind="vendor"
+          onClose={() => setQuickAddVendor(false)}
+          onCreated={(row) => {
+            const v = row as unknown as Vendor;
+            setExtraVendors((prev) => [v, ...prev]);
+            setVendorId(v.id);
+            if (typeof row.contact === "string" && row.contact && !vendorContact) setVendorContact(row.contact);
+            if (typeof row.email === "string" && row.email && !vendorEmail) setVendorEmail(row.email);
+            setQuickAddVendor(false);
+            notify(`Vendor "${v.name}" added.`, "success");
+          }}
+        />
+      )}
+      {quickAddCustomer && (
+        <QuickAddPartyModal
+          kind="customer"
+          onClose={() => setQuickAddCustomer(false)}
+          onCreated={(row) => {
+            const c = { id: String(row.id), name: String(row.name), customer_code: typeof row.customer_code === "string" ? row.customer_code : undefined };
+            setCustomers((prev) => [c, ...prev]);
+            setCustomerId(c.id);
+            setQuickAddCustomer(false);
+            notify(`Customer "${c.name}" added.`, "success");
+          }}
+        />
+      )}
 
       {/* Create-from-SO picker (dynamic search). */}
       {soPickOpen && (

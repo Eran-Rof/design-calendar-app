@@ -693,6 +693,7 @@ async function importSOsNative(refs) {
       currency: d.CurrencyCode || "USD",
       payment_terms_id: refs.terms.get(norm(d.PaymentTermsName)) || null,
       customer_po: d.CustomerPO || null,
+      sale_store: d.SaleStoreName || null, // Item 5 — selling store, drives the SO grid store filter
       origin: "internal", // sales_orders_origin_check allows: internal|b2b_portal|edi|marketplace
       notes: `${NOTE_TAG}${d.Memo ? " " + d.Memo : ""}`.trim(),
       subtotal_cents: subtotal,

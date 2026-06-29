@@ -51,7 +51,7 @@ From the **AR Invoices** panel, click **+ New invoice**.
 
 | Field | Required? | Notes |
 |---|---|---|
-| Customer | yes | Sourced from M36 Customer Master (must already exist). UUID paste fallback is offered. |
+| Customer | yes | Sourced from M36 Customer Master. A **+ New** button next to the picker opens an **Add customer** popup (name + optional contact/email/phone/country) so you can create one on the fly and have it selected here without leaving the invoice (operator item 1). UUID paste fallback is offered. |
 | Invoice number | optional | Auto-generated as `AR-YYYY-NNNNN` if blank. Must be unique per entity. |
 | Kind | yes | `customer_invoice` / `customer_credit_memo` |
 | Invoice date | yes | The date the GL JE will land on (must be inside an open period at post time). `posting_date` is kept in lockstep with this field. |
