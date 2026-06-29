@@ -21,6 +21,8 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
 import DateRangePresets from "./components/DateRangePresets";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -35,8 +37,11 @@ const PO_COLUMNS: ColumnDef[] = [
   { key: "status",        label: "Status" },
   { key: "avg_cost",      label: "Avg cost" },
   { key: "sell_price",    label: "Sell price" },
+  { key: "margin_pct",    label: "Margin %" },
   { key: "total",         label: "Total" },
 ];
+// Per-column sort persistence (mirrors useTablePrefs key scheme).
+const PO_SORT_KEY = "tangerine:purchaseorders:sort";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -69,6 +74,23 @@ type Lookup = { id: string; code?: string; name: string };
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
   return `${neg ? "-" : ""}$${Math.trunc(abs / 100).toLocaleString()}.${String(Math.round(abs % 100)).padStart(2, "0")}`;
+}
+// Margin % to one decimal, "—" when null (mirrors the Sales Orders grid).
+function fmtPct(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return `${p.toFixed(1)}%`;
+}
+// Per-PO margin % from the (qty-weighted) resolved sell price minus the
+// (qty-weighted) avg unit cost: (sell − cost) / sell. Same cost basis the
+// Avg-cost column uses (avg_cost_cents from the PO's own line unit costs) and
+// the same sell reference the Sell-price column uses (sell_cents) — so a PO
+// reads consistently across its three priced columns and matches the Sales
+// Orders margin convention. Null when sell is missing or ≤ 0.
+function poMarginPct(po: Pick<PO, "avg_cost_cents" | "sell_cents">): number | null {
+  const sell = po.sell_cents;
+  const cost = po.avg_cost_cents;
+  if (sell == null || cost == null || sell <= 0) return null;
+  return ((sell - cost) / sell) * 100;
 }
 
 // PO "Requested in DC" date derived from a Sales Order cancel date: the 1st of
@@ -118,6 +140,10 @@ export default function InternalPurchaseOrders() {
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(PO_TABLE_KEY, PO_COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+  // Totals strip scope: sum only the currently-filtered rows, or the whole
+  // loaded dataset (ignores the client-side date window). Server search/status/
+  // vendor filters always bound `rows`, so "All" = everything currently loaded.
+  const [totalsScope, setTotalsScope] = useState<"filtered" | "all">("filtered");
 
   const vendorName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -138,6 +164,40 @@ export default function InternalPurchaseOrders() {
       return true;
     });
   }, [rows, dateField, dateFrom, dateTo]);
+
+  // Universal per-column sort (tri-state asc → desc → off, persisted). Computed
+  // columns (vendor name, margin) read through accessors; the rest map 1:1.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(filteredRows, {
+    persistKey: PO_SORT_KEY,
+    accessors: {
+      vendor: (po: PO) => vendorName[po.vendor_id] || "",
+      avg_cost: (po: PO) => po.avg_cost_cents,
+      sell_price: (po: PO) => po.sell_cents,
+      margin_pct: (po: PO) => poMarginPct(po),
+      total: (po: PO) => Number(po.total_cents ?? 0),
+    },
+  });
+
+  // Totals strip — sum across either the filtered subset or the full loaded
+  // dataset. Qty-weighted avg cost/sell so the weighted Margin % is meaningful
+  // (mirrors the server's enrichPricing weighting). Total = Σ total_cents.
+  const totals = useMemo(() => {
+    const src = totalsScope === "all" ? rows : filteredRows;
+    let totalCents = 0;
+    let costNum = 0, costDen = 0, sellNum = 0, sellDen = 0;
+    for (const po of src) {
+      totalCents += Number(po.total_cents ?? 0);
+      // Weight the avg-cost / sell by the PO total $ as a proxy for line volume
+      // (the per-unit averages are all we have at the grid grain).
+      const w = Math.abs(Number(po.total_cents ?? 0)) || 1;
+      if (po.avg_cost_cents != null) { costNum += po.avg_cost_cents * w; costDen += w; }
+      if (po.sell_cents != null) { sellNum += po.sell_cents * w; sellDen += w; }
+    }
+    const avgCost = costDen > 0 ? Math.round(costNum / costDen) : null;
+    const sell = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
+    const marginPct = sell != null && avgCost != null && sell > 0 ? ((sell - avgCost) / sell) * 100 : null;
+    return { count: src.length, totalCents, avgCost, sell, marginPct };
+  }, [totalsScope, rows, filteredRows]);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -167,16 +227,33 @@ export default function InternalPurchaseOrders() {
       .then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {});
   }, []);
 
-  const exportRows = useMemo(() => filteredRows.map((po) => ({
-    po_number: po.po_number || "(draft)",
-    vendor: vendorName[po.vendor_id] || "",
-    order_date: po.order_date,
-    expected_date: po.expected_date || "",
-    status: po.status,
-    avg_cost: po.avg_cost_cents != null ? po.avg_cost_cents / 100 : "",
-    sell_price: po.sell_cents != null ? po.sell_cents / 100 : "",
-    total: Number(po.total_cents ?? 0) / 100,
-  })), [filteredRows, vendorName]);
+  const exportRows = useMemo(() => {
+    const body = sortedRows.map((po) => ({
+      po_number: po.po_number || "(draft)",
+      vendor: vendorName[po.vendor_id] || "",
+      order_date: po.order_date,
+      expected_date: po.expected_date || "",
+      status: po.status,
+      avg_cost: po.avg_cost_cents != null ? po.avg_cost_cents / 100 : "",
+      sell_price: po.sell_cents != null ? po.sell_cents / 100 : "",
+      margin_pct: poMarginPct(po),
+      total: Number(po.total_cents ?? 0) / 100,
+    }));
+    // #23 — append the on-screen Totals row to the export so the spreadsheet
+    // carries the same footer the grid shows (honours the Filtered/All scope).
+    body.push({
+      po_number: totalsScope === "all" ? "TOTAL (all loaded)" : "TOTAL (filtered)",
+      vendor: "",
+      order_date: "",
+      expected_date: "",
+      status: `${totals.count} PO${totals.count === 1 ? "" : "s"}`,
+      avg_cost: totals.avgCost != null ? totals.avgCost / 100 : "",
+      sell_price: totals.sell != null ? totals.sell / 100 : "",
+      margin_pct: totals.marginPct,
+      total: totals.totalCents / 100,
+    });
+    return body;
+  }, [sortedRows, vendorName, totals, totalsScope]);
   const exportColumns: ExportColumn<Record<string, unknown>>[] = [
     { key: "po_number", header: "PO #" },
     { key: "vendor", header: "Vendor" },
@@ -185,6 +262,7 @@ export default function InternalPurchaseOrders() {
     { key: "status", header: "Status" },
     { key: "avg_cost", header: "Avg Cost", format: "number" },
     { key: "sell_price", header: "Sell Price", format: "number" },
+    { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
     { key: "total", header: "Total", format: "number" },
   ];
 
@@ -236,30 +314,50 @@ export default function InternalPurchaseOrders() {
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
       {/* Result count + cap notice — prevents mistaking the page cap for the total. */}
-      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>
-        {loading ? "Loading…" : (
-          <>
-            Showing <b style={{ color: C.text }}>{filteredRows.length.toLocaleString()}</b> purchase order{filteredRows.length === 1 ? "" : "s"}
-            {rows.length >= PO_LIST_LIMIT && <> — most recent {PO_LIST_LIMIT}; use search or filters to find older orders</>}
-            {anyFilter && <> · <span style={{ color: C.warn }}>filters active</span></>}
-          </>
-        )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: C.textMuted }}>
+          {loading ? "Loading…" : (
+            <>
+              Showing <b style={{ color: C.text }}>{filteredRows.length.toLocaleString()}</b> purchase order{filteredRows.length === 1 ? "" : "s"}
+              {rows.length >= PO_LIST_LIMIT && <> — most recent {PO_LIST_LIMIT}; use search or filters to find older orders</>}
+              {anyFilter && <> · <span style={{ color: C.warn }}>filters active</span></>}
+            </>
+          )}
+        </div>
+        {/* #1 — Totals strip scope: sum the filtered rows or the whole loaded set. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMuted }} title="Switch the Totals row between the currently-filtered rows and the whole loaded dataset">
+          <span>Totals:</span>
+          {(["filtered", "all"] as const).map((s) => (
+            <button key={s} type="button" onClick={() => setTotalsScope(s)}
+              style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12,
+                ...(totalsScope === s ? { color: C.text, borderColor: C.primary, background: "#0b1220" } : null) }}>
+              {s === "filtered" ? "Filtered rows" : "All rows"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {styleScope && <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Avg cost &amp; Sell price scoped to style <b style={{ color: C.text }}>{styleScope}</b></div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={thStick} hidden={!isVisible("po_number")}>PO #</th><th style={thStick} hidden={!isVisible("vendor")}>Vendor</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={thStick} hidden={!isVisible("expected_date")}>Expected</th><th style={thStick} hidden={!isVisible("status")}>Status</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("sell_price")}>Sell price</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <SortableTh label="PO #" sortKey="po_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("po_number")} />
+            <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("vendor")} />
+            <SortableTh label="Order date" sortKey="order_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("order_date")} />
+            <SortableTh label="Expected" sortKey="expected_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("expected_date")} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("status")} />
+            <SortableTh label="Avg cost" sortKey="avg_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_cost")} />
+            <SortableTh label="Sell price" sortKey="sell_price" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sell_price")} />
+            <SortableTh label="Margin %" sortKey="margin_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_pct")} title="Sort by margin % — (sell − avg cost) / sell" />
+            <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={8}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={8}>No purchase orders.</td></tr>}
-            {filteredRows.map((po) => (
+            {loading && <tr><td style={td} colSpan={9}>Loading…</td></tr>}
+            {!loading && sortedRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={9}>No purchase orders.</td></tr>}
+            {sortedRows.map((po) => {
+              const mPct = poMarginPct(po);
+              const marginColor = mPct == null ? C.text : mPct >= 0 ? C.success : C.danger;
+              return (
               <tr key={po.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(po); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("po_number")}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("vendor")}>{vendorName[po.vendor_id] || "—"}</td>
@@ -268,10 +366,30 @@ export default function InternalPurchaseOrders() {
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")} title="(sell − avg cost) / sell">{fmtPct(mPct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(po.total_cents)}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
+          {/* #1 / #23 — Totals strip (also exported). Scope follows the toggle. */}
+          {!loading && totals.count > 0 && (
+            <tfoot>
+              <tr style={{ position: "sticky", bottom: 0, zIndex: 1 }}>
+                <td style={{ ...td, background: "#0b1220", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("po_number")}>
+                  {totalsScope === "all" ? "Total · all loaded" : "Total · filtered"}
+                </td>
+                <td style={{ ...td, background: "#0b1220", color: C.textMuted, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("vendor")}>{totals.count.toLocaleString()} PO{totals.count === 1 ? "" : "s"}</td>
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("order_date")} />
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("expected_date")} />
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("status")} />
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_cost")} title="Total-weighted average unit cost">{totals.avgCost != null ? fmtCents(totals.avgCost) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("sell_price")} title="Total-weighted average sell price">{totals.sell != null ? fmtCents(totals.sell) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginPct == null ? C.text : totals.marginPct >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_pct")} title="Weighted margin % across the totalled rows">{fmtPct(totals.marginPct)}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("total")}>{fmtCents(totals.totalCents)}</td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
@@ -733,7 +851,13 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   return (
     <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New purchase order" : `Purchase order ${po?.po_number || "(draft)"} — ${po?.status}`}</h3>
+        {/* #6 — the status in the open PO carries the same color coding as the
+            grid status chip (STATUS_COLORS), so the open view matches the list. */}
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
+          {isNew ? "New purchase order" : (
+            <>Purchase order {po?.po_number || "(draft)"} — <span style={{ color: STATUS_COLORS[po?.status || ""] || C.text, fontWeight: 700 }}>● {po?.status}</span></>
+          )}
+        </h3>
 
         {/* Header collapse bar — when collapsed, only the vendor name shows; the
             full document header is one click away. Auto-collapses when the
@@ -766,7 +890,15 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             </Field>
             <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
             <Field label="PO number / status">
-              <input type="text" value={po?.po_number ? `${po.po_number} · ${po.status}` : (po?.status || "(draft — assigned on issue)")} readOnly disabled style={{ ...inputStyle, opacity: 0.6 }} />
+              {/* #6 — read-only chip carrying the grid's status color so the open
+                  PO matches the list. Rendered as a div (not an input) so the
+                  status token can be colored. */}
+              <div style={{ ...inputStyle, display: "flex", alignItems: "center", gap: 8, minHeight: 33 }}>
+                <span>{po?.po_number || "(draft — assigned on issue)"}</span>
+                {po?.status && (
+                  <span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span>
+                )}
+              </div>
             </Field>
           </div>
         </Section>
@@ -1031,9 +1163,11 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, minHeight: 28 }}>
               {splitLots.length === 0 && <span style={{ fontSize: 12, color: C.textMuted }}>No customer POs added yet (need at least two).</span>}
               {splitLots.map((lot) => (
-                <span key={lot} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 10px", fontSize: 12 }}>
-                  {lot}
-                  <button type="button" onClick={() => setSplitLots((p) => p.filter((x) => x !== lot))} style={{ background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 13, lineHeight: 1 }} title="Remove">✕</button>
+                <span key={lot} style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "2px 8px", fontSize: 11, lineHeight: 1.3 }}>
+                  {/* #2 — smaller font + word-break so long customer-PO lot
+                      numbers stay inside the bubble instead of overflowing it. */}
+                  <span style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}>{lot}</span>
+                  <button type="button" onClick={() => setSplitLots((p) => p.filter((x) => x !== lot))} style={{ background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 12, lineHeight: 1, flexShrink: 0 }} title="Remove">✕</button>
                 </span>
               ))}
             </div>

@@ -382,7 +382,7 @@ export function EditableSizeMatrix({
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = bulkLot.trim(); if (v !== "") lot.onSetAll!(v); } }}
                     placeholder={lot.placeholder || "set all"}
                     title="Type a lot and press Enter (or tab out) to stamp it onto every row, then edit individual rows as needed."
-                    style={{ ...unitInput, width: "12ch", textAlign: "left", borderColor: C.primary }}
+                    style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: C.primary }}
                   />
                 )}
               </th>
@@ -484,7 +484,9 @@ export function EditableSizeMatrix({
                       onChange={(e) => lot.onChange(row.key, e.target.value)}
                       placeholder={lot.placeholder || "lot"}
                       aria-label={`Lot ${row.color || ""}`}
-                      style={{ ...unitInput, width: "12ch", textAlign: "left" }}
+                      // #2 — slightly smaller font + a touch wider so a full
+                      // lot/customer-PO number fits in the field without clipping.
+                      style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12 }}
                     />
                   </td>
                 )}
