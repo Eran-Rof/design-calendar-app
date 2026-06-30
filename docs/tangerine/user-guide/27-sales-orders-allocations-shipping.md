@@ -186,6 +186,16 @@ All money is shown to **two decimals**; a metric reads **—** when it can't be 
 
 The grid **header is frozen** — it stays pinned to the top while the rows scroll (the table sits in a scrolling container capped at the viewport height).
 
+### Deleting / cancelling a sales order
+
+A trailing **Actions** column (always shown) carries a red **✕** on each removable order, and the same action lives in the **footer of the order detail view** (a **Delete draft** / **Cancel order** button). The action adapts to the order's status, mirroring the API rule that a non-draft SO is never hard-deleted:
+
+- **`draft`** → **Delete** (after a confirm dialog) — `DELETE /api/internal/sales-orders/:id` permanently removes the unsaved order. There's no SO number yet and nothing downstream depends on it.
+- **`confirmed` / `allocated` / `fulfilling`** → **Cancel** — PATCHes `status='cancelled'`. The order is **kept for history** (its SO number, lines and any lot stamping remain), it just moves to the terminal `cancelled` state and drops out of the default live grid.
+- **`shipped` / `invoiced` / `closed` / `cancelled`** → no action (a dash) — these are terminal / GL-affecting and must be unwound through their own flows (e.g. a credit memo / RMA), not deleted here.
+
+Both entry points use the app's confirm dialog (no raw browser prompt) and toast the result; the grid reloads (or the detail view closes) on success.
+
 ---
 
 ## 27.2 Confirm → draft AR invoice (M10-C)

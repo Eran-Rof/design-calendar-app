@@ -175,6 +175,43 @@ const CREDIT_LABELS: Record<string, string> = {
 // True for a credit status worth surfacing in the grid/badge (not the neutral default).
 const showCredit = (s?: string | null): boolean => !!s && s !== "not_required";
 
+// Remove a sales order: a DRAFT can be hard-deleted; confirmed/allocated/fulfilling
+// orders are CANCELLED (status='cancelled', kept for history) — matching the API,
+// which forbids deleting a non-draft. shipped/invoiced/closed/cancelled are terminal.
+const SO_CANCELLABLE = new Set(["confirmed", "allocated", "fulfilling"]);
+function soRemoveMode(status: string): "delete" | "cancel" | null {
+  if (status === "draft") return "delete";
+  if (SO_CANCELLABLE.has(status)) return "cancel";
+  return null;
+}
+// Confirms (via the app dialog), calls the API, toasts the result. Returns true
+// when a change was made so the caller can reload / close.
+async function deleteOrCancelSO(so: { id: string; so_number: string | null; status: string }): Promise<boolean> {
+  const mode = soRemoveMode(so.status);
+  if (!mode) { notify(`A ${so.status} sales order can't be deleted or cancelled.`, "info"); return false; }
+  const label = so.so_number || "draft order";
+  if (mode === "delete") {
+    const ok = await confirmDialog(
+      `Delete draft sales order (${label})? This permanently removes it and cannot be undone.`,
+      { danger: true, confirmText: "Delete", title: "Delete draft sales order" });
+    if (!ok) return false;
+    const r = await fetch(`/api/internal/sales-orders/${so.id}`, { method: "DELETE" });
+    if (!r.ok) { notify(`Could not delete: ${(await r.json().catch(() => ({}))).error || `HTTP ${r.status}`}`, "error"); return false; }
+    notify("Draft sales order deleted.", "success");
+    return true;
+  }
+  const ok = await confirmDialog(
+    `Cancel sales order ${label}? It moves to "cancelled" and is kept for history (not deleted).`,
+    { danger: true, confirmText: "Cancel order", title: "Cancel sales order" });
+  if (!ok) return false;
+  const r = await fetch(`/api/internal/sales-orders/${so.id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }),
+  });
+  if (!r.ok) { notify(`Could not cancel: ${(await r.json().catch(() => ({}))).error || `HTTP ${r.status}`}`, "error"); return false; }
+  notify(`Sales order ${label} cancelled.`, "success");
+  return true;
+}
+
 export default function InternalSalesOrders() {
   const [rows, setRows] = useState<SO[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -436,10 +473,11 @@ export default function InternalSalesOrders() {
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_margin_amt")}>Total Margin $</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_qty")}>Qty</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <th style={{ ...thStick, textAlign: "center" }}>Actions</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={15}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={15}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={16}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={16}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
               return (
@@ -464,6 +502,15 @@ export default function InternalSalesOrders() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("total_margin_amt")}>{so.margin_cents != null && so.total_qty != null ? fmtCents2(so.margin_cents * Number(so.total_qty)) : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")}>{so.total_qty != null ? Number(so.total_qty).toLocaleString() : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
+                <td style={{ ...td, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                  {soRemoveMode(so.status)
+                    ? <button
+                        title={so.status === "draft" ? "Delete draft order" : "Cancel order"}
+                        onClick={async (e) => { e.stopPropagation(); if (await deleteOrCancelSO(so)) void load(); }}
+                        style={{ background: "none", border: "none", color: C.danger, cursor: "pointer", fontSize: 14, padding: "0 6px", lineHeight: 1 }}
+                      >✕</button>
+                    : <span style={{ color: C.textMuted }}>—</span>}
+                </td>
               </tr>
               );
             })}
@@ -1778,6 +1825,14 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <button onClick={() => void overrideApproveCredit()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title={so?.credit_hold_reason || "Override the credit hold and approve this order to ship"}>Override → Approve</button>
             )}
             {canInvoice && <button onClick={() => void createInvoice()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>{submitting ? "…" : "Create AR invoice"}</button>}
+            {!isNew && so != null && soRemoveMode(so.status) && (
+              <button
+                onClick={async () => { if (await deleteOrCancelSO(so)) onSaved(); }}
+                style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }}
+                disabled={submitting}
+                title={so.status === "draft" ? "Permanently delete this draft order" : "Cancel this order (moves to cancelled, kept for history)"}
+              >{so.status === "draft" ? "Delete draft" : "Cancel order"}</button>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {saveCloseButtons}
