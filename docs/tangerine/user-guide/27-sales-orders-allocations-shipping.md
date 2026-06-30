@@ -57,6 +57,8 @@ The header status enum is `draft → confirmed → allocated → fulfilling → 
 > **Note on transitions:** the state machine is permissive, not strictly linear. You can `🧾 Create AR invoice` from any of `confirmed / allocated / fulfilling / shipped` (it invoices the full open balance and jumps the SO straight to `invoiced`), and you can `🚚 Ship` directly from `confirmed` (the ship handler accepts `confirmed/allocated/fulfilling`). Allocation is therefore an optional reservation step, not a hard gate before shipping.
 
 > **Invoiced → green clickable header.** Once a sales order has been billed into an AR invoice, re-opening it shows the modal header in **green** and reads `Sales order SO-2026-00002 — invoiced · 🧾 AR-2026-00007 ↗`. Clicking the header jumps to **🧾 AR Invoices** filtered to that invoice (`?m=ar_invoices&q=<INV#>`) — the reverse of the **🧾 Create AR invoice** drill. The link resolves the invoice by `ar_invoices.sales_order_id` (the M10-C link column, served via `GET /api/internal/ar-invoices?sales_order_id=<uuid>`); the most-recent non-void invoice wins. Un-invoiced orders keep the plain title.
+>
+> **Status colour matches the grid.** The status word in the modal header is shown with the **same colour + ● dot** the list grid uses for that status (draft/confirmed/allocated/fulfilling/shipped/invoiced/closed/cancelled), so the opened order is visually consistent with the row you clicked.
 
 ### Creating a sales order (draft)
 
@@ -135,6 +137,12 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 > - **Download to Excel** — saves the SO as an `.xlsx`: header block (customer, PO #, dates, terms, buyer…), then one stacked **color × size matrix table per style** (color/inseam rows × size columns, per-row Qty / Unit $ / line total, per-style totals) and grand totals. Same data as the printable doc.
 > - **Save as PDF / Print** — opens the SO as a **branded document** in a new window (Ring of Fire logo, header fields, the per-style matrices, grand totals) and jumps straight into the browser's **Print / Save as PDF** dialog. Both Excel and PDF work on a **draft** too (number shows `(draft)`), reflecting whatever is currently entered.
 > - **Email confirmation to buyer…** (saved orders only) — opens the email dialog **pre-targeted to the buyer on this order**. If the order has no buyer set, pick one from the customer's **buyers / contacts** in the dropdown (or type an address); add an optional note, and tick **Also attach the order's documents** — when there's more than one, choose **which** to attach. Send builds a **branded HTML confirmation server-side** (authoritative, not the browser's copy) and emails it via Resend (`POST /api/internal/sales-orders/:id/email-confirmation`). Selected documents are validated to belong to this order, then attached via short-lived signed URLs. Needs `RESEND_API_KEY`; recipient emails come from **Customer Master → Buyers / Contacts**.
+>
+> **Prepack (PPK) detail on the confirmation.** When the order has **prepack (PPK) styles**, all three confirmation outputs (Excel, PDF/print, and the emailed copy) add a **"Prepack (PPK) detail"** section per PPK style, beneath the line matrix:
+> - **Pack composition** — the **inner pack** and **carton pack** units per size for one pack (from the Prepack Matrix master: `inner_pack_qty` / `qty_per_pack`), with pack totals.
+> - **Full size breakdown** — each color's packs **exploded to garment units** (`packs × carton-pack qty` per size), with per-size and grand totals (units + packs).
+>
+> So the customer sees both *how a pack is built* and *the total garment quantities by size* alongside the pack counts. A PPK style with no matrix defined shows a "no size breakdown defined" note instead.
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
