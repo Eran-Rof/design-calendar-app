@@ -122,42 +122,51 @@ async function latestManualDate(admin) {
   return data?.snapshot_date || null;
 }
 
-// Distinct style_ids among `styleIds` that carry ONLY mirror-owned layer kinds
+// Of `feedStyleIds`, the styles that carry ONLY mirror-owned layer kinds
 // (opening_balance / xoro_onhand_sync) or no layers at all. Any style with a
-// native-event or by-size layer is excluded.
-async function computeManagedStyleIds(admin, entityId, styleIds) {
-  if (styleIds.length === 0) return new Set();
-  const managed = new Set(styleIds);
-  // All SKUs of the candidate styles.
-  const itemRows = [];
-  for (let i = 0; i < styleIds.length; i += 200) {
-    const chunk = styleIds.slice(i, i + 200);
-    const { data, error } = await admin
-      .from("ip_item_master")
-      .select("id, style_id")
-      .eq("entity_id", entityId)
-      .in("style_id", chunk);
-    if (error) throw new Error(`ip_item_master style scan failed: ${error.message}`);
-    itemRows.push(...(data || []));
-  }
-  const styleByItem = new Map(itemRows.map((r) => [r.id, r.style_id]));
-  const itemIds = itemRows.map((r) => r.id);
-  // Layers for those SKUs; any non-mirror kind disqualifies the whole style.
-  for (let i = 0; i < itemIds.length; i += 300) {
-    const chunk = itemIds.slice(i, i + 300);
+// native-event or by-size (xoro_rest_size) layer is excluded.
+//
+// Cap-safe by construction: we scan the DISQUALIFYING layers globally
+// (source_kind NOT mirror-owned — a small, paginated set) and map them to
+// styles, instead of fetching every SKU of every feed style. The naive approach
+// fetched `ip_item_master .in(style_id, 200-chunk)` (~2k rows) and the layers
+// per chunk (~thousands) — both blew past the PostgREST 1000-row cap, so a
+// by-size style's size SKUs / their xoro_rest_size layers were silently dropped
+// and the style wrongly stayed "managed" (inflating its on-hand: 771 managed vs
+// the true 199). See [[project_postgrest_1000_row_cap]].
+export async function computeManagedStyleIds(admin, entityId, feedStyleIds) {
+  const feedSet = new Set(feedStyleIds);
+  if (feedSet.size === 0) return new Set();
+  const NOT_MIRROR = `(${[...MIRROR_OWNED_KINDS].join(",")})`;
+  const PAGE = 1000;
+
+  // 1. Every item_id that carries a non-mirror layer (paginated, filtered).
+  const disqItemIds = new Set();
+  for (let from = 0; ; from += PAGE) {
     const { data, error } = await admin
       .from("inventory_layers")
-      .select("item_id, source_kind")
+      .select("item_id")
       .eq("entity_id", entityId)
-      .in("item_id", chunk);
-    if (error) throw new Error(`inventory_layers kind scan failed: ${error.message}`);
-    for (const l of data || []) {
-      if (!MIRROR_OWNED_KINDS.has(l.source_kind)) {
-        const sid = styleByItem.get(l.item_id);
-        if (sid) managed.delete(sid);
-      }
-    }
+      .not("source_kind", "in", NOT_MIRROR)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`inventory_layers disqualify scan failed: ${error.message}`);
+    for (const r of data || []) disqItemIds.add(r.item_id);
+    if (!data || data.length < PAGE) break;
   }
+
+  // 2. Map those items to their styles (chunk ≤ 300 ⇒ under the cap).
+  const disqStyles = new Set();
+  const ids = [...disqItemIds];
+  for (let i = 0; i < ids.length; i += 300) {
+    const chunk = ids.slice(i, i + 300);
+    const { data, error } = await admin.from("ip_item_master").select("style_id").in("id", chunk);
+    if (error) throw new Error(`disqualify style map failed: ${error.message}`);
+    for (const r of data || []) if (r.style_id) disqStyles.add(r.style_id);
+  }
+
+  // 3. Managed = feed styles with no disqualifying layer.
+  const managed = new Set();
+  for (const sid of feedSet) if (!disqStyles.has(sid)) managed.add(sid);
   return managed;
 }
 

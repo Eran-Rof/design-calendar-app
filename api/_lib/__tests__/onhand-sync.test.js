@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { planOnHandSync } from "../inventory/onhand-sync.js";
+import { planOnHandSync, computeManagedStyleIds } from "../inventory/onhand-sync.js";
+
+// Minimal chainable fake of the supabase client for computeManagedStyleIds.
+// inventory_layers queries end in .range() (paginated); ip_item_master queries
+// end in .in() and are awaited directly (thenable).
+function fakeAdmin({ disqLayers, masters }) {
+  return {
+    from(table) {
+      const st = { table, inIds: null };
+      const b = {
+        select() { return b; },
+        eq() { return b; },
+        not() { return b; },
+        in(_col, ids) { st.inIds = ids; return b; },
+        async range(from, to) {
+          if (table !== "inventory_layers") return { data: [], error: null };
+          return { data: disqLayers.slice(from, to + 1), error: null };
+        },
+        then(resolve) {
+          const rows = table === "ip_item_master"
+            ? (st.inIds || []).map((id) => ({ style_id: masters[id] ?? null }))
+            : [];
+          resolve({ data: rows, error: null });
+        },
+      };
+      return b;
+    },
+  };
+}
 
 const LOCS = new Map([["WH-00000", "loc-main"]]);
 
@@ -95,5 +123,33 @@ describe("planOnHandSync", () => {
       managedStyleIds: new Set(["st1"]),
     }));
     expect(out.counts.skipped_no_master).toBe(1);
+  });
+});
+
+describe("computeManagedStyleIds (cap-safe disqualify scan)", () => {
+  it("excludes any feed style that has a non-mirror layer; keeps the rest", async () => {
+    // st-bysize owns a xoro_rest_size layer (item iz); st-native a po_receipt
+    // (item ip). st-clean has only an opening_balance item (never in disqLayers).
+    const disqLayers = [{ item_id: "iz" }, { item_id: "ip" }];
+    const masters = { iz: "st-bysize", ip: "st-native" };
+    const managed = await computeManagedStyleIds(
+      fakeAdmin({ disqLayers, masters }),
+      "ent",
+      ["st-clean", "st-bysize", "st-native", "st-empty"],
+    );
+    expect([...managed].sort()).toEqual(["st-clean", "st-empty"]);
+  });
+
+  it("paginates the disqualify scan past the 1000-row cap", async () => {
+    // 1500 disqualifying layers for one style must all be read → that style is
+    // excluded even though it spans two pages.
+    const disqLayers = Array.from({ length: 1500 }, (_, i) => ({ item_id: `i${i}` }));
+    const masters = Object.fromEntries(disqLayers.map((l) => [l.item_id, "st-big"]));
+    const managed = await computeManagedStyleIds(
+      fakeAdmin({ disqLayers, masters }),
+      "ent",
+      ["st-big", "st-ok"],
+    );
+    expect([...managed]).toEqual(["st-ok"]);
   });
 });
