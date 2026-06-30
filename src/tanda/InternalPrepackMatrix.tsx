@@ -833,6 +833,11 @@ export default function InternalPrepackMatrix() {
 interface ModalProps {
   mode: "add" | "edit";
   matrix?: PrepackMatrix;
+  /** Prefill PPK style / pack token in "add" mode — used when this modal is
+   *  opened from the SO/PO line matrix for a specific prepack style (item 24,
+   *  so the order popup and the master use the IDENTICAL add form). */
+  initialPpk?: string;
+  initialPackToken?: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -902,10 +907,10 @@ function EditableSizeGrid({ rows, field, onChange, onRemove }: {
   );
 }
 
-function MatrixFormModal({ mode, matrix, onClose, onSaved }: ModalProps) {
+export function MatrixFormModal({ mode, matrix, initialPpk, initialPackToken, onClose, onSaved }: ModalProps) {
   const [name, setName] = useState(matrix?.name ?? "");
-  const [ppk, setPpk] = useState(matrix?.ppk_style_code ?? "");
-  const [packToken, setPackToken] = useState(matrix?.pack_token ?? "");
+  const [ppk, setPpk] = useState(matrix?.ppk_style_code ?? initialPpk ?? "");
+  const [packToken, setPackToken] = useState(matrix?.pack_token ?? initialPackToken ?? "");
   const [notes, setNotes] = useState(matrix?.notes ?? "");
   const [isActive, setIsActive] = useState(matrix?.is_active ?? true);
 

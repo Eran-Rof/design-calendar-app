@@ -25,7 +25,7 @@ import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
-import QuickAddPrepackMatrix from "./components/QuickAddPrepackMatrix";
+import { MatrixFormModal } from "./InternalPrepackMatrix";
 import { confirmDialog } from "../shared/ui/warn";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat } from "./orderDocument";
 
@@ -914,9 +914,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       {/* Item 10 — inline "Add prepack matrix" popup. On save, reload the style so
           its prepack block now carries the composition (has_matrix → explode). */}
       {prepackAddFor && (
-        <QuickAddPrepackMatrix
-          ppkStyleCode={prepackAddFor.styleCode}
-          packToken={prepackAddFor.packToken}
+        <MatrixFormModal
+          mode="add"
+          initialPpk={prepackAddFor.styleCode}
+          initialPackToken={prepackAddFor.packToken}
           onClose={() => setPrepackAddFor(null)}
           onSaved={() => {
             const { sectionId, styleId } = prepackAddFor;
