@@ -4,30 +4,43 @@
 --
 -- WHY: The Tangerine GL has ZERO posted sales (journal_entry_lines has no 4xxx/
 -- 5xxx activity); the real sales history lives in ip_sales_history_wholesale
--- ($41.6M, 50k rows) and (forthcoming) ip_sales_history_ecom. The CEO wants
--- Revenue + COGS + margin sliced by Brand × Channel × Store/Warehouse × Gender
--- as configurable columns, with GL accounts SHARED (the split is a reporting
--- pivot, not new accounts). So we build a dimensional VIEW over the sub-ledgers
--- + a small grouped RPC the API pivots into operator-defined columns.
+-- ($41.6M, 50k rows) — which despite its name holds BOTH wholesale AND ecom (DTC)
+-- rows, tagged by ip_channel_master.channel_type. The CEO wants Revenue + COGS +
+-- margin sliced by Brand × Channel × Store/Warehouse × Gender as configurable
+-- columns, with GL accounts SHARED (the split is a reporting pivot, not new
+-- accounts). So we build a dimensional VIEW + a small grouped RPC the API pivots.
 --
 -- Brand is derived from style_master BY style_code (the canonical brand source;
 -- ip_item_master.brand_id is known-unreliable — see ATS brand note). Gender is
--- ip_item_master.gender_code, normalized legacy 'WMS' → 'W'. Channel + store are
--- coarse today (wholesale → WHOLESALE / Main Warehouse; ecom → DTC / brand ecom
--- store) and refine once the Xoro ecom import lands. ecom COGS is unknown in the
--- source (no cogs column) → NULL.
+-- ip_item_master.gender_code, normalized legacy 'WMS' → 'W'. Channel ('WHOLESALE'
+-- vs 'DTC') + store (Main Warehouse / Psycho Tuna / ROF Ecom / PT Ecom) are
+-- derived from the linked ip_channel_master. So DTC (ROF Ecom $530k, PT Ecom
+-- $171k today) populates from EXISTING data — no extra import needed.
 --
 -- Idempotent: CREATE OR REPLACE only. No data writes. NOTIFY pgrst at the end.
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE VIEW v_sales_dimensional AS
+-- ip_sales_history_wholesale is the canonical Xoro invoice-sales table and ALREADY
+-- holds BOTH wholesale and ecom (DTC) rows, distinguished by the linked
+-- ip_channel_master.channel_type ('wholesale' | 'ecom'). The /api/sales/sync-invoices
+-- ingest classifies the Xoro "Sale Store" into ROF / PT / ROF ECOM / PT ECOM channels.
+-- So channel + store are DERIVED from the channel master here (NOT hardcoded). The
+-- separate ip_sales_history_ecom table is currently unused/empty and is intentionally
+-- NOT unioned — doing so would double-count once it is ever populated.
 SELECT
-  'wholesale'::text                                                  AS source,
+  cm.channel_type                                                    AS source,
   im.entity_id                                                       AS entity_id,
   h.txn_date                                                         AS txn_date,
   sm.brand_id                                                        AS brand_id,
-  'WHOLESALE'::text                                                  AS channel_code,
-  'Main Warehouse'::text                                             AS store_key,
+  CASE WHEN cm.channel_type = 'ecom' THEN 'DTC' ELSE 'WHOLESALE' END  AS channel_code,
+  CASE cm.channel_code
+    WHEN 'ROF ECOM' THEN 'ROF Ecom'
+    WHEN 'PT ECOM'  THEN 'PT Ecom'
+    WHEN 'PT'       THEN 'Psycho Tuna'
+    WHEN 'ROF'      THEN 'Main Warehouse'
+    ELSE COALESCE(cm.name, 'Main Warehouse')
+  END                                                                AS store_key,
   CASE WHEN im.gender_code = 'WMS' THEN 'W' ELSE im.gender_code END   AS gender_code,
   h.sku_id                                                           AS sku_id,
   im.style_code                                                      AS style_code,
@@ -36,31 +49,11 @@ SELECT
   h.cogs_amount::numeric                                             AS cogs
 FROM ip_sales_history_wholesale h
 JOIN ip_item_master im ON im.id = h.sku_id
+LEFT JOIN ip_channel_master cm ON cm.id = h.channel_id
 LEFT JOIN style_master sm
-       ON sm.style_code = im.style_code AND sm.entity_id = im.entity_id
+       ON sm.style_code = im.style_code AND sm.entity_id = im.entity_id;
 
-UNION ALL
-
-SELECT
-  'ecom'::text,
-  im.entity_id,
-  e.order_date,
-  sm.brand_id,
-  'DTC'::text,
-  CASE WHEN bm.code = 'PT' THEN 'PT Ecom' ELSE 'ROF Ecom' END,
-  CASE WHEN im.gender_code = 'WMS' THEN 'W' ELSE im.gender_code END,
-  e.sku_id,
-  im.style_code,
-  e.net_qty,
-  COALESCE(e.net_amount, 0)::numeric,
-  NULL::numeric   -- ecom source has no COGS column
-FROM ip_sales_history_ecom e
-JOIN ip_item_master im ON im.id = e.sku_id
-LEFT JOIN style_master sm
-       ON sm.style_code = im.style_code AND sm.entity_id = im.entity_id
-LEFT JOIN brand_master bm ON bm.id = sm.brand_id;
-
-COMMENT ON VIEW v_sales_dimensional IS 'P26 dimensional sales fact over the sub-ledgers (wholesale + ecom). Brand via style_master by style_code; gender normalized WMS->W; ecom cogs NULL. Source of the Segment P&L.';
+COMMENT ON VIEW v_sales_dimensional IS 'P26 dimensional sales fact over ip_sales_history_wholesale (Xoro invoice sales, both wholesale + ecom). Channel/store derived from ip_channel_master.channel_type/channel_code; brand via style_master by style_code; gender normalized WMS->W. Source of the Segment P&L.';
 
 -- Grouped breakdown the API pivots into configurable columns. Result is small
 -- (brands × channels × stores × genders) so column composition is pure app code.

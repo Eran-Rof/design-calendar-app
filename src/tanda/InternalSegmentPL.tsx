@@ -87,8 +87,8 @@ function fyStartISO(): string { return `${new Date().getUTCFullYear()}-01-01`; }
 
 const LS_KEY = "segment_pl_columns_v1";
 
-// Default segments per the CEO request. ROF/PT DTC read $0 until the Xoro ecom
-// import lands (all current data is wholesale) — expected, not a bug.
+// Default segments per the CEO request. ROF/PT DTC populate from existing data
+// (ip_sales_history_wholesale already carries ecom rows tagged channel=DTC).
 function defaultColumns(): ColFilter[] {
   return [
     { id: "total",  label: "Total",          brandCodes: [], channels: [], stores: [], genders: [] },
@@ -231,8 +231,8 @@ export default function InternalSegmentPL() {
         <h2 style={{ margin: 0, fontSize: 22 }}>Segment P&amp;L</h2>
         <div style={{ fontSize: 11, color: C.textMuted, maxWidth: 520 }}>
           Revenue &amp; margin by Brand × Channel × Warehouse × Gender. Columns are configurable.
-          Sourced from sales history (the Tangerine GL has no posted sales yet); DTC columns
-          populate once the Xoro ecom import lands.
+          Sourced from sales history (the Tangerine GL has no posted sales yet); wholesale and
+          DTC (ROF / PT ecom) are both included.
         </div>
       </div>
 
