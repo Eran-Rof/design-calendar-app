@@ -10,6 +10,7 @@
 // (src/tanda/exports/useTableExport.ts), so it works everywhere with no new dep.
 
 import { ROF_LOGO_DATA_URL } from "../shared/assets/rofLogo";
+import type { AoaCell, AoaImage } from "../shared/excelLogo";
 
 // One color (× inseam) row of a style's matrix: a qty per size.
 export type OrderDocMatrixRow = {
@@ -284,29 +285,52 @@ export function openOrderDocument(doc: OrderDocument): void {
 // Download the SAME order document as an .xlsx — header block, then one
 // stacked matrix table per style (Color × sizes × Qty/Unit/Total), the flat
 // lines, and grand totals. Reuses the OrderDocData the printable view builds,
-// so the spreadsheet and the PDF never diverge. xlsx is dynamically imported
-// so it only loads when the operator actually exports.
+// so the spreadsheet and the PDF never diverge. Built with the shared ExcelJS
+// renderer (logo banner + real embedded style images, same wiring as the ATS
+// export); ExcelJS + the image fetcher are dynamically imported so they only
+// load when the operator actually exports.
 export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
   if (typeof window === "undefined") return; // SSR / test safety
-  const XLSX = await import("xlsx");
-  const aoa: (string | number)[][] = [];
-  aoa.push([doc.title, doc.number]);
-  if (doc.status) aoa.push(["Status", doc.status]);
-  aoa.push([doc.partyLabel, doc.partyName || "—"]);
-  for (const f of doc.fields) aoa.push([f.label, f.value]);
-  aoa.push([]);
+  // Embed real product images (item 25) when the order carries them — using the
+  // SAME wiring as the ATS export: fetch the signed URLs into base64 (fetchDataUrls,
+  // with studio-white trim) and anchor them onto the sheet via the shared ExcelJS
+  // renderer (renderStyledAoa), which also stamps the Ring of Fire logo banner.
+  // Both modules are dynamically imported so ExcelJS stays out of the main bundle.
+  const [{ newWorkbook, renderStyledAoa, downloadExcelWorkbook }, { fetchDataUrls }] = await Promise.all([
+    import("../shared/excelLogo"),
+    import("../shared/exportImages"),
+  ]);
+  const imgUrls = doc.data.styles.map((g) => g.imageUrl).filter((u): u is string => !!u);
+  const imgByUrl = imgUrls.length ? await fetchDataUrls(imgUrls, { trimWhitespace: true }) : new Map();
+
+  const t = (v: string | number): AoaCell => ({ v });
+  const aoa: AoaCell[][] = [];
+  const images: AoaImage[] = [];
+  const rowHeights: Array<number | undefined> = [];
+  const push = (cells: AoaCell[], hpt?: number) => { rowHeights[aoa.length] = hpt; aoa.push(cells); };
+
+  push([t(doc.title), t(doc.number)]);
+  if (doc.status) push([t("Status"), t(doc.status)]);
+  push([t(doc.partyLabel), t(doc.partyName || "—")]);
+  for (const f of doc.fields) push([t(f.label), t(f.value)]);
+  push([]);
 
   let grandQty = 0;
   let grandAmt = 0;
-  // Item 25 — when "Show images" is on, the style image rides along as a clickable
-  // hyperlink in the style header row (col B). SheetJS can't embed bitmaps, so the
-  // image is a one-click link rather than an in-cell picture. Cells collected here
-  // get their `.l` hyperlink set after the sheet is built.
-  const imageCells: { row: number; url: string }[] = [];
   for (const g of doc.data.styles) {
-    if (g.imageUrl) { imageCells.push({ row: aoa.length, url: g.imageUrl }); aoa.push([g.description ? `${g.style} — ${g.description}` : g.style, "Image ↗"]); }
-    else aoa.push([g.description ? `${g.style} — ${g.description}` : g.style]);
-    aoa.push(["Color", ...g.sizes, "Qty", doc.moneyLabel, "Total $"]);
+    const label = g.description ? `${g.style} — ${g.description}` : g.style;
+    const im = g.imageUrl ? imgByUrl.get(g.imageUrl) : null;
+    if (im && im.dataUrl) {
+      // Image in col A (style name shifts to col B), row sized to the picture.
+      const H = 96;
+      const scale = im.h > 0 ? H / im.h : 1;
+      const w = im.w > 0 ? Math.min(150, Math.round(im.w * scale)) : 72;
+      images.push({ aoaRow: aoa.length, col: 0, dataUrl: im.dataUrl, width: w, height: H });
+      push([t(""), t(label)], Math.round((H * 72) / 96) + 4); // px → pt + padding
+    } else {
+      push([t(label)]);
+    }
+    push([t("Color"), ...g.sizes.map(t), t("Qty"), t(doc.moneyLabel), t("Total $")]);
     const colSums: Record<string, number> = {};
     let styleQty = 0;
     let styleAmt = 0;
@@ -317,67 +341,67 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
       styleQty += rowQty;
       styleAmt += rowAmt;
       g.sizes.forEach((sz) => { colSums[sz] = (colSums[sz] || 0) + (r.qtyBySize[sz] || 0); });
-      aoa.push([rowLabel(r), ...g.sizes.map((sz) => r.qtyBySize[sz] || 0), rowQty, unit, rowAmt]);
+      push([t(rowLabel(r)), ...g.sizes.map((sz) => t(r.qtyBySize[sz] || 0)), t(rowQty), t(unit), t(rowAmt)]);
     }
-    aoa.push(["Total", ...g.sizes.map((sz) => colSums[sz] || 0), styleQty, "", styleAmt]);
-    aoa.push([]);
+    push([t("Total"), ...g.sizes.map((sz) => t(colSums[sz] || 0)), t(styleQty), t(""), t(styleAmt)]);
+    push([]);
     grandQty += styleQty;
     grandAmt += styleAmt;
   }
 
   if (doc.data.flats.length) {
-    aoa.push(["Other lines"]);
-    aoa.push(["Item", "Qty", doc.moneyLabel, "Total $"]);
+    push([t("Other lines")]);
+    push([t("Item"), t("Qty"), t(doc.moneyLabel), t("Total $")]);
     for (const f of doc.data.flats) {
       const qty = Number(f.qty) || 0;
       const unit = Number(f.unitDollars) || 0;
       const amt = qty * unit;
       grandQty += qty;
       grandAmt += amt;
-      aoa.push([f.description ? `${f.label} — ${f.description}` : f.label, qty, unit, amt]);
+      push([t(f.description ? `${f.label} — ${f.description}` : f.label), t(qty), t(unit), t(amt)]);
     }
-    aoa.push([]);
+    push([]);
   }
 
   // Prepack (PPK) detail — composition (inner + carton) + full explode per style.
   if (doc.data.prepacks && doc.data.prepacks.length) {
-    aoa.push(["Prepack (PPK) detail"]);
+    push([t("Prepack (PPK) detail")]);
     for (const p of doc.data.prepacks) {
       const sizes = p.sizes;
       const hasInner = sizes.some((s) => (s.inner || 0) > 0);
       const cartonTotal = sizes.reduce((a, s) => a + (s.carton || 0), 0);
-      aoa.push([`${p.style}${p.packToken ? ` · ${p.packToken}` : ""} — units per pack`]);
-      aoa.push(["Per pack", ...sizes.map((s) => s.size), "Pack"]);
-      if (hasInner) aoa.push(["Inner pack", ...sizes.map((s) => s.inner || 0), sizes.reduce((a, s) => a + (s.inner || 0), 0)]);
-      aoa.push(["Carton pack", ...sizes.map((s) => s.carton || 0), cartonTotal]);
-      aoa.push([`${p.style} — full size breakdown (packs exploded to units)`]);
-      aoa.push(["Color", ...sizes.map((s) => s.size), "Units", "Packs"]);
+      push([t(`${p.style}${p.packToken ? ` · ${p.packToken}` : ""} — units per pack`)]);
+      push([t("Per pack"), ...sizes.map((s) => t(s.size)), t("Pack")]);
+      if (hasInner) push([t("Inner pack"), ...sizes.map((s) => t(s.inner || 0)), t(sizes.reduce((a, s) => a + (s.inner || 0), 0))]);
+      push([t("Carton pack"), ...sizes.map((s) => t(s.carton || 0)), t(cartonTotal)]);
+      push([t(`${p.style} — full size breakdown (packs exploded to units)`)]);
+      push([t("Color"), ...sizes.map((s) => t(s.size)), t("Units"), t("Packs")]);
       const sizeTotals = sizes.map(() => 0);
       let gUnits = 0, gPacks = 0;
       for (const c of p.colors) {
-        const cells = sizes.map((s, i) => { const u = c.packs * (s.carton || 0); sizeTotals[i] += u; return u; });
+        const cells = sizes.map((s, i) => { const u = c.packs * (s.carton || 0); sizeTotals[i] += u; return t(u); });
         gUnits += c.packs * cartonTotal; gPacks += c.packs;
-        aoa.push([c.color, ...cells, c.packs * cartonTotal, c.packs]);
+        push([t(c.color), ...cells, t(c.packs * cartonTotal), t(c.packs)]);
       }
-      aoa.push(["Total", ...sizeTotals, gUnits, gPacks]);
-      aoa.push([]);
+      push([t("Total"), ...sizeTotals.map(t), t(gUnits), t(gPacks)]);
+      push([]);
     }
   }
 
-  aoa.push(["Grand total — Qty", grandQty]);
-  aoa.push(["Grand total — $", grandAmt]);
-  if (doc.notes) { aoa.push([]); aoa.push(["Notes", doc.notes]); }
+  push([t("Grand total — Qty"), t(grandQty)]);
+  push([t("Grand total — $"), t(grandAmt)]);
+  if (doc.notes) { push([]); push([t("Notes"), t(doc.notes)]); }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // Attach the style-image hyperlinks (col B of each style header row).
-  for (const ic of imageCells) {
-    const ref = XLSX.utils.encode_cell({ r: ic.row, c: 1 });
-    if (ws[ref]) ws[ref].l = { Target: ic.url, Tooltip: "Open style image" };
-  }
-  ws["!cols"] = [{ wch: 24 }, ...Array(16).fill({ wch: 9 })];
-  const wb = XLSX.utils.book_new();
-  const safeSheet = doc.title.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
-  XLSX.utils.book_append_sheet(wb, ws, safeSheet || "Order");
+  const colCount = aoa.reduce((m, r) => Math.max(m, r.length), 0);
+  const cols = [24, ...Array(Math.max(0, colCount - 1)).fill(9)];
+  const wb = newWorkbook();
+  const safeSheet = doc.title.replace(/[\\/*?:[\]]/g, "-").slice(0, 31) || "Order";
+  renderStyledAoa(wb, safeSheet, aoa, {
+    banner: { cols: colCount },
+    cols,
+    rowHeights,
+    images: images.length ? images : undefined,
+  });
   const fname = `${doc.title.replace(/\s+/g, "_")}_${(doc.number || "draft").replace(/[^\w-]+/g, "")}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  await downloadExcelWorkbook(wb, fname);
 }
