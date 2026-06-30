@@ -127,7 +127,7 @@ export function resolveLine(line: ParsedPoLine, styles: StyleLite[]): LineResolu
 }
 
 // ── Resolved lines → matrix seed + warnings ──────────────────────────────────
-type Cell = { color: string | null; size: string; qty: number; unit?: string };
+type Cell = { color: string | null; size: string; qty: number; unit?: string; inseam?: string | null };
 
 /**
  * Match the PO's colour text to one of the style's ACTUAL colours so the
@@ -168,7 +168,7 @@ export function colorPickKey(styleCode: string, lineColor: string | null): strin
  */
 export async function buildSeedFromResolved(
   resolved: { line: ParsedPoLine; chosen: StyleLite }[],
-  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[]; inseams?: string[] }>,
   // Operator-confirmed colour rows (from the "confirm choices" step), keyed by
   // colorPickKey(styleCode, lineColor). A confirmed pick is used as-is and never
   // raises a "mapped to" warning.
@@ -183,7 +183,13 @@ export async function buildSeedFromResolved(
   for (const { line, chosen } of resolved) {
     let sizes: string[] = [];
     let colors: string[] = [];
-    try { ({ sizes, colors } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
+    let inseams: string[] | undefined;
+    try { ({ sizes, colors, inseams } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
+    // The matrix body keys every row by the SKU's real inseam when the style HAS
+    // inseams. A PO upload carries no inseam context, so seed onto the style's
+    // representative (first) inseam — otherwise the cell (qty + price) lands on a
+    // rowKey the body never renders and silently disappears.
+    const seedInseam: string | null = inseams && inseams.length ? inseams[0] : null;
     // An operator-confirmed colour row (from the confirm-choices step) wins and
     // is never re-warned; otherwise fall back to the fuzzy match.
     const picked = colorPicks[colorPickKey(chosen.style_code, line.color)];
@@ -268,6 +274,9 @@ export async function buildSeedFromResolved(
     }
 
     if (cells.length) {
+      // Stamp the representative inseam so the cells key onto the body's rendered
+      // rows (the body keys by inseam whenever the style has one).
+      for (const cell of cells) cell.inseam = seedInseam;
       if (!byStyle.has(chosen.style_code)) byStyle.set(chosen.style_code, []);
       byStyle.get(chosen.style_code)!.push(...cells);
     }
@@ -275,7 +284,7 @@ export async function buildSeedFromResolved(
 
   const sections: SeedSection[] = [...byStyle.entries()].map(([styleCode, cells]) => ({
     styleCode,
-    cells: cells.map((c) => ({ color: c.color, size: c.size, qty: c.qty, unit: c.unit })),
+    cells: cells.map((c) => ({ color: c.color, size: c.size, inseam: c.inseam ?? null, qty: c.qty, unit: c.unit })),
     quickFill: quickFillByStyle.get(styleCode),
   }));
   return { sections, warnings };
@@ -300,7 +309,7 @@ export type ColorQuestion = {
  */
 export async function computeColorQuestions(
   resolved: { line: ParsedPoLine; chosen: StyleLite }[],
-  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[]; inseams?: string[] }>,
 ): Promise<ColorQuestion[]> {
   const out: ColorQuestion[] = [];
   const seen = new Set<string>();
