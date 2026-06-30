@@ -443,12 +443,25 @@ export default function Tangerine() {
   }
 
   async function handleSignOut() {
-    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "", confirmText: "Sign out" }))) return;
+    if (!(await confirmDialog("Sign out? You'll return to the login screen.", { title: "Sign out", icon: "", confirmText: "Sign out" }))) return;
+    // Full sign-out across BOTH internal auth systems. Clearing only the MS
+    // tokens + cached JWT and reloading was a no-op refresh: the no-relogin
+    // path (see project_app_no_relogin_g) re-adopts the still-present PLM
+    // session (sessionStorage.plm_user) on mount and signs the user straight
+    // back in. So we must also drop the PLM session and leave Tangerine for the
+    // launcher, which shows the login form when there's no session.
     clearMsTokens();
-    // P14 JWT phase — drop the cached per-user token so a signed-out browser
-    // can't keep presenting it. (It also expires server-side after 12h.)
     setCachedAuthJwt(null);
-    window.location.reload();
+    setCachedAuthUserEmail(null);
+    setCachedAuthUserName(null);
+    setCachedAuthUserId(""); // empty → removes the cached id keys
+    try {
+      sessionStorage.removeItem("plm_user");
+      sessionStorage.removeItem("rof_notif_dismissed_internal");
+    } catch { /* ignore */ }
+    // Navigate away (not reload) → the PLM launcher at "/" with no session
+    // renders the sign-in form. A reload would re-enter via the fallback.
+    window.location.assign("/");
   }
 
   if (authState === "loading") {

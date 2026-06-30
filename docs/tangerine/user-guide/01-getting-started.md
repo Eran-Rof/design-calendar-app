@@ -65,7 +65,7 @@ The auto-provision call is **non-blocking** — if it fails (network glitch, ser
 
 ### Signing out
 
-In the top-right of the Tangerine top nav, you'll see your avatar + name with a "Sign out" button next to it (hover the name for your email). Click "Sign out" → confirm → tokens are cleared and you're returned to the login screen.
+In the top-right of the Tangerine top nav, you'll see your avatar + name with a "Sign out" button next to it (hover the name for your email). Click "Sign out" → confirm → you're returned to the **login screen**. Because Tangerine can run off either the Microsoft token **or** the cloned PLM-launcher session, sign-out clears **both** (the MS tokens + cached per-user JWT/identity *and* the `plm_user` session for this tab) and navigates to the launcher login — otherwise the PLM session would silently sign you straight back in (which looked like sign-out just refreshing the page).
 
 Signing out of Tangerine **does not sign you out of the other PLM-suite apps**. They share the same MS token but each has its own session lifecycle.
 
