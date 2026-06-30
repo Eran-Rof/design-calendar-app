@@ -260,7 +260,9 @@ export default function InternalSegmentPL() {
   // Total column gets a left divider + bold; Other is muted/italic.
   const colCellStyle = (kind: DisplayCol["kind"], base: React.CSSProperties): React.CSSProperties => ({
     ...base,
-    ...(kind === "total" ? { borderLeft: `2px solid ${C.cardBdr}`, fontWeight: 700, background: "#0b1220" } : {}),
+    // Total is pinned to the RIGHT edge: sticky so it stays visible while scrolling
+    // across many columns. Opaque bg + left divider so scrolled cells pass under it.
+    ...(kind === "total" ? { borderLeft: `2px solid ${C.cardBdr}`, fontWeight: 700, background: "#0b1220", position: "sticky", right: 0, zIndex: 1 } : {}),
     ...(kind === "other" ? { fontStyle: "italic", color: C.textMuted } : {}),
   });
 
