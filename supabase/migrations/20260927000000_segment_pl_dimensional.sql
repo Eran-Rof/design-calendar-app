@@ -1,4 +1,4 @@
--- 20260926000000_segment_pl_dimensional.sql
+-- 20260927000000_segment_pl_dimensional.sql
 -- ════════════════════════════════════════════════════════════════════════════
 -- P26 Segment / Dimensional P&L — Phase 1a (reporting layer over the sub-ledgers).
 --
