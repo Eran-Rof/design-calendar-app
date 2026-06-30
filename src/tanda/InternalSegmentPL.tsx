@@ -86,13 +86,14 @@ function pct(n: number | null): string {
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }
 function fyStartISO(): string { return `${new Date().getUTCFullYear()}-01-01`; }
 
-const LS_KEY = "segment_pl_columns_v1";
+// v2: "Total" is no longer a stored column — it's computed + pinned, and an
+// "Other" bucket auto-reconciles. Bumping the key ignores stale v1 layouts.
+const LS_KEY = "segment_pl_columns_v2";
 
-// Default segments per the CEO request. ROF/PT DTC populate from existing data
-// (ip_sales_history_wholesale already carries ecom rows tagged channel=DTC).
+// Default user segments per the CEO request. Total + Other are computed, not
+// stored. ROF/PT DTC populate from existing data (ecom rows tagged channel=DTC).
 function defaultColumns(): ColFilter[] {
   return [
-    { id: "total",  label: "Total",          brandCodes: [], channels: [], stores: [], genders: [] },
     { id: "pl",     label: "Private Label",   brandCodes: ["MPLEPIC", "MPLSUNSTONE"], channels: [], stores: [], genders: [] },
     { id: "rofdtc", label: "ROF DTC",         brandCodes: ["ROF"], channels: ["DTC"], stores: [], genders: [] },
     { id: "ptdtc",  label: "PT DTC",          brandCodes: ["PT"],  channels: ["DTC"], stores: [], genders: [] },
@@ -108,15 +109,15 @@ function matches(r: BreakdownRow, col: ColFilter): boolean {
 }
 
 type Agg = { net: number; cogs: number; cogsKnown: boolean; qty: number };
-function aggregate(rows: BreakdownRow[]): Agg {
-  let net = 0, cogs = 0, qty = 0, cogsKnown = false;
-  for (const r of rows) {
-    net += r.net_sales || 0;
-    qty += r.qty || 0;
-    if (r.cogs != null) { cogs += r.cogs; cogsKnown = true; }
-  }
-  return { net, cogs, cogsKnown, qty };
+function emptyAgg(): Agg { return { net: 0, cogs: 0, cogsKnown: false, qty: 0 }; }
+function addTo(a: Agg, r: BreakdownRow): void {
+  a.net += r.net_sales || 0;
+  a.qty += r.qty || 0;
+  if (r.cogs != null) { a.cogs += r.cogs; a.cogsKnown = true; }
 }
+
+// A rendered column: a user segment, the auto "Other" bucket, or the pinned Total.
+type DisplayCol = { key: string; label: string; kind: "seg" | "other" | "total"; agg: Agg; genderAgg: Agg[] };
 
 export default function InternalSegmentPL() {
   const [rows, setRows] = useState<BreakdownRow[]>([]);
@@ -127,12 +128,30 @@ export default function InternalSegmentPL() {
   const [err, setErr] = useState<string | null>(null);
   const [byGender, setByGender] = useState(false);
   const [columns, setColumns] = useState<ColFilter[]>(() => {
-    try { const s = localStorage.getItem(LS_KEY); if (s) return JSON.parse(s); } catch { /* ignore */ }
+    try {
+      const s = localStorage.getItem(LS_KEY);
+      if (s) {
+        const arr = (JSON.parse(s) as ColFilter[]).filter((c) => c && c.id !== "total");
+        if (arr.length) return arr;
+      }
+    } catch { /* ignore */ }
     return defaultColumns();
   });
   const [editing, setEditing] = useState<ColFilter | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
 
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(columns)); } catch { /* ignore */ } }, [columns]);
+
+  // Drag-to-reorder a segment column from index `from` to index `to`.
+  function moveColumn(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return;
+    setColumns((cs) => {
+      const a = [...cs];
+      const [m] = a.splice(from, 1);
+      a.splice(to, 0, m);
+      return a;
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -154,37 +173,65 @@ export default function InternalSegmentPL() {
   }
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Per-column aggregates (and per-gender within each column when expanded).
   const genders = useMemo(
     () => Array.from(new Set(rows.map((r) => r.gender_code))).sort(),
     [rows],
   );
-  const colAgg = useMemo(
-    () => columns.map((col) => aggregate(rows.filter((r) => matches(r, col)))),
-    [columns, rows],
-  );
-  const colGenderAgg = useMemo(
-    () => columns.map((col) =>
-      genders.map((g) => aggregate(rows.filter((r) => matches(r, col) && r.gender_code === g)))),
-    [columns, rows, genders],
-  );
+
+  // Partition every sale into exactly ONE column: the FIRST user segment (in
+  // display order) whose filter matches, else the auto "Other" bucket. Total is
+  // computed over all rows. Because each row lands in exactly one segment-or-Other,
+  // Total ALWAYS equals the sum of the segment columns + Other — the math ties by
+  // construction, and reordering only changes which column claims overlapping rows.
+  const { displayCols, hasOther } = useMemo(() => {
+    const gIndex = new Map(genders.map((g, i) => [g, i]));
+    const segAgg = columns.map(() => emptyAgg());
+    const segGen = columns.map(() => genders.map(() => emptyAgg()));
+    const otherAgg = emptyAgg();
+    const otherGen = genders.map(() => emptyAgg());
+    const totalAgg = emptyAgg();
+    const totalGen = genders.map(() => emptyAgg());
+
+    for (const r of rows) {
+      addTo(totalAgg, r);
+      const gi = gIndex.get(r.gender_code);
+      if (gi != null) addTo(totalGen[gi], r);
+      let idx = -1;
+      for (let i = 0; i < columns.length; i++) { if (matches(r, columns[i])) { idx = i; break; } }
+      if (idx >= 0) {
+        addTo(segAgg[idx], r);
+        if (gi != null) addTo(segGen[idx][gi], r);
+      } else {
+        addTo(otherAgg, r);
+        if (gi != null) addTo(otherGen[gi], r);
+      }
+    }
+
+    const hasOther = otherAgg.net !== 0 || otherAgg.qty !== 0;
+    const cols: DisplayCol[] = columns.map((c, i) => ({
+      key: c.id, label: c.label, kind: "seg" as const, agg: segAgg[i], genderAgg: segGen[i],
+    }));
+    if (hasOther) cols.push({ key: "__other", label: "Other", kind: "other", agg: otherAgg, genderAgg: otherGen });
+    cols.push({ key: "__total", label: "Total", kind: "total", agg: totalAgg, genderAgg: totalGen });
+    return { displayCols: cols, hasOther };
+  }, [columns, rows, genders]);
 
   const gm = (a: Agg) => (a.cogsKnown ? a.net - a.cogs : null);
   const gmPct = (a: Agg) => (a.cogsKnown && a.net !== 0 ? (100 * (a.net - a.cogs)) / a.net : null);
 
-  // Export: flatten measure × column into rows.
+  // Export: flatten measure × displayed column (segments + Other + Total) into rows.
   const exportRows = useMemo(() => {
     const out: Record<string, unknown>[] = [];
     const measure = (label: string, fn: (a: Agg) => number | null) => {
       const row: Record<string, unknown> = { measure: label };
-      columns.forEach((c, i) => { row[c.label] = fn(colAgg[i]); });
+      displayCols.forEach((c) => { row[c.label] = fn(c.agg); });
       out.push(row);
     };
     measure("Net Sales", (a) => a.net);
     if (byGender) {
       genders.forEach((g, gi) => {
         const row: Record<string, unknown> = { measure: `  ${genderLabel(g)} (net sales)` };
-        columns.forEach((c, i) => { row[c.label] = colGenderAgg[i][gi].net; });
+        displayCols.forEach((c) => { row[c.label] = c.genderAgg[gi]?.net ?? 0; });
         out.push(row);
       });
     }
@@ -193,14 +240,14 @@ export default function InternalSegmentPL() {
     measure("Gross Margin %", gmPct);
     measure("Units", (a) => a.qty);
     return out;
-  }, [columns, colAgg, colGenderAgg, genders, byGender]);
+  }, [displayCols, genders, byGender]);
 
   const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => [
     { key: "measure", header: "Measure" },
-    ...columns.map((c) => ({ key: c.label, header: c.label, format: "number" as const })),
-  ], [columns]);
+    ...displayCols.map((c) => ({ key: c.label, header: c.label, format: "number" as const })),
+  ], [displayCols]);
 
-  const colCount = columns.length;
+  const colCount = displayCols.length;
   const numCell: React.CSSProperties = {
     padding: "8px 12px", textAlign: "right", fontVariantNumeric: "tabular-nums",
     fontSize: 13, color: C.text, borderBottom: `1px solid ${C.cardBdr}`,
@@ -210,14 +257,22 @@ export default function InternalSegmentPL() {
     borderBottom: `1px solid ${C.cardBdr}`, position: "sticky", left: 0, background: C.card,
   };
 
+  // Total column gets a left divider + bold; Other is muted/italic.
+  const colCellStyle = (kind: DisplayCol["kind"], base: React.CSSProperties): React.CSSProperties => ({
+    ...base,
+    ...(kind === "total" ? { borderLeft: `2px solid ${C.cardBdr}`, fontWeight: 700, background: "#0b1220" } : {}),
+    ...(kind === "other" ? { fontStyle: "italic", color: C.textMuted } : {}),
+  });
+
   function measureRow(label: string, fn: (a: Agg) => number | null, fmt: (v: number | null) => string, opts?: { bold?: boolean; color?: (v: number | null) => string }) {
     return (
       <tr>
         <td style={{ ...labelCell, fontWeight: opts?.bold ? 700 : 400, color: opts?.bold ? C.text : C.textSub }}>{label}</td>
-        {columns.map((c, i) => {
-          const v = fn(colAgg[i]);
+        {displayCols.map((c) => {
+          const v = fn(c.agg);
+          const col = opts?.color ? opts.color(v) : (c.kind === "other" ? C.textMuted : C.text);
           return (
-            <td key={c.id} style={{ ...numCell, fontWeight: opts?.bold ? 700 : 400, color: opts?.color ? opts.color(v) : C.text }}>
+            <td key={c.key} style={colCellStyle(c.kind, { ...numCell, fontWeight: opts?.bold || c.kind === "total" ? 700 : 400, color: col })}>
               {fmt(v)}
             </td>
           );
@@ -255,16 +310,28 @@ export default function InternalSegmentPL() {
         <ExportButton rows={exportRows} filename={`segment-pl-${from}-to-${to}`} sheetName="Segment P&L" columns={exportColumns} />
       </div>
 
-      {/* Column manager */}
+      {/* Column manager — drag a chip to reorder. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: 12, color: C.textMuted }}>Columns:</span>
-        {columns.map((c) => (
-          <span key={c.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "4px 10px", fontSize: 12 }}>
+        <span style={{ fontSize: 12, color: C.textMuted }}>Columns (drag to reorder):</span>
+        {columns.map((c, i) => (
+          <span
+            key={c.id}
+            draggable
+            onDragStart={() => setDragIdx(i)}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={(e) => { e.preventDefault(); if (dragIdx != null) moveColumn(dragIdx, i); setDragIdx(null); }}
+            onDragEnd={() => setDragIdx(null)}
+            title="Drag to reorder"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, background: dragIdx === i ? "#1e293b" : "#0b1220",
+              border: `1px solid ${dragIdx === i ? C.primary : C.cardBdr}`, borderRadius: 14, padding: "4px 10px",
+              fontSize: 12, cursor: "grab", opacity: dragIdx != null && dragIdx !== i ? 0.7 : 1,
+            }}
+          >
+            <span style={{ color: C.textMuted, cursor: "grab", letterSpacing: -2 }}>⠿</span>
             {c.label}
             <button onClick={() => setEditing(c)} title="Edit column" style={{ background: "none", border: "none", color: C.primary, cursor: "pointer", fontSize: 12, padding: 0 }}>✎</button>
-            {columns.length > 1 && (
-              <button onClick={() => setColumns((cs) => cs.filter((x) => x.id !== c.id))} title="Remove column" style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 13, padding: 0 }}>✕</button>
-            )}
+            <button onClick={() => setColumns((cs) => cs.filter((x) => x.id !== c.id))} title="Remove column" style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 13, padding: 0 }}>✕</button>
           </span>
         ))}
         <button onClick={() => setEditing({ id: `c${Date.now() % 100000}`, label: "", brandCodes: [], channels: [], stores: [], genders: [] })} style={btnSecondary}>+ Add column</button>
@@ -283,8 +350,8 @@ export default function InternalSegmentPL() {
             <thead>
               <tr>
                 <th style={{ ...labelCell, color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600, borderBottom: `1px solid ${C.cardBdr}`, zIndex: 1 }}>Measure</th>
-                {columns.map((c) => (
-                  <th key={c.id} style={{ ...numCell, color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${C.cardBdr}` }}>{c.label}</th>
+                {displayCols.map((c) => (
+                  <th key={c.key} style={colCellStyle(c.kind, { ...numCell, color: c.kind === "total" ? C.text : C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, borderBottom: `1px solid ${C.cardBdr}` })}>{c.label}</th>
                 ))}
               </tr>
             </thead>
@@ -293,8 +360,8 @@ export default function InternalSegmentPL() {
               {byGender && genders.map((g, gi) => (
                 <tr key={`g-${g}`}>
                   <td style={{ ...labelCell, paddingLeft: 28, color: C.textMuted, fontStyle: "italic" }}>{genderLabel(g)}</td>
-                  {columns.map((c, i) => (
-                    <td key={c.id} style={{ ...numCell, color: C.textSub }}>{money(colGenderAgg[i][gi].net)}</td>
+                  {displayCols.map((c) => (
+                    <td key={c.key} style={colCellStyle(c.kind, { ...numCell, color: C.textSub })}>{money(c.genderAgg[gi]?.net ?? 0)}</td>
                   ))}
                 </tr>
               ))}
@@ -307,10 +374,12 @@ export default function InternalSegmentPL() {
         </div>
       )}
 
-      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginTop: 10 }}>
+      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginTop: 10, maxWidth: 760 }}>
         Define a column as any filter over brand / channel / warehouse / gender — e.g. "Private Label" =
-        MPL brands, "ROF DTC" = brand ROF + channel DTC. Empty filter = all values. COGS is blank where the
-        source has no cost (ecom).
+        MPL brands, "ROF DTC" = brand ROF + channel DTC. Empty filter = all values. <strong>Drag the chips
+        to reorder.</strong> Each sale counts in the <em>first</em> matching column (left → right), and any
+        sale not captured by your columns falls into <strong>Other</strong> — so the columns always sum to
+        <strong> Total</strong>. COGS/margin are blank where the source has no cost.
       </div>
 
       {editing && (

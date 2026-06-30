@@ -40,6 +40,8 @@ The Inventory group in the Tangerine top nav hosts M37 inventory operations: tra
 
 > **Sold / Purchased drill popups.** Clicking a **Sold** or **Purchased** quantity opens a drill popup. Every column header in the popup sorts (▲/▼). The **Sold** popup adds a **Store** filter and a **Collapse: Invoice** toggle (rolls the rows up onto the invoice number); the **Purchased** popup adds a **Collapse: Bill** toggle (rolls onto the bill number) alongside the existing click-a-colour filter. Invoice numbers (AR) and bill Ref #s (AP) open a **full doc popup** (header + lines) with **✎ Edit (new tab)** → the AR Invoice / AP Bill editor. The drill popups clear the NavDrawer so they never slide under the menu on a narrow window.
 
+> **Where the On Hand number comes from (pre-go-live).** Until Tangerine is the inventory system of record, the Matrix On Hand mirrors the authoritative on-hand from the **nightly ATS/Xoro feed** (the same upload that refreshes planning). Before this, on-hand was a one-time 2026-05-27 seed that Xoro sales never reduced — so goods that had already been **sold** still showed as on-hand (a "phantom" overstatement). The nightly **on-hand sync** now re-points each Xoro-sourced style's on-hand at the latest feed, so a sold-through style reads its true 0 the morning after it ships. The sync **never touches** a style once you start managing it natively in Tangerine (an AP bill receipt, PO receipt, adjustment, manufacture build, or the by-size cutover) — those keep their own FIFO layers. It is enabled per environment via `ONHAND_LAYER_SYNC` (`report` to preview, `apply` to write); the operator can also stage it per style with `scripts/rebuild-onhand-sync.mjs --apply --style <code>`.
+
 ---
 
 ## 11.1 Inventory Transfers

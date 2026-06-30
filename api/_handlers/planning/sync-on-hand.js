@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { syncOnHandFromAtsSnapshot } from "../../_lib/planning-sync.js";
+import { rebuildOnHandSync } from "../../_lib/inventory/onhand-sync.js";
 import { authenticateDesignCalendarCaller } from "../../_lib/auth.js";
 
 export const config = { maxDuration: 300 };
@@ -42,7 +43,27 @@ export default async function handler(req, res) {
     if (r.error) {
       return res.status(400).json({ error: r.error, details: r.details ?? null });
     }
+
+    // Phantom on-hand recurrence fix (Option A): after the authoritative ATS
+    // snapshot lands, re-point Tangerine's synced on-hand layers at it so the
+    // Inventory Matrix can't drift back into phantom on-hand. Env-gated so it's
+    // inert until the operator opts in (financially material — see
+    // api/_lib/inventory/onhand-sync.js for the manage/skip invariants):
+    //   ONHAND_LAYER_SYNC=apply  → rebuild the layers
+    //   ONHAND_LAYER_SYNC=report → dry-run, report only (no writes)
+    //   unset                    → skip entirely (no behaviour change)
+    let onhand_layer_sync = null;
+    const mode = (process.env.ONHAND_LAYER_SYNC || "").trim().toLowerCase();
+    if (mode === "apply" || mode === "report") {
+      try {
+        onhand_layer_sync = await rebuildOnHandSync(admin, { apply: mode === "apply" });
+      } catch (e) {
+        onhand_layer_sync = { error: String(e?.message || e) };
+      }
+    }
+
     return res.status(200).json({
+      onhand_layer_sync,
       upserted: r.upserted,
       new_skus: r.new_skus,
       skipped: r.skipped,
