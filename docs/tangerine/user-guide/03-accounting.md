@@ -332,7 +332,9 @@ The footer below the three sections shows the standard P&L roll-up:
 
 ### Per-style revenue / COGS / returns routing
 
-The revenue and COGS that land here are routed **per AR-invoice line**, not at one company-wide bucket. Each style on the **Style Master** can override its **Revenue**, **COGS** and **Returns** GL accounts; at posting time each invoice line resolves **style account → customer default (Customer Master → GL Accounts tab) → entity default**. Credit-memo (RMA) return lines route the same way to the style's **Returns** account (falling back to the customer default, then the entity-level Sales Returns account 4100). The practical effect is that a multi-brand invoice books each line to that brand's revenue / COGS / contra-revenue accounts, so the Income Statement and Trial Balance break out cleanly by brand. A line whose style has no override posts to the customer/entity default exactly as before. See [Chapter 26 §26.4a](26-brand-master-gl-allocation.md) for the full account map.
+Revenue and COGS are carried **per AR-invoice line** (`ar_invoice_lines.revenue_account_id`), so a line *can* point at a specific account. At posting time each line resolves **line account → invoice/entity default revenue (4000) → COGS (5000)** (see [`ar-invoices/post.js`](../../../api/_handlers/internal/ar-invoices/post.js)).
+
+> **Important — there is NO per-style GL mapping today.** `style_master` has no Revenue/COGS/Returns account columns, and nothing populates the per-line `revenue_account_id` from a style. So in practice all sales currently resolve to the **shared** entity-default accounts (revenue 4000, COGS 5000). To see revenue/COGS/margin broken out by brand, channel, warehouse or gender, use the **[Segment P&L](#segment-pl-p26)** report (P26), which pivots shared accounts into configurable columns rather than relying on per-style accounts. Per-style GL routing is a possible future enhancement, not a shipped feature.
 
 ### The COGS heuristic (code starts with '5')
 
