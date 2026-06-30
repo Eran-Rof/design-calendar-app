@@ -138,6 +138,7 @@ Click **Void** on a sent row (or **Del** on a draft row for hard delete). The vo
 4. Flips `ar_invoices.gl_status='void'`.
 5. Appends `[void] <reason>` to `ar_invoices.notes` if a reason was supplied.
 6. Fires the `ar_invoice_voided` notification to **admin + accountant**.
+7. **Re-opens the originating sales order** (when the invoice carries a `sales_order_id`): `reopenSalesOrderFromInvoice()` rolls the SO lines' `qty_invoiced` back by the invoiced quantities and re-derives the line + header status — **allocated** when the soft allocations still fully cover the order, else **confirmed** (a `cancelled` SO is never resurrected). The same re-open runs on a **draft Delete**. This stops a deleted/voided invoice from stranding its SO in `invoiced`. The Void prompt and the Delete confirmation **warn** *"this will re-open SO-NNNN and restore its allocations"* first, and a toast confirms the re-opened SO afterward. (Allocations are a soft reservation untouched by invoicing, so they remain in place — only the SO status/invoiced quantities are repaired.)
 
 Voiding is **always** reversible to a clean GL — the audit trail keeps both the original JE and its reversal pair, so the AP/AR aging reports always reconcile.
 
