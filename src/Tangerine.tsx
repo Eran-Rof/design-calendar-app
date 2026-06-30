@@ -177,6 +177,7 @@ import InternalOnboarding             from "./tanda/InternalOnboarding";
 import InternalApiKeys                from "./tanda/InternalApiKeys";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
+import { appConfig } from "./config/env";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
@@ -331,7 +332,12 @@ export default function Tangerine() {
     // stop), false if there is no PLM session either (→ show the MS login).
     function fallbackToPlmSession(): boolean {
       const plm = readPlmSessionIdentity();
-      if (!plm) {
+      // P27 Phase 3 — when the Suite SSO front door is ON, do NOT silently adopt
+      // the PLM session: require a Microsoft sign-in (it mints the per-user JWT +
+      // provisions identity by email). The signed-out screen still offers the PLM
+      // session as an explicit break-glass link, so an Entra outage can't lock
+      // anyone out. OFF (default) → today's no-relogin behavior is unchanged.
+      if (!plm || appConfig.suiteSsoFrontDoor) {
         if (!cancelled) setAuthState("signed_out");
         return false;
       }
@@ -431,6 +437,19 @@ export default function Tangerine() {
     return () => { cancelled = true; };
   }, []);
 
+  // P27 Phase 3 break-glass — adopt the PLM-launcher session as Tangerine identity
+  // without a Microsoft sign-in. Only surfaced on the login screen when the SSO
+  // front door is ON and a PLM session exists (e.g. an Entra outage).
+  function adoptPlmSession() {
+    const plm = readPlmSessionIdentity();
+    if (!plm) return;
+    setUserEmail(plm.email);
+    setUserName(plm.name);
+    setCachedAuthUserEmail(plm.email);
+    setCachedAuthUserName(plm.name);
+    setAuthState("signed_in");
+  }
+
   async function handleSignIn() {
     try {
       await msSignIn();
@@ -473,7 +492,10 @@ export default function Tangerine() {
   }
 
   if (authState === "signed_out") {
-    return <LoginScreen onSignIn={handleSignIn} />;
+    // Break-glass only when the SSO front door is on AND a PLM session is present.
+    const plmBreakGlass = appConfig.suiteSsoFrontDoor && readPlmSessionIdentity() != null
+      ? adoptPlmSession : undefined;
+    return <LoginScreen onSignIn={handleSignIn} onUseLauncherSession={plmBreakGlass} />;
   }
 
   return (
@@ -715,7 +737,7 @@ export default function Tangerine() {
 // "Sign in with Microsoft" button + a brief framing. Mirrors the rest of the
 // design-calendar-app suite: same MS OAuth flow, different branded entry.
 // ─────────────────────────────────────────────────────────────────────────────
-function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
+function LoginScreen({ onSignIn, onUseLauncherSession }: { onSignIn: () => void; onUseLauncherSession?: () => void }) {
   return (
     <div
       style={{
@@ -800,6 +822,19 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
         <p style={{ margin: "20px 0 0", fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
           Uses the same Microsoft 365 account that signs you into the other PLM-suite apps (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning). The popup may be blocked by some browsers — allow pop-ups for this domain if it doesn't open.
         </p>
+
+        {onUseLauncherSession && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.cardBdr}`, textAlign: "center" }}>
+            <button
+              type="button"
+              onClick={onUseLauncherSession}
+              style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+              title="Break-glass: continue with your existing launcher session instead of Microsoft (use only if Microsoft sign-in is unavailable)"
+            >
+              Continue with launcher session
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

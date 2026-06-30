@@ -64,4 +64,13 @@ export const appConfig = {
   // the PLM launcher. OFF by default: today `/` still shows the PLM launcher
   // and `/login` is reachable directly. Flip this on Vercel at go-live.
   tangerineAsHome: parseBool("VITE_TANGERINE_AS_HOME", false),
+
+  // P27 Phase 3 — Suite SSO front door. When ON, Tangerine requires a Microsoft
+  // sign-in instead of silently adopting the cloned PLM-launcher session: a user
+  // with no MS token lands on the Microsoft login (which mints the per-user JWT
+  // and provisions identity by email). The PLM session stays available as a
+  // BREAK-GLASS link on that screen, so an Entra outage can't lock anyone out.
+  // OFF by default → today's no-relogin behavior is unchanged; flip on Vercel
+  // only once every user's M365 account (matching email) is confirmed.
+  suiteSsoFrontDoor: parseBool("VITE_SUITE_SSO_FRONT_DOOR", false),
 } as const;
