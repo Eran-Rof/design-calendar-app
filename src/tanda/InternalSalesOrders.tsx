@@ -798,7 +798,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     return list;
   }
   // Style → matrix size columns (cached per style id within this parse).
-  const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[] }>>(new Map());
+  const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[]; inseams: string[] }>>(new Map());
   // The operator's confirmed colour-row picks from the last apply, so post-prefill
   // actions (carton rounding) keep them and don't re-raise resolved warnings.
   const poColorPicksRef = useRef<Record<string, string>>({});
@@ -808,7 +808,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // reuses the matrices already fetched for the colour questions.
   const poResolvedRef = useRef<{ line: ParsedPoLine; chosen: StyleLite }[]>([]);
   const poUnmatchedRef = useRef<string[]>([]);
-  async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
+  async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[]; inseams: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
     const p = r.ok ? await r.json() : null;
@@ -819,6 +819,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     const out = {
       sizes: packToken ? [packToken] : (Array.isArray(p?.sizes) ? p.sizes : []),
       colors: Array.isArray(p?.colors) ? p.colors : [],
+      // Inseams so the PO prefill keys seeded cells onto the right body rows (the
+      // matrix keys rows by inseam whenever the style has one — e.g. denim/PPK).
+      inseams: Array.isArray(p?.inseams) ? p.inseams : [],
     };
     sizeCache.current.set(styleId, out);
     return out;
