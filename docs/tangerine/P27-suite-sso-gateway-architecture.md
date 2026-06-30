@@ -79,8 +79,13 @@ on two identities. Unifying identity removes the class, not the instances.
   launcher session" break-glass** link when a PLM session exists, so an Entra outage can't
   lock anyone out. Flip ON in Vercel only once M365 coverage is confirmed 12/12. Pair with
   `VITE_TANGERINE_AS_HOME` to make `/` land on Tangerine.
-- **Phase 4 — session lifecycle.** Silent refresh + httpOnly cookie + suite-wide global
-  sign-out / idle-logout via the BroadcastChannel.
+- **Phase 4 — session lifecycle.** **SHIPPED.** 4a: silent app-JWT refresh (4h timer) so the
+  12h token never expires mid-session (#1520). 4b: provision ALSO sets the JWT as an
+  **httpOnly cookie** (`tg_jwt`); `authenticateCaller` accepts header OR cookie — additive,
+  the header path is untouched. `/api/internal/auth/signout` clears the cookie. 4c: cross-tab
+  **global sign-out** via a `BroadcastChannel` — one tab signing out tears down all sibling
+  Tangerine tabs. ⚠️ FINAL hardening still open: stop ALSO writing the JWT to localStorage
+  (so XSS can't read it) — flip only once cookie-auth is verified in prod (see Risks).
 - **Phase 5 — RBAC `enforce`** (per app, log-only warm-up first) + API per-user write
   enforcement; retire `plm_user` and the static-token fail-open.
 

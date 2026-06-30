@@ -204,6 +204,15 @@ export default async function handler(req, res) {
   // behaves exactly as the cached-auth_user_id stopgap does today.
   const minted = signAppJwt(auth_user_id, { email });
 
+  // P27 4b — also deliver the JWT as an httpOnly cookie (not readable by JS, so
+  // XSS can't lift it). authenticateCaller accepts it OR the Authorization
+  // header, so this is purely additive — the existing header path is untouched.
+  // Same-site Lax + Secure + Path=/ so same-origin /api calls send it automatically.
+  if (minted?.access_token) {
+    res.setHeader("Set-Cookie",
+      `tg_jwt=${encodeURIComponent(minted.access_token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${minted.expires_in}`);
+  }
+
   return res.status(200).json({
     auth_user_id,
     email,

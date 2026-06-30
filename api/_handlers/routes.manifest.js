@@ -324,6 +324,7 @@ export default [
   ["/api/internal/employee-departments/:id"                  , "./internal/employee-departments/[id].js"],
   ["/api/internal/employee-departments"                      , "./internal/employee-departments/index.js"],
   ["/api/internal/auth/provision"                            , "./internal/auth/provision.js"],
+  ["/api/internal/auth/signout"                              , "./internal/auth/signout.js"],
   ["/api/internal/inventory-transfers/:id"                   , "./internal/inventory-transfers/[id].js"],
   ["/api/internal/inventory-transfers"                       , "./internal/inventory-transfers/index.js"],
   ["/api/internal/inventory-adjustments/:id/post"            , "./internal/inventory-adjustments/post.js"],
