@@ -25,17 +25,27 @@ export interface EmailSOConfirmationModalProps {
   soNumber: string | null;
   customerName: string;
   contacts: SOContact[];
+  /** Pre-selected recipient (the buyer on the order). Falls back to the first
+   *  contact with an email, then manual entry. */
+  defaultEmail?: string;
   onClose: () => void;
   onSent: () => void;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function EmailSOConfirmationModal({ soId, soNumber, customerName, contacts, onClose, onSent }: EmailSOConfirmationModalProps) {
+export default function EmailSOConfirmationModal({ soId, soNumber, customerName, contacts, defaultEmail, onClose, onSent }: EmailSOConfirmationModalProps) {
   // Contacts that actually have an email; "" = type one manually.
   const emailContacts = useMemo(() => contacts.filter((c) => c.email && EMAIL_RE.test(c.email)), [contacts]);
-  const [pick, setPick] = useState<string>(emailContacts[0]?.email || "__manual__");
-  const [manualEmail, setManualEmail] = useState("");
+  // Default to the order's buyer when it's a known contact; else the first
+  // contact; else manual entry.
+  const initialPick = (defaultEmail && emailContacts.some((c) => c.email === defaultEmail))
+    ? defaultEmail
+    : (emailContacts[0]?.email || "__manual__");
+  const [pick, setPick] = useState<string>(initialPick);
+  const [manualEmail, setManualEmail] = useState(
+    initialPick === "__manual__" && defaultEmail && EMAIL_RE.test(defaultEmail) ? defaultEmail : "",
+  );
   const toEmail = pick === "__manual__" ? manualEmail.trim() : pick;
 
   const [message, setMessage] = useState("");

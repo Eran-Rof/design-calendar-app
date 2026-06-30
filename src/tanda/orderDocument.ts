@@ -45,6 +45,7 @@ export type OrderDocument = {
   fields: { label: string; value: string }[];   // header key/value pairs (skip blanks before calling)
   data: OrderDocData;
   notes?: string | null;
+  autoPrint?: boolean;           // open straight into the browser print / save-as-PDF dialog
 };
 
 const esc = (s: string): string =>
@@ -230,4 +231,73 @@ export function openOrderDocument(doc: OrderDocument): void {
   win.document.write(html);
   win.document.close();
   win.focus();
+  // "Save as PDF" path — jump straight into the print dialog. The logo is an
+  // embedded data URL so layout is ready almost immediately; a short delay
+  // lets the document paint before the (modal) print dialog freezes it.
+  if (doc.autoPrint) { try { win.setTimeout(() => win.print(), 400); } catch { /* ignore */ } }
+}
+
+// Download the SAME order document as an .xlsx — header block, then one
+// stacked matrix table per style (Color × sizes × Qty/Unit/Total), the flat
+// lines, and grand totals. Reuses the OrderDocData the printable view builds,
+// so the spreadsheet and the PDF never diverge. xlsx is dynamically imported
+// so it only loads when the operator actually exports.
+export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
+  if (typeof window === "undefined") return; // SSR / test safety
+  const XLSX = await import("xlsx");
+  const aoa: (string | number)[][] = [];
+  aoa.push([doc.title, doc.number]);
+  if (doc.status) aoa.push(["Status", doc.status]);
+  aoa.push([doc.partyLabel, doc.partyName || "—"]);
+  for (const f of doc.fields) aoa.push([f.label, f.value]);
+  aoa.push([]);
+
+  let grandQty = 0;
+  let grandAmt = 0;
+  for (const g of doc.data.styles) {
+    aoa.push([g.description ? `${g.style} — ${g.description}` : g.style]);
+    aoa.push(["Color", ...g.sizes, "Qty", doc.moneyLabel, "Total $"]);
+    const colSums: Record<string, number> = {};
+    let styleQty = 0;
+    let styleAmt = 0;
+    for (const r of g.rows) {
+      const rowQty = g.sizes.reduce((s, sz) => s + (r.qtyBySize[sz] || 0), 0);
+      const unit = Number(r.unitDollars) || 0;
+      const rowAmt = rowQty * unit;
+      styleQty += rowQty;
+      styleAmt += rowAmt;
+      g.sizes.forEach((sz) => { colSums[sz] = (colSums[sz] || 0) + (r.qtyBySize[sz] || 0); });
+      aoa.push([rowLabel(r), ...g.sizes.map((sz) => r.qtyBySize[sz] || 0), rowQty, unit, rowAmt]);
+    }
+    aoa.push(["Total", ...g.sizes.map((sz) => colSums[sz] || 0), styleQty, "", styleAmt]);
+    aoa.push([]);
+    grandQty += styleQty;
+    grandAmt += styleAmt;
+  }
+
+  if (doc.data.flats.length) {
+    aoa.push(["Other lines"]);
+    aoa.push(["Item", "Qty", doc.moneyLabel, "Total $"]);
+    for (const f of doc.data.flats) {
+      const qty = Number(f.qty) || 0;
+      const unit = Number(f.unitDollars) || 0;
+      const amt = qty * unit;
+      grandQty += qty;
+      grandAmt += amt;
+      aoa.push([f.description ? `${f.label} — ${f.description}` : f.label, qty, unit, amt]);
+    }
+    aoa.push([]);
+  }
+
+  aoa.push(["Grand total — Qty", grandQty]);
+  aoa.push(["Grand total — $", grandAmt]);
+  if (doc.notes) { aoa.push([]); aoa.push(["Notes", doc.notes]); }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = [{ wch: 24 }, ...Array(16).fill({ wch: 9 })];
+  const wb = XLSX.utils.book_new();
+  const safeSheet = doc.title.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, ws, safeSheet || "Order");
+  const fname = `${doc.title.replace(/\s+/g, "_")}_${(doc.number || "draft").replace(/[^\w-]+/g, "")}.xlsx`;
+  XLSX.writeFile(wb, fname);
 }
