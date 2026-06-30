@@ -28,7 +28,7 @@
 // 00:00 UTC` (inclusive end-of-day semantics).
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateCaller } from "../../../_lib/auth.js";
+import { authenticateInternalCaller } from "../../../_lib/auth.js";
 import {
   T11_ALLOWED_SOURCE_TABLES,
   pickDisplayName,
@@ -195,7 +195,12 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const auth = await authenticateCaller(req, admin);
+  // Read-only internal audit-log viewer — gate with INTERNAL_API_TOKEN (the
+  // standard internal "is this our frontend" check, accepts the static deploy
+  // token via Bearer OR X-Internal-Token), NOT the per-user authenticateCaller.
+  // Requiring a live per-user JWT here 401'd ("Invalid or expired token") for
+  // users with no/expired user token; this is a SELECT that needs no actor.
+  const auth = authenticateInternalCaller(req);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);

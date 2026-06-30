@@ -36,7 +36,7 @@
 // sole writer to row_changes; this surface never INSERTs/UPDATEs.
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateCaller } from "../../../_lib/auth.js";
+import { authenticateInternalCaller } from "../../../_lib/auth.js";
 
 export const config = { maxDuration: 10 };
 
@@ -168,7 +168,14 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const auth = await authenticateCaller(req, admin);
+  // Read-only internal-staff surface — gate with the same INTERNAL_API_TOKEN
+  // "is this our frontend" check every other /api/internal/** handler uses
+  // (accepts the static deploy token via Bearer OR X-Internal-Token). NOT the
+  // per-user `authenticateCaller`: this is a SELECT, the rows already carry the
+  // actor, and requiring a live per-user JWT here 401'd the Audit Trail panel
+  // ("Invalid or expired token") whenever a user had no/expired user token
+  // (e.g. entered Tangerine via the PLM-session fallback, or past the 12h JWT).
+  const auth = authenticateInternalCaller(req);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);

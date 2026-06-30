@@ -11,6 +11,7 @@ Common errors, what they mean, and how to fix them. Errors usually appear as a r
 | Refreshing inside Style Master / etc. drops you back to dashboard | Expected — the panels use state-based navigation, not URL routes | Re-click the module entry from the top-nav group dropdown |
 | Top nav group dropdown doesn't show a module you expect | Stale browser cache after deploy | Hard refresh (Ctrl+Shift+R / Cmd+Shift+R) |
 | "Sign in with Microsoft" popup is blocked | Browser popup blocker | Allow popups for your `<your-domain>` then click the sign-in button again |
+| **Audit Trail** panel (on an AR/AP invoice, JE, etc.) shows **"Invalid or expired token"** | Fixed (2026-06-30). The read-only audit-trail endpoints (`/api/internal/audit/row-history`, `/audit/log`) used to require a live **per-user** token, so they 401'd whenever your per-user JWT was absent or expired (e.g. you opened an app from the launcher via the shared session, or 12h had passed) — even though the rest of the app worked. They now use the standard internal-token gate like every other internal panel. | If you still see it, **hard refresh** (Ctrl/Cmd+Shift+R) to pick up the fix; otherwise re-sign-in. |
 
 ## Master Data errors
 
