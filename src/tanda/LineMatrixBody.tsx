@@ -27,7 +27,7 @@ import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON,
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
 import { confirmDialog } from "../shared/ui/warn";
-import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat } from "./orderDocument";
+import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -577,6 +577,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     },
     getDocumentData(): OrderDocData {
       const styleGroups: OrderDocStyle[] = [];
+      const prepacks: OrderDocPrepack[] = [];
       for (const s of sections) {
         const st = styles.find((x) => x.id === s.styleId);
         const code = s.payload?.style?.style_code || st?.style_code || "";
@@ -597,10 +598,27 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // Size columns in scale order (from the loaded payload), limited to sizes
         // actually ordered; fall back to appearance order if no payload yet. For a
         // prepack the single column is the pack token (cells are PACK counts).
-        const sizes = s.payload?.prepack
-          ? [s.payload.prepack.pack_token]
+        const pp = s.payload?.prepack || null;
+        const sizes = pp
+          ? [pp.pack_token]
           : (s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen]);
         styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()] });
+        // For a PPK style WITH a defined matrix, also emit the pack composition
+        // (inner + carton units per size) + the per-color pack counts so the
+        // document can render the full garment explode (confirmation requirement).
+        if (pp && pp.has_matrix && pp.composition.length) {
+          const colors = [...rowMap.values()]
+            .map((r) => ({ color: r.color || "—", packs: r.qtyBySize[pp.pack_token] || 0 }))
+            .filter((c) => c.packs > 0);
+          if (colors.length) {
+            prepacks.push({
+              style: code,
+              packToken: pp.pack_token,
+              sizes: pp.composition.map((c) => ({ size: c.size, inner: Number(c.inner_pack_qty) || 0, carton: Number(c.qty_per_pack) || 0 })),
+              colors,
+            });
+          }
+        }
       }
       const flats: OrderDocFlat[] = [];
       for (const l of flat) {
@@ -613,7 +631,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // differs from the main label (avoid "VERGE — VERGE").
         flats.push({ label: l.label || l.description || "(unmatched item)", description: l.label && l.description && l.label !== l.description ? l.description : null, qty: q > 0 ? q : 1, unitDollars: unit });
       }
-      return { styles: styleGroups, flats };
+      return { styles: styleGroups, flats, prepacks };
     },
     addSection,
     addFlat,

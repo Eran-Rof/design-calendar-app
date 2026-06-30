@@ -1486,17 +1486,20 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         {/* When the SO has been billed into an AR invoice, the header turns
             green and links straight to that invoice (?m=ar_invoices&q=<INV#>).
             Otherwise it's the plain "Sales order … — <status>" title. */}
+        {/* Status word is coloured with the SAME STATUS_COLORS + ● dot the grid
+            uses, so the header matches the row the operator clicked (conformity). */}
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {isNew ? "New sales order" : relatedInvoice ? (
-            <span
-              onClick={() => { window.location.href = `?m=ar_invoices&q=${encodeURIComponent(relatedInvoice.invoice_number)}`; }}
-              title={`Open AR invoice ${relatedInvoice.invoice_number}`}
-              style={{ color: C.success, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
-            >
-              Sales order {so?.so_number || "(draft)"} — {so?.status} · {relatedInvoice.invoice_number} ↗
+            <span>
+              Sales order {so?.so_number || "(draft)"} — <span style={{ color: STATUS_COLORS[so?.status || ""] || C.text, fontWeight: 700 }}>● {so?.status}</span>{" · "}
+              <span
+                onClick={() => { window.location.href = `?m=ar_invoices&q=${encodeURIComponent(relatedInvoice.invoice_number)}`; }}
+                title={`Open AR invoice ${relatedInvoice.invoice_number}`}
+                style={{ color: C.success, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
+              >{relatedInvoice.invoice_number} ↗</span>
             </span>
           ) : (
-            `Sales order ${so?.so_number || "(draft)"} — ${so?.status}`
+            <span>Sales order {so?.so_number || "(draft)"} — <span style={{ color: STATUS_COLORS[so?.status || ""] || C.text, fontWeight: 700 }}>● {so?.status}</span></span>
           )}
         </h3>
 

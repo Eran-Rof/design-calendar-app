@@ -32,7 +32,18 @@ export type OrderDocFlat = {
   qty: number;
   unitDollars: number;
 };
-export type OrderDocData = { styles: OrderDocStyle[]; flats: OrderDocFlat[] };
+// A prepack (PPK) breakdown for one style: the per-pack composition (inner pack
+// + carton pack units per size) and the full explode (each color's packs ×
+// carton-pack qty per size = garment units).
+export type OrderDocPrepackSize = { size: string; inner: number; carton: number };
+export type OrderDocPrepackColor = { color: string; packs: number };
+export type OrderDocPrepack = {
+  style: string;
+  packToken: string;
+  sizes: OrderDocPrepackSize[];
+  colors: OrderDocPrepackColor[];
+};
+export type OrderDocData = { styles: OrderDocStyle[]; flats: OrderDocFlat[]; prepacks?: OrderDocPrepack[] };
 
 export type OrderDocument = {
   kind: "so" | "po";
@@ -140,6 +151,36 @@ export function openOrderDocument(doc: OrderDocument): void {
     .map((f) => `<div class="f"><span class="fl">${esc(f.label)}</span><span class="fv">${esc(f.value)}</span></div>`)
     .join("");
 
+  // Prepack (PPK) detail — per PPK style, the pack composition (inner + carton
+  // units per size) and the full explode (packs × carton qty per size).
+  const prepackBlocks = (doc.data.prepacks || []).map((p) => {
+    const sizes = p.sizes;
+    const hasInner = sizes.some((s) => (s.inner || 0) > 0);
+    const cartonTotal = sizes.reduce((a, s) => a + (s.carton || 0), 0);
+    const innerTotal = sizes.reduce((a, s) => a + (s.inner || 0), 0);
+    const headSizes = sizes.map((s) => `<th class="num">${esc(s.size)}</th>`).join("");
+    const innerRow = hasInner ? `<tr><td>Inner pack</td>${sizes.map((s) => `<td class="num">${(s.inner || 0).toLocaleString()}</td>`).join("")}<td class="num">${innerTotal.toLocaleString()}</td></tr>` : "";
+    const cartonRow = `<tr><td>Carton pack</td>${sizes.map((s) => `<td class="num">${(s.carton || 0).toLocaleString()}</td>`).join("")}<td class="num">${cartonTotal.toLocaleString()}</td></tr>`;
+    const sizeTotals = sizes.map(() => 0);
+    let gUnits = 0, gPacks = 0;
+    const colorRows = p.colors.map((c) => {
+      const tds = sizes.map((s, i) => { const u = c.packs * (s.carton || 0); sizeTotals[i] += u; return `<td class="num">${u.toLocaleString()}</td>`; }).join("");
+      const rowUnits = c.packs * cartonTotal; gUnits += rowUnits; gPacks += c.packs;
+      return `<tr><td>${esc(c.color)}</td>${tds}<td class="num">${rowUnits.toLocaleString()}</td><td class="num">${c.packs.toLocaleString()}</td></tr>`;
+    }).join("");
+    return `<div class="style-block">
+      <div class="style-name">Prepack breakdown — ${esc(p.style)}${p.packToken ? `<span class="sub"> · ${esc(p.packToken)}</span>` : ""}</div>
+      <div class="sub" style="font-size:11px;margin:2px 0">Pack composition (units per pack)</div>
+      <table><thead><tr><th>Per pack</th>${headSizes}<th class="num">Pack</th></tr></thead>
+        <tbody>${innerRow}${cartonRow}</tbody></table>
+      <div class="sub" style="font-size:11px;margin:8px 0 2px">Full size breakdown (packs exploded to garment units)</div>
+      <table><thead><tr><th>Color</th>${headSizes}<th class="num">Units</th><th class="num">Packs</th></tr></thead>
+        <tbody>${colorRows}</tbody>
+        <tfoot><tr><td>Total</td>${sizeTotals.map((t) => `<td class="num">${t.toLocaleString()}</td>`).join("")}<td class="num">${gUnits.toLocaleString()}</td><td class="num">${gPacks.toLocaleString()}</td></tr></tfoot></table>
+    </div>`;
+  }).join("");
+  const prepackHtml = prepackBlocks ? `<div style="margin-top:18px"><div class="style-name" style="font-size:14px">Prepack (PPK) detail</div>${prepackBlocks}</div>` : "";
+
   const linesHtml = (styleBlocks + flatsBlock) || `<div class="empty">No line items.</div>`;
 
   const html = `<!DOCTYPE html>
@@ -211,6 +252,7 @@ export function openOrderDocument(doc: OrderDocument): void {
     </div>
     <div class="fields">${fieldsHtml}</div>
     ${linesHtml}
+    ${prepackHtml}
     <div class="grand">
       <span>Total qty <b>${grandQty.toLocaleString()}</b></span>
       <span>Total $ <b>$${money(grandAmt)}</b></span>
@@ -287,6 +329,31 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
       aoa.push([f.description ? `${f.label} — ${f.description}` : f.label, qty, unit, amt]);
     }
     aoa.push([]);
+  }
+
+  // Prepack (PPK) detail — composition (inner + carton) + full explode per style.
+  if (doc.data.prepacks && doc.data.prepacks.length) {
+    aoa.push(["Prepack (PPK) detail"]);
+    for (const p of doc.data.prepacks) {
+      const sizes = p.sizes;
+      const hasInner = sizes.some((s) => (s.inner || 0) > 0);
+      const cartonTotal = sizes.reduce((a, s) => a + (s.carton || 0), 0);
+      aoa.push([`${p.style}${p.packToken ? ` · ${p.packToken}` : ""} — units per pack`]);
+      aoa.push(["Per pack", ...sizes.map((s) => s.size), "Pack"]);
+      if (hasInner) aoa.push(["Inner pack", ...sizes.map((s) => s.inner || 0), sizes.reduce((a, s) => a + (s.inner || 0), 0)]);
+      aoa.push(["Carton pack", ...sizes.map((s) => s.carton || 0), cartonTotal]);
+      aoa.push([`${p.style} — full size breakdown (packs exploded to units)`]);
+      aoa.push(["Color", ...sizes.map((s) => s.size), "Units", "Packs"]);
+      const sizeTotals = sizes.map(() => 0);
+      let gUnits = 0, gPacks = 0;
+      for (const c of p.colors) {
+        const cells = sizes.map((s, i) => { const u = c.packs * (s.carton || 0); sizeTotals[i] += u; return u; });
+        gUnits += c.packs * cartonTotal; gPacks += c.packs;
+        aoa.push([c.color, ...cells, c.packs * cartonTotal, c.packs]);
+      }
+      aoa.push(["Total", ...sizeTotals, gUnits, gPacks]);
+      aoa.push([]);
+    }
   }
 
   aoa.push(["Grand total — Qty", grandQty]);

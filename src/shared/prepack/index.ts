@@ -98,8 +98,10 @@ export function ppkMultiplierForAts(
 // effects. The order line keeps the pack count; this breakdown is for display
 // and the size-level explode used downstream.
 
-/** One composition row of a prepack: garment units of `size` in a single pack. */
-export type PrepackCompositionRow = { size: string; qty_per_pack: number };
+/** One composition row of a prepack: garment units of `size` in a single pack.
+ *  `qty_per_pack` = the carton-pack quantity; `inner_pack_qty` = the inner-pack
+ *  quantity (optional — present when the prepack matrix defines it). */
+export type PrepackCompositionRow = { size: string; qty_per_pack: number; inner_pack_qty?: number };
 
 /** The order-entry prepack block returned on a PPK style's matrix payload. */
 export type PrepackBlock = {
