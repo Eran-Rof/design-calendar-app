@@ -21,6 +21,8 @@ export type ParsedPoLine = {
   description: string | null;
   unit_price: number | null;
   total_qty: number | null;
+  /** True when total_qty counts PACKS/PREPACKS/CARTONS, not individual units. */
+  qty_is_packs?: boolean;
   size_breakdown: { size: string; qty: number }[] | null;
 };
 export type ParsedPo = {
@@ -202,17 +204,29 @@ export async function buildSeedFromResolved(
     const cells: Cell[] = [];
 
     if (isPpkStyle(chosen.style_code)) {
-      // PPK: a single PPK<N> size column; the cell value is a CARTON count.
+      // PPK: a single PPK<N> size column; the cell value is a CARTON (pack) count.
+      // `sizes` carries the pack token (e.g. "PPK24") from the matrix even when the
+      // style_code has no digits (RYB0594PPK); fall back to the style code.
       const ppkSize = sizes.find((s) => /PPK/i.test(s)) || sizes[0] || "";
       const per = extractPpk(ppkSize) || extractPpk(chosen.style_code) || 0;
-      if (ppkSize && per > 0 && effectiveTotal > 0) {
-        const cartons = Math.ceil(effectiveTotal / per);
-        cells.push({ color, size: ppkSize, qty: cartons, unit });
-        if (effectiveTotal % per !== 0) {
-          warnings.push({ style: chosen.style_code, detail: `${color || ""} ${effectiveTotal} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(effectiveTotal / per).toFixed(2)}).` });
+      if (effectiveTotal > 0 && ppkSize) {
+        if (line.qty_is_packs) {
+          // The PO already states a PACK count — seed it directly, no division.
+          cells.push({ color, size: ppkSize, qty: effectiveTotal, unit });
+        } else if (per > 0) {
+          // The PO states UNITS — convert to cartons via the pack size.
+          const cartons = Math.ceil(effectiveTotal / per);
+          cells.push({ color, size: ppkSize, qty: cartons, unit });
+          if (effectiveTotal % per !== 0) {
+            warnings.push({ style: chosen.style_code, detail: `${color || ""} ${effectiveTotal} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(effectiveTotal / per).toFixed(2)}).` });
+          }
+        } else {
+          // Units, but no pack size known — drop the count on the pack column and warn.
+          cells.push({ color, size: ppkSize, qty: effectiveTotal, unit });
+          warnings.push({ style: chosen.style_code, detail: `Couldn't read the pack size for this prepack — entered ${effectiveTotal} as the pack count; verify it's packs not units.` });
         }
       } else if (effectiveTotal > 0) {
-        warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton size — left blank, enter cartons manually.` });
+        warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton column — left blank, enter cartons manually.` });
       }
     } else {
       // Keep only size-breakdown rows that map to a REAL size column. Rows like

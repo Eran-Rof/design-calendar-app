@@ -49,6 +49,9 @@ const PO_SCHEMA = {
           description: { type: ["string", "null"] },
           unit_price: { type: ["number", "null"] },
           total_qty: { type: ["number", "null"] },
+          // True when total_qty is a count of PACKS / PREPACKS / CARTONS rather
+          // than individual units (common for prepack/PPK styles).
+          qty_is_packs: { type: "boolean" },
           size_breakdown: {
             type: ["array", "null"],
             items: {
@@ -59,7 +62,7 @@ const PO_SCHEMA = {
             },
           },
         },
-        required: ["style_code", "color", "description", "unit_price", "total_qty", "size_breakdown"],
+        required: ["style_code", "color", "description", "unit_price", "total_qty", "qty_is_packs", "size_breakdown"],
         additionalProperties: false,
       },
     },
@@ -84,7 +87,8 @@ Rules:
 - For each ordered style return one line. style_code = the style number / item number ONLY (often our style code like RYB0594, or RYB0594PPK for a prepack). color = the color/colorway if given.
 - IMPORTANT: customer item codes often glue the style and color together, e.g. "RYB187810-OPEN SEA", "RYB0594/RED", "RYB0594 BLACK". In that case put ONLY the leading style number in style_code (e.g. "RYB187810") and the trailing color text in color (e.g. "OPEN SEA"). Do not return the combined string as style_code. description = the product description.
 - unit_price = the per-unit selling price / unit cost as a plain NUMBER (strip $, commas). On tabular POs this is the "UNIT COST" or "PRICE" column.
-- total_qty = the total units ordered for that style+color, as a plain NUMBER (strip commas). On tabular POs this is the "ORDER QTY" (or "TOTAL QTY") column — e.g. "2,304" → 2304. Never put a word here; it must be numeric.
+- total_qty = the total quantity ordered for that style+color, as a plain NUMBER (strip commas). On tabular POs this is the "ORDER QTY" (or "TOTAL QTY") column — e.g. "2,304" → 2304. Never put a word here; it must be numeric.
+- qty_is_packs = true when total_qty counts PACKS / PREPACKS / CARTONS (e.g. "20 prepacks", "20 packs", "12 cartons" → total_qty 20/20/12 and qty_is_packs true). false when total_qty counts individual units / eaches. Default false.
 - size_breakdown = the per-size quantities ONLY IF the PO lists an actual size run (e.g. S 12, M 24, L 24, XL 12), using the size labels as printed. If the size is shown as "AST", "ASST", "ASSORTED", "PREPACK", "NESTED", or there's no real per-size split, return null for size_breakdown and put the number in total_qty — those are assorted/prepack orders, NOT a size called "AST".
 - If a style is ordered in multiple colors, return one line per color.
 - Return JSON exactly matching the schema — no prose.`;
