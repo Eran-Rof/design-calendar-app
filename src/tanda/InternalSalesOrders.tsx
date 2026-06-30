@@ -812,8 +812,12 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
     const p = r.ok ? await r.json() : null;
+    // For a PREPACK style the entry column is the pack token (e.g. "PPK24"), not
+    // the garment sizes — surface it so the PO prefill can size the carton even
+    // when the style_code itself has no digits (e.g. RYB0594PPK → SKU size PPK24).
+    const packToken: string | undefined = p?.prepack?.pack_token;
     const out = {
-      sizes: Array.isArray(p?.sizes) ? p.sizes : [],
+      sizes: packToken ? [packToken] : (Array.isArray(p?.sizes) ? p.sizes : []),
       colors: Array.isArray(p?.colors) ? p.colors : [],
     };
     sizeCache.current.set(styleId, out);
