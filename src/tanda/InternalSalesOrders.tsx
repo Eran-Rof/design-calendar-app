@@ -939,18 +939,41 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     const unmatched: string[] = [...unmatchedStyles];
 
     // Header
-    if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); setCustomerPoIsPlaceholder(false); summary.push(`PO # ${parsed.customer_po_number}`); }
+    // PO # — honour an explicit "use a placeholder" instruction (item: the app
+    // generates the placeholder via its own endpoint instead of trusting an
+    // AI-invented number), else use the parsed real PO number.
+    if (parsed.use_placeholder_po) {
+      try {
+        const rp = await fetch("/api/internal/sales-orders/placeholder-po", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const jp = await rp.json().catch(() => ({}));
+        if (rp.ok && jp.customer_po) { setCustomerPo(jp.customer_po); setCustomerPoIsPlaceholder(true); summary.push(`Placeholder PO ${jp.customer_po}`); }
+        else { unmatched.push("Placeholder PO requested — couldn't generate one, use the Generate placeholder button."); }
+      } catch { unmatched.push("Placeholder PO requested — couldn't generate one, use the Generate placeholder button."); }
+    } else if (parsed.customer_po_number) {
+      setCustomerPo(parsed.customer_po_number); setCustomerPoIsPlaceholder(false); summary.push(`PO # ${parsed.customer_po_number}`);
+    }
     const custId = customerPick !== undefined ? (customerPick || null) : matchCustomer(parsed.customer_name, customers);
-    if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
+    // pickCustomer (not a bare setCustomerId) so the customer's underlying data
+    // loads exactly like a manual selection: ship-to (default location), channel,
+    // brand and payment-terms autofill.
+    if (custId) { pickCustomer(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
+    // Payment terms from the PO override the customer-master autofill when present.
     const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
     if (ptId) { setPaymentTermsId(ptId); summary.push(`Terms: ${paymentTerms.find((t) => t.id === ptId)?.name}`); }
     else if (parsed.payment_terms) unmatched.push(`Payment terms "${parsed.payment_terms}" — pick manually`);
     const ss = isoDate(parsed.start_ship_date); if (ss) { setReqShip(ss); summary.push(`Start ship ${fmtDateDisplay(ss)}`); }
     const cd = isoDate(parsed.cancel_date); if (cd) { setCancelDate(cd); summary.push(`Cancel ${fmtDateDisplay(cd)}`); }
-    // An uploaded customer PO is fulfilled from stock by default — auto-pick ATS
-    // and flag the field so the operator confirms (or switches to Production).
-    setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
+    // Fulfillment source — honour an explicit instruction ("from production" /
+    // "from stock"); otherwise default to ATS and flag it for the operator to
+    // confirm. An explicit choice is set without the "please confirm" flag.
+    if (parsed.fulfillment_source === "production") {
+      setFulfillmentSource("production"); setFulfillmentReview(false); summary.push("Fulfillment: Production");
+    } else if (parsed.fulfillment_source === "ats") {
+      setFulfillmentSource("ats"); setFulfillmentReview(false); summary.push("Fulfillment: ATS");
+    } else {
+      setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
+    }
 
     // Reuse the matrices fetched in prepareConfirm (sizeCache is NOT cleared here)
     // so the seed builds from the exact data the colour questions were based on.
