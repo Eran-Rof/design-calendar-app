@@ -60,6 +60,7 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "avg_sell",    label: "Avg sell" },
   { key: "margin_pct",  label: "Margin %" },
   { key: "margin_amt",  label: "Margin $" },
+  { key: "total_margin_amt", label: "Total Margin $" },
   { key: "total_qty",   label: "Qty" },
   { key: "total",       label: "Total" },
 ];
@@ -250,6 +251,7 @@ export default function InternalSalesOrders() {
     avg_sell_cents: so.avg_sell_cents ?? null,
     margin_pct: so.margin_pct ?? null,
     margin_cents: so.margin_cents ?? null,
+    total_margin_cents: (so.margin_cents != null && so.total_qty != null) ? so.margin_cents * Number(so.total_qty) : null,
     total_qty: so.total_qty != null ? Number(so.total_qty) : null,
     total_cents: Number(so.total_cents ?? 0),
   }), [customerName]);
@@ -270,6 +272,7 @@ export default function InternalSalesOrders() {
     { key: "avg_sell_cents", header: "Avg sell", format: "currency_cents" },
     { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
     { key: "margin_cents", header: "Margin $", format: "currency_cents" },
+    { key: "total_margin_cents", header: "Total Margin $", format: "currency_cents" },
     { key: "total_qty",  header: "Qty", format: "number" },
     { key: "total_cents", header: "Total", format: "currency_cents" },
   ];
@@ -431,7 +434,7 @@ export default function InternalSalesOrders() {
           <thead><tr>
             <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th>
+            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_margin_amt")}>Total Margin $</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_qty")}>Qty</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
           </tr></thead>
           <tbody>
@@ -458,6 +461,7 @@ export default function InternalSalesOrders() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("total_margin_amt")}>{so.margin_cents != null && so.total_qty != null ? fmtCents2(so.margin_cents * Number(so.total_qty)) : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")}>{so.total_qty != null ? Number(so.total_qty).toLocaleString() : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
               </tr>
@@ -1485,7 +1489,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             be added (gates the matrix's Add buttons below). Also the field the
             AI "Upload customer PO" flow fills in. */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12, alignItems: "start" }}>
-          <Field label="Customer PO # *">
+          {/* Item 22 — header labels removed (the field + its required warning + Upload button stay). */}
+          <Field label="">
             <input type="text" value={customerPo} onChange={(e) => { setCustomerPo(e.target.value); setCustomerPoIsPlaceholder(false); }} disabled={!headerEditable}
               style={{ ...inputStyle, borderColor: customerPoIsPlaceholder ? "#F59E0B" : (editable && !customerPo.trim() ? C.warn : C.cardBdr) }}
               placeholder="the customer's PO number" />
@@ -1518,7 +1523,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             </label>
           </Field>
           {isNew && editable && (
-            <Field label="Or auto-fill from the customer's PO">
+            <Field label="">
               <button type="button" onClick={() => { setPoErr(null); setPoReview(null); setPoAmbig([]); setPoColorQs([]); setPoCustQ(null); setPoDup(null); setPoStep("upload"); setPoUploadOpen(true); }}
                 style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, width: "100%" }}>
                 Upload customer PO
@@ -1665,7 +1670,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         <div style={{ marginTop: 16, marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Fulfillment source *</span>
-            <div style={{ width: 280 }}>
+            <div style={{ width: 420 }}>
               <SearchableSelect
                 value={fulfillmentSource || null}
                 onChange={(v) => { setFulfillmentSource(v); setFulfillmentReview(false); }}
@@ -1677,7 +1682,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
                 ]}
                 placeholder="(select — required)"
                 inputStyle={{
-                  ...inputStyle, width: 280,
+                  ...inputStyle, width: 420,
                   borderColor: fulfillmentReview ? C.primary : (editable && !fulfillmentSource ? C.warn : C.cardBdr),
                   boxShadow: fulfillmentReview ? `0 0 0 2px ${C.primary}55` : undefined,
                 }}
@@ -2144,7 +2149,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      {label ? <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div> : null}
       {children}
     </div>
   );
