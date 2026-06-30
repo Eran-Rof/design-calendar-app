@@ -72,8 +72,13 @@ on two identities. Unifying identity removes the class, not the instances.
 - **Phase 2 — resilient per-user reads** (largely shipped): `resolveUserId()` /
   internal-token fallbacks already keep personalization + audit working during the
   transition ([feedback_personalization_jwt_fallback], #1509).
-- **Phase 3 — front door = Microsoft** (flag-gated). Make MS sign-in the suite entry; on
-  success provision runs and mints the JWT. Keep PLM as break-glass only. Tangerine → `/`.
+- **Phase 3 — front door = Microsoft** (flag-gated). **Mechanism SHIPPED, default OFF**
+  (`VITE_SUITE_SSO_FRONT_DOOR`, env in `appConfig`): when ON, Tangerine no longer silently
+  adopts the cloned PLM session — a tokenless user lands on the Microsoft login (which
+  provisions identity by email + mints the JWT). The login screen shows a **"Continue with
+  launcher session" break-glass** link when a PLM session exists, so an Entra outage can't
+  lock anyone out. Flip ON in Vercel only once M365 coverage is confirmed 12/12. Pair with
+  `VITE_TANGERINE_AS_HOME` to make `/` land on Tangerine.
 - **Phase 4 — session lifecycle.** Silent refresh + httpOnly cookie + suite-wide global
   sign-out / idle-logout via the BroadcastChannel.
 - **Phase 5 — RBAC `enforce`** (per app, log-only warm-up first) + API per-user write
