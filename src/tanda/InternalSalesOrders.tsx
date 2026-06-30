@@ -1196,15 +1196,19 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
       // Item 3 — quick-ship gate: auto-allocate available on-hand to this order
       // first. If it can't be filled 100% we DON'T invoice — open the Allocations
       // workbench so the operator reviews/approves the (partial) allocation.
-      const ar = await fetch(`/api/internal/sales-orders/${so.id}/allocate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const aj = await ar.json().catch(() => ({}));
-      if (!ar.ok) throw new Error(aj.error || `Allocation failed (HTTP ${ar.status})`);
-      const fully = aj.fully_allocated === true
-        || !(Array.isArray(aj.lines) && aj.lines.some((l: { shortfall?: number }) => Number(l.shortfall) > 0));
-      if (!fully) {
-        notify("Not enough inventory to quick-ship this order 100%. Opening Allocations — please review and approve the allocation.", "info");
-        openAllocations();
-        return;
+      // Only confirmed/allocated SOs can (re-)allocate; a fulfilling/shipped order
+      // is already past allocation, so skip the gate and invoice directly.
+      if (so.status === "confirmed" || so.status === "allocated") {
+        const ar = await fetch(`/api/internal/sales-orders/${so.id}/allocate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const aj = await ar.json().catch(() => ({}));
+        if (!ar.ok) throw new Error(aj.error || `Allocation failed (HTTP ${ar.status})`);
+        const fully = aj.fully_allocated === true
+          || !(Array.isArray(aj.lines) && aj.lines.some((l: { shortfall?: number }) => Number(l.shortfall) > 0));
+        if (!fully) {
+          notify("Not enough inventory to quick-ship this order 100%. Opening Allocations — please review and approve the allocation.", "info");
+          openAllocations();
+          return;
+        }
       }
       // Fully allocated → create the draft AR invoice.
       const r = await fetch(`/api/internal/sales-orders/${so.id}/create-invoice`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
