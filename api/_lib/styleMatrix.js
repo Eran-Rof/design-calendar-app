@@ -586,11 +586,11 @@ async function computePrepackBlock(admin, entityId, style, skus) {
   if (mine) {
     const { data: comp } = await admin
       .from("prepack_matrix_sizes")
-      .select("size, qty_per_pack, sort_order")
+      .select("size, qty_per_pack, inner_pack_qty, sort_order")
       .eq("matrix_id", mine.id)
       .order("sort_order", { ascending: true });
     composition = (comp || [])
-      .map((r) => ({ size: normalizeSize(String(r.size)), qty_per_pack: Number(r.qty_per_pack) || 0 }))
+      .map((r) => ({ size: normalizeSize(String(r.size)), qty_per_pack: Number(r.qty_per_pack) || 0, inner_pack_qty: Number(r.inner_pack_qty) || 0 }))
       .filter((r) => r.size && r.qty_per_pack > 0);
   }
   // Entry column token: prefer the REAL pack SKU's size (so resolve-sku reuses
