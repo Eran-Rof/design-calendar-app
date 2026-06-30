@@ -57,6 +57,7 @@ const REPORTS: { group: string; items: { key: string; label: string; emoji: stri
   { group: "Financial Statements", items: [
     { key: "trial_balance", label: "Trial Balance", emoji: "" },
     { key: "income_statement", label: "Income Statement", emoji: "" },
+    { key: "segment_pl", label: "Segment P&L", emoji: "" },
     { key: "balance_sheet", label: "Balance Sheet", emoji: "" },
     { key: "cash_flow", label: "Cash Flow", emoji: "" },
     { key: "year_end_close", label: "Year-End Close", emoji: "" },

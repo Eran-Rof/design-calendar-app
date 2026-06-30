@@ -140,6 +140,7 @@ const KEYS = [
   "tanda/accounting/ar-backfill",
   "tanda/accounting/trial-balance",
   "tanda/accounting/income-statement",
+  "tanda/accounting/segment-pl",
   "tanda/accounting/balance-sheet",
   "tanda/accounting/cash-flow",
   "tanda/accounting/year-end-close",
