@@ -14,6 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { signedUrl } from "../../../_lib/documents/index.js";
+import { matchPrepackMatrix } from "../../../_lib/styleMatrix.js";
 
 export const config = { maxDuration: 30 };
 
@@ -39,7 +40,91 @@ const fmtDate = (iso) => {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso); // US MM/DD/YYYY
 };
 
-function confirmationHtml({ so, customerName, shipTo, terms, lines }) {
+// Is this line a prepack (PPK) line? Canonical grain rule: the style_code carries
+// PPK (the line stores a number of PACKS, with size = the pack token e.g. PPK24).
+export const isPpkLine = (l) => /PPK/i.test(String(l.style_code ?? l.sku_code ?? ""));
+
+// For an order with PPK styles, build a per-style breakdown showing (a) the pack
+// composition — the INNER PACK and CARTON PACK units per size — and (b) the full
+// EXPLODE matrix: per color, packs × the carton-pack composition = garment units.
+// `matrices` is the prepack_matrices set (each with a `sizes` array). Returns ""
+// when the order has no PPK lines.
+export function prepackBreakdownHtml(lines, matrices) {
+  const byStyle = new Map(); // style_code → { style_code, packToken, colorRows:[{color,packs}] }
+  for (const l of lines) {
+    if (!isPpkLine(l)) continue;
+    const key = l.style_code || l.sku_code || "(prepack)";
+    let g = byStyle.get(key);
+    if (!g) { g = { style_code: l.style_code || key, packToken: l.size || null, colorRows: [] }; byStyle.set(key, g); }
+    g.colorRows.push({ color: l.color || "(no color)", packs: Number(l.qty_ordered) || 0 });
+  }
+  if (byStyle.size === 0) return "";
+
+  const cell = "padding:5px 9px;border-bottom:1px solid #e5e7eb;text-align:right;font-variant-numeric:tabular-nums";
+  const head = "padding:6px 9px;border-bottom:2px solid #e5e7eb;text-align:right;color:#374151";
+  const blocks = [];
+  for (const g of byStyle.values()) {
+    const m = matchPrepackMatrix(g.style_code, g.packToken, matrices);
+    const title = `${esc(g.style_code)}${g.packToken ? ` · ${esc(g.packToken)}` : ""}`;
+    if (!m || !Array.isArray(m.sizes) || m.sizes.length === 0) {
+      blocks.push(`<div style="margin-top:14px;font-size:12px;color:#6b7280">Prepack <b style="color:#374151">${title}</b> — no size breakdown is defined for this pack yet.</div>`);
+      continue;
+    }
+    const sizes = [...m.sizes].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || String(a.size).localeCompare(String(b.size)));
+    const hasInner = sizes.some((s) => Number(s.inner_pack_qty) > 0);
+    const cartonTotal = sizes.reduce((a, s) => a + (Number(s.qty_per_pack) || 0), 0);
+    const innerTotal = sizes.reduce((a, s) => a + (Number(s.inner_pack_qty) || 0), 0);
+    const sizeHeadCells = sizes.map((s) => `<th style="${head}">${esc(s.size)}</th>`).join("");
+
+    // (a) Pack composition — inner pack + carton pack units per size (one pack).
+    const innerRow = hasInner ? `<tr>
+      <td style="padding:5px 9px;border-bottom:1px solid #e5e7eb;text-align:left;color:#374151">Inner pack</td>
+      ${sizes.map((s) => `<td style="${cell}">${(Number(s.inner_pack_qty) || 0).toLocaleString()}</td>`).join("")}
+      <td style="${cell};font-weight:700">${innerTotal.toLocaleString()}</td></tr>` : "";
+    const cartonRow = `<tr>
+      <td style="padding:5px 9px;border-bottom:1px solid #e5e7eb;text-align:left;color:#374151">Carton pack</td>
+      ${sizes.map((s) => `<td style="${cell}">${(Number(s.qty_per_pack) || 0).toLocaleString()}</td>`).join("")}
+      <td style="${cell};font-weight:700">${cartonTotal.toLocaleString()}</td></tr>`;
+    const compTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
+      <thead><tr style="background:#f9fafb"><th style="${head};text-align:left">Per pack</th>${sizeHeadCells}<th style="${head}">Pack</th></tr></thead>
+      <tbody>${innerRow}${cartonRow}</tbody></table>`;
+
+    // (b) Full explode — per color, packs × carton-pack qty per size = garment units.
+    const sizeTotals = sizes.map(() => 0);
+    let grandUnits = 0, grandPacks = 0;
+    const colorRowsHtml = g.colorRows.map((cr) => {
+      const tds = sizes.map((s, i) => { const u = cr.packs * (Number(s.qty_per_pack) || 0); sizeTotals[i] += u; return `<td style="${cell}">${u.toLocaleString()}</td>`; }).join("");
+      const rowUnits = cr.packs * cartonTotal; grandUnits += rowUnits; grandPacks += cr.packs;
+      return `<tr>
+        <td style="padding:5px 9px;border-bottom:1px solid #e5e7eb;text-align:left">${esc(cr.color)}</td>
+        ${tds}
+        <td style="${cell};font-weight:700">${rowUnits.toLocaleString()}</td>
+        <td style="${cell};color:#6b7280">${cr.packs.toLocaleString()}</td></tr>`;
+    }).join("");
+    const explodeTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
+      <thead><tr style="background:#f9fafb"><th style="${head};text-align:left">Color</th>${sizeHeadCells}<th style="${head}">Units</th><th style="${head}">Packs</th></tr></thead>
+      <tbody>${colorRowsHtml}</tbody>
+      <tfoot><tr style="font-weight:800">
+        <td style="padding:6px 9px;text-align:left">Total</td>
+        ${sizeTotals.map((t) => `<td style="${cell}">${t.toLocaleString()}</td>`).join("")}
+        <td style="${cell}">${grandUnits.toLocaleString()}</td>
+        <td style="${cell}">${grandPacks.toLocaleString()}</td></tr></tfoot></table>`;
+
+    blocks.push(`<div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:700;color:#111827">Prepack breakdown — ${title}</div>
+      <div style="font-size:11px;color:#6b7280;margin:2px 0 2px">Pack composition (units per pack)</div>
+      ${compTable}
+      <div style="font-size:11px;color:#6b7280;margin:8px 0 2px">Full size breakdown (packs exploded to garment units)</div>
+      ${explodeTable}
+    </div>`);
+  }
+  return `<div style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:6px">
+    <div style="font-size:13px;font-weight:800;color:#111827;margin-bottom:2px">Prepack (PPK) detail</div>
+    ${blocks.join("")}
+  </div>`;
+}
+
+function confirmationHtml({ so, customerName, shipTo, terms, lines, prepackHtml = "" }) {
   const rows = lines.map((l) => {
     const label = [l.style_code, l.color, l.size].filter(Boolean).join(" / ") || l.sku_code || l.description || "(item)";
     const qty = Number(l.qty_ordered) || 0;
@@ -88,6 +173,7 @@ function confirmationHtml({ so, customerName, shipTo, terms, lines }) {
           <td style="padding:10px;text-align:right;color:#065f46">${money(so.total_cents)}</td>
         </tr></tfoot>
       </table>
+      ${prepackHtml}
       <div style="margin-top:18px;font-size:12px;color:#6b7280">Please review and reply with any corrections. Thank you for your order.</div>
     </div>
   </div></body></html>`;
@@ -142,6 +228,28 @@ export default async function handler(req, res) {
     for (const l of lines) { const s = l.inventory_item_id ? byId.get(l.inventory_item_id) : null; Object.assign(l, { style_code: s?.style_code, color: s?.color, size: s?.size, sku_code: s?.sku_code }); }
   }
 
+  // PPK breakdown — when the order carries prepack styles, load their prepack
+  // matrices (with the per-size inner-pack / carton-pack composition) so the
+  // confirmation can show the pack matrix + full garment explode.
+  let prepackHtml = "";
+  if (lines.some(isPpkLine)) {
+    const { data: mRows } = await admin.from("prepack_matrices")
+      .select("id, ppk_style_code, pack_token, pack_total, name").not("ppk_style_code", "is", null);
+    const matrices = mRows || [];
+    if (matrices.length) {
+      const { data: sRows } = await admin.from("prepack_matrix_sizes")
+        .select("matrix_id, size, qty_per_pack, inner_pack_qty, sort_order")
+        .in("matrix_id", matrices.map((m) => m.id));
+      const sizesByMatrix = new Map();
+      for (const r of sRows || []) {
+        if (!sizesByMatrix.has(r.matrix_id)) sizesByMatrix.set(r.matrix_id, []);
+        sizesByMatrix.get(r.matrix_id).push(r);
+      }
+      for (const m of matrices) m.sizes = sizesByMatrix.get(m.id) || [];
+    }
+    prepackHtml = prepackBreakdownHtml(lines, matrices);
+  }
+
   // Resolve the selected supporting documents → Resend attachments, but only ones
   // that actually belong to THIS sales order (never attach an arbitrary doc id).
   let attachments = [];
@@ -162,7 +270,7 @@ export default async function handler(req, res) {
   const subject = String(body.subject || "").trim() || `Order confirmation — ${so.so_number || "Sales Order"}`;
   const intro = String(body.message || "").trim();
   const html = (intro ? `<div style="max-width:680px;margin:0 auto;padding:0 24px 4px;font-family:'Segoe UI',Arial,sans-serif;color:#374151;font-size:13px">${esc(intro).replace(/\n/g, "<br>")}</div>` : "")
-    + confirmationHtml({ so, customerName, shipTo, terms: terms?.name || null, lines });
+    + confirmationHtml({ so, customerName, shipTo, terms: terms?.name || null, lines, prepackHtml });
 
   // Send via Resend.
   try {
