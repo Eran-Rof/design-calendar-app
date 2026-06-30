@@ -215,7 +215,13 @@ The **🧾 Create AR invoice** button (visible on `confirmed / allocated / fulfi
 3. Stamps the SO lines `qty_invoiced = qty_ordered`, line status `invoiced`, and flips the header to **`invoiced`**.
 4. Returns the new invoice number so the panel can deep-link.
 
-> **The draft is NOT posted.** Creating the invoice books nothing in the GL. The operator must open it in **AR Invoices** and click **Post** — that is where the approval/credit-limit gates run and where **FIFO COGS is consumed** (DR AR / CR revenue + per-inventory-line DR COGS / CR inventory). See [chapter 16 §Posting](16-accounts-receivable.md#posting--approval-gate--fifo-consume). Allocation reserves stock but never draws down a FIFO layer; consumption happens once, at invoice post.
+> **Quick-ship allocation gate (operator item).** Before it creates the invoice, **Create AR invoice first auto-allocates** available on-hand to the order (the `allocate_sales_order` soft-reservation RPC). If the order **can't be filled 100%**, it does **not** invoice — it opens the **Allocations Workbench** for the order with *"Not enough inventory to quick-ship this order 100% — please review and approve the allocation."* So a quick-ship invoice is only cut for a fully-coverable order; partials route through allocation review. (The gate runs only for `confirmed`/`allocated` SOs — a `fulfilling`/`shipped` order is already past allocation and invoices directly. A credit-held customer is blocked here by the allocation credit-gate.)
+
+> **Draft created → View / Post / Close.** On success a dialog confirms **"Draft invoice AR-NNNN created"** and offers **View invoice** (jumps to AR Invoices on that invoice), **Post now** (`POST /ar-invoices/:id/post` — books the GL immediately), or **Close** (post later from AR Invoices).
+
+> **The draft is NOT posted (unless you click Post now).** Creating the invoice books nothing in the GL by itself. Posting is where the approval/credit-limit gates run and where **FIFO COGS is consumed** (DR AR / CR revenue + per-inventory-line DR COGS / CR inventory). See [chapter 16 §Posting](16-accounts-receivable.md#posting--approval-gate--fifo-consume). Allocation reserves stock but never draws down a FIFO layer; consumption happens once, at invoice post.
+
+> **Deleting / voiding the invoice re-opens the SO.** If you later **delete** the draft (or **void** a posted invoice) in AR Invoices, the originating sales order is **re-opened** — its lines' `qty_invoiced` is rolled back and the header returns to **allocated** (if the soft allocations still cover it) or **confirmed**, with allocations intact. Previously the SO was stranded in `invoiced` and effectively lost. The AR Invoices delete/void prompts warn *"this will re-open SO-NNNN and restore its allocations"* first.
 
 ---
 
