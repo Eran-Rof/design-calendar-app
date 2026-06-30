@@ -531,6 +531,7 @@ export default [
   ["/api/internal/gl-periods/:id/reopen"                     , "./internal/gl-periods/reopen.js"],
   ["/api/internal/trial-balance"                             , "./internal/trial-balance/index.js"],
   ["/api/internal/income-statement"                          , "./internal/income-statement/index.js"],
+  ["/api/internal/segment-pl"                                , "./internal/segment-pl/index.js"],
   ["/api/internal/balance-sheet"                             , "./internal/balance-sheet/index.js"],
   ["/api/internal/cash-flow"                                 , "./internal/cash-flow/index.js"],
   ["/api/internal/year-end-close/run"                        , "./internal/year-end-close/run.js"],

@@ -213,6 +213,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/ar-backfill", label: "AR Backfill",      app: "tanda", route: "/tangerine?m=ar_backfill",       group: "Customers – Accts Rec", icon: "🗄️" },
   { key: "tanda/accounting/trial-balance", label: "Trial Balance",  app: "tanda", route: "/tangerine?m=trial_balance",     group: "Accounting", icon: "📊" },
   { key: "tanda/accounting/income-statement", label: "Income Statement", app: "tanda", route: "/tangerine?m=income_statement", group: "Accounting", icon: "📈" },
+  { key: "tanda/accounting/segment-pl", label: "Segment P&L",     app: "tanda", route: "/tangerine?m=segment_pl",        group: "Accounting", icon: "📈" },
   { key: "tanda/accounting/balance-sheet", label: "Balance Sheet",  app: "tanda", route: "/tangerine?m=balance_sheet",     group: "Accounting", icon: "📋" },
   { key: "tanda/accounting/cash-flow",  label: "Cash Flow",         app: "tanda", route: "/tangerine?m=cash_flow",         group: "Accounting", icon: "💧" },
   { key: "tanda/accounting/year-end-close", label: "Year-End Close", app: "tanda", route: "/tangerine?m=year_end_close",   group: "Accounting", icon: "🔚" },

@@ -65,6 +65,7 @@ export type ModuleKey =
   | "ar_backfill"
   | "trial_balance"
   | "income_statement"
+  | "segment_pl"
   | "balance_sheet"
   | "cash_flow"
   | "year_end_close"
@@ -291,6 +292,8 @@ export const MODULES: ModuleDef[] = [
   { key: "trial_balance",     label: "Trial Balance",     emoji: "📊", group: "Accounting" },
   // P5-3: Income Statement (P&L) — revenue + COGS + opex with subtotals.
   { key: "income_statement",  label: "Income Statement",  emoji: "📈", group: "Accounting" },
+  // P26: Segment / Dimensional P&L — revenue + margin by brand × channel × warehouse × gender.
+  { key: "segment_pl",        label: "Segment P&L",       emoji: "📈", group: "Accounting" },
   // P5-4: Balance Sheet (assets / liabilities / equity as-of).
   { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
   // P5-5: Cash Flow Statement (indirect method).
