@@ -327,7 +327,11 @@ export default function InternalARInvoices() {
         }
         return;
       }
-      if (j.reopened_sales_order && j.so_number) notify(`Invoice voided — sales order ${j.so_number} re-opened (allocations restored).`, "success");
+      {
+        const inv = Number(j.inventory_restored_qty) > 0 ? ` ${Number(j.inventory_restored_qty).toLocaleString()} units returned to on-hand.` : "";
+        if (j.reopened_sales_order && j.so_number) notify(`Invoice voided — GL reversed, sales order ${j.so_number} re-opened (allocations restored).${inv}`, "success");
+        else if (inv) notify(`Invoice voided — GL reversed;${inv}`, "success");
+      }
       await load();
     } catch (e: unknown) {
       notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
