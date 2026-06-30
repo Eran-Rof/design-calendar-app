@@ -35,6 +35,15 @@ fields), `collapse.ts` (group by category/sub-category/style), `filter.ts`
 
 **Grain:** ATS is **color-grain** on-hand. The grid is one row per (style, color).
 
+**Toolbar filter cascade:** the Category / Sub Cat / Style / Gender dropdowns are
+**reciprocal** — each one's options are derived (in `renderPanel.tsx`) from
+`filterRows` with that one dimension omitted, so the options always reflect the
+rows passing every *other* active filter (search + the other dropdowns + store +
+status). Selecting any one narrows the rest; clearing it re-widens them; stale
+selections are auto-pruned. These cascaded lists drive the **toolbar only** — the
+full Category/Sub Cat/Style lists handed to **Sales Comps** stay unfiltered so a
+report can be broadened past the grid's current scope.
+
 ## Exports (`src/ats/export*.ts`)
 
 - **Full grid** (`exportExcel.ts`) — identity + on-hand/PO/SO + period projections + totals; optional avg-cost, margin %, trailing-3-months / same-period-LY blocks, customer-facing redaction, PPK explode/merge.

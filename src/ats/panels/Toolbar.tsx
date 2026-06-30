@@ -237,6 +237,10 @@ interface ToolbarProps {
   styles: string[];
   filterGender: string[];
   setFilterGender: (v: string[]) => void;
+  // Gender option codes to show, narrowed to those present under the other
+  // active filters (#9 cascade). Optional — falls back to the full canonical
+  // set so legacy call sites keep working.
+  genderOptions?: string[];
   // Multi-select Brand filter. brandOptions is the full brand_master
   // name list (every brand the Tangerine app knows about), so the
   // dropdown lists all brands regardless of what's loaded in the grid.
@@ -325,7 +329,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
   filterStyle, setFilterStyle, styles,
-  filterGender, setFilterGender,
+  filterGender, setFilterGender, genderOptions,
   filterBrand, setFilterBrand, brandOptions,
   setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
@@ -457,7 +461,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <MultiSelectDropdown
       label="Gender"
       value={filterGender}
-      options={["M", "B", "C", "Wms", "G"]}
+      options={genderOptions ?? ["M", "B", "C", "Wms", "G"]}
       onChange={setFilterGender}
       getLabel={v => ({ M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>)[v] ?? v}
     />
