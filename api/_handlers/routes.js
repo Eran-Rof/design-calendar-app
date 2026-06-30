@@ -406,6 +406,7 @@ import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procu
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
 import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/split-by-lot.js";
+import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
 import r_internal_recon_cutovers from "./internal/recon/cutovers.js";
 import r_internal_recon_run_ap from "./internal/recon/run-ap.js";
@@ -969,6 +970,7 @@ export const ROUTES = [
   { pattern: "/api/internal/audit/row-history", handler: r_internal_audit_row_history },
   { pattern: "/api/internal/crm/opportunities", handler: r_internal_crm_opportunities_index },
   { pattern: "/api/internal/faire/sync-orders", handler: r_internal_faire_sync_orders },
+  { pattern: "/api/internal/rbac/observations", handler: r_internal_rbac_observations },
   { pattern: "/api/internal/vendors/diversity", handler: r_internal_vendors_diversity },
   { pattern: "/api/vendor/marketplace/listing", handler: r_vendor_marketplace_listing_index },
   { pattern: "/api/vendor/rfqs/messages-inbox", handler: r_vendor_rfqs_messages_inbox_index },

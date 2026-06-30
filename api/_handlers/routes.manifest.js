@@ -696,6 +696,7 @@ export default [
   ["/api/cron/fba-returns-daily"                             , "../cron/fba-returns-daily.js"],
   ["/api/internal/fba/sync-settlements"                      , "./internal/fba/sync-settlements.js"],
   ["/api/cron/fba-settlements-weekly"                        , "../cron/fba-settlements-weekly.js"],
+  ["/api/internal/rbac/observations"                         , "./internal/rbac/observations.js"],
   ["/api/internal/users-access/me"                           , "./internal/users-access/me.js"],
   ["/api/internal/brands"                                    , "./internal/brands/index.js"],
   ["/api/internal/channels"                                  , "./internal/channels/index.js"],
