@@ -1186,17 +1186,51 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
 
   // M10-C — generate a draft AR invoice from this SO's open lines.
   const canInvoice = !isNew && so != null && ["confirmed", "allocated", "fulfilling", "shipped"].includes(so.status);
+  // Item 1 — the just-created draft invoice (drives the View / Post / Close dialog).
+  const [invoiceResult, setInvoiceResult] = useState<{ id: string; number: string } | null>(null);
+  const [postingInvoice, setPostingInvoice] = useState(false);
   async function createInvoice() {
     if (!so) return;
     setErr(null); setSubmitting(true);
     try {
+      // Item 3 — quick-ship gate: auto-allocate available on-hand to this order
+      // first. If it can't be filled 100% we DON'T invoice — open the Allocations
+      // workbench so the operator reviews/approves the (partial) allocation.
+      const ar = await fetch(`/api/internal/sales-orders/${so.id}/allocate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const aj = await ar.json().catch(() => ({}));
+      if (!ar.ok) throw new Error(aj.error || `Allocation failed (HTTP ${ar.status})`);
+      const fully = aj.fully_allocated === true
+        || !(Array.isArray(aj.lines) && aj.lines.some((l: { shortfall?: number }) => Number(l.shortfall) > 0));
+      if (!fully) {
+        notify("Not enough inventory to quick-ship this order 100%. Opening Allocations — please review and approve the allocation.", "info");
+        openAllocations();
+        return;
+      }
+      // Fully allocated → create the draft AR invoice.
       const r = await fetch(`/api/internal/sales-orders/${so.id}/create-invoice`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      notify(j.message || `Draft AR invoice ${j.invoice_number} created.`, "success");
-      onSaved();
+      // Item 1 — surface the draft + let the operator View / Post / Close.
+      setInvoiceResult({ id: j.invoice_id, number: j.invoice_number });
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setSubmitting(false); }
+  }
+  function viewInvoice() {
+    if (invoiceResult) window.location.href = `?m=ar_invoices&q=${encodeURIComponent(invoiceResult.number)}`;
+  }
+  async function postInvoiceNow() {
+    if (!invoiceResult) return;
+    setPostingInvoice(true);
+    try {
+      const r = await fetch(`/api/internal/ar-invoices/${invoiceResult.id}/post`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(`Invoice ${invoiceResult.number} posted.`, "success");
+      setInvoiceResult(null);
+      onSaved();
+    } catch (e) {
+      notify(`Post failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally { setPostingInvoice(false); }
   }
 
   // M18 — allocate available on-hand stock to this SO's lines (confirmed/allocated).
@@ -1873,6 +1907,27 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
           />
         );
       })()}
+
+      {/* Item 1 — after Create AR invoice, confirm the draft + offer View / Post / Close. */}
+      {invoiceResult && (
+        <div onClick={() => { if (!postingInvoice) { setInvoiceResult(null); onSaved(); } }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(440px, 95vw)", padding: 22, color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Draft invoice {invoiceResult.number} created</h3>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 18 }}>
+              A draft AR invoice was created from this sales order. Post it to book the GL (revenue + COGS), open it to review, or close and post later from AR Invoices.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => { setInvoiceResult(null); onSaved(); }} disabled={postingInvoice} style={btnSecondary}>Close</button>
+              <button onClick={viewInvoice} disabled={postingInvoice} style={btnSecondary}>View invoice</button>
+              <button onClick={() => void postInvoiceNow()} disabled={postingInvoice} style={{ ...btnPrimary, background: C.success, opacity: postingInvoice ? 0.6 : 1 }}>
+                {postingInvoice ? "Posting…" : "Post now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Item 8 — on-the-fly Add-customer popup, opened from the picker's typeahead
           "+ Add …" row and pre-filled with the typed name. The new customer is
