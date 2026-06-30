@@ -109,6 +109,42 @@ function PrepackExplodePreview({ rows, packsByRow, composition }: {
   );
 }
 
+// Visual pack composition for a prepack (from the Prepack Matrix master): the
+// INNER pack per size × N = the CARTON pack per size, with the inner-pack and
+// carton totals. Replaces the old "1 pack = N units: 30×3, …" text line.
+function PrepackCompositionView({ composition }: {
+  composition: { size: string; qty_per_pack: number; inner_pack_qty?: number }[];
+}) {
+  const PC = { headerBg: "#0F172A", sect: "#334155", chip: "#0b1220", amber: "#F59E0B", text: "#E5E7EB", muted: "#94A3B8" };
+  const sizes = composition.map((c) => c.size);
+  const inner = composition.map((c) => Number(c.inner_pack_qty) || 0);
+  const carton = composition.map((c) => Number(c.qty_per_pack) || 0);
+  const innerTotal = inner.reduce((a, b) => a + b, 0);
+  const cartonTotal = carton.reduce((a, b) => a + b, 0);
+  const hasInner = innerTotal > 0;
+  const mult = hasInner ? Math.round(cartonTotal / innerTotal) : 0;
+  const chip: React.CSSProperties = { background: PC.chip, color: PC.muted, fontFamily: "monospace", fontSize: 12, padding: "4px 9px", borderRadius: 3, textAlign: "center", minWidth: 26 };
+  const num: React.CSSProperties = { color: PC.text, fontFamily: "monospace", fontWeight: 700, fontSize: 13, padding: "3px 9px", textAlign: "center" };
+  const grid = (vals: number[], label: string, total: number) => (
+    <div>
+      <div style={{ fontSize: 12, color: PC.muted, marginBottom: 5 }}>{label} = <b style={{ color: PC.amber }}>{total.toLocaleString()}</b></div>
+      <table style={{ borderCollapse: "separate", borderSpacing: 3 }}>
+        <tbody>
+          <tr>{sizes.map((sz, i) => <td key={i} style={chip}>{sz}</td>)}</tr>
+          <tr>{vals.map((v, i) => <td key={i} style={num}>{v.toLocaleString()}</td>)}</tr>
+        </tbody>
+      </table>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap", background: PC.headerBg, border: `1px solid ${PC.sect}`, borderRadius: 8, padding: "8px 12px", marginTop: 6, overflowX: "auto" }}>
+      {hasInner && grid(inner, "inner packs", innerTotal)}
+      {hasInner && <div style={{ alignSelf: "center", color: PC.text, fontSize: 16, fontWeight: 700, padding: "0 2px" }}>×{mult}</div>}
+      {grid(carton, "carton total", cartonTotal)}
+    </div>
+  );
+}
+
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
 export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string; lot?: string | null }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
@@ -216,6 +252,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // server-side; shown here so the operator can view/override per line. Hidden on
   // SO/AR (lots populated by later scenarios). Default visible in PO mode.
   const [showLots, setShowLots] = useState(mode === "po");
+  // Prepack composition view (inner pack × N = carton) — shown by default; the
+  // operator can hide it per section. Tracks the section ids that are hidden.
+  const [packCompHidden, setPackCompHidden] = useState<Set<number>>(() => new Set());
+  const togglePackComp = (id: number) => setPackCompHidden((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Item 25 — style images (same look/usability as the Inventory Matrix): a
   // thumbnail preceding the style on each line, click → full gallery. Toggle is
   // OFF by default and remembered across orders; when ON the printable/Excel/email
@@ -373,6 +413,30 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   function packPriceFromEach(v: string, packSize: number): string | null {
     const each = parseMoneyOrNull(v);
     return each != null && packSize > 0 ? (each * packSize).toFixed(2) : null;
+  }
+  // Inverse — per-each price from the pack price (pack ÷ pack size).
+  function eachPriceFromPack(v: string, packSize: number): string | null {
+    const pack = parseMoneyOrNull(v);
+    return pack != null && packSize > 0 ? (pack / packSize).toFixed(2) : null;
+  }
+  // PPK pack-price entry → also fill the per-each price when it's blank, so the
+  // prepack price works BOTH ways (each→pack via setUnitEach, pack→each here).
+  function setUnitPpk(id: number, rowKey: string, v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const eachVals = { ...(s.unitEach || {}) };
+      if (!((eachVals[rowKey] ?? "").trim())) { const e = eachPriceFromPack(v, packSize); if (e != null) eachVals[rowKey] = e; }
+      return { ...s, unit: { ...s.unit, [rowKey]: v }, unitEach: eachVals };
+    }));
+  }
+  function setAllUnitPpk(id: number, rows: EditableMatrixRow[], v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const e = eachPriceFromPack(v, packSize);
+      const eachVals = { ...(s.unitEach || {}) };
+      for (const r of rows) if (!((eachVals[r.key] ?? "").trim()) && e != null) eachVals[r.key] = e;
+      return { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])), unitEach: eachVals };
+    }));
   }
   function setUnitEach(id: number, rowKey: string, v: string, packSize: number) {
     setSections((p) => p.map((s) => {
@@ -868,31 +932,43 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 order line stores PACKS; the explode is for display. */}
             {s.payload && pp && (
               <>
-                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5 }}>
-                  Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).{" "}
+                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span>Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).</span>
                   {pp.has_matrix
-                    ? <>1 pack = <b>{pp.pack_total}</b> units: {pp.composition.map((c) => `${c.size}×${c.qty_per_pack}`).join(", ")}.</>
+                    ? <button type="button" onClick={() => togglePackComp(s.id)} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }}>
+                        {packCompHidden.has(s.id) ? `▸ Show ${pp.pack_token} pack composition` : `▾ Hide ${pp.pack_token} pack composition`}
+                      </button>
                     : <>
-                        <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.{" "}</span>
+                        <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.</span>
                         {/* Item 10 — add the matrix inline without leaving the order. */}
                         <button type="button"
                           onClick={() => { const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""; if (s.styleId && code) setPrepackAddFor({ sectionId: s.id, styleId: s.styleId, styleCode: code, packToken: pp.pack_token }); }}
-                          style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px", marginLeft: 2 }}>
+                          style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px" }}>
                           + Add prepack matrix
                         </button>
                       </>}
                 </div>
+                {/* Prepack PPKxx = inner pack × N = carton (from the Prepack Matrices). */}
+                {pp.has_matrix && !packCompHidden.has(s.id) && <PrepackCompositionView composition={pp.composition} />}
                 <EditableSizeMatrix
                   rows={rows} sizes={[pp.pack_token]}
                   qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
                   unit={{
                     label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit,
-                    onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v),
+                    // PPK price is two-way: entering the pack price auto-fills the
+                    // per-each price (and vice-versa via the each column below).
+                    onChange: packSize > 0 ? (rk, v) => setUnitPpk(s.id, rk, v, packSize) : (rk, v) => setUnit(s.id, rk, v),
+                    onSetAll: packSize > 0 ? (v) => setAllUnitPpk(s.id, rows, v, packSize) : (v) => setAllUnit(s.id, rows, v),
                     showLineTotal: true, forceDecimals: 2,
-                    // Item 12 — per-each price driver column (preceding the pack price).
-                    // Enter $/each → pack price auto-fills = each × pack size.
-                    ...(packSize > 0 && editable ? { each: {
-                      label: moneyLabel, placeholder: "0.00", values: s.unitEach || {},
+                    // Per-each price column — shown whenever the pack size is known
+                    // (entry AND view): on a saved order with no stored per-each it
+                    // shows the computed each = pack ÷ pack size. Two-way: each→pack.
+                    ...(packSize > 0 ? { each: {
+                      label: `${moneyLabel} / each`, placeholder: "0.00",
+                      values: Object.fromEntries(rows.map((r) => {
+                        const stored = (s.unitEach || {})[r.key];
+                        return [r.key, (stored ?? "").trim() ? stored! : (eachPriceFromPack(s.unit[r.key] ?? "", packSize) ?? "")];
+                      })),
                       onChange: (rk, v) => setUnitEach(s.id, rk, v, packSize),
                       onSetAll: (v) => setAllUnitEach(s.id, rows, v, packSize),
                     } } : {}),
