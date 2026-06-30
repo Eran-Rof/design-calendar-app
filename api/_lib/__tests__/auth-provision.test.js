@@ -34,6 +34,7 @@ const EMP_ID = "44444444-4444-4444-4444-444444444444";
 function buildAdmin({
   entityFound = true,
   existingAuthUser = null,    // {id, email} or null
+  listUsersPages = null,      // [[{id,email},...], ...] — multi-page listUsers (P27 pagination)
   createAuthError = null,     // string or null
   entityUsersUpsertError = null, // string or null
   employeeRow = null,         // {id, auth_user_id} or null (EB001)
@@ -50,9 +51,13 @@ function buildAdmin({
     _calls: calls,
     auth: {
       admin: {
-        listUsers: async () => {
+        listUsers: async ({ page = 1 } = {}) => {
+          if (listUsersPages) {
+            return { data: { users: listUsersPages[page - 1] || [] }, error: null };
+          }
           if (existingAuthUser) {
-            return { data: { users: [existingAuthUser] }, error: null };
+            // Single page of results — present only on page 1.
+            return { data: { users: page === 1 ? [existingAuthUser] : [] }, error: null };
           }
           return { data: { users: [] }, error: null };
         },
@@ -335,6 +340,27 @@ describe("provision handler", () => {
     expect(admin._calls.entityUsersUpsert).toHaveLength(1);
     // employee row already linked → no UPDATE issued
     expect(admin._calls.employeesUpdate).toHaveLength(0);
+  });
+
+  it("P27: finds an existing user on a LATER page — no duplicate identity created", async () => {
+    fetchSpy = stubGraphFetch({
+      ok: true, status: 200,
+      payload: { id: "ms-deep", mail: "deep@rof.com" },
+    });
+    // Page 1 is a full page of 200 OTHER users; the real match is on page 2.
+    const fullPage = Array.from({ length: 200 }, (_, i) => ({ id: `filler-${i}`, email: `filler${i}@rof.com` }));
+    const target = { id: EXISTING_AUTH_ID, email: "deep@rof.com" };
+    const admin = buildAdmin({ listUsersPages: [fullPage, [target]] });
+    mockState.admin = admin;
+    const req = makeReq({ ms_access_token: "tok" });
+    const res = makeRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.is_new_user).toBe(false);
+    expect(res.body.auth_user_id).toBe(EXISTING_AUTH_ID);
+    // Critical: the user already existed (page 2) → createUser must NOT run.
+    expect(admin._calls.createUserArgs).toBeNull();
   });
 
   it("matches existing user case-insensitively on email", async () => {

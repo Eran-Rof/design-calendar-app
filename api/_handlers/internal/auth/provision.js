@@ -86,16 +86,28 @@ async function resolveRofEntityId(admin) {
 }
 
 // Look up an existing auth user by email. Supabase's admin API does not expose
-// a "get by email" so we paginate listUsers and filter. With ~handful of staff
-// the list is tiny; this stays cheap.
+// a "get by email" so we paginate listUsers and filter.
+//
+// P27 — this MUST scan ALL users, not just the first page. When Tangerine becomes
+// the suite-wide SSO gateway the user count grows past 100; a returning user whose
+// auth.users row sits on page 2+ would otherwise be missed → provision would CREATE
+// A SECOND auth.users row for the same email → a duplicate identity that splits
+// their favorites / RBAC grants / audit history (all keyed by auth.users.id). The
+// loop guarantees one email ⇒ one stable id at any scale.
 async function findAuthUserByEmail(admin, email) {
   const target = email.trim().toLowerCase();
-  // listUsers paginates; one page of 100 is enough for the foreseeable future.
-  // If we ever exceed 100 staff this needs a loop — flagged but not premature.
-  const { data, error } = await admin.auth.admin.listUsers({ perPage: 100, page: 1 });
-  if (error) return { error };
-  const user = (data?.users || []).find((u) => (u.email || "").toLowerCase() === target);
-  return { user: user || null };
+  const perPage = 200;
+  const MAX_PAGES = 100; // backstop: 20k users — far beyond any real staff list
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ perPage, page });
+    if (error) return { error };
+    const users = data?.users || [];
+    const user = users.find((u) => (u.email || "").toLowerCase() === target);
+    if (user) return { user };
+    // Last page reached (fewer than a full page returned) — stop.
+    if (users.length < perPage) break;
+  }
+  return { user: null };
 }
 
 export default async function handler(req, res) {
