@@ -24,6 +24,7 @@ export type OrderDocStyle = {
   description?: string | null;
   sizes: string[];
   rows: OrderDocMatrixRow[];
+  imageUrl?: string | null;   // item 25 — style thumbnail when "Show images" is on
 };
 // A non-matrix (flat) line — the rare one-off SKU / charge.
 export type OrderDocFlat = {
@@ -109,7 +110,7 @@ export function openOrderDocument(doc: OrderDocument): void {
     const footSizes = sizes.map((sz) => `<td class="num">${colSums[sz] ? colSums[sz].toLocaleString() : ""}</td>`).join("");
 
     return `<div class="style-block">
-      <div class="style-name">${esc(g.style)}${g.description ? `<span class="sub"> — ${esc(g.description)}</span>` : ""}</div>
+      <div class="style-name">${g.imageUrl ? `<img class="style-img" src="${esc(g.imageUrl)}" alt="" />` : ""}${esc(g.style)}${g.description ? `<span class="sub"> — ${esc(g.description)}</span>` : ""}</div>
       <table>
         <thead><tr>
           <th>Color</th>${headSizes}
@@ -209,8 +210,9 @@ export function openOrderDocument(doc: OrderDocument): void {
   .fl { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: #94a3b8; }
   .fv { color: #0f172a; }
   .style-block { margin-bottom: 18px; }
-  .style-name { font-size: 13px; font-weight: 700; color: #1F497D; margin-bottom: 4px; }
+  .style-name { font-size: 13px; font-weight: 700; color: #1F497D; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
   .style-name .sub { color: #64748b; font-weight: 400; }
+  .style-img { width: 46px; height: 46px; object-fit: cover; border: 1px solid #d0d8e4; border-radius: 4px; }
   table { border-collapse: collapse; width: 100%; font-size: 12px; }
   th, td { border: 1px solid #d0d8e4; padding: 5px 9px; text-align: left; vertical-align: top; white-space: nowrap; }
   thead th { background: #1F497D; color: #fff; font-weight: 600; }
@@ -296,8 +298,14 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
 
   let grandQty = 0;
   let grandAmt = 0;
+  // Item 25 — when "Show images" is on, the style image rides along as a clickable
+  // hyperlink in the style header row (col B). SheetJS can't embed bitmaps, so the
+  // image is a one-click link rather than an in-cell picture. Cells collected here
+  // get their `.l` hyperlink set after the sheet is built.
+  const imageCells: { row: number; url: string }[] = [];
   for (const g of doc.data.styles) {
-    aoa.push([g.description ? `${g.style} — ${g.description}` : g.style]);
+    if (g.imageUrl) { imageCells.push({ row: aoa.length, url: g.imageUrl }); aoa.push([g.description ? `${g.style} — ${g.description}` : g.style, "Image ↗"]); }
+    else aoa.push([g.description ? `${g.style} — ${g.description}` : g.style]);
     aoa.push(["Color", ...g.sizes, "Qty", doc.moneyLabel, "Total $"]);
     const colSums: Record<string, number> = {};
     let styleQty = 0;
@@ -361,6 +369,11 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
   if (doc.notes) { aoa.push([]); aoa.push(["Notes", doc.notes]); }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Attach the style-image hyperlinks (col B of each style header row).
+  for (const ic of imageCells) {
+    const ref = XLSX.utils.encode_cell({ r: ic.row, c: 1 });
+    if (ws[ref]) ws[ref].l = { Target: ic.url, Tooltip: "Open style image" };
+  }
   ws["!cols"] = [{ wch: 24 }, ...Array(16).fill({ wch: 9 })];
   const wb = XLSX.utils.book_new();
   const safeSheet = doc.title.replace(/[\\/*?:[\]]/g, "-").slice(0, 31);

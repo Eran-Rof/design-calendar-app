@@ -27,6 +27,7 @@ import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON,
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
 import { confirmDialog } from "../shared/ui/warn";
+import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
 
 const C = {
@@ -215,6 +216,22 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // server-side; shown here so the operator can view/override per line. Hidden on
   // SO/AR (lots populated by later scenarios). Default visible in PO mode.
   const [showLots, setShowLots] = useState(mode === "po");
+  // Item 25 — style images (same look/usability as the Inventory Matrix): a
+  // thumbnail preceding the style on each line, click → full gallery. Toggle is
+  // OFF by default and remembered across orders; when ON the printable/Excel/email
+  // document also carries the image (via getDocumentData → OrderDocStyle.imageUrl).
+  const [showImages, setShowImages] = useState(() => {
+    try { return localStorage.getItem("tangerine:order:showImages") === "1"; } catch { return false; }
+  });
+  function toggleImages() {
+    setShowImages((v) => { const nv = !v; try { localStorage.setItem("tangerine:order:showImages", nv ? "1" : "0"); } catch { /* ignore */ } return nv; });
+  }
+  const thumbs = useStyleThumbs(showImages ? sections.map((s) => s.styleId) : []);
+  const thumbUrlFor = (styleId: string | null | undefined): string | null => {
+    if (!styleId) return null;
+    const t = thumbs.get(styleId);
+    return t ? (t.default ?? Object.values(t.byColor)[0] ?? null) : null;
+  };
   // Item 10 — which section's "Add prepack matrix" popup is open (and the style it
   // targets), so a missing size breakdown can be created inline + reloaded.
   const [prepackAddFor, setPrepackAddFor] = useState<{ sectionId: number; styleId: string; styleCode: string; packToken: string } | null>(null);
@@ -602,7 +619,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const sizes = pp
           ? [pp.pack_token]
           : (s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen]);
-        styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()] });
+        styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()], imageUrl: showImages ? thumbUrlFor(s.styleId) : null });
         // For a PPK style WITH a defined matrix, also emit the pack composition
         // (inner + carton units per size) + the per-color pack counts so the
         // document can render the full garment explode (confirmation requirement).
@@ -648,6 +665,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <button onClick={toggleImages} style={showImages ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
+          title={showImages ? "Hide style images (and exclude them from downloads/print/email)" : "Show a style image on each line (also included in downloads, print and email)"}>
+          {showImages ? "Hide images" : "Show images"}
+        </button>
         {mode === "po" && (
           <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
             title={showLots ? "Hide the per-line Lot column" : "Show the per-line Lot column (auto-set to the PO number at issue)"}>
@@ -798,7 +819,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const secMarginPct = secSell > 0 ? ((secSell - secCost) / secSell) * 100 : 0;
         return (
           <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, marginBottom: 12, background: C.card, padding: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: showImages ? "auto 1fr auto" : "1fr auto", gap: 12, alignItems: "center", marginBottom: 10 }}>
+              {showImages && s.styleId && (
+                <StyleThumb styleId={s.styleId} label={s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""} url={thumbUrlFor(s.styleId)} size={44} />
+              )}
               <SearchableSelect value={s.styleId || null} onChange={(v) => void pickStyle(s.id, v)} disabled={!editable}
                 options={styles.map((st) => ({ value: st.id, label: `${st.style_code}${st.style_name ? ` — ${st.style_name}` : st.description ? ` — ${st.description}` : ""}`, searchHaystack: `${st.style_code} ${st.style_name || ""} ${st.description || ""}` }))}
                 placeholder="(pick a style…)" />

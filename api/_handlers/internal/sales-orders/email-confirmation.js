@@ -44,6 +44,50 @@ const fmtDate = (iso) => {
 // PPK (the line stores a number of PACKS, with size = the pack token e.g. PPK24).
 export const isPpkLine = (l) => /PPK/i.test(String(l.style_code ?? l.sku_code ?? ""));
 
+// Resolve ONE primary (web-res) image URL per style code → Map<STYLE_CODE_UPPER,
+// signedUrl>. Self-contained mirror of pim/style-thumbs-by-code (default image
+// only), used to embed images in the emailed confirmation (item 25). Best-effort.
+async function resolveStyleImagesByCode(admin, styleCodes) {
+  const BUCKET = "pim-images";
+  const codes = [...new Set((styleCodes || []).filter(Boolean).map((c) => String(c).trim().toUpperCase()))];
+  if (codes.length === 0) return new Map();
+  // style_code → style_master.id (style_master can exceed the 1000-row cap → page).
+  const codeToId = new Map();
+  for (let from = 0; from < 100000; from += 1000) {
+    const { data } = await admin.from("style_master").select("id, style_code").order("id", { ascending: true }).range(from, from + 999);
+    for (const r of data || []) {
+      const u = (r.style_code || "").trim().toUpperCase();
+      if (u && r.id && codes.includes(u) && !codeToId.has(u)) codeToId.set(u, r.id);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  const ids = [...codeToId.values()];
+  if (ids.length === 0) return new Map();
+  const { data: imgs } = await admin.from("product_images")
+    .select("style_id, is_primary, sort_order, storage_path_thumb, storage_path_web")
+    .in("style_id", ids)
+    .order("is_primary", { ascending: false })
+    .order("sort_order", { ascending: true });
+  const pathByStyle = new Map();
+  for (const r of imgs || []) {
+    if (pathByStyle.has(r.style_id)) continue;
+    const p = r.storage_path_web || r.storage_path_thumb;
+    if (p) pathByStyle.set(r.style_id, p);
+  }
+  const paths = [...new Set(pathByStyle.values())];
+  if (paths.length === 0) return new Map();
+  const { data: signed } = await admin.storage.from(BUCKET).createSignedUrls(paths, 3600);
+  const urlByPath = new Map();
+  for (const s of signed || []) if (s && !s.error && s.signedUrl) urlByPath.set(s.path, s.signedUrl);
+  const out = new Map();
+  for (const [code, id] of codeToId) {
+    const p = pathByStyle.get(id);
+    const u = p ? urlByPath.get(p) : null;
+    if (u) out.set(code, u);
+  }
+  return out;
+}
+
 // For an order with PPK styles, build a per-style breakdown showing (a) the pack
 // composition — the INNER PACK and CARTON PACK units per size — and (b) the full
 // EXPLODE matrix: per color, packs × the carton-pack composition = garment units.
@@ -124,14 +168,22 @@ export function prepackBreakdownHtml(lines, matrices) {
   </div>`;
 }
 
-function confirmationHtml({ so, customerName, shipTo, terms, lines, prepackHtml = "" }) {
+function confirmationHtml({ so, customerName, shipTo, terms, lines, prepackHtml = "", styleImages = null }) {
+  // Item 25 — show the style image once per style (first line that carries it).
+  const seenImg = new Set();
   const rows = lines.map((l) => {
     const label = [l.style_code, l.color, l.size].filter(Boolean).join(" / ") || l.sku_code || l.description || "(item)";
     const qty = Number(l.qty_ordered) || 0;
     const unit = Number(l.unit_price_cents) || 0;
     const ext = l.line_total_cents != null ? Number(l.line_total_cents) : qty * unit;
+    let img = "";
+    if (styleImages && l.style_code) {
+      const k = String(l.style_code).toUpperCase();
+      const url = styleImages.get(k);
+      if (url && !seenImg.has(k)) { seenImg.add(k); img = `<img src="${esc(url)}" alt="" style="width:38px;height:38px;object-fit:cover;border:1px solid #e5e7eb;border-radius:4px;vertical-align:middle;margin-right:8px" />`; }
+    }
     return `<tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${esc(label)}${l.lot_number ? ` <span style="color:#6b7280">· lot ${esc(l.lot_number)}</span>` : ""}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${img}${esc(label)}${l.lot_number ? ` <span style="color:#6b7280">· lot ${esc(l.lot_number)}</span>` : ""}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:right">${qty.toLocaleString()}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:right">${money(unit)}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;text-align:right">${money(ext)}</td>
@@ -194,6 +246,7 @@ export default async function handler(req, res) {
   if (!EMAIL_RE.test(toEmail)) return res.status(400).json({ error: "A valid to_email is required" });
   const cc = Array.isArray(body.cc) ? body.cc.map((e) => String(e).trim()).filter((e) => EMAIL_RE.test(e)) : [];
   const docIds = Array.isArray(body.document_ids) ? body.document_ids.filter((d) => UUID_RE.test(String(d))) : [];
+  const withImages = body.with_images === true; // item 25 — embed style images
 
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
@@ -250,6 +303,14 @@ export default async function handler(req, res) {
     prepackHtml = prepackBreakdownHtml(lines, matrices);
   }
 
+  // Item 25 — resolve a primary image per style (web-res) when the operator had
+  // "Show images" on, so the emailed confirmation matches the on-screen/print view.
+  let styleImages = null;
+  if (withImages) {
+    try { styleImages = await resolveStyleImagesByCode(admin, lines.map((l) => l.style_code)); }
+    catch { styleImages = null; /* non-fatal — email still sends without images */ }
+  }
+
   // Resolve the selected supporting documents → Resend attachments, but only ones
   // that actually belong to THIS sales order (never attach an arbitrary doc id).
   let attachments = [];
@@ -270,7 +331,7 @@ export default async function handler(req, res) {
   const subject = String(body.subject || "").trim() || `Order confirmation — ${so.so_number || "Sales Order"}`;
   const intro = String(body.message || "").trim();
   const html = (intro ? `<div style="max-width:680px;margin:0 auto;padding:0 24px 4px;font-family:'Segoe UI',Arial,sans-serif;color:#374151;font-size:13px">${esc(intro).replace(/\n/g, "<br>")}</div>` : "")
-    + confirmationHtml({ so, customerName, shipTo, terms: terms?.name || null, lines, prepackHtml });
+    + confirmationHtml({ so, customerName, shipTo, terms: terms?.name || null, lines, prepackHtml, styleImages });
 
   // Send via Resend.
   try {

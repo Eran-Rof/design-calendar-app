@@ -80,9 +80,13 @@ export default function EmailSOConfirmationModal({ soId, soNumber, customerName,
     setSending(true); setErr(null);
     try {
       const document_ids = attach ? docs.filter((d) => selectedDocs.has(d.id)).map((d) => d.id) : [];
+      // Item 25 — mirror the order window's "Show images" toggle: when it's on,
+      // the emailed confirmation embeds the style images too.
+      let with_images = false;
+      try { with_images = localStorage.getItem("tangerine:order:showImages") === "1"; } catch { /* ignore */ }
       const r = await fetch(`/api/internal/sales-orders/${soId}/email-confirmation`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to_email: toEmail, message: message.trim() || undefined, document_ids }),
+        body: JSON.stringify({ to_email: toEmail, message: message.trim() || undefined, document_ids, with_images }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
