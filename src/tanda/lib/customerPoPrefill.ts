@@ -30,6 +30,10 @@ export type ParsedPo = {
   start_ship_date: string | null;
   cancel_date: string | null;
   currency: string;
+  /** "ats" | "production" | null — how the order is fulfilled, if stated. */
+  fulfillment_source?: string | null;
+  /** True when the sender asked for a placeholder/temporary PO (app generates one). */
+  use_placeholder_po?: boolean;
   lines: ParsedPoLine[];
 };
 

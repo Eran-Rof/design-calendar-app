@@ -32,6 +32,13 @@ const PO_SCHEMA = {
     start_ship_date: { type: ["string", "null"] },
     cancel_date: { type: ["string", "null"] },
     currency: { type: "string" },
+    // How the order is fulfilled: "ats" (ship from existing stock) or "production"
+    // (make it). null when the text gives no instruction.
+    fulfillment_source: { type: ["string", "null"] },
+    // True when the sender asks to use a PLACEHOLDER / temporary PO number (or
+    // says "no PO yet" / "PO to follow"). When true, customer_po_number MUST be
+    // null — the app generates its own placeholder; never invent one.
+    use_placeholder_po: { type: "boolean" },
     lines: {
       type: "array",
       items: {
@@ -57,7 +64,7 @@ const PO_SCHEMA = {
       },
     },
   },
-  required: ["customer_name", "customer_po_number", "payment_terms", "start_ship_date", "cancel_date", "currency", "lines"],
+  required: ["customer_name", "customer_po_number", "payment_terms", "start_ship_date", "cancel_date", "currency", "fulfillment_source", "use_placeholder_po", "lines"],
   additionalProperties: false,
 };
 
@@ -70,6 +77,8 @@ Rules:
 - Dates must be ISO 8601 (YYYY-MM-DD). If you can't read a full date, return null. "Start ship" / "ship date" / "ship window start" → start_ship_date. "Cancel" / "do not ship after" / "ship window end" → cancel_date.
 - currency = 3-letter ISO 4217 (USD, EUR, GBP, CAD, …); default "USD".
 - customer_po_number = the customer's own PO number / order number for this order.
+- use_placeholder_po = true ONLY when the sender explicitly asks to use a placeholder / temporary / dummy PO number, or says the PO is "to follow" / "not yet assigned" / there is no PO number. When true, set customer_po_number to null — do NOT invent a number. Otherwise false.
+- fulfillment_source = "production" when the order should be MADE (e.g. "from production", "make it", "produce", "cut & sew", "manufacture"); "ats" when it ships from existing stock (e.g. "from stock", "available to ship", "ATS", "quick ship", "ex-stock"); null when the text says nothing about how to fulfill it.
 - customer_name = the buyer / retailer placing the order (NOT our company).
 - payment_terms = normalize to "Net N" form. "30 DAYS" / "30 days" / "Net 30" / "N30" all → "Net 30"; "60 DAYS" → "Net 60". Keep an early-payment discount prefix if present (e.g. "2/10 Net 30"). Null if absent.
 - For each ordered style return one line. style_code = the style number / item number ONLY (often our style code like RYB0594, or RYB0594PPK for a prepack). color = the color/colorway if given.
