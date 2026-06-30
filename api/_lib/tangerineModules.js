@@ -55,6 +55,7 @@ export const TANGERINE_MODULES = [
   { key: "ar_backfill", display_name: "AR Backfill", group_name: "Customers – Accts Rec", sort_order: 45, available_actions: ["read","write","post","void","export"] },
   { key: "trial_balance", display_name: "Trial Balance", group_name: "Accounting", sort_order: 46, available_actions: ["read","write","post","void","export"] },
   { key: "income_statement", display_name: "Income Statement", group_name: "Accounting", sort_order: 47, available_actions: ["read","write","post","void","export"] },
+  { key: "segment_pl", display_name: "Segment P&L", group_name: "Accounting", sort_order: 47, available_actions: ["read","write","export"] },
   { key: "balance_sheet", display_name: "Balance Sheet", group_name: "Accounting", sort_order: 48, available_actions: ["read","write","post","void","export"] },
   { key: "cash_flow", display_name: "Cash Flow", group_name: "Accounting", sort_order: 49, available_actions: ["read","write","post","void","export"] },
   { key: "year_end_close", display_name: "Year-End Close", group_name: "Accounting", sort_order: 50, available_actions: ["read","write","post","void","export"] },

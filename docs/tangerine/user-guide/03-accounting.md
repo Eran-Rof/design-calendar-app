@@ -358,6 +358,28 @@ Both books are kept in parallel — every accrual JE has a sibling cash JE (or v
 
 ---
 
+## Segment P&L (P26)
+
+**Where:** Tangerine → 💼 Accounting → 📈 **Segment P&L** (also linked from the **Reports & Analytics** hub).
+
+The Segment P&L shows Revenue, COGS, Gross Margin and units sliced by **Brand × Channel × Warehouse × Gender**, with the dimensions rendered as **configurable columns**. The GL accounts stay shared — the split is a reporting pivot, not separate accounts.
+
+### Source of the numbers (important)
+Unlike the Income Statement (which reads posted journal entries), the Segment P&L reports off the **sales history sub-ledger** (`ip_sales_history_*`). This is deliberate: the Tangerine GL has no posted sales yet, while the sub-ledger holds the full wholesale sales history (with COGS and margin). So this report reflects the books of record for sales today. DTC (ROF DTC / PT DTC) columns read $0 until the Xoro ecom import populates ecom history.
+
+### Configurable columns
+- The toolbar shows your current columns as chips. Defaults are **Total**, **Private Label** (MPL Epic + MPL Sun & Stone), **ROF DTC** (brand ROF + channel DTC), and **PT DTC** (brand PT + channel DTC).
+- **+ Add column** opens an editor where a column is defined as any filter over **Brands / Channels / Warehouses / Genders** (an empty group means "all"). Name it whatever you like — you can create as many columns as you want.
+- **✎** edits a column, **✕** removes it, **Reset** restores the default segments. Your layout is remembered in the browser.
+
+### Rows
+Net Sales (optionally broken out by gender via the checkbox), COGS, Gross Margin, Gross Margin %, and Units. Margin is blank where the source carries no cost (ecom). Use **Export** for the Excel version of the matrix.
+
+### Date range
+Defaults to current FY (Jan 1 → today); use the From/To pickers or the **Date Presets** dropdown.
+
+---
+
 ## Cash Flow Statement (P5-5)
 
 Tangerine → 💼 Accounting → 💧 **Cash Flow** opens the indirect-method Cash Flow Statement.

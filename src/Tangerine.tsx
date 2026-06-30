@@ -88,6 +88,7 @@ import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
+import InternalSegmentPL          from "./tanda/InternalSegmentPL";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
 import InternalCashFlow           from "./tanda/InternalCashFlow";
 import InternalYearEndClose       from "./tanda/InternalYearEndClose";
@@ -581,6 +582,7 @@ export default function Tangerine() {
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
         {activeModule === "income_statement"  && <InternalIncomeStatement />}
+        {activeModule === "segment_pl"        && <InternalSegmentPL />}
         {activeModule === "balance_sheet"     && <InternalBalanceSheet />}
         {activeModule === "cash_flow"         && <InternalCashFlow />}
         {activeModule === "year_end_close"    && <InternalYearEndClose />}
