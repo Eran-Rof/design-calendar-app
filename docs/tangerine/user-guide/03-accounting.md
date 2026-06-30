@@ -367,7 +367,7 @@ Both books are kept in parallel — every accrual JE has a sibling cash JE (or v
 The Segment P&L shows Revenue, COGS, Gross Margin and units sliced by **Brand × Channel × Warehouse × Gender**, with the dimensions rendered as **configurable columns**. The GL accounts stay shared — the split is a reporting pivot, not separate accounts.
 
 ### Source of the numbers (important)
-Unlike the Income Statement (which reads posted journal entries), the Segment P&L reports off the **sales history sub-ledger** (`ip_sales_history_*`). This is deliberate: the Tangerine GL has no posted sales yet, while the sub-ledger holds the full wholesale sales history (with COGS and margin). So this report reflects the books of record for sales today. DTC (ROF DTC / PT DTC) columns read $0 until the Xoro ecom import populates ecom history.
+Unlike the Income Statement (which reads posted journal entries), the Segment P&L reports off the **sales history sub-ledger** (`ip_sales_history_wholesale`, which despite its name holds **both** wholesale and ecom/DTC sales, tagged by channel). This is deliberate: the Tangerine GL has no posted sales yet, while the sub-ledger holds the full sales history with COGS and margin. So this report reflects the books of record for sales today — **wholesale and DTC (ROF / PT ecom) are both included** from existing data.
 
 ### Configurable columns
 - The toolbar shows your current columns as chips. Defaults are **Total**, **Private Label** (MPL Epic + MPL Sun & Stone), **ROF DTC** (brand ROF + channel DTC), and **PT DTC** (brand PT + channel DTC).
