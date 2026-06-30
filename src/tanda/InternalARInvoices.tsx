@@ -88,6 +88,8 @@ type ARInvoice = {
   paid_amount_cents: string;
   description: string | null;
   source?: string | null;
+  sales_order_id?: string | null;
+  so_number?: string | null;  // resolved server-side for the delete/void warning
   created_at: string;
 };
 
@@ -305,7 +307,9 @@ export default function InternalARInvoices() {
   }
 
   async function doVoid(inv: ARInvoice) {
-    const reason = prompt(`Void invoice ${inv.invoice_number}? Optional reason:`, "");
+    // Item 2 — warn that voiding re-opens the originating sales order + its allocations.
+    const soWarn = inv.so_number ? `\n\nThis will RE-OPEN sales order ${inv.so_number} and restore its allocations.` : "";
+    const reason = prompt(`Void invoice ${inv.invoice_number}?${soWarn}\n\nOptional reason:`, "");
     if (reason === null) return;
     setBusy(inv.id);
     try {
@@ -323,6 +327,7 @@ export default function InternalARInvoices() {
         }
         return;
       }
+      if (j.reopened_sales_order && j.so_number) notify(`Invoice voided — sales order ${j.so_number} re-opened (allocations restored).`, "success");
       await load();
     } catch (e: unknown) {
       notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
@@ -332,14 +337,17 @@ export default function InternalARInvoices() {
   }
 
   async function doDelete(inv: ARInvoice) {
-    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`))) return;
+    // Item 2 — warn that deleting re-opens the originating sales order + its allocations.
+    const soWarn = inv.so_number ? ` This will re-open sales order ${inv.so_number} and restore its allocations.` : "";
+    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.${soWarn}`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
         throw new Error(j.error || `HTTP ${r.status}`);
       }
+      if (j.reopened_sales_order && j.so_number) notify(`Invoice deleted — sales order ${j.so_number} re-opened (allocations restored).`, "success");
       await load();
     } catch (e: unknown) {
       notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");

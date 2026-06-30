@@ -17,6 +17,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import { reopenSalesOrderFromInvoice } from "../../../_lib/sales-orders/reopenFromInvoice.js";
 import {
   extractActorFromRequest,
   callWithAudit,
@@ -168,9 +169,17 @@ export default async function handler(req, res) {
     });
   } catch { /* non-fatal */ }
 
+  // Re-open the originating sales order so a voided invoice doesn't strand the SO
+  // in 'invoiced'. The GL reversal above already unwound posting; this returns the
+  // SO to allocated/confirmed with its (untouched) allocations intact.
+  let reopened = { reopened: false, so_number: null };
+  try { reopened = await reopenSalesOrderFromInvoice(admin, invoice.id); } catch { /* best-effort */ }
+
   return res.status(200).json({
     gl_status: "void",
     reversed_je_ids: reversedJeIds,
+    reopened_sales_order: reopened.reopened,
+    so_number: reopened.so_number,
   });
 }
 

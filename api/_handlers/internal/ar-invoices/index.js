@@ -109,7 +109,7 @@ export default async function handler(req, res) {
         "invoice_date, posting_date, due_date, payment_terms_id, " +
         "ar_account_id, revenue_account_id, cogs_account_id, inventory_asset_account_id, " +
         "accrual_je_id, cash_je_id, total_amount_cents, paid_amount_cents, " +
-        "description, source, created_at, updated_at",
+        "sales_order_id, description, source, created_at, updated_at",
       )
       .eq("entity_id", entityId)
       .order("invoice_date", { ascending: false })
@@ -135,7 +135,16 @@ export default async function handler(req, res) {
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+    // Resolve the linked sales-order number (so the UI can warn "this re-opens
+    // SO-NNNN" before a delete/void). One batched lookup.
+    const rows = data || [];
+    const soIds = [...new Set(rows.map((r) => r.sales_order_id).filter(Boolean))];
+    if (soIds.length) {
+      const { data: sos } = await admin.from("sales_orders").select("id, so_number").in("id", soIds);
+      const numById = new Map((sos || []).map((s) => [s.id, s.so_number]));
+      for (const r of rows) r.so_number = r.sales_order_id ? (numById.get(r.sales_order_id) || null) : null;
+    }
+    return res.status(200).json(rows);
   }
 
   if (req.method === "POST") {
