@@ -932,8 +932,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 order line stores PACKS; the explode is for display. */}
             {s.payload && pp && (
               <>
-                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span>Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).</span>
+                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   {pp.has_matrix
                     ? <button type="button" onClick={() => togglePackComp(s.id)} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }}>
                         {packCompHidden.has(s.id) ? `▸ Show ${pp.pack_token} pack composition` : `▾ Hide ${pp.pack_token} pack composition`}
