@@ -14,7 +14,7 @@ import EmailSOConfirmationModal from "./components/EmailSOConfirmationModal";
 import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine, type BodyTotals } from "./LineMatrixBody";
-import { openOrderDocument } from "./orderDocument";
+import { openOrderDocument, downloadOrderExcel, type OrderDocument } from "./orderDocument";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
@@ -500,6 +500,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false); // item 7 — email confirmation modal
+  const [confirmMenuOpen, setConfirmMenuOpen] = useState(false); // item 7 — Confirmation chooser (Excel / PDF / Email)
   // Item 8 — the typed-but-unmatched name to pre-fill the Add-customer popup with.
   const [quickAddInitialName, setQuickAddInitialName] = useState("");
   const customers = useMemo(
@@ -524,7 +525,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const [paymentTermsId, setPaymentTermsId] = useState(so?.payment_terms_id || "");
   // #1156 — optional buyer (the person at the customer who placed the order).
   const [buyerId, setBuyerId] = useState(so?.buyer_id || "");
-  const [buyers, setBuyers] = useState<{ id: string; name: string; title: string | null }[]>([]);
+  const [buyers, setBuyers] = useState<{ id: string; name: string; title: string | null; email?: string | null }[]>([]);
   const [notes, setNotes] = useState(so?.notes || "");
   // Customer's PO number (their reference). Required before styles can be added.
   const [customerPo, setCustomerPo] = useState(so?.customer_po || "");
@@ -692,7 +693,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   useEffect(() => {
     if (!customerId) { setBuyers([]); return; }
     let cancel = false;
-    fetch(`/api/internal/customer-buyers?customer_id=${encodeURIComponent(customerId)}`).then((r) => r.ok ? r.json() : []).then((a) => { if (!cancel) setBuyers(Array.isArray(a) ? a as { id: string; name: string; title: string | null }[] : []); }).catch(() => {});
+    fetch(`/api/internal/customer-buyers?customer_id=${encodeURIComponent(customerId)}`).then((r) => r.ok ? r.json() : []).then((a) => { if (!cancel) setBuyers(Array.isArray(a) ? a as { id: string; name: string; title: string | null; email?: string | null }[] : []); }).catch(() => {});
     return () => { cancel = true; };
   }, [customerId]);
 
@@ -1328,8 +1329,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     onClose();
   }
 
-  // Open the printable / downloadable SO document (logo + header + line items).
-  function openView() {
+  // Build the SO confirmation document (shared by the printable/PDF view and
+  // the Excel download so they never diverge).
+  function buildOrderDoc(): OrderDocument {
     const fields: { label: string; value: string }[] = [];
     const add = (label: string, value: string | null | undefined) => { if (value && String(value).trim()) fields.push({ label, value: String(value) }); };
     add("Customer PO #", customerPo);
@@ -1339,8 +1341,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     add("Payment terms", paymentTerms.find((t) => t.id === paymentTermsId)?.name);
     add("Brand", brands.find((b) => b.id === brandId)?.name);
     add("Channel", channels.find((c) => c.id === channelId)?.name);
+    add("Buyer", buyers.find((b) => b.id === buyerId)?.name);
     add("Fulfillment", fulfillmentSource);
-    openOrderDocument({
+    return {
       kind: "so",
       title: "Sales Order",
       number: so?.so_number || "(draft)",
@@ -1351,8 +1354,10 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
       fields,
       data: bodyRef.current?.getDocumentData() || { styles: [], flats: [] },
       notes,
-    });
+    };
   }
+  // Open the printable / downloadable SO document (logo + header + line items).
+  function openView(autoPrint = false) { openOrderDocument({ ...buildOrderDoc(), autoPrint }); }
 
   // Item 13 — persist ONLY the header (no line resolution / replacement), so a
   // saved order's header can be corrected at any status without re-touching lines.
@@ -1388,12 +1393,29 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     }
   }
 
+  const confirmMenuItem: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: "transparent", color: "#F1F5F9", border: 0, borderBottom: "1px solid #334155", padding: "9px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
   const saveCloseButtons = (
     <>
       <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
-      <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable SO document">View</button>
-      {/* Item 7 — email the confirmation to a customer contact (saved orders only). */}
-      {!isNew && so != null && <button onClick={() => setEmailOpen(true)} style={btnSecondary} disabled={submitting} title="Email this order confirmation to a customer contact, optionally with the attached documents">✉ Email confirmation</button>}
+      {/* Item 7 — single "Confirmation" entry point: download Excel, save PDF, or email the buyer on the SO. */}
+      <span style={{ position: "relative", display: "inline-flex" }}>
+        <button onClick={() => setConfirmMenuOpen((o) => !o)} style={btnSecondary} disabled={submitting} title="Download to Excel, save as PDF, or email this order confirmation to the buyer">Confirmation ▾</button>
+        {confirmMenuOpen && (
+          <>
+            <div onClick={() => setConfirmMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+            <div style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 6, zIndex: 91, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", minWidth: 210, overflow: "hidden" }}>
+              <button onClick={() => { setConfirmMenuOpen(false); void downloadOrderExcel(buildOrderDoc()); }} style={confirmMenuItem}>Download to Excel</button>
+              <button onClick={() => { setConfirmMenuOpen(false); openView(true); }} style={confirmMenuItem}>Save as PDF / Print</button>
+              <button
+                onClick={() => { if (isNew || so == null) return; setConfirmMenuOpen(false); setEmailOpen(true); }}
+                disabled={isNew || so == null}
+                title={isNew || so == null ? "Save the order first, then email its confirmation" : "Email the confirmation to the buyer on this order (or pick another contact), optionally attaching documents"}
+                style={{ ...confirmMenuItem, borderBottom: 0, opacity: isNew || so == null ? 0.5 : 1, cursor: isNew || so == null ? "not-allowed" : "pointer" }}
+              >Email confirmation to buyer…</button>
+            </div>
+          </>
+        )}
+      </span>
       {/* Item 13 — edit the header on a saved order without re-opening the lines. */}
       {!isNew && !editable && !headerEditMode && so?.status !== "cancelled" && (
         <button onClick={() => setHeaderEditMode(true)} style={btnSecondary} disabled={submitting} title="Edit the order header (customer, ship-to, dates, terms, brand, channel, warehouse, PO #, notes) without changing lines">✎ Edit header</button>
@@ -1758,17 +1780,36 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         </div>
       </div>
 
-      {/* Item 7 — email this order's confirmation to a customer contact. */}
-      {emailOpen && so != null && (
-        <EmailSOConfirmationModal
-          soId={so.id}
-          soNumber={so.so_number}
-          customerName={customers.find((c) => c.id === customerId)?.name || "Customer"}
-          contacts={customers.find((c) => c.id === customerId)?.contacts || []}
-          onClose={() => setEmailOpen(false)}
-          onSent={() => setEmailOpen(false)}
-        />
-      )}
+      {/* Item 7 — email this order's confirmation. Recipients = the customer's
+          buyers (which carry emails) merged with any legacy contacts, deduped by
+          email; defaults to the buyer on THIS order so it "just sends to the
+          buyer", and if the order has no buyer the operator picks one from the
+          customer's master buyers/contacts in the modal. */}
+      {emailOpen && so != null && (() => {
+        const buyerContacts = buyers
+          .filter((b) => b.email)
+          .map((b) => ({ name: b.name, email: b.email || undefined, title: b.title || undefined }));
+        const legacy = customers.find((c) => c.id === customerId)?.contacts || [];
+        const seen = new Set<string>();
+        const contacts = [...buyerContacts, ...legacy].filter((c) => {
+          const e = (c.email || "").toLowerCase();
+          if (!e || seen.has(e)) return false;
+          seen.add(e);
+          return true;
+        });
+        const defaultEmail = buyers.find((b) => b.id === buyerId)?.email || undefined;
+        return (
+          <EmailSOConfirmationModal
+            soId={so.id}
+            soNumber={so.so_number}
+            customerName={customers.find((c) => c.id === customerId)?.name || "Customer"}
+            contacts={contacts}
+            defaultEmail={defaultEmail || undefined}
+            onClose={() => setEmailOpen(false)}
+            onSent={() => setEmailOpen(false)}
+          />
+        );
+      })()}
 
       {/* Item 8 — on-the-fly Add-customer popup, opened from the picker's typeahead
           "+ Add …" row and pre-filled with the typed name. The new customer is
