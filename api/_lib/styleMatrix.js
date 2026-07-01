@@ -769,7 +769,11 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
 export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }, opts = {}) {
   if (!style_id || !size) return { error: "style_id and size required" };
   const isApparel = opts.isApparel !== false; // default true; ingest passes false
-  const colorVal = color ? String(color).trim() : null;
+  // Store the CANONICAL color so a new SKU doesn't fork a spelling variant of an
+  // existing physical color (see canonColor). findExistingId() below also matches
+  // canonically, so an entry for "Skyfall Light Wash" reuses a legacy raw
+  // "SKYFALL - Lt Wash" row rather than creating a third.
+  const colorVal = color ? canonColor(String(color).trim()) : null;
   const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
   let inseamVal = inseam ? String(inseam).trim() : null;
 
@@ -804,12 +808,19 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // Reused on a 23505 below so a race / the logical-tuple UNIQUE index
   // (uq_ip_item_master_logical_sku) resolves to the existing row, not an error.
   async function findExistingId() {
-    let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
-    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
-    q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
+    // Match by size-variant + inseam in the query, then filter to the CANONICAL
+    // color in JS (can't canonColor inside a PostgREST filter) so a canonical
+    // colorVal reuses whatever raw spelling the row was stored with. `colorVal`
+    // is already canonical (or null); compare against canonColor(row.color).
+    const q = admin.from("ip_item_master").select("id, color, size, inseam, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
     const { data: rows, error: e } = await q;
     if (e || !rows || !rows.length) return null;
-    return rows.slice().sort((a, b) =>
+    const wantInseam = inseamVal || null;
+    const matches = rows.filter((r) =>
+      ((canonColor(r.color) ?? null) === (colorVal ?? null)) &&
+      (((r.inseam ? String(r.inseam).trim() : null) || null) === wantInseam));
+    if (!matches.length) return null;
+    return matches.slice().sort((a, b) =>
       (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
       || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0].id;
   }
