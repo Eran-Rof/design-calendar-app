@@ -66,7 +66,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   for (const slice of chunks(itemIds, 200)) {
     if (!slice.length) continue;
     const { data } = await admin.from("ip_item_master")
-      .select("id, sku_code, style_code").in("id", slice);
+      .select("id, sku_code, style_code, size").in("id", slice);
     for (const it of data || []) itemById.set(it.id, it);
   }
 
@@ -102,7 +102,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   const buckets = new Map(); // so_id -> { qFull,sellFull,costFull,costQFull, qScoped,sellScoped,costScoped,costQScoped, anyScoped }
   const bucketFor = (id) => {
     let b = buckets.get(id);
-    if (!b) { b = { qFull: 0, sellFull: 0, costFull: 0, costQFull: 0, qScoped: 0, sellScoped: 0, costScoped: 0, costQScoped: 0, anyScoped: false }; buckets.set(id, b); }
+    if (!b) { b = { qFull: 0, sellFull: 0, costFull: 0, costQFull: 0, qScoped: 0, sellScoped: 0, costScoped: 0, costQScoped: 0, anyScoped: false, explFull: 0, explScoped: 0 }; buckets.set(id, b); }
     return b;
   };
   for (const l of lines) {
@@ -112,11 +112,14 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
     const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
     const cost = costForSku(it?.sku_code);
     const b = bucketFor(l.sales_order_id);
-    b.qFull += qty; b.sellFull += unit * qty;
+    // Exploded units: a PPK line stores PACKS at size = the pack token (PPK24);
+    // exploded qty = packs × pack size. Non-PPK lines are already in eaches.
+    const packSize = /PPK/i.test(String(it?.style_code ?? "")) ? (parseInt(String(it?.size ?? "").match(/(\d+)/)?.[1] ?? "1", 10) || 1) : 1;
+    b.qFull += qty; b.sellFull += unit * qty; b.explFull += qty * packSize;
     if (cost != null) { b.costFull += cost * qty; b.costQFull += qty; }
     if (sf && matchesStyle(it)) {
       b.anyScoped = true;
-      b.qScoped += qty; b.sellScoped += unit * qty;
+      b.qScoped += qty; b.sellScoped += unit * qty; b.explScoped += qty * packSize;
       if (cost != null) { b.costScoped += cost * qty; b.costQScoped += qty; }
     }
   }
@@ -133,7 +136,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
       margin_cents = avg_sell_cents - avg_cost_cents;
       margin_pct = avg_sell_cents !== 0 ? Math.round((margin_cents / avg_sell_cents) * 1000) / 10 : null;
     }
-    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct, total_qty: q });
+    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct, total_qty: q, total_qty_exploded: useScoped ? b.explScoped : b.explFull });
   }
   return out;
 }
@@ -354,12 +357,13 @@ export default async function handler(req, res) {
     try {
       const metrics = await computeSoMetrics(admin, headers.map((h) => h.id), styleFilter);
       for (const h of headers) {
-        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null, total_qty: null };
+        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null, total_qty: null, total_qty_exploded: null };
         h.avg_cost_cents = m.avg_cost_cents;
         h.avg_sell_cents = m.avg_sell_cents;
         h.margin_cents = m.margin_cents;
         h.margin_pct = m.margin_pct;
         h.total_qty = m.total_qty;  // item 18 — total units across the SO's lines
+        h.total_qty_exploded = m.total_qty_exploded;  // item 30 — PPK packs → units
       }
     } catch { /* leave metrics absent on failure */ }
 

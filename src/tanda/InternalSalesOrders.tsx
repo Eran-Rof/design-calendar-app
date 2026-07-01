@@ -4,7 +4,7 @@
 // AR-invoice modal patterns (customer/ship-to/brand/channel pickers, item
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
@@ -117,6 +117,7 @@ type SO = {
   avg_cost_cents?: number | null; avg_sell_cents?: number | null;
   margin_cents?: number | null; margin_pct?: number | null;
   total_qty?: number | null;  // item 18 — total units across the SO's lines
+  total_qty_exploded?: number | null;  // item 30 — PPK packs exploded to units
 };
 // Scenario 4.2 — bulk↔distro match shapes (mirror /sales-orders/bulk-match).
 type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
@@ -127,6 +128,14 @@ type LotPick = { lot_number: string | null; qty: number };
 type PlanLine = { item_id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null; qty_ordered: number; picks: LotPick[]; filled: number; shortfall: number };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null; payment_terms_id?: string | null; contacts?: { id?: string; name?: string; email?: string; phone?: string; title?: string }[] };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
+// Item 30 — a sales-order line for the grid row-expander.
+type ExpandLine = { style_code: string | null; color: string | null; size: string | null; sku_code: string | null; description: string | null; qty: number; unit_cents: number };
+// PPK pack size from a line (style has PPK; size = pack token e.g. PPK24 → 24), else 1.
+function packSizeOfLine(l: ExpandLine): number {
+  if (!/PPK/i.test(l.style_code ?? "")) return 1;
+  const n = parseInt(String(l.size ?? "").match(/(\d+)/)?.[1] ?? "1", 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 type Lookup = { id: string; code?: string; name: string };
 type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null; is_default?: boolean | null; address?: Record<string, unknown> | null };
 
@@ -246,6 +255,29 @@ export default function InternalSalesOrders() {
   // Default the date-range field to Start ship date (operator request) rather
   // than order date.
   const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("requested_ship_date");
+
+  // Item 30 — row-expander (per-SO line detail) + Explode toggle. When exploded,
+  // PPK lines show units (packs × pack size) and per-each cost instead of packs.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [soLines, setSoLines] = useState<Record<string, ExpandLine[] | "loading" | "error">>({});
+  const [explode, setExplode] = useState<boolean>(() => { try { return localStorage.getItem("tangerine:so:explode") === "1"; } catch { return false; } });
+  function toggleExplode() { setExplode((v) => { const nv = !v; try { localStorage.setItem("tangerine:so:explode", nv ? "1" : "0"); } catch { /* ignore */ } return nv; }); }
+  async function toggleExpand(so: SO) {
+    setExpanded((prev) => { const n = new Set(prev); n.has(so.id) ? n.delete(so.id) : n.add(so.id); return n; });
+    if (soLines[so.id]) return; // already fetched (or loading)
+    setSoLines((p) => ({ ...p, [so.id]: "loading" }));
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const lines: ExpandLine[] = (Array.isArray(j.lines) ? j.lines : []).map((l: Record<string, unknown>) => ({
+        style_code: (l.style_code as string) || null, color: (l.color as string) || null, size: (l.size as string) || null,
+        sku_code: (l.sku_code as string) || null, description: (l.description as string) || null,
+        qty: Number(l.qty_ordered) || 0, unit_cents: Number(l.unit_price_cents) || 0,
+      }));
+      setSoLines((p) => ({ ...p, [so.id]: lines }));
+    } catch { setSoLines((p) => ({ ...p, [so.id]: "error" })); }
+  }
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
@@ -445,6 +477,10 @@ export default function InternalSalesOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        <button onClick={toggleExplode} style={explode ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
+          title={explode ? "Show prepack quantities as PACKS" : "Explode prepack quantities to UNITS (packs × pack size); expand a row to see per-line qty & cost"}>
+          {explode ? "Packs" : "Explode"}
+        </button>
         <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} fetchRows={fetchAllForExport} />
       </div>
 
@@ -469,6 +505,7 @@ export default function InternalSalesOrders() {
               scroll. Opaque background so rows don't show through (mirrors the
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
+            <th style={{ ...thStick, width: 28 }} />
             <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_margin_amt")}>Total Margin $</th>
@@ -476,12 +513,17 @@ export default function InternalSalesOrders() {
             <th style={{ ...thStick, textAlign: "center" }}>Actions</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={16}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={16}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={17}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={17}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
+              const isOpen = expanded.has(so.id);
               return (
-              <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
+              <Fragment key={so.id}>
+              <tr style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
+                <td style={{ ...td, textAlign: "center" }} onClick={(e) => { e.stopPropagation(); void toggleExpand(so); }} title="Show / hide line detail">
+                  <span style={{ color: C.textMuted, cursor: "pointer", userSelect: "none" }}>{isOpen ? "▾" : "▸"}</span>
+                </td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("store")}>{so.sale_store || <span style={{ color: C.textMuted }}>—</span>}</td>
@@ -500,7 +542,7 @@ export default function InternalSalesOrders() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("total_margin_amt")}>{so.margin_cents != null && so.total_qty != null ? fmtCents2(so.margin_cents * Number(so.total_qty)) : "—"}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")}>{so.total_qty != null ? Number(so.total_qty).toLocaleString() : "—"}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")} title={explode ? "Exploded units (packs × pack size)" : "Order quantity (packs for prepacks)"}>{(() => { const v = explode ? so.total_qty_exploded : so.total_qty; return v != null ? Number(v).toLocaleString() : "—"; })()}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
                 <td style={{ ...td, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                   {soRemoveMode(so.status)
@@ -512,6 +554,50 @@ export default function InternalSalesOrders() {
                     : <span style={{ color: C.textMuted }}>—</span>}
                 </td>
               </tr>
+              {isOpen && (
+                <tr>
+                  <td />
+                  <td colSpan={16} style={{ ...td, background: "#0b1220", padding: "8px 12px" }}>
+                    {(() => {
+                      const detail = soLines[so.id];
+                      if (detail === "loading" || detail === undefined) return <span style={{ color: C.textMuted, fontSize: 12 }}>Loading line detail…</span>;
+                      if (detail === "error") return <span style={{ color: C.danger, fontSize: 12 }}>Couldn't load line detail.</span>;
+                      if (detail.length === 0) return <span style={{ color: C.textMuted, fontSize: 12 }}>No lines on this order.</span>;
+                      return (
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead><tr style={{ color: C.textMuted }}>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Style</th>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Color</th>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Size</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>{explode ? "Units" : "Qty"}</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>{explode ? "Unit $ / each" : "Unit $"}</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>Line total</th>
+                          </tr></thead>
+                          <tbody>
+                            {detail.map((l, i) => {
+                              const ps = explode ? packSizeOfLine(l) : 1;
+                              const qtyShown = l.qty * ps;
+                              const unitShown = ps > 1 ? l.unit_cents / ps : l.unit_cents;
+                              const lineTotal = l.qty * l.unit_cents; // invariant to explode
+                              return (
+                                <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                                  <td style={{ textAlign: "left", padding: "3px 8px", fontFamily: "monospace" }}>{l.style_code || l.sku_code || "—"}</td>
+                                  <td style={{ textAlign: "left", padding: "3px 8px" }}>{l.color || (l.description ? l.description : "—")}</td>
+                                  <td style={{ textAlign: "left", padding: "3px 8px" }}>{l.size || "—"}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{qtyShown.toLocaleString()}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{fmtCents2(Math.round(unitShown))}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{fmtCents(lineTotal)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
               );
             })}
           </tbody>
