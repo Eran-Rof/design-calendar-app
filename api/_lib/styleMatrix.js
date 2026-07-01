@@ -841,7 +841,13 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     // Flag is_apparel only when all five matrix dims are present (the CHECK
     // requires it); otherwise create a non-apparel partial SKU so the save
     // succeeds — it surfaces in the merchandiser-review list to be completed.
-    const apparelFinal = (isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal;
+    // NB: coerce to a real boolean with !!. `(isApparel || siblingApparel)`
+    // returns null when isApparel===false and siblingApparel===null (JS `||`
+    // yields the last falsy operand), and `null && …` stays null → a NOT-NULL
+    // violation on is_apparel. This bit the size-onhand ingest (isApparel:false)
+    // for styles with no dim-carrying sibling. !! makes null→false (the intended
+    // non-apparel value) without changing any valid true/false result.
+    const apparelFinal = !!((isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal);
     const { data: created, error } = await admin
       .from("ip_item_master")
       .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, length: lengthVal, fit: fitVal, is_apparel: apparelFinal })
