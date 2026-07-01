@@ -42,6 +42,16 @@ export function validateComponents(components) {
     }
     const costSource = c.cost_source && COST_SOURCES.has(String(c.cost_source)) ? String(c.cost_source) : "fifo";
 
+    // Optional per-component unit-cost override (cents). Only meaningful for
+    // service components (negotiated charge), but stored uniformly. NULL = use
+    // the master default.
+    let unitCostCents = null;
+    if (c.unit_cost_cents != null && c.unit_cost_cents !== "") {
+      const n = Number(c.unit_cost_cents);
+      if (!Number.isFinite(n) || n < 0) return { error: `components[${i}].unit_cost_cents must be >= 0` };
+      unitCostCents = Math.round(n);
+    }
+
     rows.push({
       component_kind: kind,
       part_id: kind === "part" ? String(refVal) : null,
@@ -50,6 +60,7 @@ export function validateComponents(components) {
       qty_per_unit: qty,
       scrap_pct: scrap,
       cost_source: costSource,
+      unit_cost_cents: unitCostCents,
     });
   }
   return { rows };
