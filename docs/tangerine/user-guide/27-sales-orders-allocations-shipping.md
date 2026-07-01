@@ -196,6 +196,8 @@ All money is shown to **two decimals**; a metric reads **—** when it can't be 
 
 The grid **header is frozen** — it stays pinned to the top while the rows scroll (the table sits in a scrolling container capped at the viewport height).
 
+> **Row expander + Explode toggle (item 30).** A leading **▸ / ▾** column expands any order in place to show its **per-line detail** (Style · Color · Size · Qty · Unit $ · Line total). The toolbar **Explode** button (labelled **Explode**, highlighted **Explode ✓** when active) switches how prepack (PPK) quantities read across the whole grid: **off** they show as **packs**; **on** they explode to **garment units** (packs × pack size). Turning Explode on keeps the per-unit metric columns consistent with the Qty column — **Avg cost**, **Avg sell** and **Margin $** switch from **per-pack** to **per-each** (each per-pack figure ÷ the blended pack size = `Qty exploded ÷ Qty packs`), e.g. a `$176.40`/pack sell on a **PPK24** order reads **$7.35** per each once exploded. **Margin %**, **Total** and **Total Margin $** are unchanged by Explode (they're order-level invariants). Non-prepack orders are identical in both modes. The **Export** download mirrors whichever mode is active, so the sheet always matches the screen.
+
 ### Deleting / cancelling a sales order
 
 A trailing **Actions** column (always shown) carries a red **✕** on each removable order, and the same action lives in the **footer of the order detail view** (a **Delete draft** / **Cancel order** button). The action adapts to the order's status, mirroring the API rule that a non-draft SO is never hard-deleted:
