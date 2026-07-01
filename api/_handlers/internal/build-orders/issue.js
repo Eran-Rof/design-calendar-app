@@ -60,6 +60,7 @@ export default async function handler(req, res) {
       kind: "mfg_build_issue",
       entity_id: entity.id,
       created_by_user_id: actorUserId,
+      reason: `Manufacturing build issue ${build.build_number || id}`,
       data: {
         build_order_id: id,
         build_number: build.build_number,
