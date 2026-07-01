@@ -12,7 +12,7 @@
 //
 // No new API route — reuses the shared style-matrix endpoint. No migration.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets";
@@ -616,6 +616,37 @@ function SnapshotView({
   const toggleExpand = (key: string) =>
     setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
+  // Sticky bottom horizontal scrollbar. The grid can be far wider than the
+  // viewport; its native h-scrollbar sits at the bottom of the (tall) scroll box,
+  // so you'd have to scroll down to reach it. This proxy bar is pinned to the
+  // bottom of the viewport and scroll-synced both ways with the grid, so
+  // horizontal scrolling is always one reach away.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hbarRef = useRef<HTMLDivElement>(null);
+  const syncing = useRef(false);
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollW: 0, clientW: 0 });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setScrollMetrics({ scrollW: el.scrollWidth, clientW: el.clientWidth });
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [rows, explodePpk, mergePpk, showTotals, collapseCols]);
+  const onGridScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; b.scrollLeft = g.scrollLeft; }
+  };
+  const onBarScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; g.scrollLeft = b.scrollLeft; }
+  };
+  const showHBar = scrollMetrics.scrollW > scrollMetrics.clientW + 1;
+
   // ── Collapse / roll-up ────────────────────────────────────────────────────
   // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
   // other text column is dropped so its rows merge, and numerics are summed
@@ -704,7 +735,7 @@ function SnapshotView({
 
   return (
     <div>
-      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+      <div ref={scrollRef} onScroll={onGridScroll} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
             {/* Totals strip — above the column headers (ATS-modelled). Each
@@ -758,9 +789,9 @@ function SnapshotView({
                   background so rows don't bleed through. */}
               {show("image") && <th style={{ ...thStick, textAlign: "center" }}>Image</th>}
               {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => {
-                // "ATS Qty (Incl POs)" is the widest header — let it WRAP onto
-                // multiple lines (constrained width) so the column stays narrow.
-                const wrap = col.key === "ats_incl_po";
+                // The widest headers ("ATS Qty (Incl POs)", "Item Category") WRAP
+                // onto multiple lines (constrained width) so the column stays narrow.
+                const wrap = col.key === "ats_incl_po" || col.key === "category";
                 return (
                   <th key={col.key as string} onClick={() => onSort(col.key)}
                       style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: wrap ? "normal" : "nowrap", ...(wrap ? { maxWidth: 72, width: 72 } : {}), userSelect: "none" }}>
@@ -853,6 +884,15 @@ function SnapshotView({
           </tbody>
         </table>
       </div>
+      {/* Sticky bottom horizontal scrollbar — pinned to the viewport bottom and
+          scroll-synced with the grid above, so wide grids are always scrollable
+          without hunting for the native bar at the end of a tall list. */}
+      {showHBar && (
+        <div ref={hbarRef} onScroll={onBarScroll}
+          style={{ position: "sticky", bottom: 0, zIndex: 5, overflowX: "auto", overflowY: "hidden", height: 14, background: C.card, borderTop: `1px solid ${C.cardBdr}`, borderRadius: "0 0 10px 10px" }}>
+          <div style={{ width: scrollMetrics.scrollW, height: 1 }} />
+        </div>
+      )}
     </div>
   );
 }
