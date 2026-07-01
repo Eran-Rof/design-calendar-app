@@ -123,10 +123,6 @@ export function validateInsert(body) {
   };
 }
 
-// loose SKU key — strip non-alphanumerics + uppercase, for fuzzy std-cost match
-// (mirrors sales-orders/index.js so the two grids read costs the same way).
-function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
-
 // ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
 // Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
@@ -184,26 +180,26 @@ async function enrichPricing(admin, rows, styleFilter) {
     if (sku?.sku_code) allSkuCodes.add(sku.sku_code);
   }
 
-  // Standard (catalog) cost per sku_code from ip_item_avg_cost — exact + loose.
-  const stdCostBySku = new Map(), stdCostByLoose = new Map();
+  // Standard (catalog) cost + standard unit selling price per sku_code, resolved
+  // via the normalized-SKU RPC. ip_item_avg_cost stores a punctuation-collapsed
+  // sku_code, so an exact .in() match missed ~60% of lines; the RPC normalizes
+  // both sides (upper + alphanumeric-only) → ~89% coverage. stdSell feeds the
+  // sell fallback below (many PO styles have no customer/brand-list price).
+  const stdCostBySku = new Map(); // sku_code → cents (standard cost)
+  const stdSellBySku = new Map(); // sku_code → cents (standard unit selling price)
   if (allSkuCodes.size) {
     const skuList = [...allSkuCodes];
-    for (let i = 0; i < skuList.length; i += 100) {
-      const slice = skuList.slice(i, i + 100);
-      const { data: costs } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", slice);
-      for (const c of costs || []) {
-        if (c.avg_cost == null) continue;
-        const cents = Math.round(Number(c.avg_cost) * 100);
-        stdCostBySku.set(c.sku_code, cents);
-        const lk = looseKey(c.sku_code); if (!stdCostByLoose.has(lk)) stdCostByLoose.set(lk, cents);
+    for (let i = 0; i < skuList.length; i += 500) {
+      const slice = skuList.slice(i, i + 500);
+      const { data: resolved } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: slice });
+      for (const c of resolved || []) {
+        if (c.avg_cost != null && !stdCostBySku.has(c.input_sku)) stdCostBySku.set(c.input_sku, Math.round(Number(c.avg_cost) * 100));
+        if (c.standard_unit_price != null && !stdSellBySku.has(c.input_sku)) stdSellBySku.set(c.input_sku, Math.round(Number(c.standard_unit_price) * 100));
       }
     }
   }
-  const stdCostForSku = (sku) => {
-    if (!sku) return null;
-    if (stdCostBySku.has(sku)) return stdCostBySku.get(sku);
-    const lk = looseKey(sku); return stdCostByLoose.has(lk) ? stdCostByLoose.get(lk) : null;
-  };
+  const stdCostForSku = (sku) => (sku && stdCostBySku.has(sku) ? stdCostBySku.get(sku) : null);
+  const stdSellForSku = (sku) => (sku && stdSellBySku.has(sku) ? stdSellBySku.get(sku) : null);
 
   // Resolve the customer for any PO carrying a sales_order_id (sell pricing).
   const soIds = [...new Set(rows.map((r) => r.sales_order_id).filter(Boolean))];
@@ -262,12 +258,16 @@ async function enrichPricing(admin, rows, styleFilter) {
       priceNum += poPrice * qty; priceDen += qty;
       const std = stdCostForSku(l.sku_code);
       if (std != null) { stdNum += std * qty; stdDen += qty; }
-      // Sell: customer price → brand-default → skip (can't fabricate a sell).
+      // Sell: customer price → brand-default list → standard unit price
+      // (ip_item_avg_cost.standard_unit_price, per-SKU) → skip. The standard-price
+      // fallback covers styles with no customer/brand-list price (common: only
+      // ~38% of PO styles have a brand-list price).
       let sell = null;
       if (l.style_id) {
         if (custPrices && custPrices.get(l.style_id) != null) sell = custPrices.get(l.style_id);
         else if (brandDefaultByStyle.get(l.style_id) != null) sell = brandDefaultByStyle.get(l.style_id);
       }
+      if (sell == null) sell = stdSellForSku(l.sku_code);
       if (sell != null) { sellNum += sell * qty; sellDen += qty; }
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;

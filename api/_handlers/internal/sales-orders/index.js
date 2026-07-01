@@ -36,8 +36,6 @@ async function resolveDefaultEntity(admin) {
 
 // chunk a list into pages (Supabase .in() URL-length guard).
 function chunks(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
-// loose SKU key — strip non-alphanumerics + uppercase, for fuzzy avg-cost match.
-function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
 
 // Per-SO cost / sell / margin aggregates (operator ask: Avg cost, Avg sell,
 // Margin %, Margin $ columns). Cost source = ip_item_avg_cost (same source the
@@ -70,24 +68,20 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
     for (const it of data || []) itemById.set(it.id, it);
   }
 
-  // 3. Avg cost per sku_code (exact + loose), from ip_item_avg_cost.
+  // 3. Avg cost per sku_code from ip_item_avg_cost, via the normalized-SKU RPC.
+  // ip_item_avg_cost stores a punctuation-collapsed sku_code, so an exact .in()
+  // match missed ~60% of lines; the RPC normalizes both sides (upper +
+  // alphanumeric-only) so the cost resolves for ~89% of SKUs.
   const skus = [...new Set([...itemById.values()].map((it) => it.sku_code).filter(Boolean))];
-  const costBySku = new Map(), costByLoose = new Map();
-  for (const slice of chunks(skus, 100)) {
+  const costBySku = new Map();
+  for (const slice of chunks(skus, 500)) {
     if (!slice.length) continue;
-    const { data } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", slice);
+    const { data } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: slice });
     for (const r of data || []) {
-      if (r.avg_cost == null) continue;
-      const cents = Math.round(Number(r.avg_cost) * 100);
-      costBySku.set(r.sku_code, cents);
-      const lk = looseKey(r.sku_code); if (!costByLoose.has(lk)) costByLoose.set(lk, cents);
+      if (r.avg_cost != null && !costBySku.has(r.input_sku)) costBySku.set(r.input_sku, Math.round(Number(r.avg_cost) * 100));
     }
   }
-  const costForSku = (sku) => {
-    if (!sku) return null;
-    if (costBySku.has(sku)) return costBySku.get(sku);
-    const lk = looseKey(sku); return costByLoose.has(lk) ? costByLoose.get(lk) : null;
-  };
+  const costForSku = (sku) => (sku && costBySku.has(sku) ? costBySku.get(sku) : null);
 
   // 4. Qty-weighted aggregation per SO. styleFilter = case-insensitive substring
   // on style_code or sku_code; only narrows when it actually matches a line.
