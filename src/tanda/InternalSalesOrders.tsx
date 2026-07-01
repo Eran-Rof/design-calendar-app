@@ -1370,6 +1370,27 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     finally { setSubmitting(false); }
   }
 
+  // Reinstate a cancelled order — status returns to 'confirmed' (keeps its SO #).
+  async function reinstateSO() {
+    if (!so) return;
+    const ok = await confirmDialog(
+      "This order's status will change to confirmed.",
+      { confirmText: "Continue", title: `Reinstate ${so.so_number || "sales order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "confirmed" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Sales order ${so.so_number || ""} reinstated — status is now confirmed.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not reinstate: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
   // Record-payment dialog (credit-card orders). Manual record path; a future
   // hosted-payment/webhook flow can drive the same server endpoint.
   const [payOpen, setPayOpen] = useState(false);
@@ -1903,6 +1924,14 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
                 disabled={submitting}
                 title={so.status === "draft" ? "Permanently delete this draft order" : "Cancel this order (moves to cancelled, kept for history)"}
               >{so.status === "draft" ? "Delete draft" : "Cancel order"}</button>
+            )}
+            {!isNew && so != null && so.status === "cancelled" && (
+              <button
+                onClick={() => void reinstateSO()}
+                style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}
+                disabled={submitting}
+                title="Reinstate this cancelled order — its status returns to confirmed"
+              >Reinstate</button>
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
