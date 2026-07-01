@@ -24,6 +24,12 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
+
+// EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
+// scope so the grid-level toggle and the row expanders read/write one value.
+const EXPLODE_PPK_KEY = "tanda_matrix_explode_ppk";
+function readExplodePpk(): boolean { try { return localStorage.getItem(EXPLODE_PPK_KEY) !== "false"; } catch { return true; } }
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
@@ -136,7 +142,12 @@ export default function InternalPurchaseOrders() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  // Multi-select status filter (model after the SO grid). Empty = all statuses.
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  // Grid-level EXPLODE PPK toggle — one control drives every row expander
+  // (moved out of the individual detail rows). Persisted, shared with the tab.
+  const [explodePpk, setExplodePpk] = useState<boolean>(readExplodePpk);
+  useEffect(() => { try { localStorage.setItem(EXPLODE_PPK_KEY, explodePpk ? "true" : "false"); } catch { /* ignore */ } }, [explodePpk]);
   // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
   // click from the Vendor Scorecard lands here pre-filtered to that vendor.
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
@@ -231,7 +242,7 @@ export default function InternalPurchaseOrders() {
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
+      if (statusFilters.length) params.set("status", statusFilters.join(","));
       if (vendorFilter) params.set("vendor_id", vendorFilter);
       if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
       if (styleScope) params.set("style", styleScope);
@@ -242,14 +253,14 @@ export default function InternalPurchaseOrders() {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  const anyFilter = !!(statusFilter || vendorFilter || search.trim() || dateFrom || dateTo);
-  function clearFilters() { setStatusFilter(""); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo);
+  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
   // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
   // initializers above seeded from them, so leaving and returning to this panel
   // starts unfiltered instead of silently re-applying a stale search that can
   // hide the whole PO list. Runs once on mount.
   useEffect(() => { consumeDrillParams(["q", "vendor", "style"]); }, []);
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, vendorFilter, searchDebounced]);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {});
@@ -314,11 +325,16 @@ export default function InternalPurchaseOrders() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ width: 180 }}>
-          <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)}
-            options={[{ value: "", label: "All statuses" }, ...STATUSES.map((s) => ({ value: s, label: s }))]}
-            placeholder="All statuses" inputStyle={inputStyle} />
-        </div>
+        {/* Multi-select status filter (pick any combination) — mirrors the SO grid. */}
+        <MultiSelectDropdown
+          selected={statusFilters}
+          onChange={setStatusFilters}
+          options={STATUSES.map((s) => ({ value: s, label: s }))}
+          allLabel="All statuses"
+          placeholder="Search status…"
+          title="Filter by one or more statuses"
+          minWidth={180}
+        />
         <div style={{ width: 240 }}>
           <SearchableSelect value={vendorFilter || null} onChange={(v) => setVendorFilter(v)}
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
@@ -346,6 +362,14 @@ export default function InternalPurchaseOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        {/* Grid-level EXPLODE PPK toggle — controls every row's ▸ line detail
+            (moved here from inside each expander). Shared, persisted preference. */}
+        <label
+          title={explodePpk ? "Row detail shows prepack totals as units (packs × units-per-pack) with per-each cost. Click to switch to packs." : "Row detail shows prepack totals as packs. Click to explode to units + per-each cost."}
+          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${explodePpk ? "#A855F7" : C.cardBdr}`, background: explodePpk ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={explodePpk} onChange={(e) => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 12, height: 12 }} />
+          <span style={{ color: explodePpk ? "#C4B5FD" : C.textMuted, fontSize: 11, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
+        </label>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
@@ -424,7 +448,7 @@ export default function InternalPurchaseOrders() {
               {isOpen && (
                 <tr>
                   <td style={{ padding: 0, background: "#0b1220", borderBottom: `1px solid ${C.cardBdr}` }} colSpan={PO_COL_TOTAL}>
-                    <PoRowDetail poId={po.id} />
+                    <PoRowDetail poId={po.id} explode={explodePpk} />
                   </td>
                 </tr>
               )}
@@ -471,17 +495,16 @@ export default function InternalPurchaseOrders() {
 }
 
 // ── Row expander: per-style line detail ─────────────────────────────────────
-// Lazy-fetches the PO's lines and renders a per-style color×size matrix with an
-// EXPLODE PPK toggle. OFF → cells/totals are pack counts and the unit column is
-// the per-pack PO cost; ON → cells/totals are units (packs × units-per-pack) and
-// the unit column is the per-EACH cost. Ext $ is grain-safe either way (line
-// unit_cost_cents is per-pack, qty is packs, so Σ qty·unit is the same). Shares
-// the "tanda_matrix_explode_ppk" preference with the PO/Item Matrix tab.
+// Lazy-fetches the PO's lines and renders a per-style color×size matrix. The
+// EXPLODE PPK state is owned by the grid toolbar and passed in via `explode`:
+// OFF → cells/totals are pack counts and the unit column is the per-pack PO cost;
+// ON → cells/totals are units (packs × units-per-pack) and the unit column is the
+// per-EACH cost. Ext $ is grain-safe either way (line unit_cost_cents is per-pack,
+// qty is packs, so Σ qty·unit is the same).
 type PoDetailLine = {
   style_code: string | null; color: string | null; size: string | null;
   sku_code: string | null; qty_ordered: number; unit_cost_cents: number; lot_number: string | null;
 };
-const EXPLODE_PPK_KEY = "tanda_matrix_explode_ppk";
 // Apparel-ish size rank so grids read XS,S,M,L,XL… then numerics then alpha.
 const SIZE_RANK: Record<string, number> = { XXS: 0, XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, "2XL": 6, XXXL: 7, "3XL": 7, "4XL": 8 };
 function sizeSort(a: string, b: string): number {
@@ -494,11 +517,9 @@ function sizeSort(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-function PoRowDetail({ poId }: { poId: string }) {
+function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
   const [lines, setLines] = useState<PoDetailLine[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [explode, setExplode] = useState<boolean>(() => { try { return localStorage.getItem(EXPLODE_PPK_KEY) !== "false"; } catch { return true; } });
-  useEffect(() => { try { localStorage.setItem(EXPLODE_PPK_KEY, explode ? "true" : "false"); } catch { /* ignore */ } }, [explode]);
   useEffect(() => {
     let cancel = false;
     setLines(null); setErr(null);
@@ -539,14 +560,9 @@ function PoRowDetail({ poId }: { poId: string }) {
 
   return (
     <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
-        <label title={explode ? "Prepack totals shown as units (packs × units-per-pack) with per-each cost. Click to switch to packs." : "Prepack totals shown as packs. Click to explode to units + per-each cost."}
-          onClick={(e) => e.stopPropagation()}
-          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 6, border: `1px solid ${explode ? "#A855F7" : C.cardBdr}`, background: explode ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}>
-          <input type="checkbox" checked={explode} onChange={(e) => setExplode(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 12, height: 12 }} />
-          <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10, fontWeight: explode ? 700 : 400 }}>EXPLODE PPK</span>
-        </label>
+        <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>
       </div>
       {[...byStyle.entries()].map(([style, s]) => {
         const sizes = [...s.sizes].sort(sizeSort);

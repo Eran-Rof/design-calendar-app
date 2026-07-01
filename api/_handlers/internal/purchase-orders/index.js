@@ -295,7 +295,10 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
-    const status = (url.searchParams.get("status") || "").trim();
+    // Multi-status filter: `status` may be a comma-separated set (mirrors the SO
+    // grid's multi-select). Empty = all statuses.
+    const statusRaw = (url.searchParams.get("status") || "").trim();
+    const statuses = statusRaw ? statusRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const vendorId = (url.searchParams.get("vendor_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
     // Optional style scope for the Avg cost / Avg PO Price / Sell / Margin columns
@@ -305,7 +308,9 @@ export default async function handler(req, res) {
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
-    if (status && !STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    for (const s of statuses) {
+      if (!STATUSES.includes(s)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    }
 
     const venId = vendorId && UUID_RE.test(vendorId) ? vendorId : null;
     let data, error;
@@ -313,11 +318,12 @@ export default async function handler(req, res) {
       // All-field search (PO #, notes, vendor name/code, and any line's
       // description / SKU sku_code / style_code / description) runs in the
       // search_purchase_orders RPC so the line-level match never has to ship a
-      // large id.in.(…) URL. NULL brand = "all" unless enforcing.
+      // large id.in.(…) URL. NULL brand = "all" unless enforcing. The RPC takes a
+      // single status, so a multi-status set is filtered client-side below.
       ({ data, error } = await admin.rpc("search_purchase_orders", {
         p_entity_id: entity.id,
         p_q: q,
-        p_status: status || null,
+        p_status: statuses.length === 1 ? statuses[0] : null,
         p_vendor_id: venId,
         p_brand_id: activeBrandId(req),
         p_limit: limit,
@@ -329,12 +335,16 @@ export default async function handler(req, res) {
         .order("created_at", { ascending: false })
         .limit(limit);
       query = applyBrandScope(query, req);
-      if (status) query = query.eq("status", status);
+      if (statuses.length === 1) query = query.eq("status", statuses[0]);
+      else if (statuses.length > 1) query = query.in("status", statuses);
       if (venId) query = query.eq("vendor_id", venId);
       ({ data, error } = await query);
     }
     if (error) return res.status(500).json({ error: error.message });
-    const enriched = await enrichPricing(admin, data || [], styleScope);
+    let headers = data || [];
+    // The search RPC can't express a multi-status set, so narrow it client-side.
+    if (q && statuses.length > 1) { const set = new Set(statuses); headers = headers.filter((h) => set.has(h.status)); }
+    const enriched = await enrichPricing(admin, headers, styleScope);
     return res.status(200).json(enriched);
   }
 
