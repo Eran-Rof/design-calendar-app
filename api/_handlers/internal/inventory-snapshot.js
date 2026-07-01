@@ -88,7 +88,7 @@ async function fetchTandaOpenLines(admin, styleCodes) {
     for (let from = 0; from <= MAX_PO_ROWS; from += PAGE) {
       const { data, error } = await admin
         .from("po_line_items")
-        .select("item_number, qty_remaining, tanda_pos!inner(status)")
+        .select("item_number, qty_remaining, tanda_pos!inner(status, po_number)")
         .gt("qty_remaining", 0)
         .or(orExpr)
         .in("tanda_pos.status", TANDA_INBOUND_STATUSES)
@@ -281,7 +281,7 @@ export default async function handler(req, res) {
       fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand, warehouse_code").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status, order_date)").in("inventory_item_id", ids)),
-      fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
+      fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status, po_number)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
@@ -350,6 +350,13 @@ export default async function handler(req, res) {
       }
     }
     // On PO + In transit (native purchase_order_lines).
+    // The two PO models OVERLAP: the Xoro→Tangerine importer mirrors each Xoro
+    // `tanda_pos` PO into native `purchase_orders` with the SAME po_number. So a
+    // PO present in BOTH must be counted ONCE, or On PO doubles (155k vs ~88k).
+    // Tangerine (native) is the source of truth: count native, then add Xoro
+    // ONLY for POs not yet mirrored natively. Normalize po_number for matching.
+    const normPo = (s) => String(s || "").trim().toUpperCase();
+    const nativePoNums = new Set(polRows.map((r) => normPo(r.purchase_orders?.po_number)).filter(Boolean));
     for (const r of polRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
       const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0) * mult(r.inventory_item_id);
@@ -357,8 +364,10 @@ export default async function handler(req, res) {
       b.on_po += open;
       if (NATIVE_TRANSIT_STATUSES.includes(r.purchase_orders?.status)) b.in_transit += open;
     }
-    // On PO + In transit (Xoro mirror tanda_pos / po_line_items).
+    // On PO + In transit (Xoro mirror tanda_pos / po_line_items) — skip POs
+    // already counted from the native side (same po_number) to avoid double-count.
     for (const r of tandaLines) {
+      if (nativePoNums.has(normPo(r.tanda_pos?.po_number))) continue;
       const p = parseItemNumber(r.item_number);
       if (!p) continue;
       const itemId = idByTuple.get(tupleKey(p.style, p.color, p.size));
