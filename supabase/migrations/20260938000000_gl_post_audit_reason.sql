@@ -24,7 +24,18 @@
 -- Replace-in-place: same signature (payload jsonb) → uuid, same behaviour for
 -- every existing field. Only additions: read audit_* keys + set_config. Fully
 -- idempotent via CREATE OR REPLACE.
+--
+-- NOTE: the body references journal_entry_lines.memo_line_2. That column was
+-- meant to be added by 20260629C00000_je_memo_line_2.sql, but that file uses an
+-- UPPERCASE version segment ("...C...") that supabase db-push never applied —
+-- so on prod the column is MISSING and this function would fail (db-push HALT)
+-- without the guard below. We add the column idempotently here so the function
+-- is valid regardless of that migration's state. (Renumbered 20260937→20260938
+-- to avoid the already-merged 20260937000000_mfg_bom_component_cost.sql.)
 -- ════════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE journal_entry_lines
+  ADD COLUMN IF NOT EXISTS memo_line_2 text;
 
 CREATE OR REPLACE FUNCTION gl_post_journal_entry(payload jsonb)
 RETURNS uuid
