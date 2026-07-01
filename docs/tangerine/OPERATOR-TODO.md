@@ -2,7 +2,7 @@
 
 > Living list of items **blocked on the operator** — external accounts, credentials, env vars, business decisions, and go-live switches. Agents append here whenever a build hits an operator dependency (same discipline as updating BUILD-PROGRESS). Check items off / strike them as done.
 
-**Last updated:** 2026-06-09 (both Shopify stores pulled — done; added style-image repository for the 1,657 non-Shopify styles + API-auth hardening security follow-up)
+**Last updated:** 2026-06-30 (P27 Suite-SSO gateway: identity bridge + Microsoft front-door flag + cookie/refresh hardening + RBAC log warm-up — go-live switches below updated)
 
 ---
 
@@ -21,7 +21,7 @@
 
 | Item | Why | Detail |
 |---|---|---|
-| **Real auth on `/api/internal/*`** | Hardening after moving the app to the SSO-exempt custom domain `apps.ringoffire.com` | The app now lives at **apps.ringoffire.com** (no Vercel SSO — that fixed the recurring "Unexpected token '<'" / session-expiry outages). With SSO off, the internal API is gated only by the app's own login + a **client-bundled** `VITE_INTERNAL_API_TOKEN` — i.e. effectively reachable by URL. **Recommended:** add per-request auth (Supabase session/JWT) on `/api/internal/*` so data isn't exposed by URL alone. Not urgent, but should be done deliberately. Give the go-ahead and the agent will scope + build it. |
+| **Real auth on `/api/internal/*`** | Hardening after moving the app to the SSO-exempt custom domain `apps.ringoffire.com` | **Largely addressed by the P27 SSO epic (2026-06-30):** per-user JWT bridge (stable email identity #1514), silent refresh #1520, httpOnly cookie #1522, RBAC wired + `log` warming up (#1523). **Remaining to fully close it:** (a) flip `RBAC_MODE=enforce` after warm-up so **writes** require the per-user permission (currently fails-open); (b) the cookie XSS flip (above); (c) `strict` mode to reject unauthenticated callers on mapped routes. Until (a)/(c), the static `VITE_INTERNAL_API_TOKEN` still passes — that's the last gap. |
 
 ## 🟣 Data-quality repair (needs your go-ahead; agent builds it)
 
@@ -33,10 +33,12 @@
 
 | Switch | Effect | Pre-req |
 |---|---|---|
-| `RBAC_MODE` = `log` → `enforce` (Vercel) | Turns on per-user permission enforcement | First configure roles in 🔐 User Access; run `log` a few days to watch telemetry, then `enforce`. The per-user JWT prerequisite is now live (`TANGERINE_JWT_SECRET` set), so `enforce` is technically unblocked. |
+| `RBAC_MODE` = `log` → `enforce` (Vercel) | Turns on per-user permission enforcement | **`log` is now SET in prod (2026-06-30) and warming up** (activates on the next deploy, which #1523 carries). Watch the **coverage report** at `GET /api/internal/rbac/observations` (P27 #1523 — aggregated "user X would lose module:action") and **grant the listed permissions in 🔐 User Access** before flipping. Then `enforce` (fails-open on errors); `strict` last. Per-user JWT prereq is live (`TANGERINE_JWT_SECRET` set). |
 | `BRAND_SCOPE_MODE` = `log` → `enforce` (Vercel) | Activates ALL brand behavior, currently inert: brand/channel report filtering (C3), **M50 GL allocation auto-splitting** of postings into brand sub-accounts, and **P15 inventory pool separation** (FIFO draws from the brand pool). | **Sizable go-live — do the prereqs first (see the dedicated checklist below).** Run `log` first to watch telemetry, then `enforce`. Verify a brand-filtered report sums back to "All". |
 | Xoro cutover gates (P9) | Retire Xoro per area | 2 consecutive months reconciling within tolerance; first gate (Cash) ~2026-07-28. |
-| `VITE_TANGERINE_AS_HOME` = `true` (Vercel) | **Makes Tangerine the front door + retires the PLM launcher.** Root `/` then redirects to the standalone Tangerine login (`/login`, Microsoft-365 sign-in); from there users launch every other app via the 🧩 Apps menu. OFF today: `/` still shows the PLM launcher and `/login` is reachable directly for preview. | Build is done — flip when you're ready to retire the PLM launcher. Verify `/login` signs in and the 🧩 Apps menu reaches all apps first. Note: the other apps still use the username/password `plm_user` session for their own gating, so keep those credentials working (or migrate them) before fully dropping PLM. |
+| `VITE_TANGERINE_AS_HOME` = `true` (Vercel) | **Makes Tangerine the front door + retires the PLM launcher.** Root `/` then redirects to the standalone Tangerine login (`/login`, Microsoft-365 sign-in); from there users launch every other app via the 🧩 Apps menu. OFF today: `/` still shows the PLM launcher and `/login` is reachable directly for preview. | Build is done — flip when you're ready to retire the PLM launcher. **Flip together with `VITE_SUITE_SSO_FRONT_DOOR` (below) — that's the real SSO cutover.** Verify `/login` signs in and the 🧩 Apps menu reaches all apps first. Note: the other apps still use the username/password `plm_user` session for their own gating, so keep those credentials working (or migrate them) before fully dropping PLM. |
+| `VITE_SUITE_SSO_FRONT_DOOR` = `true` (Vercel) — **P27** | Makes **Tangerine require a Microsoft sign-in** instead of silently adopting the cloned PLM session (mints the per-user JWT + provisions identity). A **"Continue with launcher session" break-glass** link stays on the login for Entra outages. | **Default OFF; ships inert.** Blast radius is **only Tangerine** — PLM launcher + all other apps are unaffected (verified: flag read only in `Tangerine.tsx`). Prereq DONE: all 12 users confirmed on M365 (2026-06-30). **Flip together with `VITE_TANGERINE_AS_HOME`** so Microsoft becomes the single front door (no double login). Flipping it alone before Tangerine-is-home just re-adds an MS prompt to Tangerine with no upside. |
+| **Cookie-only JWT — XSS hardening flip (P27 4b, code follow-up not a flag)** | Stop *also* writing the per-user JWT to `localStorage`; rely on the httpOnly `tg_jwt` cookie (#1522) so XSS can't read the token. | **Pre-req = a 2-min PROD browser verify** (agent can't do it): after #1522 deploys, sign in with Microsoft → DevTools ▸ Application ▸ Cookies shows `tg_jwt` (HttpOnly) → `/api/internal/*` calls return 200 → (optional) delete `tangerine.auth_jwt` from Local Storage, reload, grids still load. Confirm that and the agent ships the one-line flip. Until verified, DON'T flip — the header path is the safety net. |
 
 ## 🟠 Module go-lives — config / data the operator must enter (the build is done)
 
