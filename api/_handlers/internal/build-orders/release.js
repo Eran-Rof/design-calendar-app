@@ -27,11 +27,19 @@ export default async function handler(req, res) {
   if (!build) return res.status(404).json({ error: "Build order not found" });
   if (build.status !== "draft") return res.status(409).json({ error: `Build is '${build.status}', not draft — already released.` });
 
-  // Resolve the BOM (explicit, else active for the finished item).
+  // Resolve the BOM (explicit, else the active BOM for the finished STYLE —
+  // falling back to the representative finished_item_id for pre-style BOMs).
   let bomId = build.bom_id;
   if (!bomId) {
-    const { data: activeBom } = await admin.from("mfg_bom")
-      .select("id").eq("entity_id", build.entity_id).eq("finished_item_id", build.finished_item_id).eq("status", "active").maybeSingle();
+    let activeBom = null;
+    if (build.finished_style_id) {
+      ({ data: activeBom } = await admin.from("mfg_bom")
+        .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).eq("status", "active").maybeSingle());
+    }
+    if (!activeBom) {
+      ({ data: activeBom } = await admin.from("mfg_bom")
+        .select("id").eq("entity_id", build.entity_id).eq("finished_item_id", build.finished_item_id).eq("status", "active").maybeSingle());
+    }
     if (!activeBom) return res.status(400).json({ error: "No BOM on this build and no active BOM for the finished style. Create/activate a BOM first." });
     bomId = activeBom.id;
   }
