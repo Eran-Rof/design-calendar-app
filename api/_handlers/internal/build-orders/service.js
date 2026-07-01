@@ -63,6 +63,7 @@ export default async function handler(req, res) {
       kind: "mfg_service_capitalized",
       entity_id: entity.id,
       created_by_user_id: actorUserId,
+      reason: `Capitalize service on build ${build.build_number || id}`,
       data: {
         build_order_id: id,
         component_id: comp.id,
