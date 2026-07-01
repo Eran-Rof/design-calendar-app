@@ -64,7 +64,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   for (const slice of chunks(itemIds, 200)) {
     if (!slice.length) continue;
     const { data } = await admin.from("ip_item_master")
-      .select("id, sku_code, style_code, size").in("id", slice);
+      .select("id, sku_code, style_code, size, style_id").in("id", slice);
     for (const it of data || []) itemById.set(it.id, it);
   }
 
@@ -74,14 +74,40 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   // alphanumeric-only) so the cost resolves for ~89% of SKUs.
   const skus = [...new Set([...itemById.values()].map((it) => it.sku_code).filter(Boolean))];
   const costBySku = new Map();
+  const stdSellBySku = new Map(); // sku_code → cents (standard unit selling price)
   for (const slice of chunks(skus, 500)) {
     if (!slice.length) continue;
     const { data } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: slice });
     for (const r of data || []) {
       if (r.avg_cost != null && !costBySku.has(r.input_sku)) costBySku.set(r.input_sku, Math.round(Number(r.avg_cost) * 100));
+      if (r.standard_unit_price != null && !stdSellBySku.has(r.input_sku)) stdSellBySku.set(r.input_sku, Math.round(Number(r.standard_unit_price) * 100));
     }
   }
   const costForSku = (sku) => (sku && costBySku.has(sku) ? costBySku.get(sku) : null);
+
+  // Sell fallback for lines with NO price on the order (draft / brand-new styles):
+  // most-recent actual sell → standard unit price → provisional (21%) placeholder,
+  // mirroring the PO grid. The order's own line price ALWAYS wins when present, so
+  // this only fills a $0/blank line so its Avg sell / Margin aren't understated.
+  const allStyleIds = [...new Set([...itemById.values()].map((it) => it.style_id).filter(Boolean))];
+  const recentSellByStyle = new Map();
+  const provisionalByStyle = new Map();
+  if (allStyleIds.length) {
+    const { data: recent } = await admin.rpc("recent_sell_by_style", { p_style_ids: allStyleIds });
+    for (const r of recent || []) if (r.unit_price_cents != null) recentSellByStyle.set(r.style_id, Number(r.unit_price_cents));
+    for (const slice of chunks(allStyleIds, 300)) {
+      const { data: prov } = await admin.from("provisional_style_prices")
+        .select("style_id, price_cents").in("style_id", slice).eq("is_active", true);
+      for (const p of prov || []) if (p.price_cents != null) provisionalByStyle.set(p.style_id, Number(p.price_cents));
+    }
+  }
+  const fallbackSell = (it) => {
+    if (!it) return null;
+    if (it.style_id && recentSellByStyle.has(it.style_id)) return recentSellByStyle.get(it.style_id);
+    if (it.sku_code && stdSellBySku.has(it.sku_code)) return stdSellBySku.get(it.sku_code);
+    if (it.style_id && provisionalByStyle.has(it.style_id)) return provisionalByStyle.get(it.style_id);
+    return null;
+  };
 
   // 4. Qty-weighted aggregation per SO. styleFilter = case-insensitive substring
   // on style_code or sku_code; only narrows when it actually matches a line.
@@ -102,8 +128,10 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   for (const l of lines) {
     const qty = Number(l.qty_ordered) || 0;
     if (qty <= 0) continue;
-    const unit = Number(l.unit_price_cents) || 0;
+    const rawUnit = Number(l.unit_price_cents) || 0;
     const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
+    // Order price wins; only fall back when the line carries no price.
+    const unit = rawUnit > 0 ? rawUnit : (fallbackSell(it) ?? 0);
     const cost = costForSku(it?.sku_code);
     const b = bucketFor(l.sales_order_id);
     // Exploded units: a PPK line stores PACKS at size = the pack token (PPK24);
