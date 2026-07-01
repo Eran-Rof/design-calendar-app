@@ -12,7 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SELECT = "id, style_id, customer_id, customer_style_number, notes, created_at, updated_at, customer:customers!style_customer_numbers_customer_id_fkey (id, name, code, customer_code)";
+const SELECT = "id, style_id, customer_id, customer_style_number, notes, created_at, updated_at, customer:customers!style_customer_numbers_customer_id_fkey (id, name, code, customer_code), style:style_master!style_customer_numbers_style_id_fkey (id, style_code, style_name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");

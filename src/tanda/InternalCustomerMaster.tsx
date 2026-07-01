@@ -489,7 +489,7 @@ interface ModalProps {
   onSaved: () => void;
   // Deep-link (from a contact-reminder notification): open straight to a tab /
   // contact and highlight a note.
-  initialTab?: "details" | "reps" | "gl" | "addresses" | "buyers" | "payable";
+  initialTab?: "details" | "reps" | "gl" | "addresses" | "buyers" | "payable" | "styles";
   initialContactId?: string | null;
   initialNoteId?: string | null;
 }
@@ -556,7 +556,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
   const [channels, setChannels] = useState<Channel[]>([]);
   const [priceLists, setPriceLists] = useState<{ id: string; code: string; name: string }[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
-  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers" | "payable">(initialTab ?? "details");
+  const [tab, setTab] = useState<"details" | "reps" | "gl" | "addresses" | "buyers" | "payable" | "styles">(initialTab ?? "details");
   // Which contact's notes panel is expanded (by contact id) on the AP/Trans/CB tab.
   const [notesOpenId, setNotesOpenId] = useState<string | null>(initialContactId ?? null);
   const [submitting, setSubmitting] = useState(false);
@@ -765,6 +765,7 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
             ["addresses", "Addresses & Locations"],
             ["buyers", "Buyers"],
             ["payable", "AP/Trans/CBs"],
+            ["styles", "Style numbers"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1104,6 +1105,15 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
           )}
         </div>
 
+        {/* Style numbers — this customer's private-label style numbers. Read-only
+            here (the source of truth + editing lives in Style Master → Customer
+            style numbers, and builds auto-mint them). */}
+        <div style={{ display: tab === "styles" ? "block" : "none" }}>
+          {mode === "edit" && customer
+            ? <CustomerStyleNumbers customerId={customer.id} />
+            : <div style={{ color: C.textMuted, fontSize: 13 }}>Save the customer first — style numbers are added from Style Master or auto-created when you build for this customer.</div>}
+        </div>
+
         {err && (
           <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>
             {err}
@@ -1136,6 +1146,48 @@ function CustomerFormModal({ mode, customer, paymentTerms, onClose, onSaved, ini
         </div>
       </div>
     </div>
+  );
+}
+
+// Read-only list of this customer's private-label style numbers, from the
+// shared style_customer_numbers junction (edited in Style Master; auto-created
+// when a build is made for the customer). Phase B.
+type ScnRow = { id: string; customer_style_number: string; notes: string | null; style?: { style_code?: string | null; style_name?: string | null } | null; style_id: string };
+function CustomerStyleNumbers({ customerId }: { customerId: string }) {
+  const [rows, setRows] = useState<ScnRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-customer-numbers?customer_id=${customerId}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (alive) setRows(Array.isArray(j) ? j : []);
+      } catch (e: unknown) { if (alive) setErr(e instanceof Error ? e.message : String(e)); }
+    })();
+    return () => { alive = false; };
+  }, [customerId]);
+  if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, fontSize: 12 }}>{err}</div>;
+  if (rows === null) return <div style={{ color: C.textMuted, fontSize: 13 }}>Loading…</div>;
+  if (rows.length === 0) return <div style={{ color: C.textMuted, fontSize: 13 }}>No style numbers yet for this customer. They're added in Style Master, or auto-created when you build a style for this customer.</div>;
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <thead><tr style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <th style={{ textAlign: "left", padding: "6px 8px" }}>Base style</th>
+        <th style={{ textAlign: "left", padding: "6px 8px" }}>Customer style #</th>
+        <th style={{ textAlign: "left", padding: "6px 8px" }}>Notes</th>
+      </tr></thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+            <td style={{ padding: "6px 8px", fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.style?.style_code || "—"}{r.style?.style_name ? <span style={{ color: C.textMuted, fontFamily: "inherit" }}> — {r.style.style_name}</span> : null}</td>
+            <td style={{ padding: "6px 8px", fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.customer_style_number}</td>
+            <td style={{ padding: "6px 8px", color: C.textMuted }}>{r.notes || "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

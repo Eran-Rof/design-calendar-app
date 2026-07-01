@@ -77,6 +77,12 @@ On submit, each filled cell resolves to (or auto-creates) that size's SKU and Ta
 
 If the finished item isn't style-backed (a one-off SKU), completion falls back to the original single-quantity path (`completed qty`, one layer).
 
+### Building for a customer (private label) + auto customer style number
+
+When you create a build you can optionally set **Build for customer** — the customer this run is being made for (private-label / made-to-order). Pick the customer and Tangerine pre-fills a **Customer style #** as `<customer code>-<base style>` (e.g. `CUST-00042-RYB0412`); you can edit it before saving. On create, that number is saved to the shared **customer style-number** register (`style_customer_numbers`) — the same one edited in **Style Master → Customer style numbers** and used to resolve a customer's own number on an incoming PO.
+
+It's **idempotent**: a customer has at most one number per base style, so if a mapping already exists it's kept (not overwritten). The build header shows *For &lt;customer&gt; · cust style &lt;number&gt;*, and every number for a customer is listed read-only under **Customer Master → Style numbers**. Leaving the customer blank keeps the build a normal for-stock build.
+
 **Delete a build (item 2).** Each **draft** or **cancelled** build row has a **Del** button. Deleting checks whether a **BOM is attached** (its components are snapshotted on Release): if so, a warning asks you to **continue or cancel** before it removes the build and its components (they cascade). Issued/in-progress/completed builds can't be deleted — cancel them first (and completed builds are immutable for GL integrity).
 
 > The printed tee: release pulls the blank tee + the print service into the build; issue draws the blank tee into WIP at FIFO cost; capitalize the printer's charge into WIP; complete creates the printed-tee inventory at *blank cost + print charge*. The PL jean works the same way, additionally consuming the base finished style.

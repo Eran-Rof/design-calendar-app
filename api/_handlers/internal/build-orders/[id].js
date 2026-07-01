@@ -69,10 +69,23 @@ export default async function handler(req, res) {
     const components = await decorateComponents(admin, id);
     // Phase A — per-size outputs (present once a matrix build is completed).
     const { data: outputs } = await admin.from("mfg_build_outputs").select("id, item_id, color, size, qty, unit_cost_cents").eq("build_order_id", id).order("created_at", { ascending: true });
+    // Phase B — customer this build is for + that customer's style number.
+    let customerName = null, customerStyleNumber = null;
+    if (build.customer_id) {
+      const { data: cust } = await admin.from("customers").select("name").eq("id", build.customer_id).maybeSingle();
+      customerName = cust?.name || null;
+      if (fi?.style_id) {
+        const { data: scn } = await admin.from("style_customer_numbers").select("customer_style_number")
+          .eq("style_id", fi.style_id).eq("customer_id", build.customer_id).maybeSingle();
+        customerStyleNumber = scn?.customer_style_number || null;
+      }
+    }
     return res.status(200).json({
       ...build,
       finished_item: fi || null,
       finished_style_id: fi?.style_id || null,
+      customer_name: customerName,
+      customer_style_number: customerStyleNumber,
       components,
       outputs: outputs || [],
       rollup: rollup(components),
