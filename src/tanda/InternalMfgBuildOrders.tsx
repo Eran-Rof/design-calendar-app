@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import QuickAddStyleModal from "./components/QuickAddStyleModal";
+import { EditableSizeMatrix, matrixCellKey, type EditableMatrixRow } from "../shared/matrix/EditableSizeMatrix";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
@@ -21,11 +22,14 @@ type Component = {
   component_code: string | null; component_label: string | null;
 };
 type Rollup = { parts_cost_cents: number; style_cost_cents: number; service_cost_cents: number; total_cents: number };
+type BuildOutput = { id: string; item_id: string; color: string | null; size: string | null; qty: number; unit_cost_cents: number };
 type Build = {
   id: string; build_number: string; finished_item_id: string; target_qty: number; completed_qty: number;
   status: "draft" | "released" | "issued" | "in_progress" | "completed" | "cancelled";
   accumulated_cost_cents: number; finished_unit_cost_cents: number | null;
-  finished_item?: { sku_code: string; description: string | null } | null;
+  finished_item?: { sku_code: string; description: string | null; color?: string | null } | null;
+  finished_style_id?: string | null;
+  outputs?: BuildOutput[];
   components?: Component[]; rollup?: Rollup;
 };
 
@@ -256,6 +260,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   const [build, setBuild] = useState<Build | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [completeOpen, setCompleteOpen] = useState(false);
 
   async function load() {
     try {
@@ -344,6 +349,22 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                 </tbody>
               </table>
 
+              {/* Produced by size (once a matrix build is completed). */}
+              {(build.outputs && build.outputs.length > 0) && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Produced (by size)</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr><th style={th}>Color</th><th style={th}>Size</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit cost</th></tr></thead>
+                    <tbody>
+                      {build.outputs.map((o) => (
+                        <tr key={o.id}><td style={td}>{o.color || "—"}</td><td style={td}>{o.size || "—"}</td><td style={{ ...td, textAlign: "right" }}>{o.qty}</td><td style={{ ...td, textAlign: "right" }}>{money(o.unit_cost_cents)}</td></tr>
+                      ))}
+                      <tr><td style={{ ...td, fontWeight: 600 }} colSpan={2}>Total</td><td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{build.outputs.reduce((s, o) => s + Number(o.qty), 0)}</td><td style={td} /></tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
             </>
           )}
@@ -354,11 +375,118 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
           {status === "draft" && <button disabled={busy} onClick={() => void act("release")} style={btnPrimary}>Release (snapshot BOM)</button>}
           {status === "released" && <button disabled={busy} onClick={() => void act("issue")} style={btnPrimary}>Issue components → WIP</button>}
           {status === "issued" && (
-            <button disabled={busy || !allServicesCapitalized} title={allServicesCapitalized ? "" : "Capitalize all service charges first"} onClick={async () => { if (await confirmDialog(`Complete build ${build?.build_number}? This moves WIP into finished-goods inventory.`)) void act("complete"); }} style={btnPrimary}>Complete → finished goods</button>
+            <button
+              disabled={busy || !allServicesCapitalized}
+              title={allServicesCapitalized ? "" : "Capitalize all service charges first"}
+              onClick={async () => {
+                // Style-backed finished good → enter a color x size matrix so
+                // stock lands per size. Otherwise complete the single item.
+                if (build?.finished_style_id) { setCompleteOpen(true); return; }
+                if (await confirmDialog(`Complete build ${build?.build_number}? This moves WIP into finished-goods inventory.`)) void act("complete");
+              }}
+              style={btnPrimary}
+            >Complete → finished goods</button>
           )}
           {(status === "draft" || status === "released" || status === "issued") && (
             <button disabled={busy} onClick={async () => { if (await confirmDialog(`Cancel build ${build?.build_number}?`)) { await fetch(`/api/internal/build-orders/${buildId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) }); await load(); onChanged(); } }} style={btnDanger}>Cancel build</button>
           )}
+        </div>
+      </div>
+
+      {completeOpen && build?.finished_style_id && (
+        <CompleteMatrixModal
+          styleId={build.finished_style_id}
+          buildNumber={build.build_number}
+          targetQty={build.target_qty}
+          defaultColor={build.finished_item?.color || null}
+          busy={busy}
+          onClose={() => setCompleteOpen(false)}
+          onSubmit={async (outputs) => { await act("complete", { outputs }); setCompleteOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Complete a style-backed build by entering the produced color x size matrix.
+// Reuses the shared EditableSizeMatrix (same grid as SO/PO entry). Each filled
+// cell becomes a finished-goods layer at completion (server resolves the SKU).
+function CompleteMatrixModal({ styleId, buildNumber, targetQty, defaultColor, busy, onClose, onSubmit }: {
+  styleId: string; buildNumber: string; targetQty: number; defaultColor: string | null; busy: boolean;
+  onClose: () => void; onSubmit: (outputs: { color: string | null; size: string; qty: number }[]) => void | Promise<void>;
+}) {
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-matrix?style_id=${styleId}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (!alive) return;
+        const szs: string[] = Array.isArray(j.sizes) ? j.sizes.filter(Boolean) : [];
+        let cols: string[] = Array.isArray(j.colors) ? j.colors.filter(Boolean) : [];
+        if (cols.length === 0) cols = [defaultColor || "—"];
+        setSizes(szs); setColors(cols);
+      } catch (e: unknown) { if (alive) setLoadErr(e instanceof Error ? e.message : String(e)); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [styleId, defaultColor]);
+
+  const rows: EditableMatrixRow[] = colors.map((c) => ({ key: c, color: c }));
+  const total = Object.values(qty).reduce((s, v) => s + (Number(v) || 0), 0);
+
+  // Convenience: split target evenly across the sizes of the default color.
+  function evenSplit() {
+    if (sizes.length === 0) return;
+    const rowKey = colors.includes(defaultColor || "") ? (defaultColor as string) : colors[0];
+    const per = Math.floor(targetQty / sizes.length);
+    const rem = targetQty - per * sizes.length;
+    const next = { ...qty };
+    sizes.forEach((sz, i) => { next[matrixCellKey(rowKey, sz)] = per + (i < rem ? 1 : 0); });
+    setQty(next);
+  }
+
+  function submit() {
+    const outputs: { color: string | null; size: string; qty: number }[] = [];
+    for (const c of colors) for (const sz of sizes) {
+      const v = Number(qty[matrixCellKey(c, sz)] || 0);
+      if (v > 0) outputs.push({ color: c === "—" ? (defaultColor || null) : c, size: sz, qty: v });
+    }
+    if (outputs.length === 0) { notify("Enter at least one produced quantity", "error"); return; }
+    void onSubmit(outputs);
+  }
+
+  return (
+    <div onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(940px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", color: C.text }}>
+        <div style={{ padding: "18px 20px", borderBottom: `1px solid ${C.cardBdr}`, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Complete {buildNumber} — produced by size</h3>
+          <button onClick={onClose} style={btnSecondary}>Close</button>
+        </div>
+        <div style={{ padding: "12px 20px", overflow: "auto", flex: 1 }}>
+          {loading ? <div style={{ color: C.textMuted, padding: 20 }}>Loading sizes…</div>
+            : loadErr ? <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, fontSize: 12 }}>{loadErr}</div>
+            : sizes.length === 0 ? <div style={{ color: C.warn, fontSize: 13 }}>This style has no size scale, so a size matrix can't be built. Close and complete the build without a matrix.</div>
+            : (
+              <>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, fontSize: 12, color: C.textMuted }}>
+                  <button onClick={evenSplit} style={btnSecondary}>Even-split target ({targetQty})</button>
+                  <span>Total produced: <b style={{ color: total === targetQty ? C.success : C.warn }}>{total}</b>{total !== targetQty ? <span style={{ color: C.textMuted }}> (target {targetQty})</span> : null}</span>
+                </div>
+                <EditableSizeMatrix rows={rows} sizes={sizes} qty={qty} onQtyChange={(rowKey, size, value) => setQty((p) => ({ ...p, [matrixCellKey(rowKey, size)]: value }))} />
+              </>
+            )}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: 16, borderTop: `1px solid ${C.cardBdr}`, background: C.card }}>
+          <button onClick={onClose} style={btnSecondary}>Cancel</button>
+          <button disabled={busy || loading || total <= 0} onClick={submit} style={btnPrimary}>Complete → finished goods</button>
         </div>
       </div>
     </div>

@@ -69,6 +69,14 @@ The lifecycle:
 
 The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
 
+### Completing by size — the produced color × size matrix
+
+A build usually makes a run of one style across **many sizes** (and colors) at once, and inventory is tracked **per size**. When the finished good is a **style-backed** item, pressing **Complete → finished goods** now opens a **produced-by-size matrix** — the same color × size grid used on sales-order and PO entry. Enter the quantity actually produced in each cell (an **Even-split target** button splits the target evenly across the sizes of the default colour as a starting point; you can then tweak, and the total is free to differ from the target to reflect real yield).
+
+On submit, each filled cell resolves to (or auto-creates) that size's SKU and Tangerine lands **one finished-goods FIFO layer per size** — so on-hand and future COGS are correct at size grain instead of dumped onto a single item. The accounting stays clean: the per-unit cost is **uniform** (`accumulated ÷ total units produced`), the finished-inventory **debit is split per size** (one line each, so the per-item subledger matches the layers), and the single **WIP credit** clears the whole accumulated cost — the journal entry balances exactly. The completed build lists what it produced under **Produced (by size)**.
+
+If the finished item isn't style-backed (a one-off SKU), completion falls back to the original single-quantity path (`completed qty`, one layer).
+
 **Delete a build (item 2).** Each **draft** or **cancelled** build row has a **Del** button. Deleting checks whether a **BOM is attached** (its components are snapshotted on Release): if so, a warning asks you to **continue or cancel** before it removes the build and its components (they cascade). Issued/in-progress/completed builds can't be deleted — cancel them first (and completed builds are immutable for GL integrity).
 
 > The printed tee: release pulls the blank tee + the print service into the build; issue draws the blank tee into WIP at FIFO cost; capitalize the printer's charge into WIP; complete creates the printed-tee inventory at *blank cost + print charge*. The PL jean works the same way, additionally consuming the base finished style.
