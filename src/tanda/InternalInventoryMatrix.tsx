@@ -406,7 +406,22 @@ type SnapshotRow = {
   on_po: number; in_transit: number; ats: number; ats_incl_po: number;
   sold: number; purchased: number; avg_cost_cents: number | null;
   sale_price_cents: number | null;
+  // Per-column transaction prices (per-each cents): On SO → open_so_price;
+  // Sold → sold_price; inventory/PO columns → current_price (most-recent SO).
+  open_so_price_cents?: number | null;
+  sold_price_cents?: number | null;
+  current_price_cents?: number | null;
 };
+
+// Which per-each price a given quantity column is valued at (per-column
+// transaction pricing). Returns cents or null (null → excluded from that
+// column's Avg Sale, so unpriced units never dilute it).
+function colPriceCents(r: SnapshotRow, k: string): number | null {
+  const v = k === "on_so" ? r.open_so_price_cents
+    : k === "sold" ? r.sold_price_cents
+    : r.current_price_cents; // on_hand / allocated / ats / ats_incl_po / on_po / purchased / in_transit
+  return (v == null || !Number.isFinite(v)) ? null : v;
+}
 // A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
 // (base + its PPK sibling combined) so the table can style it distinctly.
 // `_components` carries the underlying base-style + PPK-pack rows (already
@@ -519,24 +534,27 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
         const all = [...c.base, ...c.ppk];
         const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
-        const g: MergedRow & { _cost: number[]; _sale: number[] } = {
+        const g: MergedRow & { _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] } = {
           style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [] };
+          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
         for (const r of all) {
           if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
           if (r.color && !g.color) g.color = r.color;
           for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
           if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
           if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+          if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+          if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+          if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
         }
-        const { _cost, _sale, ...row } = g;
+        const { _cost, _sale, _openSo, _sold, _cur, ...row } = g;
         const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
         // Keep the underlying base + PPK rows (already per-unit) so the merged
         // line can be expanded (▾) to drill into its components; only those
         // carrying data are shown. They sum back to the merged totals exactly.
         const components = all.filter(hasData);
-        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), _components: components } as MergedRow);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), open_so_price_cents: avgOf(_openSo), sold_price_cents: avgOf(_sold), current_price_cents: avgOf(_cur), _components: components } as MergedRow);
       }
     }
     src = out;
@@ -549,7 +567,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
   //    collapse onto Item Category shows just the category, the rest blank).
   if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
   const keyDims = DIMS.filter((k) => collapseCols.has(k));
-  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[] };
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] };
   const map = new Map<string, G>();
   for (const r of src) {
     const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
@@ -559,19 +577,22 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
         sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null,
         _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
-        _sids: new Set(), _cost: [], _sale: [] };
+        _sids: new Set(), _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
       map.set(key, g);
     }
     for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
     for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
     if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
     if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+    if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+    if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+    if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
     if (r._merged) g._merged = true;
     g._sids.add(r.style_id);
   }
   const avgOf2 = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
   return [...map.values()].map((g) => {
-    const { _vals, _sids, _cost, _sale, ...row } = g;
+    const { _vals, _sids, _cost, _sale, _openSo, _sold, _cur, ...row } = g;
     const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
     return { ...row,
       style_id: _sids.size === 1 ? [..._sids][0] : "",
@@ -581,6 +602,9 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
       category: one("category"),
       avg_cost_cents: avgOf2(_cost),
       sale_price_cents: avgOf2(_sale),
+      open_so_price_cents: avgOf2(_openSo),
+      sold_price_cents: avgOf2(_sold),
+      current_price_cents: avgOf2(_cur),
     } as MergedRow;
   });
 }
@@ -686,14 +710,16 @@ function SnapshotView({
     for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; cQty[k] = 0; pQty[k] = 0; }
     for (const r of sorted) {
       const hasC = r.avg_cost_cents != null;
-      const hasP = r.sale_price_cents != null;
       const c = (r.avg_cost_cents ?? 0) / 100;
-      const p = (r.sale_price_cents ?? 0) / 100;
       for (const k of SNAP_SUM_COLS) {
         const v = num(r[k] as number);
         qty[k] += v;
         if (hasC) { cost[k] += v * c; cQty[k] += v; }
-        if (hasP) { wholesale[k] += v * p; pQty[k] += v; }
+        // Per-column transaction price: On SO uses the open-SO price, Sold the
+        // actual sold price, inventory/PO columns the current price. Unpriced
+        // rows are excluded from that column's average (no dilution).
+        const pc = colPriceCents(r, k);
+        if (pc != null) { wholesale[k] += v * (pc / 100); pQty[k] += v; }
       }
     }
     // Per-unit averages divide by the qty of rows that carry a cost/price — NOT
@@ -2051,11 +2077,19 @@ export default function InternalInventoryMatrix() {
       const qty: Record<string, number> = {};
       const cost: Record<string, number> = {};
       const whol: Record<string, number> = {};
-      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; }
+      const cQty: Record<string, number> = {}; // qty of rows with a cost
+      const pQty: Record<string, number> = {}; // qty of rows with a price (per column)
+      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; cQty[k] = 0; pQty[k] = 0; }
       for (const r of data) {
+        const hasC = (r as MergedRow).avg_cost_cents != null;
         const c = (num((r as MergedRow).avg_cost_cents) ?? 0) / 100;
-        const p = (num((r as MergedRow).sale_price_cents) ?? 0) / 100;
-        for (const k of SNAP_SUM_COLS) { const v = num((r as unknown as Record<string, number>)[k]); qty[k] += v; cost[k] += v * c; whol[k] += v * p; }
+        for (const k of SNAP_SUM_COLS) {
+          const v = num((r as unknown as Record<string, number>)[k]);
+          qty[k] += v;
+          if (hasC) { cost[k] += v * c; cQty[k] += v; }
+          const pc = colPriceCents(r as MergedRow, k);
+          if (pc != null) { whol[k] += v * (pc / 100); pQty[k] += v; }
+        }
       }
       const mkRow = (label: string, valOf: (k: string) => number): Record<string, unknown> => {
         const row: Record<string, unknown> = { style_code: label };
@@ -2067,8 +2101,8 @@ export default function InternalInventoryMatrix() {
         mkRow("TOTAL — Qty", (k) => qty[k]),
         mkRow("TOTAL — $ Cost", (k) => Math.round(cost[k])),
         mkRow("TOTAL — $ Wholesale", (k) => Math.round(whol[k])),
-        mkRow("AVG — Cost / unit", (k) => (qty[k] > 0 ? +(cost[k] / qty[k]).toFixed(2) : 0)),
-        mkRow("AVG — Sale / unit", (k) => (qty[k] > 0 ? +(whol[k] / qty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Cost / unit", (k) => (cQty[k] > 0 ? +(cost[k] / cQty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Sale / unit", (k) => (pQty[k] > 0 ? +(whol[k] / pQty[k]).toFixed(2) : 0)),
       ];
     },
     [snapVisibleRows, mergePpk, snapCollapse, snapTotals],
