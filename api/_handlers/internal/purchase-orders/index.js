@@ -123,19 +123,32 @@ export function validateInsert(body) {
   };
 }
 
-// ── List enrichment: per-PO Avg cost + Sell price ───────────────────────────
-// Decorates each PO header row with two qty-weighted, per-line aggregates so the
+// loose SKU key — strip non-alphanumerics + uppercase, for fuzzy std-cost match
+// (mirrors sales-orders/index.js so the two grids read costs the same way).
+function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+
+// ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
+// Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
-//   avg_cost_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's lines.
-//   sell_cents     — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
-//                    • if the PO is tied to a customer (sales_order_id →
-//                      sales_orders.customer_id) the M43 pricing engine resolves
-//                      the customer's price (own → assigned → tier → default);
-//                    • any style the customer path doesn't price (and every line
-//                      when there's no customer) falls back to that style's
-//                      BRAND DEFAULT list price (price_lists.brand_id = style's
-//                      brand, mirroring price-lists/style-cost.js).
-// styleFilter (style_code, case-insensitive) scopes BOTH aggregates to just that
+//   avg_cost_cents     — Σ(std_cost·qty) / Σ(qty). STANDARD/catalog cost from
+//                        ip_item_avg_cost (keyed by sku_code, exact then loose)
+//                        — the same source the Inventory Snapshot + SO grid use.
+//                        Lets the operator compare standard cost vs the actual
+//                        negotiated PO price (PO variance).
+//   avg_po_price_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's OWN
+//                        lines. The actual price this PO pays the vendor.
+//   sell_cents         — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
+//                        • if the PO is tied to a customer (sales_order_id →
+//                          sales_orders.customer_id) the M43 pricing engine resolves
+//                          the customer's price (own → assigned → tier → default);
+//                        • any style the customer path doesn't price (and every line
+//                          when there's no customer) falls back to that style's
+//                          BRAND DEFAULT list price (price_lists.brand_id = style's
+//                          brand, mirroring price-lists/style-cost.js).
+//   margin_cents/_pct  — Sell − Avg PO Price (the gross margin if sold at list,
+//                        priced against what this PO actually costs). Mirrors the
+//                        SO grid's Sell − Cost convention. null when sell is absent.
+// styleFilter (style_code, case-insensitive) scopes ALL aggregates to just that
 // style's lines — mirrors the grid's style search so the numbers match the view.
 async function enrichPricing(admin, rows, styleFilter) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
@@ -146,27 +159,51 @@ async function enrichPricing(admin, rows, styleFilter) {
     .in("purchase_order_id", poIds);
   const allLines = lines || [];
 
-  // SKU → { style_id, style_code } for every line item.
+  // SKU → { style_id, style_code, sku_code } for every line item.
   const itemIds = [...new Set(allLines.map((l) => l.inventory_item_id).filter(Boolean))];
   let skuById = new Map();
   if (itemIds.length) {
     const { data: skus } = await admin
-      .from("ip_item_master").select("id, style_id, style_code").in("id", itemIds);
+      .from("ip_item_master").select("id, style_id, style_code, sku_code").in("id", itemIds);
     skuById = new Map((skus || []).map((s) => [s.id, s]));
   }
   const styleNeedle = styleFilter ? String(styleFilter).trim().toLowerCase() : null;
 
-  // Group the (optionally style-filtered) lines under each PO, carrying style_id.
+  // Group the (optionally style-filtered) lines under each PO, carrying style_id
+  // + sku_code (sku_code drives the standard-cost lookup below).
   const linesByPo = new Map();
   const allStyleIds = new Set();
+  const allSkuCodes = new Set();
   for (const l of allLines) {
     const sku = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
     if (styleNeedle && !(sku?.style_code && String(sku.style_code).toLowerCase() === styleNeedle)) continue;
     const arr = linesByPo.get(l.purchase_order_id) || [];
-    arr.push({ ...l, style_id: sku?.style_id || null });
+    arr.push({ ...l, style_id: sku?.style_id || null, sku_code: sku?.sku_code || null });
     linesByPo.set(l.purchase_order_id, arr);
     if (sku?.style_id) allStyleIds.add(sku.style_id);
+    if (sku?.sku_code) allSkuCodes.add(sku.sku_code);
   }
+
+  // Standard (catalog) cost per sku_code from ip_item_avg_cost — exact + loose.
+  const stdCostBySku = new Map(), stdCostByLoose = new Map();
+  if (allSkuCodes.size) {
+    const skuList = [...allSkuCodes];
+    for (let i = 0; i < skuList.length; i += 100) {
+      const slice = skuList.slice(i, i + 100);
+      const { data: costs } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", slice);
+      for (const c of costs || []) {
+        if (c.avg_cost == null) continue;
+        const cents = Math.round(Number(c.avg_cost) * 100);
+        stdCostBySku.set(c.sku_code, cents);
+        const lk = looseKey(c.sku_code); if (!stdCostByLoose.has(lk)) stdCostByLoose.set(lk, cents);
+      }
+    }
+  }
+  const stdCostForSku = (sku) => {
+    if (!sku) return null;
+    if (stdCostBySku.has(sku)) return stdCostBySku.get(sku);
+    const lk = looseKey(sku); return stdCostByLoose.has(lk) ? stdCostByLoose.get(lk) : null;
+  };
 
   // Resolve the customer for any PO carrying a sales_order_id (sell pricing).
   const soIds = [...new Set(rows.map((r) => r.sales_order_id).filter(Boolean))];
@@ -214,13 +251,17 @@ async function enrichPricing(admin, rows, styleFilter) {
 
   for (const r of rows) {
     const myLines = linesByPo.get(r.id) || [];
-    let costNum = 0, costDen = 0, sellNum = 0, sellDen = 0;
+    // priceNum/Den → Avg PO Price (PO's own line cost); stdNum/Den → Avg cost
+    // (standard/catalog cost, only over lines that actually have one).
+    let priceNum = 0, priceDen = 0, stdNum = 0, stdDen = 0, sellNum = 0, sellDen = 0;
     const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
       if (qty <= 0) continue;
-      const cost = Number(l.unit_cost_cents) || 0;
-      costNum += cost * qty; costDen += qty;
+      const poPrice = Number(l.unit_cost_cents) || 0;
+      priceNum += poPrice * qty; priceDen += qty;
+      const std = stdCostForSku(l.sku_code);
+      if (std != null) { stdNum += std * qty; stdDen += qty; }
       // Sell: customer price → brand-default → skip (can't fabricate a sell).
       let sell = null;
       if (l.style_id) {
@@ -229,8 +270,17 @@ async function enrichPricing(admin, rows, styleFilter) {
       }
       if (sell != null) { sellNum += sell * qty; sellDen += qty; }
     }
-    r.avg_cost_cents = costDen > 0 ? Math.round(costNum / costDen) : null;
+    r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
+    r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
     r.sell_cents = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
+    // Margin = Sell − Avg PO Price (gross margin at list, against actual PO cost).
+    if (r.sell_cents != null && r.avg_po_price_cents != null) {
+      r.margin_cents = r.sell_cents - r.avg_po_price_cents;
+      r.margin_pct = r.sell_cents !== 0 ? Math.round((r.margin_cents / r.sell_cents) * 1000) / 10 : null;
+    } else {
+      r.margin_cents = null;
+      r.margin_pct = null;
+    }
   }
   return rows;
 }
@@ -248,8 +298,9 @@ export default async function handler(req, res) {
     const status = (url.searchParams.get("status") || "").trim();
     const vendorId = (url.searchParams.get("vendor_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
-    // Optional style scope for the Avg cost + Sell price columns — when set, both
-    // aggregates count only that style's lines (matches the grid's style search).
+    // Optional style scope for the Avg cost / Avg PO Price / Sell / Margin columns
+    // — when set, all aggregates count only that style's lines (matches the grid's
+    // style search).
     const styleScope = (url.searchParams.get("style") || "").trim() || null;
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
