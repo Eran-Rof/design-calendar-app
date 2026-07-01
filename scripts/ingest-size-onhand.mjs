@@ -325,6 +325,13 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   if (cells.length === 0) {
     return { ok: false, error: `no non-zero (color,size,store) cells for EXACT BasePartNumber '${styleCode}'`, code: 3 };
   }
+  // Non-sized styles (blank Size in REST — accessories / one-size samples like
+  // BP00001, FL00001) can't resolve a per-SIZE SKU. Skip the WHOLE style cleanly
+  // (partial cutover would make Σxoro_rest_size != REST and self-reverse anyway).
+  const blankSizeCells = cells.filter((c) => !String(c.size || "").trim());
+  if (blankSizeCells.length > 0) {
+    return { ok: false, error: `non-sized style (blank Size on ${blankSizeCells.length}/${cells.length} cells) — skipped (needs a size scale)`, code: 3, skip: true };
+  }
   const restTotal = cells.reduce((s, c) => s + c.qty, 0);
   const whTotals = {};
   for (const c of cells) whTotals[c.store] = (whTotals[c.store] || 0) + c.qty;
@@ -381,10 +388,25 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   const skuIds = [...new Set(skuByColorSize.values())];
   const { data: skuMeta, error: skuMetaErr } = await admin
     .from("ip_item_master")
-    .select("id, sku_code, color, size")
+    .select("id, sku_code, color, size, style_id")
     .in("id", skuIds);
   if (skuMetaErr) { return { ok: false, error: `load sku meta: ${skuMetaErr.message}`, code: 4 }; }
   const skuCodeById = new Map((skuMeta || []).map((r) => [r.id, r.sku_code]));
+
+  // GUARD (pre-write): every resolved SKU must belong to THIS style_id. For a
+  // SKU-less style_master row whose style_code is a size/gender-suffixed BP
+  // (e.g. RYB059432 = style RYB0594 + waist 32, RYB086934PL), resolveOrCreateSku
+  // can't find/create under the empty style and re-finds a FOREIGN SKU by the
+  // globally-unique sku_code — so layers would land on the parent style and the
+  // per-style reversal (scoped to THIS style's SKUs, which is empty) can't undo
+  // them → an un-reversible orphan double-count. Refuse the whole style instead.
+  const foreignSkus = (skuMeta || []).filter((r) => r.style_id !== styleId);
+  if (foreignSkus.length > 0) {
+    return {
+      ok: false, skip: true, code: 3,
+      error: `resolved ${foreignSkus.length}/${skuIds.length} SKU(s) belonging to a DIFFERENT style (e.g. ${foreignSkus[0].sku_code}) — SKU-less / sized-BP style, skipped to avoid orphan layers on the parent`,
+    };
+  }
 
   // Determine the location_id to stamp on new layers: reuse the location on the
   // style's existing layers (deterministic, single-location in prod); fallback
@@ -397,13 +419,22 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     .limit(1);
   let locationId = existLayerLoc && existLayerLoc[0] ? existLayerLoc[0].location_id : null;
   if (!locationId) {
+    // Zero-layer styles (brand-new SKUs with no prior on-hand) have no existing
+    // location to mirror. The ROF Main Warehouse code is WH-00000 (NOT MAIN_WH);
+    // fall back to it, then to ANY location for the entity as a last resort.
     const { data: mainWh } = await admin
       .from("inventory_locations")
       .select("id")
       .eq("entity_id", ROF_ENTITY_ID)
-      .eq("code", "MAIN_WH")
+      .eq("code", "WH-00000")
       .maybeSingle();
     locationId = mainWh?.id || null;
+    if (!locationId) {
+      const { data: anyLoc } = await admin
+        .from("inventory_locations")
+        .select("id").eq("entity_id", ROF_ENTITY_ID).order("code").limit(1);
+      locationId = anyLoc && anyLoc[0] ? anyLoc[0].id : null;
+    }
   }
   if (!locationId) { return { ok: false, error: `could not resolve a location_id for new layers`, code: 4 }; }
   console.log(`# location_id:   ${locationId}`);
@@ -435,14 +466,27 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   }
 
   // 2. Upsert tangerine_size_onhand: one row per (item_id, warehouse=Store).
-  const upsertRows = cells.map((cell) => ({
-    entity_id: ROF_ENTITY_ID,
-    item_id: skuByColorSize.get(`${cell.color}||${cell.size}`),
-    warehouse_code: cell.store, // ROF Main / ROF - ECOM kept SEPARATE
-    snapshot_date: snapshotDate,
-    qty_on_hand: cell.qty,
-    source: "xoro_rest",
-  }));
+  //    AGGREGATE by (item_id, warehouse): when two REST (color,size) cells
+  //    resolve to the SAME SKU (e.g. resolveOrCreateSku reuses one legacy
+  //    SML/LRG row for multiple REST sizes), naive per-cell rows collide on the
+  //    (entity,item,warehouse,snapshot,source) unique key → "ON CONFLICT DO
+  //    UPDATE command cannot affect row a second time". Sum the qty instead.
+  const upsertByKey = new Map();
+  for (const cell of cells) {
+    const itemId = skuByColorSize.get(`${cell.color}||${cell.size}`);
+    const key = `${itemId}||${cell.store}`;
+    const prev = upsertByKey.get(key);
+    if (prev) prev.qty_on_hand += cell.qty;
+    else upsertByKey.set(key, {
+      entity_id: ROF_ENTITY_ID,
+      item_id: itemId,
+      warehouse_code: cell.store, // ROF Main / ROF - ECOM kept SEPARATE
+      snapshot_date: snapshotDate,
+      qty_on_hand: cell.qty,
+      source: "xoro_rest",
+    });
+  }
+  const upsertRows = [...upsertByKey.values()];
   const { error: upErr } = await admin
     .from("tangerine_size_onhand")
     .upsert(upsertRows, { onConflict: "entity_id,item_id,warehouse_code,snapshot_date,source" });
@@ -470,22 +514,31 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     return out;
   };
 
-  // 4a. Capture the opening_balance layers we will zero (for exact reversal),
-  //     then UPDATE remaining_qty=0 (do NOT delete). Chunked over item_id.
+  // 4a. Capture the MIRROR-OWNED layers we will zero (for exact reversal), then
+  //     UPDATE remaining_qty=0 (do NOT delete). Chunked over item_id.
+  //     Mirror-owned = {opening_balance, xoro_onhand_sync}: both are synthetic
+  //     on-hand seeds that the per-SIZE xoro_rest_size layer SUPERSEDES. The
+  //     nightly xoro_onhand_sync (color-grain) manages ~70 styles; once a style
+  //     has xoro_rest_size the sync disqualifies it, so a leftover nonzero
+  //     xoro_onhand_sync layer would DOUBLE-COUNT (23 styles overlap the REST
+  //     feed). Native kinds (po_receipt/ap_invoice/adjustment/transfer_in/
+  //     manufacture/credit_memo_return) are legit stock and NEVER touched here.
+  const RETIRE_KINDS = ["opening_balance", "xoro_onhand_sync"];
   const obToZero = [];
   for (const ids of chunkIds(allStyleSkuIds)) {
     const { data: obLayers, error: obErr } = await admin
       .from("inventory_layers")
-      .select("id, item_id, original_qty, remaining_qty")
+      .select("id, item_id, original_qty, remaining_qty, source_kind")
       .eq("entity_id", ROF_ENTITY_ID)
       .in("item_id", ids)
-      .eq("source_kind", "opening_balance")
+      .in("source_kind", RETIRE_KINDS)
       .gt("remaining_qty", 0);
-    if (obErr) { return { ok: false, error: `load opening_balance layers: ${obErr.message}`, code: 5 }; }
+    if (obErr) { return { ok: false, error: `load mirror-owned (${RETIRE_KINDS.join("/")}) layers: ${obErr.message}`, code: 5 }; }
     for (const l of obLayers || []) obToZero.push(l);
   }
   const obZeroedTotal = obToZero.reduce((s, l) => s + Number(l.remaining_qty), 0);
-  console.log(`\n# ── REVERSAL LOG: opening_balance layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units) ──`);
+  const retiredByKind = obToZero.reduce((m, l) => ((m[l.source_kind] = (m[l.source_kind] || 0) + Number(l.remaining_qty)), m), {});
+  console.log(`\n# ── REVERSAL LOG: mirror-owned layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units; ${JSON.stringify(retiredByKind)}) ──`);
   for (const l of obToZero) {
     console.log(`#   layer ${l.id}  item ${l.item_id}  remaining_qty ${l.remaining_qty}  (original_qty ${l.original_qty})`);
   }
@@ -567,18 +620,33 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   console.log(`#   Σ remaining_qty (all nonzero layers): ${total}`);
   console.log(`#   by source_kind: ${JSON.stringify(byKind)}`);
   console.log(`#   by warehouse:   ${JSON.stringify(byWh)}`);
-  const okTotal = total === restTotal;
-  const okKinds = Object.keys(byKind).every((k) => k === "xoro_rest_size");
-  console.log(`#   total == REST (${restTotal}): ${okTotal ? "PASS" : "FAIL"}`);
-  console.log(`#   only xoro_rest_size nonzero: ${okKinds ? "PASS" : "FAIL"}`);
-  if (!okTotal || !okKinds) {
+  // The invariants this cutover OWNS are only two:
+  //   (1) the seed is retired  → NO opening_balance layer left nonzero, and
+  //   (2) our xoro_rest_size layers sum to EXACTLY the REST size-grain total.
+  // Any OTHER source_kind (transfer_in / adjustment / po_receipt / ap_invoice /
+  // manufacture / credit_memo_return) is LEGIT native on-hand this cutover must
+  // NOT touch — its presence is NOT a failure. (Earlier the check demanded "only
+  // xoro_rest_size" + total==REST, so a single legit transfer_in layer tripped a
+  // false FAIL and, in --batch, auto-reversed the whole style.)
+  const xoroRestTotal = byKind["xoro_rest_size"] || 0;
+  const mirrorRemaining = (byKind["opening_balance"] || 0) + (byKind["xoro_onhand_sync"] || 0);
+  const nativeKinds = Object.keys(byKind).filter((k) => k !== "xoro_rest_size" && k !== "opening_balance" && k !== "xoro_onhand_sync");
+  const nativeTotal = nativeKinds.reduce((s, k) => s + byKind[k], 0);
+  const okRest = xoroRestTotal === restTotal;
+  const okSeedRetired = mirrorRemaining === 0;
+  console.log(`#   Σ xoro_rest_size == REST (${restTotal}): ${okRest ? "PASS" : "FAIL"} (got ${xoroRestTotal})`);
+  console.log(`#   mirror seed retired (opening_balance+xoro_onhand_sync 0 remaining): ${okSeedRetired ? "PASS" : "FAIL"} (got ${mirrorRemaining})`);
+  if (nativeTotal > 0) {
+    console.log(`#   ℹ preserved ${nativeTotal} units on native layers (${nativeKinds.join(", ")}) — untouched by design.`);
+  }
+  if (!okRest || !okSeedRetired) {
     return {
       ok: false,
-      error: `POST-APPLY VERIFY FAILED (total=${total} restTotal=${restTotal} byKind=${JSON.stringify(byKind)})`,
+      error: `POST-APPLY VERIFY FAILED (xoro_rest_size=${xoroRestTotal} restTotal=${restTotal} mirror_remaining=${mirrorRemaining} byKind=${JSON.stringify(byKind)})`,
       code: 8, manifest, manifestPath, byKind, byWh, restTotal, total,
     };
   }
-  return { ok: true, restTotal, byKind, byWh, manifest, manifestPath, total };
+  return { ok: true, restTotal, byKind, byWh, manifest, manifestPath, total, xoroRestTotal, nativeTotal };
 }
 
 // reverseStyle: undo ONE style given its applyStyle manifest. Restores each
