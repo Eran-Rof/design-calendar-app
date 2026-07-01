@@ -196,6 +196,11 @@ export default async function handler(req, res) {
           category: st?.category_name || st?.group_name || null,
           on_hand: 0, on_hand_ats: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0,
           sold: 0, purchased: 0, _costCents: [], _salePx: [],
+          // P27/#1541 per-column transaction pricing (all per-EACH, cents):
+          //   open-SO value → On SO column price; sold value (sales history) →
+          //   Sold column price; most-recent SO line → "current" price for the
+          //   inventory/PO columns (On Hand/Allocated/ATS/On PO/Purchased/In Transit).
+          _openSoValC: 0, _openSoEa: 0, _soldValC: 0, _soldEa: 0, _curDate: null, _curCents: null,
         };
         buckets.set(k, b);
       }
@@ -275,11 +280,11 @@ export default async function handler(req, res) {
     const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
       fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand, warehouse_code").in("item_id", ids)),
-      fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status)").in("inventory_item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status, order_date)").in("inventory_item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
-      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty, channel_id").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
-      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty, channel_id").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("received_date", from); if (to) q = q.lte("received_date", to); return q; }),
       fetchBills(),
       fetchAvg(),
@@ -327,10 +332,21 @@ export default async function handler(req, res) {
       const qOrd = Number(r.qty_ordered) || 0;
       const px = Number(r.unit_price_cents) || 0;
       if (qOrd > 0 && px > 0) b._salePx.push({ q: qOrd * m, c: px / m });
+      // "Current" selling price = the most-recent SO line's per-each price
+      // (px/m). Drives the inventory/PO columns, which have no sale of their own.
+      if (px > 0) {
+        const od = r.sales_orders?.order_date || null;
+        if (b._curDate == null || (od && od > b._curDate)) { b._curDate = od; b._curCents = px / m; }
+      }
       const status = r.sales_orders?.status;
       if (OPEN_SO_STATUSES.includes(status)) {
-        const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_shipped) || 0), 0) * m;
-        if (open > 0) b.on_so += open;
+        const rawOpen = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_shipped) || 0), 0); // packs (pre-explode)
+        if (rawOpen > 0) {
+          b.on_so += rawOpen * m;
+          // On-SO column price: total open $ ÷ open eaches = per-each avg of the
+          // OPEN orders (not the lifetime avg — which included old markdowns).
+          if (px > 0) { b._openSoValC += rawOpen * px; b._openSoEa += rawOpen * m; }
+        }
       }
     }
     // On PO + In transit (native purchase_order_lines).
@@ -357,8 +373,11 @@ export default async function handler(req, res) {
     // Sold — warehouse-filtered via the channel→warehouse map (a sale's channel
     // is its Xoro store = a Tangerine warehouse). A row whose channel doesn't map
     // to the selected warehouse is skipped.
-    for (const r of whRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.qty) || 0) * mult(r.sku_id); }
-    for (const r of ecRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.net_qty) || 0) * mult(r.sku_id); }
+    // Sold-column price = net sales revenue ÷ eaches sold (PPK-safe: net_amount
+    // is the line total, eaches = qty × units-per-pack). This is the ACTUAL price
+    // things sold at, per each — what the Sold column's Avg Sale should show.
+    for (const r of whRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (!b) continue; const ea = (Number(r.qty) || 0) * mult(r.sku_id); b.sold += ea; const nc = Math.round((Number(r.net_amount) || 0) * 100); if (ea > 0 && nc > 0) { b._soldValC += nc; b._soldEa += ea; } }
+    for (const r of ecRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (!b) continue; const ea = (Number(r.net_qty) || 0) * mult(r.sku_id); b.sold += ea; const nc = Math.round((Number(r.net_amount) || 0) * 100); if (ea > 0 && nc > 0) { b._soldValC += nc; b._soldEa += ea; } }
     // Purchased — Xoro receipts + Tangerine AP vendor-bill lines (date-ranged).
     for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += (Number(r.qty) || 0) * mult(r.sku_id); }
     for (const l of billBundle.billLines) {
@@ -404,11 +423,18 @@ function finalizeRow(b) {
   const sale_price_cents = spQty > 0
     ? Math.round(b._salePx.reduce((s, x) => s + x.q * x.c, 0) / spQty)
     : null;
+  // Per-column transaction prices (all per-each cents). Inventory/PO columns use
+  // the "current" price (most-recent SO line); fall back to the lifetime avg when
+  // a colour has never been on an SO with a date.
+  const open_so_price_cents = b._openSoEa > 0 ? Math.round(b._openSoValC / b._openSoEa) : null;
+  const sold_price_cents = b._soldEa > 0 ? Math.round(b._soldValC / b._soldEa) : null;
+  const current_price_cents = b._curCents != null ? Math.round(b._curCents) : sale_price_cents;
   return {
     style_id: b.style_id, style_code: b.style_code, description: b.description,
     color: b.color, category: b.category,
     on_hand: b.on_hand, allocated: b.allocated, on_so: b.on_so,
     on_po: b.on_po, in_transit: b.in_transit, ats, ats_incl_po,
     sold: b.sold, purchased: b.purchased, avg_cost_cents, sale_price_cents,
+    open_so_price_cents, sold_price_cents, current_price_cents,
   };
 }
