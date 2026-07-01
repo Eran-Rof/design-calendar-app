@@ -20,8 +20,11 @@ type Component = {
   qty_required: number; qty_consumed: number; actual_cost_cents: number;
   service_charge_cents: number | null; service_capitalized: boolean; service_vendor_name: string | null;
   component_code: string | null; component_label: string | null;
+  // #8 — projected (pre-capitalize) cost derived from master defaults / avg cost.
+  projected_unit_cost_cents?: number | null; projected_cost_cents?: number | null;
 };
-type Rollup = { parts_cost_cents: number; style_cost_cents: number; service_cost_cents: number; total_cents: number };
+type ProjRollup = { parts_cost_cents: number; style_cost_cents: number; service_cost_cents: number; total_cents: number; has_estimate: boolean; missing_costs: number };
+type Rollup = { parts_cost_cents: number; style_cost_cents: number; service_cost_cents: number; total_cents: number; projected?: ProjRollup };
 type BuildOutput = { id: string; item_id: string; color: string | null; size: string | null; qty: number; unit_cost_cents: number };
 type Build = {
   id: string; build_number: string; finished_item_id: string; target_qty: number; completed_qty: number;
@@ -236,12 +239,14 @@ function CustomerPicker({ onChange }: { onChange: (cust: CustLite | null) => voi
 // the operator can plan the run by size at build creation. Reports the filled
 // cells + total up to the parent. Falls back to a note when the style has no
 // scale (parent then shows a plain target field).
+type StyleSku = { color: string | null; size: string | null; on_hand_qty?: number | null };
 function PlannedSizeMatrix({ styleId, defaultColor, onChange }: {
   styleId: string; defaultColor: string | null;
   onChange: (outputs: { color: string | null; size: string; qty: number }[], total: number, hasScale: boolean) => void;
 }) {
   const [sizes, setSizes] = useState<string[]>([]);
   const [colors, setColors] = useState<string[]>([]);
+  const [onHand, setOnHand] = useState<Record<string, number>>({});
   const [qty, setQty] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -256,7 +261,17 @@ function PlannedSizeMatrix({ styleId, defaultColor, onChange }: {
         const szs: string[] = Array.isArray(j.sizes) ? j.sizes.filter(Boolean) : [];
         let cols: string[] = Array.isArray(j.colors) ? j.colors.filter(Boolean) : [];
         if (cols.length === 0) cols = [defaultColor || "—"];
-        setSizes(szs); setColors(cols);
+        // #10 — build a per-(color,size) on-hand map so each FG cell shows a
+        // faint on-hand hint (mirrors SO entry). Cells with no color fold onto
+        // the single "—" row when the style has no colour scale.
+        const oh: Record<string, number> = {};
+        for (const s of (Array.isArray(j.skus) ? j.skus : []) as StyleSku[]) {
+          if (!s.size) continue;
+          const rowKey = cols.includes(s.color || "") ? (s.color as string) : cols[0];
+          const k = matrixCellKey(rowKey, s.size);
+          oh[k] = (oh[k] || 0) + (Number(s.on_hand_qty) || 0);
+        }
+        setSizes(szs); setColors(cols); setOnHand(oh);
       } catch (e: unknown) { if (alive) setLoadErr(e instanceof Error ? e.message : String(e)); }
       finally { if (alive) setLoading(false); }
     })();
@@ -276,7 +291,122 @@ function PlannedSizeMatrix({ styleId, defaultColor, onChange }: {
   if (loadErr) return <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>{loadErr}</div>;
   if (sizes.length === 0) return <div style={{ color: C.warn, fontSize: 12 }}>No size scale on this style — enter a total quantity below.</div>;
   const rows: EditableMatrixRow[] = colors.map((c) => ({ key: c, color: c }));
-  return <EditableSizeMatrix rows={rows} sizes={sizes} qty={qty} onQtyChange={(rowKey, size, value) => setQty((p) => ({ ...p, [matrixCellKey(rowKey, size)]: value }))} />;
+  return <EditableSizeMatrix rows={rows} sizes={sizes} qty={qty} onHand={onHand} onHandTitle="finished-goods on-hand" onQtyChange={(rowKey, size, value) => setQty((p) => ({ ...p, [matrixCellKey(rowKey, size)]: value }))} />;
+}
+
+// #1/#2/#10 — BOM-driven state for the New Build modal.
+type BomLite = {
+  id: string; finished_style_id: string | null; customer_id: string | null; customer_name: string | null;
+  status: "draft" | "active" | "archived"; version: number | null; component_count?: number;
+};
+type BomComponentLite = {
+  component_kind: "part" | "service" | "finished_style";
+  part_id: string | null; service_item_id: string | null; component_item_id: string | null;
+  qty_per_unit: number; scrap_pct: number;
+  component_code: string | null; component_label: string | null;
+};
+type BomDetail = BomLite & { components: BomComponentLite[] };
+type PartAvail = { part_id: string; code: string | null; name: string; uom: string | null; on_hand_qty: number };
+
+// #10 — parts + services availability under the FG plan. For each PART component
+// of the active BOM: required = qty_per_unit × (1 + scrap%) × plan total units;
+// ATU = aggregate part on-hand from /part-inventory (per-size part data is NOT
+// available from existing endpoints, so this is an AGGREGATE first version —
+// on-PO is likewise not exposed, so we show on-hand only). Warns when required
+// exceeds on-hand (informational; never blocks the build).
+function BuildAvailability({ bom, planTotal }: { bom: BomDetail; planTotal: number }) {
+  const [avail, setAvail] = useState<Record<string, PartAvail>>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true; setLoading(true);
+    (async () => {
+      try {
+        // One fetch of on-hand parts (include_zero so parts we hold none of still
+        // resolve to 0 rather than "unknown").
+        const r = await fetch(`/api/internal/part-inventory?include_zero=true`);
+        if (r.ok) {
+          const rows = (await r.json()) as PartAvail[];
+          if (!alive) return;
+          const by: Record<string, PartAvail> = {};
+          for (const p of Array.isArray(rows) ? rows : []) by[p.part_id] = p;
+          setAvail(by);
+        }
+      } catch { /* leave availability unknown */ }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [bom.id]);
+
+  const parts = bom.components.filter((c) => c.component_kind === "part");
+  const services = bom.components.filter((c) => c.component_kind === "service");
+  const styleComps = bom.components.filter((c) => c.component_kind === "finished_style");
+  const units = planTotal > 0 ? planTotal : 0;
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      {/* Parts availability */}
+      {parts.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Parts availability {units > 0 ? <span style={{ color: C.textMuted, fontWeight: 400 }}>· for {units} unit{units === 1 ? "" : "s"}</span> : null}</Lbl>
+          <div style={{ background: "#0F172A", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr>
+                <th style={th}>Part</th>
+                <th style={{ ...th, textAlign: "right" }}>Per unit</th>
+                <th style={{ ...th, textAlign: "right" }}>Required</th>
+                <th style={{ ...th, textAlign: "right" }}>On-hand</th>
+                <th style={th}></th>
+              </tr></thead>
+              <tbody>
+                {parts.map((c, i) => {
+                  const perUnit = Number(c.qty_per_unit) * (1 + Number(c.scrap_pct) / 100);
+                  const required = units > 0 ? perUnit * units : 0;
+                  const a = c.part_id ? avail[c.part_id] : undefined;
+                  const onHand = a?.on_hand_qty ?? (loading ? null : 0);
+                  const short = onHand != null && units > 0 && required > onHand;
+                  const fmt = (n: number) => Number.isInteger(n) ? String(n) : n.toFixed(2);
+                  return (
+                    <tr key={i}>
+                      <td style={td}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? <span style={{ color: C.textSub }}> — {c.component_label}</span> : null}{a?.uom ? <span style={{ color: C.textMuted }}> ({a.uom})</span> : null}</td>
+                      <td style={{ ...td, textAlign: "right", color: C.textSub }}>{fmt(perUnit)}</td>
+                      <td style={{ ...td, textAlign: "right", color: short ? C.warn : C.text }}>{units > 0 ? fmt(required) : "—"}</td>
+                      <td style={{ ...td, textAlign: "right", color: C.textSub }}>{onHand == null ? "…" : fmt(onHand)}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{short ? <span style={{ color: C.warn, fontSize: 11 }} title="Building from inventory you don't have">⚠ short {fmt(required - (onHand || 0))}</span> : (onHand != null && units > 0 ? <span style={{ color: C.success, fontSize: 11 }}>✓</span> : null)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>On-hand is an aggregate across sizes/warehouses (per-size part inventory and on-PO are not yet exposed). Shortages warn only — they don't block the build.</div>
+        </div>
+      )}
+
+      {/* Consumed finished-styles (sub-assemblies), if any */}
+      {styleComps.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Consumed styles</Lbl>
+          <div style={{ background: "#0F172A", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 10px", fontSize: 12, color: C.textSub }}>
+            {styleComps.map((c, i) => (
+              <div key={i}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? ` — ${c.component_label}` : ""} · {Number(c.qty_per_unit)}/unit</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Services — labor, no inventory/ATU */}
+      {services.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Services (labor — no inventory)</Lbl>
+          <div style={{ background: "#0F172A", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 10px", fontSize: 12, color: C.textSub }}>
+            {services.map((c, i) => (
+              <div key={i}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? ` — ${c.component_label}` : ""}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
@@ -295,6 +425,73 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [customer, setCustomer] = useState<CustLite | null>(null);
   const [custStyleNumber, setCustStyleNumber] = useState("");
   const [custStyleTouched, setCustStyleTouched] = useState(false);
+  // #1/#2 — the style's usable (active) BOM gates the build. bomState tracks the
+  // fetch; activeBom is the resolved BOM detail (with components) once available.
+  const [bomState, setBomState] = useState<"idle" | "loading" | "no-bom" | "draft-only" | "active" | "activating">("idle");
+  const [activeBom, setActiveBom] = useState<BomDetail | null>(null);
+  const [custTouched, setCustTouched] = useState(false); // operator picked a customer manually → don't auto-clobber
+
+  // #1/#2 — after a style is picked, load its BOMs. Prefer an ACTIVE BOM (choose
+  // the one matching an already-selected customer, else a generic one). If only
+  // a DRAFT exists, offer to activate it. If none, block the build.
+  const resolveBom = useCallback(async (styleId: string, forCustomerId: string | null) => {
+    setBomState("loading"); setActiveBom(null);
+    try {
+      const r = await fetch(`/api/internal/mfg-boms`); // all non-archived
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const all = (await r.json()) as BomLite[];
+      const mine = (Array.isArray(all) ? all : []).filter((b) => b.finished_style_id === styleId);
+      if (mine.length === 0) { setBomState("no-bom"); return; }
+      const actives = mine.filter((b) => b.status === "active");
+      // Prefer customer-matched active, then generic (no customer), then any active.
+      const pick = actives.find((b) => forCustomerId && b.customer_id === forCustomerId)
+        || actives.find((b) => !b.customer_id)
+        || actives[0];
+      if (pick) {
+        const d = await fetch(`/api/internal/mfg-boms/${pick.id}`);
+        if (d.ok) { setActiveBom((await d.json()) as BomDetail); setBomState("active"); return; }
+      }
+      // No active BOM — is there a draft we can activate?
+      if (mine.some((b) => b.status === "draft")) { setBomState("draft-only"); return; }
+      setBomState("no-bom");
+    } catch { setBomState("no-bom"); }
+  }, []);
+
+  // #1 — activate a draft BOM in place (PATCH → status:active), then re-resolve.
+  async function activateDraft() {
+    if (!finishedStyleId) return;
+    const ok = await confirmDialog("This style's BOM is still Draft. Activate it now so it can be built?");
+    if (!ok) return;
+    setBomState("activating");
+    try {
+      const r = await fetch(`/api/internal/mfg-boms`);
+      const all = r.ok ? ((await r.json()) as BomLite[]) : [];
+      const draft = (Array.isArray(all) ? all : []).find((b) => b.finished_style_id === finishedStyleId && b.status === "draft");
+      if (!draft) { notify("No draft BOM found to activate — pick another style.", "error"); setBomState("no-bom"); return; }
+      const patch = await fetch(`/api/internal/mfg-boms/${draft.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "active" }) });
+      if (!patch.ok) throw new Error((await patch.json().catch(() => ({}))).error || `HTTP ${patch.status}`);
+      notify("BOM activated.", "success");
+      await resolveBom(finishedStyleId, customer?.id ?? null);
+    } catch (e: unknown) { notify(`Activate failed: ${e instanceof Error ? e.message : String(e)}`, "error"); setBomState("draft-only"); }
+  }
+
+  // Re-resolve when the style or the picked customer changes (a customer-specific
+  // BOM may exist), so #2 auto-population tracks the current customer.
+  useEffect(() => {
+    if (!finishedStyleId) { setBomState("idle"); setActiveBom(null); return; }
+    void resolveBom(finishedStyleId, customer?.id ?? null);
+  }, [finishedStyleId, customer?.id, resolveBom]);
+
+  // #2 — when the resolved active BOM is customer-specific and the operator
+  // hasn't picked a customer, auto-populate "Build for customer" from the BOM.
+  useEffect(() => {
+    if (custTouched) return;
+    if (bomState === "active" && activeBom?.customer_id && !customer) {
+      setCustomer({ id: activeBom.customer_id, name: activeBom.customer_name || "Customer" });
+      setCustStyleTouched(false);
+    }
+  }, [bomState, activeBom, customer, custTouched]);
+
   useEffect(() => {
     if (custStyleTouched) return;
     if (customer && styleCode) setCustStyleNumber(`${customer.code || customer.customer_code || "CUST"}-${styleCode}`);
@@ -306,7 +503,10 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     setSubmitting(true); setErr(null);
     try {
       if (!finishedStyleId) throw new Error("Pick a finished style");
+      if (bomState !== "active") throw new Error("This style needs an active BOM before it can be built.");
       const payload: Record<string, unknown> = { finished_style_id: finishedStyleId };
+      // Pin the resolved BOM so the build releases against the exact recipe shown.
+      if (activeBom?.id) payload.bom_id = activeBom.id;
       if (plan.outputs.length > 0) {
         payload.outputs = plan.outputs; // target derived server-side from the matrix
       } else {
@@ -323,7 +523,8 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     finally { setSubmitting(false); }
   }
 
-  const canSubmit = !!finishedStyleId && (plan.total > 0 || (!plan.hasScale && parseFloat(targetQty) > 0));
+  // #1 — Create is gated on a usable (active) BOM being present.
+  const canSubmit = !!finishedStyleId && bomState === "active" && (plan.total > 0 || (!plan.hasScale && parseFloat(targetQty) > 0));
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
@@ -342,6 +543,21 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           </div>
           {pickedLabel && <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>Selected: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{pickedLabel}</span></div>}
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Its active BOM is snapshotted when you Release the build.</div>
+          {/* #1 — BOM gate. A style can be built only with an ACTIVE BOM. */}
+          {finishedStyleId && bomState === "loading" && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>Checking this style's BOM…</div>}
+          {finishedStyleId && bomState === "activating" && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6 }}>Activating BOM…</div>}
+          {finishedStyleId && bomState === "active" && activeBom && (
+            <div style={{ fontSize: 12, color: C.success, marginTop: 6 }}>✓ Active BOM (v{activeBom.version ?? "?"}{activeBom.customer_name ? ` · ${activeBom.customer_name}` : ""}) · {activeBom.components.length} component{activeBom.components.length === 1 ? "" : "s"}</div>
+          )}
+          {finishedStyleId && bomState === "draft-only" && (
+            <div style={{ fontSize: 12, color: C.warn, marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span>This style's BOM is still Draft — activate it to build.</span>
+              <button type="button" style={{ ...btnSecondary, borderColor: C.warn, color: C.warn }} onClick={() => void activateDraft()}>Activate BOM</button>
+            </div>
+          )}
+          {finishedStyleId && bomState === "no-bom" && (
+            <div style={{ fontSize: 12, color: C.danger, marginTop: 6 }}>This style has no BOM — create one first (Manufacturing → Bill of Materials).</div>
+          )}
         </div>
         {addStyleOpen && (
           <QuickAddStyleModal
@@ -353,10 +569,15 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             plain total when the style has no size scale. */}
         {finishedStyleId ? (
           <div style={{ marginBottom: 12 }}>
-            <Lbl>Plan by size {plan.total > 0 ? <span style={{ color: C.textMuted, fontWeight: 400 }}>· total {plan.total}</span> : null}</Lbl>
+            {/* #10 — stacked matrices: FIRST the FG plan (editable, with on-hand
+                hints), then parts availability + services below it. */}
+            <Lbl>Plan by size · finished goods {plan.total > 0 ? <span style={{ color: C.textMuted, fontWeight: 400 }}>· total {plan.total}</span> : null}</Lbl>
             <PlannedSizeMatrix styleId={finishedStyleId} defaultColor={defaultColor} onChange={onPlanChange} />
             {!plan.hasScale && (
               <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={{ ...inputStyle, marginTop: 8 }} placeholder="Target quantity, e.g. 500" />
+            )}
+            {bomState === "active" && activeBom && (
+              <BuildAvailability bom={activeBom} planTotal={plan.total > 0 ? plan.total : (parseFloat(targetQty) || 0)} />
             )}
           </div>
         ) : (
@@ -367,8 +588,8 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         )}
         {/* Phase B — build for a customer (optional). */}
         <div style={{ marginBottom: 12 }}>
-          <Lbl>Build for customer (optional)</Lbl>
-          <CustomerPicker onChange={(c) => { setCustomer(c); setCustStyleTouched(false); }} />
+          <Lbl>Build for customer (optional){customer && activeBom?.customer_id === customer.id && !custTouched ? <span style={{ color: C.textMuted, fontWeight: 400 }}> · from BOM</span> : null}</Lbl>
+          <CustomerPicker onChange={(c) => { setCustomer(c); setCustTouched(true); setCustStyleTouched(false); }} />
         </div>
         {customer && (
           <div style={{ marginBottom: 12 }}>
@@ -440,17 +661,39 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
         <div style={{ padding: "12px 20px", overflowY: "auto", flex: 1 }}>
           {!build ? <div style={{ color: C.textMuted, padding: 20 }}>Loading…</div> : (
             <>
-              {/* WIP rollup */}
-              {build.rollup && (
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16, padding: 12, background: "#0b1220", borderRadius: 8 }}>
-                  <Stat label="Parts" value={money(build.rollup.parts_cost_cents)} />
-                  <Stat label="Consumed styles" value={money(build.rollup.style_cost_cents)} />
-                  <Stat label="Services" value={money(build.rollup.service_cost_cents)} />
-                  <Stat label="WIP total" value={money(build.rollup.total_cents)} strong />
-                  <Stat label="Proj. unit cost" value={build.target_qty > 0 ? money(Math.round(build.rollup.total_cents / build.target_qty)) : "—"} />
-                  {build.finished_unit_cost_cents != null && <Stat label="Finished unit cost" value={money(build.finished_unit_cost_cents)} strong />}
-                </div>
-              )}
+              {/* WIP rollup — actual (posted) plus a PROJECTED estimate (#8) so
+                  costs are visible before issue/capitalize. Pre-issue the WIP
+                  totals are 0; the projected row fills the gap from master
+                  defaults / avg cost. */}
+              {build.rollup && (() => {
+                const proj = build.rollup.projected;
+                const posted = build.rollup.total_cents > 0;
+                const projTotal = proj ? proj.total_cents : 0;
+                const projUnit = proj && build.target_qty > 0 ? Math.round(projTotal / build.target_qty) : null;
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap", padding: 12, background: "#0b1220", borderRadius: 8 }}>
+                      <Stat label="Parts" value={money(build.rollup.parts_cost_cents)} />
+                      <Stat label="Consumed styles" value={money(build.rollup.style_cost_cents)} />
+                      <Stat label="Services" value={money(build.rollup.service_cost_cents)} />
+                      <Stat label="WIP total (actual)" value={money(build.rollup.total_cents)} strong />
+                      <Stat label={posted ? "Actual unit cost" : "Proj. unit cost"} value={posted && build.target_qty > 0 ? money(Math.round(build.rollup.total_cents / build.target_qty)) : (projUnit != null ? money(projUnit) : "—")} />
+                      {build.finished_unit_cost_cents != null && <Stat label="Finished unit cost" value={money(build.finished_unit_cost_cents)} strong />}
+                    </div>
+                    {proj && proj.has_estimate && (
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8, padding: "10px 12px", background: "#0b1220", border: `1px dashed ${C.cardBdr}`, borderRadius: 8 }}>
+                        <div style={{ alignSelf: "center", fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Projected (pre-cost)</div>
+                        <Stat label="Parts" value={money(proj.parts_cost_cents)} />
+                        <Stat label="Consumed styles" value={money(proj.style_cost_cents)} />
+                        <Stat label="Services" value={money(proj.service_cost_cents)} />
+                        <Stat label="Projected total" value={money(proj.total_cents)} strong />
+                        <Stat label="Proj. unit cost" value={projUnit != null ? money(projUnit) : "—"} />
+                        {proj.missing_costs > 0 && <div style={{ alignSelf: "center", fontSize: 11, color: C.warn }}>{proj.missing_costs} component{proj.missing_costs === 1 ? "" : "s"} without a default cost — estimate is partial.</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -458,6 +701,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                     <th style={th}>Kind</th><th style={th}>Item</th>
                     <th style={{ ...th, textAlign: "right" }}>Qty req.</th>
                     <th style={{ ...th, textAlign: "right" }}>Consumed</th>
+                    <th style={{ ...th, textAlign: "right" }}>Proj. cost</th>
                     <th style={{ ...th, textAlign: "right" }}>Actual cost</th>
                     <th style={th}></th>
                   </tr>
@@ -469,6 +713,8 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                       <td style={td}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? <span style={{ color: C.textSub }}> — {c.component_label}</span> : null}{c.component_kind === "service" && c.service_vendor_name ? <span style={{ color: C.textMuted, fontSize: 11 }}> · {c.service_vendor_name}</span> : null}</td>
                       <td style={{ ...td, textAlign: "right" }}>{c.qty_required}</td>
                       <td style={{ ...td, textAlign: "right", color: C.textSub }}>{c.component_kind === "service" ? "—" : c.qty_consumed}</td>
+                      {/* #8 — projected cost from master defaults / avg cost, shown before capitalization. */}
+                      <td style={{ ...td, textAlign: "right", color: C.textMuted }} title={c.projected_unit_cost_cents != null ? `Projected unit ${money(c.projected_unit_cost_cents)}` : "No default cost on record"}>{c.projected_cost_cents != null ? money(c.projected_cost_cents) : "—"}</td>
                       <td style={{ ...td, textAlign: "right" }}>{money(c.actual_cost_cents)}</td>
                       <td style={{ ...td, textAlign: "right" }}>
                         {c.component_kind === "service" && !c.service_capitalized && (status === "released" || status === "issued") && (
