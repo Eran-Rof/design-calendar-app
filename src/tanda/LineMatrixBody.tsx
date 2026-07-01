@@ -26,6 +26,7 @@ import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
+import { canonColor } from "./colorCanon";
 import { confirmDialog } from "../shared/ui/warn";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
@@ -471,7 +472,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const id = nextSectionId.current++;
       const qty: Record<string, number> = {}; const unit: Record<string, string> = {}; const lot: Record<string, string> = {};
       for (const c of sec.cells) {
-        const rk = rowKeyOf(c.color, c.inseam ?? null);
+        // Canonicalize the seed color so a document line spelled "Lt Wash" lands
+        // on the same canonical row the backend payload builds ("Light Wash").
+        // Without this, variant-spelled existing lines would key to a row that no
+        // longer exists after the payload merge and their qtys would vanish.
+        const rk = rowKeyOf(canonColor(c.color), c.inseam ?? null);
         if (c.qty > 0) qty[matrixCellKey(rk, c.size)] = c.qty;
         if (c.unit) unit[rk] = c.unit;
         if (c.lot) lot[rk] = c.lot;
@@ -480,7 +485,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const defaultUnit = sec.defaultUnit;
       // Per-color imported total → keyed by rowKey, shown in the Qty quick-fill box.
       const quickFill: Record<string, string> | undefined = sec.quickFill
-        ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(color || null, null), String(total)]))
+        ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(canonColor(color) || null, null), String(total)]))
         : undefined;
       setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, lot, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates, quickFill }]);
       if (st) loadPayload(st.id).then((pl) => {
