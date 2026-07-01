@@ -1611,6 +1611,10 @@ export default function InternalInventoryMatrix() {
   // the Totals strip's $ values are per-unit, not pack × pack-price). Merge PPK
   // also implies explode (it folds packs into eaches). (#11)
   const effectiveExplodePpk = explodePpk || mergePpk || (snapTotals && pageHasPpk);
+  // Explode is LOCKED on (can't be unclicked) whenever something else requires
+  // it: Merge PPK (needs eaches) or Totals over a page with a PPK style (the $
+  // totals only reconcile at unit grain). The Explode button reflects this.
+  const explodeLocked = mergePpk || (snapTotals && pageHasPpk);
 
   // Snapshot view (default all-styles): fetch the aggregate rows for the visible
   // page — or, when Collapse is active, the full filtered set (#13).
@@ -2238,17 +2242,19 @@ export default function InternalInventoryMatrix() {
             style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
             onClick={() => setHideZeros((v) => !v)}>Hide 0s</button>
 
-          {/* Explode PPK toggle — blue = active. When Merge PPK is on it is
-              LOCKED on (merging needs unit-grain eaches): darker blue + not-allowed
-              cursor + explanatory tooltip; the click is a no-op so it can't be
-              turned off until Merge PPK is switched off. */}
+          {/* Explode PPK toggle — blue = active. LOCKED on (darker blue + not-allowed
+              cursor + explanatory tooltip + no-op click) whenever it's required:
+              Merge PPK (needs eaches) OR Totals over a PPK page ($ totals reconcile
+              only at unit grain). Unlocks when that driver is switched off. */}
           <button type="button"
-            aria-disabled={mergePpk}
-            title={mergePpk
-              ? "Explode stays on while Merge PPK is selected — merging a base style with its PPK sibling needs unit-grain eaches. Turn off Merge PPK to change this."
+            aria-disabled={explodeLocked}
+            title={explodeLocked
+              ? (mergePpk
+                  ? "Explode stays on while Merge PPK is selected — merging a base style with its PPK sibling needs unit-grain eaches. Turn off Merge PPK to change this."
+                  : "Explode stays on while Totals is selected — the $ totals reconcile only at unit grain (a pack of 24 must read per-unit). Turn off Totals to change this.")
               : "Convert PPK packs into sized eaches using the Prepack Matrix master"}
-            style={{ background: mergePpk ? "#1D4ED8" : (explodePpk ? C.primary : C.card), color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${mergePpk ? "#1D4ED8" : (explodePpk ? C.primary : C.cardBdr)}`, padding: "6px 14px", borderRadius: 6, cursor: mergePpk ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
-            onClick={() => { if (mergePpk) return; setExplodePpk((v) => !v); }}>Explode</button>
+            style={{ background: explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.card), color: (explodeLocked || explodePpk) ? "#fff" : C.textMuted, border: `1px solid ${explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.cardBdr)}`, padding: "6px 14px", borderRadius: 6, cursor: explodeLocked ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => { if (explodeLocked) return; setExplodePpk((v) => !v); }}>Explode</button>
 
           {/* Merge PPK — snapshot only. Collapse each base style + its PPK
               sibling into one "BASE/PPK" row; forces Explode on (needs eaches). */}
