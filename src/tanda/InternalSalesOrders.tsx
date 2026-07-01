@@ -306,7 +306,14 @@ export default function InternalSalesOrders() {
   // Map an SO header → the export row shape (ids resolved to human labels; cents
   // kept in cents for currency formatting). Shared by the on-screen export and
   // the full "Export all" fetch so both produce identical columns.
-  const toExportRow = useCallback((so: SO) => ({
+  const toExportRow = useCallback((so: SO) => {
+   // Mirror the grid's Explode toggle: when on, export per-each metrics + units
+   // (see the row-level packMult note below) so the sheet matches the screen.
+   const pm = explode && so.total_qty != null && Number(so.total_qty) > 0 && so.total_qty_exploded != null
+     ? Number(so.total_qty_exploded) / Number(so.total_qty)
+     : 1;
+   const pe = (c: number | null | undefined): number | null => (c == null ? null : c / pm);
+   return ({
     so_number: so.so_number || "(draft)",
     customer: customerName[so.customer_id] || "—",
     store: so.sale_store || "",
@@ -316,14 +323,14 @@ export default function InternalSalesOrders() {
     status: so.status,
     factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
     credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
-    avg_cost_cents: so.avg_cost_cents ?? null,
-    avg_sell_cents: so.avg_sell_cents ?? null,
+    avg_cost_cents: pe(so.avg_cost_cents),
+    avg_sell_cents: pe(so.avg_sell_cents),
     margin_pct: so.margin_pct ?? null,
-    margin_cents: so.margin_cents ?? null,
+    margin_cents: pe(so.margin_cents),
     total_margin_cents: (so.margin_cents != null && so.total_qty != null) ? so.margin_cents * Number(so.total_qty) : null,
-    total_qty: so.total_qty != null ? Number(so.total_qty) : null,
+    total_qty: explode && so.total_qty_exploded != null ? Number(so.total_qty_exploded) : (so.total_qty != null ? Number(so.total_qty) : null),
     total_cents: Number(so.total_cents ?? 0),
-  }), [customerName]);
+  }); }, [customerName, explode]);
 
   // Export rows mirror the displayed list (same filter/search).
   const exportRows = useMemo(() => filteredRows.map(toExportRow), [filteredRows, toExportRow]);
@@ -477,9 +484,11 @@ export default function InternalSalesOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        {/* Keep the label "Explode" in both states (highlighted when active) so
+            the control never appears to vanish; the ✓ marks the on-state. */}
         <button onClick={toggleExplode} style={explode ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
-          title={explode ? "Show prepack quantities as PACKS" : "Explode prepack quantities to UNITS (packs × pack size); expand a row to see per-line qty & cost"}>
-          {explode ? "Packs" : "Explode"}
+          title={explode ? "Prepack quantities shown as UNITS (packs × pack size) with per-each cost/sell/margin — click to show PACKS" : "Explode prepack quantities to UNITS (packs × pack size); expand a row to see per-line qty & cost"}>
+          {explode ? "Explode ✓" : "Explode"}
         </button>
         <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} fetchRows={fetchAllForExport} />
       </div>
@@ -517,6 +526,17 @@ export default function InternalSalesOrders() {
             {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={17}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
+              // Item 30 (fix) — when exploded, the per-unit metric columns (avg
+              // cost / avg sell / margin $) must switch from PER-PACK to PER-EACH
+              // so they stay consistent with the exploded Qty. The blended pack
+              // size is total_qty_exploded / total_qty; dividing the per-pack
+              // aggregate by it yields the per-each average (= total ÷ units).
+              // Margin %, Total and Total Margin $ are invariant to explode.
+              const packMult = explode && so.total_qty != null && Number(so.total_qty) > 0 && so.total_qty_exploded != null
+                ? Number(so.total_qty_exploded) / Number(so.total_qty)
+                : 1;
+              const perEach = (c: number | null | undefined): number | null | undefined => (c == null || packMult === 1 ? c : c / packMult);
+              const metricTitle = explode && packMult !== 1 ? "Per each (exploded)" : undefined;
               const isOpen = expanded.has(so.id);
               return (
               <Fragment key={so.id}>
@@ -537,10 +557,10 @@ export default function InternalSalesOrders() {
                 <td style={td} hidden={!isVisible("credit")}>{showCredit(so.credit_approval_status)
                   ? <span title={so.credit_hold_reason || undefined} style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: CREDIT_COLORS[so.credit_approval_status!] || C.text, border: `1px solid ${CREDIT_COLORS[so.credit_approval_status!] || C.cardBdr}` }}>{CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{fmtCents2(so.avg_cost_cents)}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title={metricTitle}>{fmtCents2(perEach(so.avg_cost_cents))}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")} title={metricTitle}>{fmtCents2(perEach(so.avg_sell_cents))}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")} title={metricTitle}>{fmtCents2(perEach(so.margin_cents))}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("total_margin_amt")}>{so.margin_cents != null && so.total_qty != null ? fmtCents2(so.margin_cents * Number(so.total_qty)) : "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")} title={explode ? "Exploded units (packs × pack size)" : "Order quantity (packs for prepacks)"}>{(() => { const v = explode ? so.total_qty_exploded : so.total_qty; return v != null ? Number(v).toLocaleString() : "—"; })()}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
