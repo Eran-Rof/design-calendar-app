@@ -185,8 +185,8 @@ Beyond the original SO #, Customer, Order date, Start Ship, Status, Factor and T
 - **Warehouse** — the order's warehouse (`sale_store`); the same value the Warehouse filter scopes by.
 - **Cancel date** — the order's `cancel_date`.
 - **Qty (item 18)** — the **total units** across the SO's lines (qty-weighted from `sales_order_lines.qty_ordered`; style-scoped to match the metric columns when a style search is active). Computed server-side as `total_qty`.
-- **Avg cost** — the qty-weighted average unit **cost** across the SO's lines. Cost is sourced per SKU from **`ip_item_avg_cost`** (the same Xoro/Excel average-cost source the Inventory Snapshot uses), matched by `sku_code` (exact, then a loose alphanumeric match). Lines whose SKU has no cost history are excluded from the cost average.
-- **Avg sell** — the qty-weighted average unit **selling price** across the SO's lines (from `sales_order_lines.unit_price_cents`).
+- **Avg cost** — the qty-weighted average unit **cost** across the SO's lines. Cost is sourced per SKU from **`ip_item_avg_cost`** (the same Xoro/Excel average-cost source the Inventory Snapshot uses), matched through the **`resolve_avg_cost_by_norm` resolver** (normalises both sides to upper-case alphanumerics, so the punctuation-collapsed cost-master SKUs still match — ~89% coverage vs ~40% for an exact match). Lines whose SKU has no cost history are excluded from the cost average.
+- **Avg sell** — the qty-weighted average unit **selling price** across the SO's lines. The order's own `sales_order_lines.unit_price_cents` **always wins**; a line that carries **no price** (a draft or brand-new style not yet priced) falls back to the same chain the PO grid uses — **most-recent actual sale** (`recent_sell_by_style`) → **standard unit price** (`ip_item_avg_cost.standard_unit_price`) → **provisional 21%-margin placeholder** — so Avg sell / Margin aren't understated by unpriced lines. Priced lines are unaffected.
 - **Margin $** — Avg sell − Avg cost (per unit). Coloured green when ≥ 0, red when negative.
 - **Margin %** — Margin $ ÷ Avg sell × 100 (one decimal).
 
