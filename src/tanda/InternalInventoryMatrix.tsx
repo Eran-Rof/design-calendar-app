@@ -679,18 +679,35 @@ function SnapshotView({
     const qty: Record<string, number> = {};
     const cost: Record<string, number> = {};
     const wholesale: Record<string, number> = {};
-    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; }
+    // Qty of rows that ACTUALLY carry a cost / sale price — the correct
+    // denominator for the per-unit averages (see below).
+    const cQty: Record<string, number> = {};
+    const pQty: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; cQty[k] = 0; pQty[k] = 0; }
     for (const r of sorted) {
+      const hasC = r.avg_cost_cents != null;
+      const hasP = r.sale_price_cents != null;
       const c = (r.avg_cost_cents ?? 0) / 100;
       const p = (r.sale_price_cents ?? 0) / 100;
-      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; cost[k] += v * c; wholesale[k] += v * p; }
+      for (const k of SNAP_SUM_COLS) {
+        const v = num(r[k] as number);
+        qty[k] += v;
+        if (hasC) { cost[k] += v * c; cQty[k] += v; }
+        if (hasP) { wholesale[k] += v * p; pQty[k] += v; }
+      }
     }
-    // Per-unit averages = $ total ÷ qty (column-level blended unit cost / price).
+    // Per-unit averages divide by the qty of rows that carry a cost/price — NOT
+    // total qty. Dividing by total qty drags the average DOWN whenever a column
+    // holds units from rows with no known wholesale price (e.g. styles never
+    // sold on an SO): those units count in the denominator but add $0 to the
+    // numerator. That was the bug — On PO / Sold read ~$4.4 while the true
+    // wholesale price is ~$7. ($ Cost / $ Wholesale totals are unchanged since
+    // unpriced rows contribute $0 either way.)
     const avgCost: Record<string, number> = {};
     const avgWhol: Record<string, number> = {};
     for (const k of SNAP_SUM_COLS) {
-      avgCost[k] = qty[k] > 0 ? cost[k] / qty[k] : 0;
-      avgWhol[k] = qty[k] > 0 ? wholesale[k] / qty[k] : 0;
+      avgCost[k] = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+      avgWhol[k] = pQty[k] > 0 ? wholesale[k] / pQty[k] : 0;
     }
     return { qty, cost, wholesale, avgCost, avgWhol };
   }, [sorted]);
@@ -741,7 +758,9 @@ function SnapshotView({
             {/* Totals strip — above the column headers (ATS-modelled). Each
                 quantity column stacks five measures: Qty (unit counts), $ Cost
                 (qty × avg cost), $ Wholesale (qty × avg wholesale SO sale price),
-                Avg Cost (= $ Cost ÷ qty) and Avg Sale (= $ Wholesale ÷ qty). */}
+                Avg Cost and Avg Sale (per-unit means over the units that carry a
+                cost / price — NOT ÷ total qty, which would dilute them with
+                unpriced units). */}
             {showTotals && (() => {
               const visCols = SNAP_COLS.filter((c) => show(c.key as string));
               let labelled = false;
