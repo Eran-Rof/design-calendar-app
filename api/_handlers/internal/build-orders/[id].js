@@ -65,9 +65,18 @@ export default async function handler(req, res) {
     const { data: build, error } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!build) return res.status(404).json({ error: "Build order not found" });
-    const { data: fi } = await admin.from("ip_item_master").select("id, sku_code, style_code, description").eq("id", build.finished_item_id).maybeSingle();
+    const { data: fi } = await admin.from("ip_item_master").select("id, sku_code, style_code, style_id, color, description").eq("id", build.finished_item_id).maybeSingle();
     const components = await decorateComponents(admin, id);
-    return res.status(200).json({ ...build, finished_item: fi || null, components, rollup: rollup(components) });
+    // Phase A — per-size outputs (present once a matrix build is completed).
+    const { data: outputs } = await admin.from("mfg_build_outputs").select("id, item_id, color, size, qty, unit_cost_cents").eq("build_order_id", id).order("created_at", { ascending: true });
+    return res.status(200).json({
+      ...build,
+      finished_item: fi || null,
+      finished_style_id: fi?.style_id || null,
+      components,
+      outputs: outputs || [],
+      rollup: rollup(components),
+    });
   }
 
   if (req.method === "PATCH") {

@@ -132,4 +132,36 @@ describe("mfgBuildComplete", () => {
   it("throws when nothing has accumulated", () => {
     expect(() => mfgBuildComplete({ entity_id: ENTITY, data: { ...event.data, accumulated_cost_cents: 0 } })).toThrow();
   });
+
+  // Phase A — per-size outputs.
+  const ITEM_S = "00000000-0000-0000-0000-0000000000a1";
+  const ITEM_M = "00000000-0000-0000-0000-0000000000a2";
+  const matrixEvent = { entity_id: ENTITY, data: { ...event.data, outputs: [
+    { item_id: ITEM_S, size: "S", qty: 3 },
+    { item_id: ITEM_M, size: "M", qty: 7 },
+  ] } };
+
+  it("splits the finished-inv debit per size and balances against one WIP credit", () => {
+    const out = mfgBuildComplete(matrixEvent);
+    const lines = out.accrual.lines;
+    expect(lines).toHaveLength(3); // 2 size debits + 1 WIP credit
+    expect(lines[0].subledger_id).toBe(ITEM_S);
+    expect(lines[1].subledger_id).toBe(ITEM_M);
+    expect(lines[2].account_id).toBe(WIP);
+    const debits = lines.filter((l) => Number(l.debit) > 0).reduce((s, l) => s + Number(l.debit), 0);
+    expect(debits).toBeCloseTo(500); // sums EXACTLY to accumulated (50000c)
+    expect(Number(lines[2].credit)).toBeCloseTo(500);
+    // proportional: 3/10 → 150.00, last (M) absorbs remainder → 350.00
+    expect(Number(lines[0].debit)).toBeCloseTo(150);
+    expect(Number(lines[1].debit)).toBeCloseTo(350);
+  });
+
+  it("creates one manufacture layer per size at a uniform per-unit cost", () => {
+    const out = mfgBuildComplete(matrixEvent);
+    expect(out.inventoryLayers).toHaveLength(2);
+    expect(out.inventoryLayers.map((l) => l.item_id)).toEqual([ITEM_S, ITEM_M]);
+    expect(out.inventoryLayers.map((l) => l.qty)).toEqual([3, 7]);
+    expect(out.inventoryLayers.every((l) => l.unit_cost_cents === 5000)).toBe(true); // 50000 / 10
+    expect(out.inventoryLayers.every((l) => l.source_kind === "manufacture")).toBe(true);
+  });
 });
