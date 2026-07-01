@@ -45,10 +45,18 @@ export default async function handler(req, res) {
     const { data: items } = await admin.from("ip_item_master").select("id, sku_code, description").in("id", itemIds);
     const itemBy = new Map((items || []).map((i) => [i.id, i]));
 
+    const custIds = [...new Set(builds.map((b) => b.customer_id).filter(Boolean))];
+    const custBy = new Map();
+    if (custIds.length) {
+      const { data: custs } = await admin.from("customers").select("id, name, code").in("id", custIds);
+      for (const c of custs || []) custBy.set(c.id, c);
+    }
+
     const out = builds.map((b) => ({
       ...b,
       finished_item: itemBy.get(b.finished_item_id)
         ? { sku_code: itemBy.get(b.finished_item_id).sku_code, description: itemBy.get(b.finished_item_id).description } : null,
+      customer_name: b.customer_id ? (custBy.get(b.customer_id)?.name || null) : null,
     }));
     return res.status(200).json(out);
   }
@@ -75,6 +83,12 @@ export default async function handler(req, res) {
     if (body.location_id != null && body.location_id !== "" && !UUID_RE.test(String(body.location_id))) {
       return res.status(400).json({ error: "location_id must be a uuid" });
     }
+    // Phase B — optional customer this build is made for.
+    let customerId = null;
+    if (body.customer_id != null && body.customer_id !== "") {
+      if (!UUID_RE.test(String(body.customer_id))) return res.status(400).json({ error: "customer_id must be a uuid" });
+      customerId = String(body.customer_id);
+    }
 
     const wip = await accountByCode(admin, entityId, "1305");
     if (!wip) return res.status(400).json({ error: "WIP account (code 1305) not found or not postable. Apply the M4 GL migration first." });
@@ -89,6 +103,7 @@ export default async function handler(req, res) {
       status: "draft",
       wip_account_id: wip.id,
       location_id: body.location_id || null,
+      customer_id: customerId,
       notes: body.notes != null ? String(body.notes).trim() || null : null,
     });
     // strip placeholder
@@ -99,7 +114,31 @@ export default async function handler(req, res) {
       if (error.code === "23505") return res.status(409).json({ error: "Could not allocate a unique build number; please retry" });
       return res.status(500).json({ error: error.message });
     }
-    return res.status(201).json(data);
+
+    // Phase B — auto-mint the customer's own style number for this style (saved
+    // in the shared style_customer_numbers junction, visible from both Style
+    // Master and Customer Master). Best-effort + idempotent: skip when the
+    // finished item isn't style-backed, and keep any existing mapping (a
+    // customer has at most one number per style — UNIQUE(style_id, customer_id)).
+    let customerStyleNumber = null;
+    if (customerId) {
+      const { data: fin } = await admin.from("ip_item_master").select("style_id").eq("id", String(finishedItemId)).maybeSingle();
+      if (fin?.style_id) {
+        const num = body.customer_style_number != null ? String(body.customer_style_number).trim() : "";
+        const { data: existing } = await admin.from("style_customer_numbers")
+          .select("customer_style_number").eq("entity_id", entityId).eq("style_id", fin.style_id).eq("customer_id", customerId).maybeSingle();
+        if (existing) {
+          customerStyleNumber = existing.customer_style_number;
+        } else if (num) {
+          const { data: created } = await admin.from("style_customer_numbers")
+            .insert({ entity_id: entityId, style_id: fin.style_id, customer_id: customerId, customer_style_number: num, notes: `Auto-created from build ${data.build_number}` })
+            .select("customer_style_number").maybeSingle();
+          customerStyleNumber = created?.customer_style_number || null;
+        }
+      }
+    }
+
+    return res.status(201).json({ ...data, customer_style_number: customerStyleNumber });
   }
 
   res.setHeader("Allow", "GET, POST");

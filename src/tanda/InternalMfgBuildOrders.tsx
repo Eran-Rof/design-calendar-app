@@ -13,7 +13,8 @@ import { EditableSizeMatrix, matrixCellKey, type EditableMatrixRow } from "../sh
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
-type ItemLite = { id: string; sku_code: string; description: string | null };
+type ItemLite = { id: string; sku_code: string; description: string | null; style_code?: string | null; color?: string | null };
+type CustLite = { id: string; name: string; code?: string | null; customer_code?: string | null };
 type Component = {
   id: string;
   component_kind: "part" | "service" | "finished_style";
@@ -30,6 +31,7 @@ type Build = {
   finished_item?: { sku_code: string; description: string | null; color?: string | null } | null;
   finished_style_id?: string | null;
   outputs?: BuildOutput[];
+  customer_id?: string | null; customer_name?: string | null; customer_style_number?: string | null;
   components?: Component[]; rollup?: Rollup;
 };
 
@@ -167,7 +169,7 @@ export default function InternalMfgBuildOrders() {
   );
 }
 
-function ItemPicker({ onChange }: { onChange: (id: string, label: string) => void }) {
+function ItemPicker({ onChange }: { onChange: (id: string, label: string, styleCode: string | null) => void }) {
   const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<ItemLite[]>([]);
   const [chosen, setChosen] = useState(""); const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -184,8 +186,39 @@ function ItemPicker({ onChange }: { onChange: (id: string, label: string) => voi
       {open && results.length > 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
           {results.map((it) => (
-            <div key={it.id} onMouseDown={() => { const label = `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`; setChosen(label); onChange(it.id, label); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+            <div key={it.id} onMouseDown={() => { const label = `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`; setChosen(label); onChange(it.id, label, it.style_code ?? null); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
               <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{it.sku_code}</span>{it.description ? <span style={{ color: C.textSub }}> — {it.description}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Phase B — pick the customer this build is for (optional). Mirrors ItemPicker;
+// searches the customer master by name / code.
+function CustomerPicker({ onChange }: { onChange: (cust: CustLite | null) => void }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<CustLite[]>([]);
+  const [chosen, setChosen] = useState(""); const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try { const r = await fetch(`/api/internal/customer-master?q=${encodeURIComponent(q)}&limit=25`); if (r.ok) { const j = await r.json(); setResults(Array.isArray(j) ? j : (j.rows || j.data || [])); } } catch { /* */ }
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [q, open]);
+  return (
+    <div style={{ position: "relative" }}>
+      <input style={inputStyle} placeholder="Search a customer (optional)…" value={open ? q : chosen}
+        onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {chosen && !open && <button type="button" onMouseDown={() => { setChosen(""); onChange(null); }} title="Clear customer" style={{ position: "absolute", right: 6, top: 6, background: "none", border: 0, color: C.textMuted, cursor: "pointer", fontSize: 13 }}>✕</button>}
+      {open && results.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
+          {results.map((c) => (
+            <div key={c.id} onMouseDown={() => { setChosen(`${c.name}${c.code ? ` (${c.code})` : ""}`); onChange(c); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+              {c.name}{c.code ? <span style={{ color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}> · {c.code}</span> : null}
             </div>
           ))}
         </div>
@@ -197,12 +230,24 @@ function ItemPicker({ onChange }: { onChange: (id: string, label: string) => voi
 function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [finishedItemId, setFinishedItemId] = useState("");
   const [pickedLabel, setPickedLabel] = useState(""); // shown after add-on-the-fly (picker is uncontrolled)
+  const [styleCode, setStyleCode] = useState<string | null>(null);
   const [targetQty, setTargetQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Item 1 — add a style on the fly (admins only; others get a warning).
   const isAdmin = !!getCachedAuthUserId();
   const [addStyleOpen, setAddStyleOpen] = useState(false);
+  // Phase B — build FOR a customer (optional) + that customer's style number.
+  const [customer, setCustomer] = useState<CustLite | null>(null);
+  const [custStyleNumber, setCustStyleNumber] = useState("");
+  const [custStyleTouched, setCustStyleTouched] = useState(false);
+  // Auto-suggest "<CUST code>-<STYLE>" once both are known, unless the operator
+  // has already typed their own (customer code + base style — decision B).
+  useEffect(() => {
+    if (custStyleTouched) return;
+    if (customer && styleCode) setCustStyleNumber(`${customer.code || customer.customer_code || "CUST"}-${styleCode}`);
+    else setCustStyleNumber("");
+  }, [customer, styleCode, custStyleTouched]);
 
   async function submit() {
     setSubmitting(true); setErr(null);
@@ -210,7 +255,9 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       const qty = parseFloat(targetQty);
       if (!finishedItemId) throw new Error("Pick a finished style");
       if (!Number.isFinite(qty) || qty <= 0) throw new Error("Enter a target quantity");
-      const r = await fetch(`/api/internal/build-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finished_item_id: finishedItemId, target_qty: qty }) });
+      const payload: Record<string, unknown> = { finished_item_id: finishedItemId, target_qty: qty };
+      if (customer) { payload.customer_id = customer.id; if (custStyleNumber.trim()) payload.customer_style_number = custStyleNumber.trim(); }
+      const r = await fetch(`/api/internal/build-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const b = await r.json();
       onCreated(b.id);
@@ -226,7 +273,7 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           <Lbl>Finished style *</Lbl>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <ItemPicker onChange={(id, label) => { setFinishedItemId(id); setPickedLabel(label); }} />
+              <ItemPicker onChange={(id, label, sc) => { setFinishedItemId(id); setPickedLabel(label); setStyleCode(sc); }} />
             </div>
             {/* Item 1 — add a style on the fly (admin only). */}
             <button type="button" style={{ ...btnSecondary, whiteSpace: "nowrap" }}
@@ -246,6 +293,18 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           <Lbl>Target quantity *</Lbl>
           <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={inputStyle} placeholder="e.g. 500" autoFocus />
         </div>
+        {/* Phase B — build for a customer (optional). */}
+        <div style={{ marginBottom: 12 }}>
+          <Lbl>Build for customer (optional)</Lbl>
+          <CustomerPicker onChange={(c) => { setCustomer(c); setCustStyleTouched(false); }} />
+        </div>
+        {customer && (
+          <div style={{ marginBottom: 12 }}>
+            <Lbl>Customer style #</Lbl>
+            <input value={custStyleNumber} onChange={(e) => { setCustStyleNumber(e.target.value); setCustStyleTouched(true); }} style={inputStyle} placeholder="e.g. CUST-00042-RYB0412" />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Saved to this customer's style numbers (also visible in Customer Master → Style numbers). Kept if one already exists for this style.</div>
+          </div>
+        )}
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 12 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
@@ -303,6 +362,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
             <button onClick={onClose} style={btnSecondary}>Close</button>
           </div>
           {build?.finished_item && <div style={{ fontSize: 13, color: C.textSub, marginTop: 4 }}>{build.finished_item.sku_code} — {build.finished_item.description} · target {build.target_qty}</div>}
+          {build?.customer_name && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>For <span style={{ color: C.textSub }}>{build.customer_name}</span>{build.customer_style_number ? <> · cust style <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }}>{build.customer_style_number}</span></> : null}</div>}
         </div>
 
         <div style={{ padding: "12px 20px", overflowY: "auto", flex: 1 }}>
