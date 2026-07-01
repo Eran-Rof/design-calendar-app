@@ -920,7 +920,7 @@ function SnapshotView({
 type SoldDetail = {
   color_totals: { color: string | null; qty: number; avg_unit_price: number | null }[];
   grand_total: number;
-  rows: { color: string | null; store: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
+  rows: { color: string | null; store: string | null; warehouse: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
 };
 type PurchasedDetail = {
   color_totals: { color: string | null; qty: number }[];
@@ -979,10 +979,10 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
   // Store options across the invoice rows (#7). Wholesale rows carry no store, so
   // this is mostly Ecom vs blank, but it constrains whatever store data exists.
-  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.store).filter((s): s is string => !!s))].sort(), [data]);
+  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.warehouse).filter((s): s is string => !!s))].sort(), [data]);
   // Apply store filter → collapse-on-invoice (optional) → sort.
   const invoiceRows = useMemo<SoldRow[]>(() => {
-    let rows = (data?.rows ?? []).filter((r) => !store || (r.store ?? "") === store);
+    let rows = (data?.rows ?? []).filter((r) => !store || (r.warehouse ?? "") === store);
     if (collapseInv) {
       const map = new Map<string, SoldRow & { _amt: number; _pq: number }>();
       for (const r of rows) {
@@ -1025,7 +1025,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
               <span style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Invoices</span>
               {storeOptions.length > 0 && (
                 <label style={{ fontSize: 11, color: C.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  Store
+                  Warehouse
                   <select value={store} onChange={(e) => setStore(e.target.value)} style={selStyle}>
                     <option value="">All</option>
                     {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1040,7 +1040,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr>
                 <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
-                <th style={th} onClick={() => rowSort.onSort("store")}>Store{rowSort.arrow("store")}</th>
+                <th style={th} onClick={() => rowSort.onSort("warehouse")}>Warehouse{rowSort.arrow("warehouse")}</th>
                 <th style={thR} onClick={() => rowSort.onSort("qty")}>Sold{rowSort.arrow("qty")}</th>
                 <th style={th} onClick={() => rowSort.onSort("invoice_number")}>Invoice #{rowSort.arrow("invoice_number")}</th>
                 <th style={th} onClick={() => rowSort.onSort("customer")}>Customer{rowSort.arrow("customer")}</th>
@@ -1051,7 +1051,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
                 {invoiceRows.map((r, i) => (
                   <tr key={i}>
                     <td style={td}>{collapseInv ? "—" : (r.color || "—")}</td>
-                    <td style={td}>{r.store || "—"}</td>
+                    <td style={td}>{r.warehouse || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={td}>{r.invoice_number ? (r.ar_invoice_id ? <span role="button" tabIndex={0} onClick={() => onOpenInvoice(r.ar_invoice_id!, r.invoice_number!, r.customer)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.invoice_number}</span> : r.invoice_number) : "—"}</td>
                     <td style={td}>{r.customer || "—"}</td>
