@@ -757,12 +757,17 @@ function SnapshotView({
               {/* Frozen header — sticks to the top while the body scrolls. Opaque
                   background so rows don't bleed through. */}
               {show("image") && <th style={{ ...thStick, textAlign: "center" }}>Image</th>}
-              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => (
-                <th key={col.key as string} onClick={() => onSort(col.key)}
-                    style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
-                  {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
-                </th>
-              ))}
+              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => {
+                // "ATS Qty (Incl POs)" is the widest header — let it WRAP onto
+                // multiple lines (constrained width) so the column stays narrow.
+                const wrap = col.key === "ats_incl_po";
+                return (
+                  <th key={col.key as string} onClick={() => onSort(col.key)}
+                      style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: wrap ? "normal" : "nowrap", ...(wrap ? { maxWidth: 72, width: 72 } : {}), userSelect: "none" }}>
+                    {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
