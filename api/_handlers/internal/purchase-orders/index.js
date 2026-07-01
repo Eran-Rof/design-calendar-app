@@ -245,6 +245,25 @@ async function enrichPricing(admin, rows, styleFilter) {
     customerPriceCache.set(cust, m);
   }
 
+  // Most-recent ACTUAL sell per style (wholesale history + native SOs). Ranked
+  // above the standard/provisional fallbacks so a style's real price shows the
+  // moment it has an SO / invoice / Xoro sale (which also supersedes any
+  // provisional placeholder for that style).
+  const recentSellByStyle = new Map();
+  if (allStyleIds.size) {
+    const { data: recent } = await admin.rpc("recent_sell_by_style", { p_style_ids: [...allStyleIds] });
+    for (const rr of recent || []) if (rr.unit_price_cents != null) recentSellByStyle.set(rr.style_id, Number(rr.unit_price_cents));
+  }
+  // Provisional placeholder sell (21% margin off PO cost) for never-sold styles —
+  // the last-resort fallback. Read from the dedicated table only (the M43 quote
+  // engine never sees it, so a placeholder can't leak into a customer quote).
+  const provisionalByStyle = new Map();
+  if (allStyleIds.size) {
+    const { data: prov } = await admin.from("provisional_style_prices")
+      .select("style_id, price_cents").in("style_id", [...allStyleIds]).eq("is_active", true);
+    for (const p of prov || []) if (p.price_cents != null) provisionalByStyle.set(p.style_id, Number(p.price_cents));
+  }
+
   for (const r of rows) {
     const myLines = linesByPo.get(r.id) || [];
     // priceNum/Den → Avg PO Price (PO's own line cost); stdNum/Den → Avg cost
@@ -258,16 +277,18 @@ async function enrichPricing(admin, rows, styleFilter) {
       priceNum += poPrice * qty; priceDen += qty;
       const std = stdCostForSku(l.sku_code);
       if (std != null) { stdNum += std * qty; stdDen += qty; }
-      // Sell: customer price → brand-default list → standard unit price
-      // (ip_item_avg_cost.standard_unit_price, per-SKU) → skip. The standard-price
-      // fallback covers styles with no customer/brand-list price (common: only
-      // ~38% of PO styles have a brand-list price).
+      // Sell resolution order: customer price → brand-default list → recent
+      // ACTUAL sell (SO/invoice/Xoro) → standard unit price → provisional (21%
+      // placeholder). Each layer covers a wider set of styles; the provisional
+      // is only used for never-sold styles with no price on file.
       let sell = null;
       if (l.style_id) {
         if (custPrices && custPrices.get(l.style_id) != null) sell = custPrices.get(l.style_id);
         else if (brandDefaultByStyle.get(l.style_id) != null) sell = brandDefaultByStyle.get(l.style_id);
+        else if (recentSellByStyle.get(l.style_id) != null) sell = recentSellByStyle.get(l.style_id);
       }
       if (sell == null) sell = stdSellForSku(l.sku_code);
+      if (sell == null && l.style_id) { const pv = provisionalByStyle.get(l.style_id); if (pv != null) sell = pv; }
       if (sell != null) { sellNum += sell * qty; sellDen += qty; }
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;

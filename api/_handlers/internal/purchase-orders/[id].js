@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeHeader } from "./index.js";
 import { notifyVendor } from "../../../_lib/phase-notifications.js";
+import { seedProvisionalForPo } from "../../../_lib/pricing/provisionalPrices.js";
 
 export const config = { maxDuration: 20 };
 
@@ -256,6 +257,13 @@ export default async function handler(req, res, params) {
           .update({ status: "cancelled", closed_at: new Date().toISOString() })
           .eq("purchase_order_id", id).in("status", ["open", "partial"]);
       }
+    }
+
+    // Seed provisional selling prices for this PO's never-sold styles (21% margin
+    // off the PO line cost) so the PO/SO grids show a Sell/Margin for them until a
+    // real sale lands. Best-effort — never fails the issue.
+    if (body.status === "issued" && po.status !== "issued") {
+      try { await seedProvisionalForPo(admin, id); } catch { /* non-blocking */ }
     }
 
     // Revision of a saved PO → notify the vendor's portal users (bell + email).
