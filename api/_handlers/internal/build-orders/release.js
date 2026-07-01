@@ -59,13 +59,18 @@ export default async function handler(req, res) {
       qty_required: qtyRequired,
       qty_consumed: 0,
       actual_cost_cents: 0,
+      // Seed on EVERY row (not just service rows): PostgREST unions the keys
+      // across a multi-row insert, so once any service row carries
+      // service_capitalized the column is sent for all rows — a part /
+      // finished_style row that omitted it would get an explicit null, which
+      // bypasses the DB DEFAULT false and violates the NOT NULL constraint.
+      service_capitalized: false,
       line_number: i + 1,
     };
     if (c.component_kind === "service") {
       const def = svcDefaults.get(c.service_item_id);
       row.service_vendor_id = def?.default_vendor_id || null;
       row.service_charge_cents = def?.default_charge_cents != null ? Math.round(def.default_charge_cents * qtyRequired) : null;
-      row.service_capitalized = false;
     }
     return row;
   });
