@@ -38,20 +38,39 @@ async function decorateComponents(admin, bomId) {
   const itemIds = list.filter((c) => c.component_item_id).map((c) => c.component_item_id);
 
   const [parts, svcs, items] = await Promise.all([
-    partIds.length ? admin.from("part_master").select("id, code, name").in("id", partIds) : Promise.resolve({ data: [] }),
-    svcIds.length ? admin.from("service_item_master").select("id, code, name").in("id", svcIds) : Promise.resolve({ data: [] }),
+    partIds.length ? admin.from("part_master").select("id, code, name, default_unit_cost_cents").in("id", partIds) : Promise.resolve({ data: [] }),
+    svcIds.length ? admin.from("service_item_master").select("id, code, name, default_charge_cents").in("id", svcIds) : Promise.resolve({ data: [] }),
     itemIds.length ? admin.from("ip_item_master").select("id, sku_code, style_code, description").in("id", itemIds) : Promise.resolve({ data: [] }),
   ]);
   const partBy = new Map((parts.data || []).map((p) => [p.id, p]));
   const svcBy = new Map((svcs.data || []).map((s) => [s.id, s]));
   const itemBy = new Map((items.data || []).map((i) => [i.id, i]));
 
+  // Finished-style unit cost = ip_item_avg_cost (same source the SO grid uses),
+  // resolved by normalized sku_code via the shared RPC.
+  const costBySku = new Map();
+  const skus = [...new Set((items.data || []).map((i) => i.sku_code).filter(Boolean))];
+  if (skus.length) {
+    const { data: costs } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: skus });
+    for (const r of costs || []) {
+      if (r.input_sku != null && r.avg_cost != null) costBySku.set(r.input_sku, Math.round(Number(r.avg_cost) * 100));
+    }
+  }
+
   return list.map((c) => {
-    let label = null, code = null;
-    if (c.component_kind === "part" && partBy.get(c.part_id)) { code = partBy.get(c.part_id).code; label = partBy.get(c.part_id).name; }
-    else if (c.component_kind === "service" && svcBy.get(c.service_item_id)) { code = svcBy.get(c.service_item_id).code; label = svcBy.get(c.service_item_id).name; }
-    else if (c.component_kind === "finished_style" && itemBy.get(c.component_item_id)) { code = itemBy.get(c.component_item_id).sku_code; label = itemBy.get(c.component_item_id).description; }
-    return { ...c, component_code: code, component_label: label };
+    let label = null, code = null, unitCostCents = null;
+    if (c.component_kind === "part" && partBy.get(c.part_id)) {
+      const p = partBy.get(c.part_id); code = p.code; label = p.name;
+      unitCostCents = p.default_unit_cost_cents ?? null;
+    } else if (c.component_kind === "service" && svcBy.get(c.service_item_id)) {
+      const s = svcBy.get(c.service_item_id); code = s.code; label = s.name;
+      // Stored override wins; else the service master default charge.
+      unitCostCents = c.unit_cost_cents != null ? c.unit_cost_cents : (s.default_charge_cents ?? null);
+    } else if (c.component_kind === "finished_style" && itemBy.get(c.component_item_id)) {
+      const it = itemBy.get(c.component_item_id); code = it.sku_code; label = it.description;
+      unitCostCents = costBySku.get(it.sku_code) ?? null;
+    }
+    return { ...c, component_code: code, component_label: label, resolved_unit_cost_cents: unitCostCents };
   });
 }
 
