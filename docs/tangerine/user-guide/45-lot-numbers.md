@@ -41,7 +41,7 @@ This inheritance also applies to any programmatic "PO from SO" path (a PO that c
 
 A sales-order line carries the same per-style+color lot field, and the SO matrix now shows a **Lot column at the far right — after the Total $ column** — exactly like the PO matrix:
 
-- A **🏷 Show lots / Hide lots** toggle sits at the top-right of the matrix; on an SO it is **shown by default**. Each color row gets a per-row `Lot` field plus a "set all rows" header entry.
+- A **🏷 Show lots / Hide lots** toggle sits at the top-right of the matrix; on an SO the column is **hidden by default — click "Show lots"** to reveal it (on a PO it is shown by default). Each color row gets a per-row `Lot` field plus a "set all rows" header entry.
 - The placeholder reads **"customer PO / lot"** — a reminder that on a sales order the lot is normally the customer's PO number (or the stock lot the order ships from), not a production PO#.
 - The column is fully editable in a draft/editable SO and read-only when the order is locked, and any lot you type is saved onto the sales-order line.
 
@@ -76,7 +76,7 @@ Until those land, lots are an end-to-end **label** — auto-stamped, inherited, 
 
 ## 45.5 Code map
 
-- **Matrix body (lot column + toggle):** `src/tanda/LineMatrixBody.tsx` (the `🏷 Show lots / Hide lots` toggle, per-row `Lot` field, and "set all rows"; shown by default in **both PO and SO** modes — far-right column after `Total $` — hidden on AR). SO seeding of existing line lots is in `src/tanda/InternalSalesOrders.tsx` (`lot: l.lot_number` on each seed cell).
+- **Matrix body (lot column + toggle):** `src/tanda/LineMatrixBody.tsx` (the `🏷 Show lots / Hide lots` toggle, per-row `Lot` field, and "set all rows"; far-right column after `Total $` — offered in **both PO and SO** modes, hidden on AR; default shown on PO, **hidden on SO** via `showLots` initial `mode === "po"`). SO seeding of existing line lots is in `src/tanda/InternalSalesOrders.tsx` (`lot: l.lot_number` on each seed cell).
 - **PO create-from-SO lot inheritance:** `src/tanda/InternalPurchaseOrders.tsx` (`createFromSO` seeds each cell's lot from the SO's `customer_po`; SO picker shows the 🏷 customer PO).
 - **Server:** `api/_handlers/internal/purchase-orders/*` (auto-stamp PO# at issue on un-lotted lines; default un-lotted lines to the linked SO's `customer_po`), `sales-orders/*` (accept per-line lot), receiving's `createLayer` (carries the PO line's lot onto `inventory_layers`).
 - **Schema:** migration `20260899000000` — `lot_number text` on `purchase_order_lines`, `sales_order_lines`, `inventory_layers`, plus a partial index `inventory_layers(entity_id, item_id, lot_number)` for the later lot-aware allocation.

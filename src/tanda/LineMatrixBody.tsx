@@ -252,9 +252,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // PO/SO: per style+color lot column (far-right, after the Total $ column). On
   // POs it auto-stamps to the PO number at issue; on SOs the lot is the customer
   // PO / allocated stock lot (Scenarios 2/3/5) but the operator can also view and
-  // set it by hand here. Hidden on AR. Default visible in PO and SO modes.
+  // set it by hand here. Hidden on AR. The toggle is offered in both PO and SO
+  // modes; the column is shown by default on POs but hidden on SOs (operator
+  // clicks "Show lots" when needed).
   const showLotsMode = mode === "po" || mode === "so";
-  const [showLots, setShowLots] = useState(showLotsMode);
+  const [showLots, setShowLots] = useState(mode === "po");
   // Prepack composition view (inner pack × N = carton) — shown by default; the
   // operator can hide it per section. Tracks the section ids that are hidden.
   const [packCompHidden, setPackCompHidden] = useState<Set<number>>(() => new Set());
