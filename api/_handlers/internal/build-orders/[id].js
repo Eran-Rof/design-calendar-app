@@ -20,9 +20,11 @@ async function decorateComponents(admin, buildId) {
   const vendIds = list.filter((c) => c.service_vendor_id).map((c) => c.service_vendor_id);
 
   const [parts, svcs, items, vends] = await Promise.all([
-    partIds.length ? admin.from("part_master").select("id, code, name").in("id", partIds) : Promise.resolve({ data: [] }),
-    svcIds.length ? admin.from("service_item_master").select("id, code, name").in("id", svcIds) : Promise.resolve({ data: [] }),
-    itemIds.length ? admin.from("ip_item_master").select("id, sku_code, description").in("id", itemIds) : Promise.resolve({ data: [] }),
+    // #8 — carry the master default costs so a component's projected cost can be
+    // shown before it is issued/capitalized (actual_cost_cents is 0 until posted).
+    partIds.length ? admin.from("part_master").select("id, code, name, default_unit_cost_cents").in("id", partIds) : Promise.resolve({ data: [] }),
+    svcIds.length ? admin.from("service_item_master").select("id, code, name, default_charge_cents").in("id", svcIds) : Promise.resolve({ data: [] }),
+    itemIds.length ? admin.from("ip_item_master").select("id, sku_code, description, unit_cost").in("id", itemIds) : Promise.resolve({ data: [] }),
     vendIds.length ? admin.from("vendors").select("id, legal_name, code").in("id", vendIds) : Promise.resolve({ data: [] }),
   ]);
   const partBy = new Map((parts.data || []).map((p) => [p.id, p]));
@@ -30,24 +32,71 @@ async function decorateComponents(admin, buildId) {
   const itemBy = new Map((items.data || []).map((i) => [i.id, i]));
   const vendBy = new Map((vends.data || []).map((v) => [v.id, v]));
 
+  // #8 — projected UNIT cost for consumed finished-styles: prefer the all-SKU
+  // avg-cost table (ip_item_avg_cost, keyed by sku_code, stored in DOLLARS),
+  // fall back to the item's own unit_cost (also dollars). Fetched once for all
+  // style components.
+  const skuCodes = [...new Set((items.data || []).map((i) => i.sku_code).filter(Boolean))];
+  const avgBySku = new Map();
+  if (skuCodes.length) {
+    const { data: avgRows } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", skuCodes);
+    for (const a of avgRows || []) avgBySku.set(a.sku_code, Number(a.avg_cost));
+  }
+
   return list.map((c) => {
-    let code = null, label = null;
-    if (c.component_kind === "part" && partBy.get(c.part_id)) { code = partBy.get(c.part_id).code; label = partBy.get(c.part_id).name; }
-    else if (c.component_kind === "service" && svcBy.get(c.service_item_id)) { code = svcBy.get(c.service_item_id).code; label = svcBy.get(c.service_item_id).name; }
-    else if (c.component_kind === "finished_style" && itemBy.get(c.component_item_id)) { code = itemBy.get(c.component_item_id).sku_code; label = itemBy.get(c.component_item_id).description; }
-    return { ...c, component_code: code, component_label: label, service_vendor_name: c.service_vendor_id ? (vendBy.get(c.service_vendor_id)?.legal_name || null) : null };
+    let code = null, label = null, projectedUnitCents = null;
+    if (c.component_kind === "part" && partBy.get(c.part_id)) {
+      const p = partBy.get(c.part_id);
+      code = p.code; label = p.name;
+      projectedUnitCents = p.default_unit_cost_cents != null ? Number(p.default_unit_cost_cents) : null;
+    } else if (c.component_kind === "service" && svcBy.get(c.service_item_id)) {
+      const s = svcBy.get(c.service_item_id);
+      code = s.code; label = s.name;
+      // A capitalized service uses its agreed charge; otherwise the master default.
+      projectedUnitCents = c.service_charge_cents != null ? Number(c.service_charge_cents)
+        : (s.default_charge_cents != null ? Number(s.default_charge_cents) : null);
+    } else if (c.component_kind === "finished_style" && itemBy.get(c.component_item_id)) {
+      const it = itemBy.get(c.component_item_id);
+      code = it.sku_code; label = it.description;
+      const avgDollars = avgBySku.has(it.sku_code) ? avgBySku.get(it.sku_code)
+        : (it.unit_cost != null ? Number(it.unit_cost) : null);
+      projectedUnitCents = avgDollars != null && Number.isFinite(avgDollars) ? Math.round(avgDollars * 100) : null;
+    }
+    // Projected EXTENDED cost = unit × qty_required (services are per-build, so
+    // qty_required is typically 1). Null unit ⇒ unknown (no default on record).
+    const qtyReq = Number(c.qty_required || 0);
+    const projectedCostCents = projectedUnitCents != null
+      ? (c.component_kind === "service" ? projectedUnitCents : Math.round(projectedUnitCents * qtyReq))
+      : null;
+    return {
+      ...c,
+      component_code: code,
+      component_label: label,
+      service_vendor_name: c.service_vendor_id ? (vendBy.get(c.service_vendor_id)?.legal_name || null) : null,
+      projected_unit_cost_cents: projectedUnitCents,
+      projected_cost_cents: projectedCostCents,
+    };
   });
 }
 
 function rollup(components) {
+  // Actual (posted) rollup + a PROJECTED rollup (#8) so costs are visible before
+  // issue/capitalize. Projected falls back to actual once posted (actual > 0),
+  // and to the projected estimate before that.
   const r = { parts_cost_cents: 0, style_cost_cents: 0, service_cost_cents: 0, total_cents: 0 };
+  const p = { parts_cost_cents: 0, style_cost_cents: 0, service_cost_cents: 0, total_cents: 0, has_estimate: false, missing_costs: 0 };
   for (const c of components) {
-    const cost = Number(c.actual_cost_cents || 0);
-    if (c.component_kind === "part") r.parts_cost_cents += cost;
-    else if (c.component_kind === "finished_style") r.style_cost_cents += cost;
-    else if (c.component_kind === "service") r.service_cost_cents += cost;
+    const actual = Number(c.actual_cost_cents || 0);
+    const projected = actual > 0 ? actual : (c.projected_cost_cents != null ? Number(c.projected_cost_cents) : 0);
+    if (c.projected_cost_cents == null && actual === 0) p.missing_costs += 1;
+    else p.has_estimate = true;
+    if (c.component_kind === "part") { r.parts_cost_cents += actual; p.parts_cost_cents += projected; }
+    else if (c.component_kind === "finished_style") { r.style_cost_cents += actual; p.style_cost_cents += projected; }
+    else if (c.component_kind === "service") { r.service_cost_cents += actual; p.service_cost_cents += projected; }
   }
   r.total_cents = r.parts_cost_cents + r.style_cost_cents + r.service_cost_cents;
+  p.total_cents = p.parts_cost_cents + p.style_cost_cents + p.service_cost_cents;
+  r.projected = p;
   return r;
 }
 
