@@ -53,6 +53,30 @@ export function sizeVariantsOf(raw) {
   return SIZE_VARIANTS[canon] || [String(raw).trim()];
 }
 
+// Color canonicalization — the SAME physical color arrives from different ingest
+// paths spelled differently: CASE ("Black" vs "BLACK"), abbreviation ("Light
+// Wash" vs "Lt Wash", "…with Tint" vs "…w Tint"), and punctuation/spacing
+// ("Navy/Peach" vs "NAVY/PEACH", "Forget-Me-Not"). The matrix groups rows by the
+// raw `color` string, so variants split into duplicate rows (e.g. one color's
+// size run spread across two rows). We map every spelling to ONE canonical,
+// display-friendly label: uppercase → expand known abbreviations (whole word) →
+// collapse punctuation/space → Title Case. DETERMINISTIC (independent of which
+// variants are present) so the frontend seed and the backend payload converge on
+// the same label. Presentation-only — ip_item_master is NOT mutated; SKUs keep
+// their real ids so saves still resolve to the existing row (no forking).
+// Mirror: src/tanda/colorCanon.ts — keep in sync.
+const COLOR_ABBREV = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH" };
+export function canonColor(raw) {
+  if (raw == null) return raw;
+  const s = String(raw).trim();
+  if (!s) return s;
+  const words = s.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim().split(" ");
+  return words
+    .map((w) => COLOR_ABBREV[w] || w)
+    .map((w) => (w ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+
 // Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
@@ -164,7 +188,9 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     const seen = new Set();
     for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
   }
-  let colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
+  // Canonicalize colors so spelling/case variants of one physical color collapse
+  // to a single row (see canonColor). Dedupe preserving first-seen order.
+  let colors = dedupeOrdered(skus.map((s) => canonColor(s.color)).filter(Boolean));
   let inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
   const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
 
@@ -183,15 +209,14 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       .eq("entity_id", entityId)
       .in("id", declaredColorIds);
     const nameById = new Map((cmRows || []).map((r) => [r.id, r.name]));
-    // Align a declared color to an existing SKU color when they match
-    // case-insensitively, so the row uses the SKU's exact spelling and its cells
-    // resolve (catalog colors are inconsistently cased — "BLACK" vs "Black"). A
-    // declared color with no SKU yet keeps its (canonical) spelling = empty row.
-    const skuColorByLower = new Map(colors.map((c) => [c.toLowerCase(), c]));
+    // Align a declared color to an existing SKU color by canonical key, so the
+    // row reuses the (canonical) SKU spelling and its cells resolve. A declared
+    // color with no SKU yet contributes its own canonical spelling = empty row.
+    const skuColorByCanon = new Map(colors.map((c) => [canonColor(c), c]));
     const declaredNames = declaredColorIds
       .map((id) => nameById.get(id))
       .filter(Boolean)
-      .map((n) => skuColorByLower.get(n.toLowerCase()) || n);
+      .map((n) => skuColorByCanon.get(canonColor(n)) || canonColor(n));
     colors = dedupeOrdered([...declaredNames, ...colors]);
   }
   const declaredInseams = Array.isArray(attrs.inseams)
@@ -405,7 +430,11 @@ function mergeSkusByCell(skus, maps) {
   const cells = new Map(); // `${color}|${size}|${inseam}` → merged sku (+ _primaryOnHand)
   for (const s of skus) {
     const size = normalizeSize(s.size);
-    const key = `${s.color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
+    // Canonical color so spelling/case variants of one physical color merge into
+    // ONE cell (their on-hand sums) and render under one row. The kept primary
+    // `id` is still a real SKU id, so SO/PO/AR saves resolve to the existing row.
+    const color = canonColor(s.color);
+    const key = `${color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
     const oh = onHand.get(s.id) || 0;
     const av = avail.has(s.id) ? avail.get(s.id) : null;
     // Exact sku_code match first; fall back to the loose key so multi-word-color
@@ -421,7 +450,7 @@ function mergeSkusByCell(skus, maps) {
     const lr = lastReceived.has(s.id) ? lastReceived.get(s.id) : null;
     let cell = cells.get(key);
     if (!cell) {
-      cell = { ...s, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
+      cell = { ...s, color, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
       cells.set(key, cell);
     }
     // Primary (id + sku-level attrs) = the dup with the most on-hand; first wins ties.
@@ -479,7 +508,7 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
     const packs = onHand.get(ps.id) || 0;
     if (!(packs > 0)) continue;
     packsExploded += 1;
-    const color = ps.color || "—";
+    const color = canonColor(ps.color) || "—";
     if (!colorsSeen.includes(color)) colorsSeen.push(color);
     const byWh = onHandByWh.get(ps.id) || {};
     // Per-each cost = pack cost ÷ units per pack.
@@ -709,7 +738,7 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
       continue;
     }
     packsExploded += 1;
-    const color = ppk.color || "—";
+    const color = canonColor(ppk.color) || "—";
     extraColors.add(color);
     for (const { size: rawSize, qty_per_pack } of comp) {
       const size = normalizeSize(rawSize); // align pack sizes with the canonical grid columns
