@@ -182,7 +182,10 @@ export const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] 
   // Customs → Broker → 3-Way Match → Recon → Bookkeeper → EDI chain is visible.
   // 🚚 is distinct from 📦 (Inventory) and every other section emoji.
   { section: "Procurement", emoji: "🚚", groups: ["Procurement"] },
-  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Manufacturing", "Shadow Mirror"] },
+  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
+  // Operator item #1 — Manufacturing promoted to its own top-level section
+  // (was nested under Inventory; its masters were also under Master Data).
+  { section: "Manufacturing", emoji: "🛠️", groups: ["Manufacturing"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
@@ -241,9 +244,9 @@ export const MODULES: ModuleDef[] = [
   { key: "season_master",        label: "Seasons Master",            emoji: "🍂", group: "Master Data" },
   { key: "color_master",         label: "Color Master",              emoji: "🎨", group: "Master Data" },
   { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
-  { key: "part_master",          label: "Part Master",               emoji: "🧩", group: "Master Data" },
-  { key: "service_item_master",  label: "Service Item Master",       emoji: "🛠️", group: "Master Data" },
-  { key: "part_type_master",     label: "Part Type Master",          emoji: "🏷️", group: "Master Data" },
+  { key: "part_master",          label: "Part Master",               emoji: "🧩", group: "Manufacturing" },
+  { key: "service_item_master",  label: "Service Item Master",       emoji: "🛠️", group: "Manufacturing" },
+  { key: "part_type_master",     label: "Part Type Master",          emoji: "🏷️", group: "Manufacturing" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
