@@ -65,25 +65,36 @@ export default async function handler(req, res) {
     const { data: build, error } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!build) return res.status(404).json({ error: "Build order not found" });
-    const { data: fi } = await admin.from("ip_item_master").select("id, sku_code, style_code, style_id, color, description").eq("id", build.finished_item_id).maybeSingle();
+    const { data: fi } = build.finished_item_id
+      ? await admin.from("ip_item_master").select("id, sku_code, style_code, style_id, color, description").eq("id", build.finished_item_id).maybeSingle()
+      : { data: null };
+    // Finished good = a style. Prefer the build's own finished_style_id column;
+    // fall back to the representative item's style.
+    const styleId = build.finished_style_id || fi?.style_id || null;
+    let finishedStyle = null;
+    if (styleId) {
+      const { data: st } = await admin.from("style_master").select("id, style_code, style_name").eq("id", styleId).maybeSingle();
+      finishedStyle = st || null;
+    }
     const components = await decorateComponents(admin, id);
-    // Phase A — per-size outputs (present once a matrix build is completed).
+    // Phase A — per-size outputs (planned at creation, actuals once completed).
     const { data: outputs } = await admin.from("mfg_build_outputs").select("id, item_id, color, size, qty, unit_cost_cents").eq("build_order_id", id).order("created_at", { ascending: true });
     // Phase B — customer this build is for + that customer's style number.
     let customerName = null, customerStyleNumber = null;
     if (build.customer_id) {
       const { data: cust } = await admin.from("customers").select("name").eq("id", build.customer_id).maybeSingle();
       customerName = cust?.name || null;
-      if (fi?.style_id) {
+      if (styleId) {
         const { data: scn } = await admin.from("style_customer_numbers").select("customer_style_number")
-          .eq("style_id", fi.style_id).eq("customer_id", build.customer_id).maybeSingle();
+          .eq("style_id", styleId).eq("customer_id", build.customer_id).maybeSingle();
         customerStyleNumber = scn?.customer_style_number || null;
       }
     }
     return res.status(200).json({
       ...build,
       finished_item: fi || null,
-      finished_style_id: fi?.style_id || null,
+      finished_style_id: styleId,
+      finished_style: finishedStyle,
       customer_name: customerName,
       customer_style_number: customerStyleNumber,
       components,

@@ -5,7 +5,7 @@
 // into WIP at FIFO cost) → capitalize conversion services → complete (WIP →
 // finished-goods inventory at actual cost). Shows the live WIP cost rollup.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import QuickAddStyleModal from "./components/QuickAddStyleModal";
@@ -13,7 +13,6 @@ import { EditableSizeMatrix, matrixCellKey, type EditableMatrixRow } from "../sh
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 
-type ItemLite = { id: string; sku_code: string; description: string | null; style_code?: string | null; color?: string | null };
 type CustLite = { id: string; name: string; code?: string | null; customer_code?: string | null };
 type Component = {
   id: string;
@@ -169,27 +168,33 @@ export default function InternalMfgBuildOrders() {
   );
 }
 
-function ItemPicker({ onChange }: { onChange: (id: string, label: string, styleCode: string | null) => void }) {
-  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<ItemLite[]>([]);
+// Item G — search BASE STYLES (one row per style, code + name), not per-size
+// SKUs, so the finished good of a build/BOM is a style. Backed by style-master.
+type StyleLite = { id: string; style_code: string; style_name: string | null; description?: string | null };
+function StylePicker({ onChange, placeholder }: { onChange: (styleId: string, label: string, styleCode: string) => void; placeholder?: string }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<StyleLite[]>([]);
   const [chosen, setChosen] = useState(""); const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!open) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
-      try { const r = await fetch(`/api/internal/items?q=${encodeURIComponent(q)}&limit=50`); if (r.ok) setResults(await r.json() as ItemLite[]); } catch { /* */ }
+      try { const r = await fetch(`/api/internal/style-master?q=${encodeURIComponent(q)}&limit=25`); if (r.ok) { const j = await r.json(); setResults((Array.isArray(j) ? j : (j.rows || j.data || [])) as StyleLite[]); } } catch { /* */ }
     }, 250);
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, [q, open]);
   return (
     <div style={{ position: "relative" }}>
-      <input style={inputStyle} placeholder="Search the style to build…" value={open ? q : chosen} onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      <input style={inputStyle} placeholder={placeholder || "Search the style to build…"} value={open ? q : chosen} onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && results.length > 0 && (
         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
-          {results.map((it) => (
-            <div key={it.id} onMouseDown={() => { const label = `${it.sku_code}${it.description ? ` — ${it.description}` : ""}`; setChosen(label); onChange(it.id, label, it.style_code ?? null); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
-              <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{it.sku_code}</span>{it.description ? <span style={{ color: C.textSub }}> — {it.description}</span> : null}
-            </div>
-          ))}
+          {results.map((s) => {
+            const name = s.style_name || s.description || "";
+            return (
+              <div key={s.id} onMouseDown={() => { const label = `${s.style_code}${name ? ` — ${name}` : ""}`; setChosen(label); onChange(s.id, label, s.style_code); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+                <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{s.style_code}</span>{name ? <span style={{ color: C.textSub }}> — {name}</span> : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -227,11 +232,60 @@ function CustomerPicker({ onChange }: { onChange: (cust: CustLite | null) => voi
   );
 }
 
+// Fetches a style's scale (sizes/colors) and renders the shared size matrix so
+// the operator can plan the run by size at build creation. Reports the filled
+// cells + total up to the parent. Falls back to a note when the style has no
+// scale (parent then shows a plain target field).
+function PlannedSizeMatrix({ styleId, defaultColor, onChange }: {
+  styleId: string; defaultColor: string | null;
+  onChange: (outputs: { color: string | null; size: string; qty: number }[], total: number, hasScale: boolean) => void;
+}) {
+  const [sizes, setSizes] = useState<string[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true; setLoading(true); setQty({});
+    (async () => {
+      try {
+        const r = await fetch(`/api/internal/style-matrix?style_id=${styleId}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (!alive) return;
+        const szs: string[] = Array.isArray(j.sizes) ? j.sizes.filter(Boolean) : [];
+        let cols: string[] = Array.isArray(j.colors) ? j.colors.filter(Boolean) : [];
+        if (cols.length === 0) cols = [defaultColor || "—"];
+        setSizes(szs); setColors(cols);
+      } catch (e: unknown) { if (alive) setLoadErr(e instanceof Error ? e.message : String(e)); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [styleId, defaultColor]);
+  useEffect(() => {
+    const outs: { color: string | null; size: string; qty: number }[] = [];
+    let total = 0;
+    for (const c of colors) for (const sz of sizes) {
+      const v = Number(qty[matrixCellKey(c, sz)] || 0);
+      if (v > 0) { outs.push({ color: c === "—" ? (defaultColor || null) : c, size: sz, qty: v }); total += v; }
+    }
+    onChange(outs, total, sizes.length > 0);
+  }, [qty, colors, sizes, defaultColor, onChange]);
+
+  if (loading) return <div style={{ color: C.textMuted, fontSize: 12 }}>Loading sizes…</div>;
+  if (loadErr) return <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>{loadErr}</div>;
+  if (sizes.length === 0) return <div style={{ color: C.warn, fontSize: 12 }}>No size scale on this style — enter a total quantity below.</div>;
+  const rows: EditableMatrixRow[] = colors.map((c) => ({ key: c, color: c }));
+  return <EditableSizeMatrix rows={rows} sizes={sizes} qty={qty} onQtyChange={(rowKey, size, value) => setQty((p) => ({ ...p, [matrixCellKey(rowKey, size)]: value }))} />;
+}
+
 function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const [finishedItemId, setFinishedItemId] = useState("");
-  const [pickedLabel, setPickedLabel] = useState(""); // shown after add-on-the-fly (picker is uncontrolled)
+  const [finishedStyleId, setFinishedStyleId] = useState("");
+  const [pickedLabel, setPickedLabel] = useState("");
   const [styleCode, setStyleCode] = useState<string | null>(null);
+  const [defaultColor, setDefaultColor] = useState<string | null>(null);
   const [targetQty, setTargetQty] = useState("");
+  const [plan, setPlan] = useState<{ outputs: { color: string | null; size: string; qty: number }[]; total: number; hasScale: boolean }>({ outputs: [], total: 0, hasScale: false });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Item 1 — add a style on the fly (admins only; others get a warning).
@@ -241,21 +295,25 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [customer, setCustomer] = useState<CustLite | null>(null);
   const [custStyleNumber, setCustStyleNumber] = useState("");
   const [custStyleTouched, setCustStyleTouched] = useState(false);
-  // Auto-suggest "<CUST code>-<STYLE>" once both are known, unless the operator
-  // has already typed their own (customer code + base style — decision B).
   useEffect(() => {
     if (custStyleTouched) return;
     if (customer && styleCode) setCustStyleNumber(`${customer.code || customer.customer_code || "CUST"}-${styleCode}`);
     else setCustStyleNumber("");
   }, [customer, styleCode, custStyleTouched]);
+  const onPlanChange = useCallback((outputs: { color: string | null; size: string; qty: number }[], total: number, hasScale: boolean) => setPlan({ outputs, total, hasScale }), []);
 
   async function submit() {
     setSubmitting(true); setErr(null);
     try {
-      const qty = parseFloat(targetQty);
-      if (!finishedItemId) throw new Error("Pick a finished style");
-      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Enter a target quantity");
-      const payload: Record<string, unknown> = { finished_item_id: finishedItemId, target_qty: qty };
+      if (!finishedStyleId) throw new Error("Pick a finished style");
+      const payload: Record<string, unknown> = { finished_style_id: finishedStyleId };
+      if (plan.outputs.length > 0) {
+        payload.outputs = plan.outputs; // target derived server-side from the matrix
+      } else {
+        const qty = parseFloat(targetQty);
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error(plan.hasScale ? "Enter quantities in the size matrix" : "Enter a target quantity");
+        payload.target_qty = qty;
+      }
       if (customer) { payload.customer_id = customer.id; if (custStyleNumber.trim()) payload.customer_style_number = custStyleNumber.trim(); }
       const r = await fetch(`/api/internal/build-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -265,20 +323,22 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     finally { setSubmitting(false); }
   }
 
+  const canSubmit = !!finishedStyleId && (plan.total > 0 || (!plan.hasScale && parseFloat(targetQty) > 0));
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(520px, 95vw)", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(720px, 96vw)", maxHeight: "90vh", overflowY: "auto", color: C.text }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>New build order</h3>
         <div style={{ marginBottom: 12 }}>
           <Lbl>Finished style *</Lbl>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <ItemPicker onChange={(id, label, sc) => { setFinishedItemId(id); setPickedLabel(label); setStyleCode(sc); }} />
+              <StylePicker onChange={(id, label, sc) => { setFinishedStyleId(id); setPickedLabel(label); setStyleCode(sc); setDefaultColor(null); }} />
             </div>
             {/* Item 1 — add a style on the fly (admin only). */}
             <button type="button" style={{ ...btnSecondary, whiteSpace: "nowrap" }}
               onClick={() => { if (!isAdmin) { notify("Only admins can add styles. Ask an admin, or pick an existing style.", "error"); return; } setAddStyleOpen(true); }}
-              title="Add a new style + finished SKU without leaving the build">+ New style</button>
+              title="Add a new style without leaving the build">+ New style</button>
           </div>
           {pickedLabel && <div style={{ fontSize: 12, color: C.textSub, marginTop: 4 }}>Selected: <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{pickedLabel}</span></div>}
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Its active BOM is snapshotted when you Release the build.</div>
@@ -286,13 +346,25 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         {addStyleOpen && (
           <QuickAddStyleModal
             onClose={() => setAddStyleOpen(false)}
-            onCreated={(skuId, label) => { setFinishedItemId(skuId); setPickedLabel(label); setAddStyleOpen(false); notify(`Style added — "${label}" selected. Attach its BOM before releasing.`, "success"); }}
+            onCreated={(_skuId, label, styleId, sCode) => { if (styleId) { setFinishedStyleId(styleId); setStyleCode(sCode ?? null); } setPickedLabel(label); setAddStyleOpen(false); notify(`Style added — "${label}" selected. Attach its BOM before releasing.`, "success"); }}
           />
         )}
-        <div style={{ marginBottom: 12 }}>
-          <Lbl>Target quantity *</Lbl>
-          <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={inputStyle} placeholder="e.g. 500" autoFocus />
-        </div>
+        {/* Item a — plan the run by size at creation (matrix); falls back to a
+            plain total when the style has no size scale. */}
+        {finishedStyleId ? (
+          <div style={{ marginBottom: 12 }}>
+            <Lbl>Plan by size {plan.total > 0 ? <span style={{ color: C.textMuted, fontWeight: 400 }}>· total {plan.total}</span> : null}</Lbl>
+            <PlannedSizeMatrix styleId={finishedStyleId} defaultColor={defaultColor} onChange={onPlanChange} />
+            {!plan.hasScale && (
+              <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={{ ...inputStyle, marginTop: 8 }} placeholder="Target quantity, e.g. 500" />
+            )}
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12 }}>
+            <Lbl>Target quantity *</Lbl>
+            <input type="number" min="1" step="1" value={targetQty} onChange={(e) => setTargetQty(e.target.value)} style={inputStyle} placeholder="Pick a style first, or enter a total" />
+          </div>
+        )}
         {/* Phase B — build for a customer (optional). */}
         <div style={{ marginBottom: 12 }}>
           <Lbl>Build for customer (optional)</Lbl>
@@ -308,7 +380,7 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 12 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !finishedItemId}>{submitting ? "Creating…" : "Create draft"}</button>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !canSubmit}>{submitting ? "Creating…" : "Create draft"}</button>
         </div>
       </div>
     </div>
@@ -409,10 +481,11 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                 </tbody>
               </table>
 
-              {/* Produced by size (once a matrix build is completed). */}
+              {/* By size — the planned matrix (before completion) or the actual
+                  produced quantities (once completed). */}
               {(build.outputs && build.outputs.length > 0) && (
                 <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Produced (by size)</div>
+                  <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{build.status === "completed" ? "Produced (by size)" : "Planned (by size)"}</div>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead><tr><th style={th}>Color</th><th style={th}>Size</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit cost</th></tr></thead>
                     <tbody>
@@ -459,6 +532,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
           buildNumber={build.build_number}
           targetQty={build.target_qty}
           defaultColor={build.finished_item?.color || null}
+          initial={build.outputs || []}
           busy={busy}
           onClose={() => setCompleteOpen(false)}
           onSubmit={async (outputs) => { await act("complete", { outputs }); setCompleteOpen(false); }}
@@ -471,8 +545,9 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
 // Complete a style-backed build by entering the produced color x size matrix.
 // Reuses the shared EditableSizeMatrix (same grid as SO/PO entry). Each filled
 // cell becomes a finished-goods layer at completion (server resolves the SKU).
-function CompleteMatrixModal({ styleId, buildNumber, targetQty, defaultColor, busy, onClose, onSubmit }: {
-  styleId: string; buildNumber: string; targetQty: number; defaultColor: string | null; busy: boolean;
+function CompleteMatrixModal({ styleId, buildNumber, targetQty, defaultColor, initial, busy, onClose, onSubmit }: {
+  styleId: string; buildNumber: string; targetQty: number; defaultColor: string | null;
+  initial?: { color: string | null; size: string | null; qty: number }[]; busy: boolean;
   onClose: () => void; onSubmit: (outputs: { color: string | null; size: string; qty: number }[]) => void | Promise<void>;
 }) {
   const [sizes, setSizes] = useState<string[]>([]);
@@ -493,11 +568,21 @@ function CompleteMatrixModal({ styleId, buildNumber, targetQty, defaultColor, bu
         let cols: string[] = Array.isArray(j.colors) ? j.colors.filter(Boolean) : [];
         if (cols.length === 0) cols = [defaultColor || "—"];
         setSizes(szs); setColors(cols);
+        // Pre-fill from the planned matrix entered at build creation.
+        if (initial && initial.length) {
+          const seed: Record<string, number> = {};
+          for (const o of initial) {
+            if (!o.size) continue;
+            const rowKey = cols.includes(o.color || "") ? (o.color as string) : cols[0];
+            seed[matrixCellKey(rowKey, o.size)] = Number(o.qty) || 0;
+          }
+          setQty(seed);
+        }
       } catch (e: unknown) { if (alive) setLoadErr(e instanceof Error ? e.message : String(e)); }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [styleId, defaultColor]);
+  }, [styleId, defaultColor, initial]);
 
   const rows: EditableMatrixRow[] = colors.map((c) => ({ key: c, color: c }));
   const total = Object.values(qty).reduce((s, v) => s + (Number(v) || 0), 0);

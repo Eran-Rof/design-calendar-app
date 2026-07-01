@@ -46,17 +46,22 @@ export default async function handler(req, res) {
   let resolvedOutputs = null;
   if (Array.isArray(body.outputs) && body.outputs.length > 0) {
     const { data: fin } = await admin.from("ip_item_master").select("id, style_id, style_code, color").eq("id", build.finished_item_id).maybeSingle();
-    if (!fin?.style_id) return res.status(400).json({ error: "The finished item isn't style-backed, so a size matrix can't be resolved. Use a style-backed finished good or complete without a matrix." });
+    // Prefer the build's own finished_style_id (set when a style was picked);
+    // fall back to the representative finished item's style.
+    const styleId = build.finished_style_id || fin?.style_id || null;
+    if (!styleId) return res.status(400).json({ error: "This build has no finished style, so a size matrix can't be resolved. Complete without a matrix." });
+    let styleCode = fin?.style_code || null;
+    if (!styleCode) { const { data: st } = await admin.from("style_master").select("style_code").eq("id", styleId).maybeSingle(); styleCode = st?.style_code || null; }
     resolvedOutputs = [];
     for (const o of body.outputs) {
       const q = Number(o?.qty);
       if (!Number.isFinite(q) || q <= 0) continue;
       const size = o?.size != null ? String(o.size).trim() : "";
       if (!size) return res.status(400).json({ error: "Each output row needs a size." });
-      const color = o?.color != null && String(o.color).trim() ? String(o.color).trim() : (fin.color || null);
+      const color = o?.color != null && String(o.color).trim() ? String(o.color).trim() : (fin?.color || null);
       let itemId = o?.item_id && UUID_RE.test(String(o.item_id)) ? String(o.item_id) : null;
       if (!itemId) {
-        const rr = await resolveOrCreateSku(admin, entity.id, { style_id: fin.style_id, style_code: fin.style_code || null, color, size, inseam: o?.inseam || null });
+        const rr = await resolveOrCreateSku(admin, entity.id, { style_id: styleId, style_code: styleCode, color, size, inseam: o?.inseam || null });
         if (rr?.error || !rr?.id) return res.status(400).json({ error: `Could not resolve a SKU for ${color || ""} ${size}: ${rr?.error || "unknown"}` });
         itemId = rr.id;
       }

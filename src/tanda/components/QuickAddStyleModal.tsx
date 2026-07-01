@@ -24,8 +24,10 @@ type SizeScale = { id: string; code: string; name: string; sizes: string[] };
 
 export interface QuickAddStyleModalProps {
   onClose: () => void;
-  /** Called with the newly-minted finished-goods SKU id + a display label. */
-  onCreated: (skuId: string, label: string) => void;
+  /** Called with the newly-minted finished-goods SKU id + a display label, plus
+   *  the new style's id and code (so callers that key on the STYLE, e.g. the
+   *  manufacturing build/BOM, can use it directly). */
+  onCreated: (skuId: string, label: string, styleId?: string, styleCode?: string) => void;
 }
 
 export default function QuickAddStyleModal({ onClose, onCreated }: QuickAddStyleModalProps) {
@@ -73,7 +75,7 @@ export default function QuickAddStyleModal({ onClose, onCreated }: QuickAddStyle
       if (!kr.ok || !kj.id) throw new Error(kj.error || `SKU create failed (HTTP ${kr.status})`);
 
       const label = `${code}${color.trim() ? `-${color.trim()}` : ""}-${buildSize.trim()}${description.trim() ? ` — ${description.trim()}` : ""}`;
-      onCreated(kj.id as string, label);
+      onCreated(kj.id as string, label, styleId, code);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setSaving(false);
