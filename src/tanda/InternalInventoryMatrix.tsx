@@ -2193,10 +2193,17 @@ export default function InternalInventoryMatrix() {
             style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
             onClick={() => setHideZeros((v) => !v)}>Hide 0s</button>
 
-          {/* Explode PPK toggle — blue = active. */}
-          <button type="button" title="Convert PPK packs into sized eaches using the Prepack Matrix master"
-            style={{ background: explodePpk ? C.primary : C.card, color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
-            onClick={() => setExplodePpk((v) => !v)}>Explode</button>
+          {/* Explode PPK toggle — blue = active. When Merge PPK is on it is
+              LOCKED on (merging needs unit-grain eaches): darker blue + not-allowed
+              cursor + explanatory tooltip; the click is a no-op so it can't be
+              turned off until Merge PPK is switched off. */}
+          <button type="button"
+            aria-disabled={mergePpk}
+            title={mergePpk
+              ? "Explode stays on while Merge PPK is selected — merging a base style with its PPK sibling needs unit-grain eaches. Turn off Merge PPK to change this."
+              : "Convert PPK packs into sized eaches using the Prepack Matrix master"}
+            style={{ background: mergePpk ? "#1D4ED8" : (explodePpk ? C.primary : C.card), color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${mergePpk ? "#1D4ED8" : (explodePpk ? C.primary : C.cardBdr)}`, padding: "6px 14px", borderRadius: 6, cursor: mergePpk ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => { if (mergePpk) return; setExplodePpk((v) => !v); }}>Explode</button>
 
           {/* Merge PPK — snapshot only. Collapse each base style + its PPK
               sibling into one "BASE/PPK" row; forces Explode on (needs eaches). */}
