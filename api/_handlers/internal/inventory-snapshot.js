@@ -290,8 +290,14 @@ export default async function handler(req, res) {
       if (q > 0) { const b = bucketOfItem(r.item_id); if (b) b.on_hand += q; }
     }
     // On hand (ATS source — latest snapshot per item). The ATS source carries a
-    // warehouse_code; under a Warehouse filter we keep only rows for that wh.
-    const atsRows = whKey ? ohRows.filter((r) => String(r.warehouse_code || "").toLowerCase() === whKey) : ohRows;
+    // warehouse_code that still uses the LEGACY Xoro names ("ROF Main", "ROF -
+    // ECOM"), while the Warehouse filter comes from the canonical Warehouses
+    // master ("Main Warehouse", "ROF Ecom"). Normalize the legacy code to its
+    // canonical name (same mapping as mig 20260925) before comparing — otherwise
+    // this column stayed 0 for every warehouse. Case-insensitive.
+    const WH_ALIAS = { "rof main": "main warehouse", "rof - ecom": "rof ecom", "prebook - psycho tuna": "psycho tuna" };
+    const canonWh = (name) => { const l = String(name || "").toLowerCase().trim(); return WH_ALIAS[l] || l; };
+    const atsRows = whKey ? ohRows.filter((r) => canonWh(r.warehouse_code) === whKey) : ohRows;
     const latestByItem = new Map();
     for (const r of atsRows) { const c = latestByItem.get(r.item_id); if (!c || String(r.snapshot_date) > c) latestByItem.set(r.item_id, String(r.snapshot_date)); }
     for (const r of atsRows) {
