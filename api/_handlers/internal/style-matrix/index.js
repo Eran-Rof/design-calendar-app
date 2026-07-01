@@ -44,7 +44,15 @@ export default async function handler(req, res) {
   // so existing consumers (SO entry, adjustments, PO) are unaffected.
   const explodePpk = String(req.query?.explode_ppk || "").toLowerCase() === "true";
 
-  const payload = await enumerateStyleMatrix(admin, eid, String(styleId), { explodePpk });
+  // Lot filter (opt-in): `?lots=A,B` or repeated `?lots=A&lots=B`. When present,
+  // on-hand is scoped to those lot numbers; the payload's `lots` list stays the
+  // full set so the UI dropdown remains fully populated. Empty → all lots.
+  const rawLots = req.query?.lots;
+  const lotFilter = (Array.isArray(rawLots) ? rawLots : (rawLots != null ? String(rawLots).split(",") : []))
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  const payload = await enumerateStyleMatrix(admin, eid, String(styleId), { explodePpk, lotFilter });
   if (!payload) return res.status(404).json({ error: "Style not found" });
   return res.status(200).json(payload);
 }
