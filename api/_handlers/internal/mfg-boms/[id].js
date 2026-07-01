@@ -70,10 +70,17 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     if (!bom) return res.status(404).json({ error: "BOM not found" });
 
-    const { data: fi } = await admin
-      .from("ip_item_master").select("id, sku_code, style_code, description").eq("id", bom.finished_item_id).maybeSingle();
+    const { data: fi } = bom.finished_item_id
+      ? await admin.from("ip_item_master").select("id, sku_code, style_code, description").eq("id", bom.finished_item_id).maybeSingle()
+      : { data: null };
+    const { data: fstyle } = bom.finished_style_id
+      ? await admin.from("style_master").select("id, style_code, style_name").eq("id", bom.finished_style_id).maybeSingle()
+      : { data: null };
+    const { data: cust } = bom.customer_id
+      ? await admin.from("customers").select("id, name, code").eq("id", bom.customer_id).maybeSingle()
+      : { data: null };
     const components = await decorateComponents(admin, id);
-    return res.status(200).json({ ...bom, finished_item: fi || null, components });
+    return res.status(200).json({ ...bom, finished_item: fi || null, finished_style: fstyle || null, customer_name: cust?.name || null, components });
   }
 
   if (req.method === "PATCH") {
@@ -98,6 +105,10 @@ export default async function handler(req, res) {
       patch.default_conversion_vendor_id = body.default_conversion_vendor_id || null;
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() || null : null;
+    if ("customer_id" in body) {
+      if (body.customer_id && !UUID_RE.test(String(body.customer_id))) return res.status(400).json({ error: "customer_id must be a uuid" });
+      patch.customer_id = body.customer_id || null;
+    }
 
     // Replace components when supplied.
     let compRows = null;

@@ -33,8 +33,16 @@ export default async function handler(req, res) {
   if (!bomId) {
     let activeBom = null;
     if (build.finished_style_id) {
-      ({ data: activeBom } = await admin.from("mfg_bom")
-        .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).eq("status", "active").maybeSingle());
+      // Prefer a customer-specific active BOM for this build's customer, else
+      // the generic (customer-less) active BOM for the style.
+      if (build.customer_id) {
+        ({ data: activeBom } = await admin.from("mfg_bom")
+          .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).eq("customer_id", build.customer_id).eq("status", "active").maybeSingle());
+      }
+      if (!activeBom) {
+        ({ data: activeBom } = await admin.from("mfg_bom")
+          .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).is("customer_id", null).eq("status", "active").maybeSingle());
+      }
     }
     if (!activeBom) {
       ({ data: activeBom } = await admin.from("mfg_bom")
