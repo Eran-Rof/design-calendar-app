@@ -66,11 +66,26 @@ export default async function handler(req, res) {
     if (error) return res.status(500).json({ error: error.message });
     if (!boms || boms.length === 0) return res.status(200).json([]);
 
-    // Resolve finished-item labels + component counts.
-    const itemIds = [...new Set(boms.map((b) => b.finished_item_id))];
-    const { data: items } = await admin
-      .from("ip_item_master").select("id, sku_code, style_code, description").in("id", itemIds);
+    // Resolve finished-item + finished-style + customer labels + component counts.
+    const itemIds = [...new Set(boms.map((b) => b.finished_item_id).filter(Boolean))];
+    const { data: items } = itemIds.length
+      ? await admin.from("ip_item_master").select("id, sku_code, style_code, description").in("id", itemIds)
+      : { data: [] };
     const itemById = new Map((items || []).map((i) => [i.id, i]));
+
+    const styleIds = [...new Set(boms.map((b) => b.finished_style_id).filter(Boolean))];
+    const styleById = new Map();
+    if (styleIds.length) {
+      const { data: styles } = await admin.from("style_master").select("id, style_code, style_name").in("id", styleIds);
+      for (const s of styles || []) styleById.set(s.id, s);
+    }
+
+    const custIds = [...new Set(boms.map((b) => b.customer_id).filter(Boolean))];
+    const custById = new Map();
+    if (custIds.length) {
+      const { data: custs } = await admin.from("customers").select("id, name, code").in("id", custIds);
+      for (const c of custs || []) custById.set(c.id, c);
+    }
 
     const bomIds = boms.map((b) => b.id);
     const { data: comps } = await admin
@@ -83,6 +98,10 @@ export default async function handler(req, res) {
       finished_item: itemById.get(b.finished_item_id)
         ? { sku_code: itemById.get(b.finished_item_id).sku_code, style_code: itemById.get(b.finished_item_id).style_code, description: itemById.get(b.finished_item_id).description }
         : null,
+      finished_style: b.finished_style_id && styleById.get(b.finished_style_id)
+        ? { style_code: styleById.get(b.finished_style_id).style_code, style_name: styleById.get(b.finished_style_id).style_name }
+        : null,
+      customer_name: b.customer_id ? (custById.get(b.customer_id)?.name || null) : null,
       component_count: countByBom.get(b.id) || 0,
     }));
     return res.status(200).json(out);
@@ -94,8 +113,32 @@ export default async function handler(req, res) {
       try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); }
     }
     body = body || {};
-    if (!body.finished_item_id || !UUID_RE.test(String(body.finished_item_id))) {
-      return res.status(400).json({ error: "finished_item_id (uuid) is required" });
+    // Finished good = a STYLE. Accept finished_style_id (preferred) or a legacy
+    // finished_item_id; resolve the other. finished_item_id stays a
+    // representative SKU handle for the style.
+    let finishedStyleId = body.finished_style_id || null;
+    let finishedItemId = body.finished_item_id || null;
+    if (finishedStyleId) {
+      if (!UUID_RE.test(String(finishedStyleId))) return res.status(400).json({ error: "finished_style_id must be a uuid" });
+      const { data: st } = await admin.from("style_master").select("id").eq("id", String(finishedStyleId)).maybeSingle();
+      if (!st) return res.status(404).json({ error: "Style not found" });
+      if (!finishedItemId) {
+        const { data: rep } = await admin.from("ip_item_master").select("id").eq("style_id", String(finishedStyleId)).limit(1).maybeSingle();
+        if (!rep?.id) return res.status(400).json({ error: "This style has no SKUs yet — add one before creating its BOM." });
+        finishedItemId = rep.id;
+      }
+    } else if (finishedItemId) {
+      if (!UUID_RE.test(String(finishedItemId))) return res.status(400).json({ error: "finished_item_id must be a uuid" });
+      const { data: fi } = await admin.from("ip_item_master").select("style_id").eq("id", String(finishedItemId)).maybeSingle();
+      finishedStyleId = fi?.style_id || null;
+    } else {
+      return res.status(400).json({ error: "finished_style_id (or finished_item_id) is required" });
+    }
+    // Optional customer — a private-label / customer-specific BOM.
+    let customerId = null;
+    if (body.customer_id != null && body.customer_id !== "") {
+      if (!UUID_RE.test(String(body.customer_id))) return res.status(400).json({ error: "customer_id must be a uuid" });
+      customerId = String(body.customer_id);
     }
     const status = body.status === "active" ? "active" : "draft";
     let version = 1;
@@ -111,7 +154,9 @@ export default async function handler(req, res) {
 
     const header = {
       entity_id: entityId,
-      finished_item_id: String(body.finished_item_id),
+      finished_item_id: String(finishedItemId),
+      finished_style_id: finishedStyleId,
+      customer_id: customerId,
       version,
       status,
       bom_kind: body.bom_kind === "sku" ? "sku" : "style",
@@ -121,7 +166,7 @@ export default async function handler(req, res) {
     const { data: bom, error: hErr } = await admin.from("mfg_bom").insert(header).select().single();
     if (hErr) {
       if (hErr.code === "23505") {
-        return res.status(409).json({ error: "A BOM with this version already exists, or an active BOM already exists for this finished item. Archive it first or bump the version." });
+        return res.status(409).json({ error: "A BOM with this version already exists, or an active BOM already exists for this style" + (customerId ? " and customer." : ". Archive it first or bump the version.") });
       }
       return res.status(500).json({ error: hErr.message });
     }

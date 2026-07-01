@@ -45,7 +45,8 @@ Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `
 
 A **BOM** is the recipe for assembling a finished style. Find it under **Manufacturing → Bill of Materials** (`/tangerine?m=mfg_bom`).
 
-- **+ New BOM** — pick the **finished style** to build (type to search your styles), set a **version** and **status** (draft / active / archived), optionally a **default conversion vendor** (the factory) and notes.
+- **+ New BOM** — pick the **finished style** to build (the picker lists **base styles** — code + name — not per-size SKUs). If the style isn't on file yet, click **+ New style** to create it inline (admins only). Set a **version** and **status** (draft / active / archived), optionally a **default conversion vendor** (the factory) and notes.
+- **Customer-specific BOM (private label).** Optionally set a **Customer** on the BOM: a style can have a **generic** BOM (no customer) plus **per-customer** variants. When you release a build that's *for a customer*, Tangerine picks that customer's active BOM if one exists, otherwise the generic one. "One active BOM" is enforced per **style + customer**, so the generic and each customer's BOM can each be active at once. The BOM list shows the customer (or *generic*).
 - **Components** — add a row per component. Each row picks a **kind**, then the item:
   - **Part** — a `part_master` component (blank tee, label, trim, packaging) consumed from part inventory.
   - **Service** — a `service_item_master` charge (print, sew, pack) billed by the factory.

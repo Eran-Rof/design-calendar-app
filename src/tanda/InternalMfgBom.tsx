@@ -13,6 +13,8 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import QuickAddStyleModal from "./components/QuickAddStyleModal";
+import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
 type ItemLite = { id: string; sku_code: string; style_code: string | null; description: string | null; color?: string | null; size?: string | null };
 type PartLite = { id: string; code: string; name: string };
@@ -35,11 +37,15 @@ type Component = {
 type Bom = {
   id: string;
   finished_item_id: string;
+  finished_style_id?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
   version: number;
   status: "draft" | "active" | "archived";
   default_conversion_vendor_id: string | null;
   notes: string | null;
   finished_item?: { sku_code: string; style_code: string | null; description: string | null } | null;
+  finished_style?: { style_code: string | null; style_name: string | null } | null;
   component_count?: number;
   components?: Component[];
 };
@@ -133,7 +139,8 @@ export default function InternalMfgBom() {
             <thead>
               <tr>
                 <th style={th}>Finished Style</th>
-                <th style={th}>Description</th>
+                <th style={th}>Name</th>
+                <th style={th}>Customer</th>
                 <th style={{ ...th, textAlign: "right" }}>Version</th>
                 <th style={th}>Status</th>
                 <th style={{ ...th, textAlign: "right" }}>Components</th>
@@ -143,8 +150,9 @@ export default function InternalMfgBom() {
             <tbody>
               {rows.map((b) => (
                 <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => setEditing(b)}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{b.finished_item?.sku_code ?? "—"}</td>
-                  <td style={{ ...td, color: C.textSub }}>{b.finished_item?.description ?? "—"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{b.finished_style?.style_code ?? b.finished_item?.style_code ?? b.finished_item?.sku_code ?? "—"}</td>
+                  <td style={{ ...td, color: C.textSub }}>{b.finished_style?.style_name ?? b.finished_item?.description ?? "—"}</td>
+                  <td style={{ ...td, color: C.textSub }}>{b.customer_name ?? <span style={{ color: C.textMuted }}>generic</span>}</td>
                   <td style={{ ...td, textAlign: "right" }}>v{b.version}</td>
                   <td style={td}><span style={{ color: STATUS_COLOR[b.status] }}>{b.status}</span></td>
                   <td style={{ ...td, textAlign: "right" }}>{b.component_count ?? 0}</td>
@@ -220,12 +228,77 @@ function ItemPicker({ value, valueLabel, onChange, placeholder }: {
   );
 }
 
+// Item G — pick a BASE STYLE (style_master) as the BOM's finished good.
+type StyleLite = { id: string; style_code: string; style_name: string | null; description?: string | null };
+function StylePicker({ valueLabel, onChange }: { valueLabel: string; onChange: (styleId: string, label: string, styleCode: string) => void }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<StyleLite[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try { const r = await fetch(`/api/internal/style-master?q=${encodeURIComponent(q)}&limit=25`); if (r.ok) { const j = await r.json(); setResults((Array.isArray(j) ? j : (j.rows || j.data || [])) as StyleLite[]); } } catch { /* */ }
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [q, open]);
+  return (
+    <div style={{ position: "relative" }}>
+      <input style={inputStyle} placeholder="Search the style to build…" value={open ? q : (valueLabel || "")}
+        onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && results.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
+          {results.map((s) => { const name = s.style_name || s.description || ""; return (
+            <div key={s.id} onMouseDown={() => { onChange(s.id, `${s.style_code}${name ? ` — ${name}` : ""}`, s.style_code); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+              <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{s.style_code}</span>{name ? <span style={{ color: C.textSub }}> — {name}</span> : null}
+            </div>
+          ); })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Optional customer for a private-label BOM. Searches the customer master.
+type CustPick = { id: string; name: string; code?: string | null };
+function CustomerPicker({ valueLabel, onChange }: { valueLabel: string; onChange: (cust: CustPick | null) => void }) {
+  const [q, setQ] = useState(""); const [open, setOpen] = useState(false); const [results, setResults] = useState<CustPick[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(async () => {
+      try { const r = await fetch(`/api/internal/customer-master?q=${encodeURIComponent(q)}&limit=25`); if (r.ok) { const j = await r.json(); setResults((Array.isArray(j) ? j : (j.rows || j.data || [])) as CustPick[]); } } catch { /* */ }
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [q, open]);
+  return (
+    <div style={{ position: "relative" }}>
+      <input style={inputStyle} placeholder="— generic (no customer) —" value={open ? q : (valueLabel || "")}
+        onFocus={() => { setOpen(true); setQ(""); }} onChange={(e) => setQ(e.target.value)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {valueLabel && !open && <button type="button" onMouseDown={() => onChange(null)} title="Clear customer" style={{ position: "absolute", right: 6, top: 6, background: "none", border: 0, color: C.textMuted, cursor: "pointer", fontSize: 13 }}>✕</button>}
+      {open && results.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", marginTop: 2 }}>
+          {results.map((c) => (
+            <div key={c.id} onMouseDown={() => { onChange(c); setOpen(false); }} style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, borderBottom: `1px solid ${C.cardBdr}` }}>
+              {c.name}{c.code ? <span style={{ color: C.textMuted, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }}> · {c.code}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose: () => void; onSaved: () => void }) {
   const [parts, setParts] = useState<PartLite[]>([]);
   const [services, setServices] = useState<ServiceLite[]>([]);
   const [vendors, setVendors] = useState<VendorLite[]>([]);
-  const [finishedItemId, setFinishedItemId] = useState("");
-  const [finishedItemLabel, setFinishedItemLabel] = useState("");
+  const [finishedStyleId, setFinishedStyleId] = useState("");
+  const [finishedStyleLabel, setFinishedStyleLabel] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [customerLabel, setCustomerLabel] = useState("");
+  const [addStyleOpen, setAddStyleOpen] = useState(false);
+  const isAdmin = !!getCachedAuthUserId();
   const [version, setVersion] = useState("1");
   const [status, setStatus] = useState<"draft" | "active" | "archived">("draft");
   const [vendorId, setVendorId] = useState("");
@@ -257,8 +330,10 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
         const r = await fetch(`/api/internal/mfg-boms/${bomId}`);
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const b = await r.json() as Bom;
-        setFinishedItemId(b.finished_item_id);
-        setFinishedItemLabel(b.finished_item ? `${b.finished_item.sku_code}${b.finished_item.description ? ` — ${b.finished_item.description}` : ""}` : "");
+        setFinishedStyleId(b.finished_style_id || "");
+        setFinishedStyleLabel(b.finished_style ? `${b.finished_style.style_code}${b.finished_style.style_name ? ` — ${b.finished_style.style_name}` : ""}` : (b.finished_item ? `${b.finished_item.style_code || b.finished_item.sku_code}` : ""));
+        setCustomerId(b.customer_id || "");
+        setCustomerLabel(b.customer_name || "");
         setVersion(String(b.version));
         setStatus(b.status);
         setVendorId(b.default_conversion_vendor_id || "");
@@ -293,7 +368,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
     setSubmitting(true);
     setErr(null);
     try {
-      if (!finishedItemId) throw new Error("Pick a finished style");
+      if (!finishedStyleId) throw new Error("Pick a finished style");
       // Validate each component has its ref.
       for (const c of components) {
         const ref = c.component_kind === "part" ? c.part_id : c.component_kind === "service" ? c.service_item_id : c.component_item_id;
@@ -309,7 +384,8 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
         cost_source: c.cost_source,
       }));
       const body = {
-        finished_item_id: finishedItemId,
+        finished_style_id: finishedStyleId,
+        customer_id: customerId || null,
         version: parseInt(version, 10) || 1,
         status,
         default_conversion_vendor_id: vendorId || null,
@@ -342,12 +418,24 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
               <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
                 <div>
                   <Lbl>Finished style *</Lbl>
-                  <ItemPicker value={finishedItemId} valueLabel={finishedItemLabel} onChange={(id, label) => { setFinishedItemId(id); setFinishedItemLabel(label); }} placeholder="Search the style to build…" />
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <StylePicker valueLabel={finishedStyleLabel} onChange={(id, label) => { setFinishedStyleId(id); setFinishedStyleLabel(label); }} />
+                    </div>
+                    {/* Item F — add a style on the fly (admins only). */}
+                    <button type="button" style={{ ...btnSecondary, whiteSpace: "nowrap" }}
+                      onClick={() => { if (!isAdmin) { notify("Only admins can add styles. Ask an admin, or pick an existing style.", "error"); return; } setAddStyleOpen(true); }}
+                      title="Add a new style without leaving the BOM">+ New style</button>
+                  </div>
                 </div>
                 <div><Lbl>Version</Lbl><input type="number" min="1" step="1" value={version} onChange={(e) => setVersion(e.target.value)} style={inputStyle} /></div>
                 <div>
                   <Lbl>Status</Lbl>
                   <SearchableSelect value={status} onChange={(v) => setStatus(v as "draft" | "active" | "archived")} options={[{ value: "draft", label: "draft" }, { value: "active", label: "active" }, { value: "archived", label: "archived" }]} />
+                </div>
+                <div>
+                  <Lbl>Customer (optional — private-label BOM)</Lbl>
+                  <CustomerPicker valueLabel={customerLabel} onChange={(c) => { setCustomerId(c?.id || ""); setCustomerLabel(c ? `${c.name}${c.code ? ` (${c.code})` : ""}` : ""); }} />
                 </div>
                 <div style={{ gridColumn: "1 / 3" }}>
                   <Lbl>Default conversion vendor (factory)</Lbl>
@@ -417,11 +505,17 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
         {/* Frozen footer */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: 16, borderTop: `1px solid ${C.cardBdr}`, background: C.card }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || loading || !finishedItemId}>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || loading || !finishedStyleId}>
             {submitting ? "Saving…" : "Save BOM"}
           </button>
         </div>
       </div>
+      {addStyleOpen && (
+        <QuickAddStyleModal
+          onClose={() => setAddStyleOpen(false)}
+          onCreated={(_skuId, label, styleId) => { if (styleId) { setFinishedStyleId(styleId); setFinishedStyleLabel(label); } setAddStyleOpen(false); notify(`Style added — "${label}" selected.`, "success"); }}
+        />
+      )}
     </div>
   );
 }
