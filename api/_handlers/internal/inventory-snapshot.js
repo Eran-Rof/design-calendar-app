@@ -256,9 +256,20 @@ export default async function handler(req, res) {
     // carry the authoritative location_id since the multi-warehouse cutover; we
     // fall back to the legacy `wh=<name>` notes tag when a layer has none.
     const locNameById = new Map();
+    // Sales history has no warehouse column — but its CHANNEL corresponds to the
+    // Xoro store = a Tangerine warehouse (operator-confirmed): ROF→Main Warehouse,
+    // ROF ECOM→ROF Ecom, PT→Psycho Tuna, PT ECOM→Psycho Tuna Ecom. Map channel_id
+    // → canonical warehouse (lowercased) so the Sold column filters by warehouse.
+    const CHANNEL_TO_WH = { "rof": "main warehouse", "rof ecom": "rof ecom", "pt": "psycho tuna", "pt ecom": "psycho tuna ecom" };
+    const channelIdToWh = new Map();
     if (whKey) {
       const { data: locRows } = await admin.from("inventory_locations").select("id, name").eq("entity_id", eid);
       for (const lr of locRows || []) locNameById.set(lr.id, lr.name);
+      const { data: chRows } = await admin.from("ip_channel_master").select("id, channel_code");
+      for (const cr of chRows || []) {
+        const wh = CHANNEL_TO_WH[String(cr.channel_code || "").toLowerCase().trim()];
+        if (wh) channelIdToWh.set(cr.id, wh);
+      }
     }
 
     const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
@@ -267,8 +278,8 @@ export default async function handler(req, res) {
       fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status)").in("inventory_item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
-      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
-      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty, channel_id").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
+      fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty, channel_id").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_receipts_history").select("sku_id, qty").in("sku_id", ids); if (from) q = q.gte("received_date", from); if (to) q = q.lte("received_date", to); return q; }),
       fetchBills(),
       fetchAvg(),
@@ -343,8 +354,11 @@ export default async function handler(req, res) {
       if (TANDA_TRANSIT_STATUSES.includes(r.tanda_pos?.status)) b.in_transit += open;
     }
     // Sold — wholesale qty + ecom net_qty.
-    for (const r of whRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.qty) || 0) * mult(r.sku_id); }
-    for (const r of ecRows) { const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.net_qty) || 0) * mult(r.sku_id); }
+    // Sold — warehouse-filtered via the channel→warehouse map (a sale's channel
+    // is its Xoro store = a Tangerine warehouse). A row whose channel doesn't map
+    // to the selected warehouse is skipped.
+    for (const r of whRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.qty) || 0) * mult(r.sku_id); }
+    for (const r of ecRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (b) b.sold += (Number(r.net_qty) || 0) * mult(r.sku_id); }
     // Purchased — Xoro receipts + Tangerine AP vendor-bill lines (date-ranged).
     for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += (Number(r.qty) || 0) * mult(r.sku_id); }
     for (const l of billBundle.billLines) {
