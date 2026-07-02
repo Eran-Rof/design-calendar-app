@@ -61,7 +61,7 @@
 //
 // Reads SUPABASE_PAT from .env.local / .env.staging (same as run-sql-prod.mjs).
 
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from "fs";
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { tmpdir } from "os";
@@ -644,8 +644,19 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     all_style_sku_ids: allStyleSkuIds, rest_total: restTotal,
   };
   const manifestPath = join(tmp, `reversal-manifest-${styleCode}-${snapshotDate}.json`);
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
-  console.log(`# reversal manifest written: ${manifestPath}`);
+  // NON-FATAL + self-healing: the OS can clean the temp dir mid-run on a long
+  // --batch (Windows temp cleanup wiped it once → ENOENT threw and ~208 styles
+  // failed pre-write). Recreate the dir; if the write still fails, WARN and
+  // continue — the authoritative per-batch reversal manifest is flushed to
+  // .launchd-logs after every success, so this per-style copy is only a
+  // convenience for the single --apply path.
+  try {
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    console.log(`# reversal manifest written: ${manifestPath}`);
+  } catch (e) {
+    console.log(`# ⚠ per-style manifest write skipped (${e.code || e.message}); batch manifest in .launchd-logs is authoritative.`);
+  }
 
   // 4b. Idempotent re-run: delete any PRIOR xoro_rest_size layers for these SKUs
   //     FIRST (we delete-then-reinsert below; this guards a partial state).
