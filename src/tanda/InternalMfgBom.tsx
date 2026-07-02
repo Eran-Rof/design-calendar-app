@@ -433,7 +433,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 0, width: "min(900px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", color: C.text }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 0, width: "min(1040px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", color: C.text }}>
         <div style={{ padding: "18px 20px 0" }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{bomId ? "Edit BOM" : "New BOM"}</h3>
         </div>
@@ -483,11 +483,12 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                   No components yet. A printed tee = a blank-tee part + a print service. Click &quot;+ Add component&quot;.
                 </div>
               ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+                <div style={{ overflowX: "auto", marginBottom: 12 }}>
+                <table style={{ width: "100%", minWidth: 940, borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
                       <th style={{ ...th, width: 130 }}>Kind</th>
-                      <th style={th}>Item</th>
+                      <th style={{ ...th, minWidth: 260 }}>Item</th>
                       <th style={{ ...th, width: 80, textAlign: "right" }}>Qty/unit</th>
                       <th style={{ ...th, width: 70, textAlign: "right" }}>Scrap %</th>
                       <th style={{ ...th, width: 110, textAlign: "right" }}>Unit cost</th>
@@ -554,6 +555,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               )}
 
               {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 12 }}>{err}</div>}
