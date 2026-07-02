@@ -64,17 +64,20 @@ Because lots ride the FIFO layer, they're the foundation for lot-aware availabil
 
 ## 45.4 Viewing on-hand by lot on the Inventory Matrix
 
-A single style + color can be **received at different times**, so its on-hand stock may sit across **several lots** at once. The **Inventory Matrix** (`/tangerine?m=inventory_matrix` → pick a style) lets you break the grid down by lot:
+A single style + color can be **received at different times**, so its on-hand stock may sit across **several lots** at once. The **Inventory Matrix** (`/tangerine?m=inventory_matrix`) lets you break on-hand down by lot — in **every** view, not just a single style:
 
-- When a style is selected, a **Lot #** filter appears next to the Warehouse filter. It's a multi-select populated with **every lot number present on that style's on-hand** — including a **`(no lot)`** bucket for legacy / opening-balance stock received before lot tracking.
-- **Leave it empty to see the whole style** (on-hand summed across all lots — the default).
-- **Pick one or more lots** to re-scope the matrix so each color × size cell shows only the on-hand that came from those lots. Selecting several lots sums just those.
+- A **Lot #** filter sits next to the Warehouse filter whenever the current styles have any lotted on-hand. It's a multi-select populated with **every lot number present on those styles' on-hand** — including a **`(no lot)`** bucket for legacy / opening-balance stock received before lot tracking.
+- **Leave it empty to see everything** (on-hand summed across all lots — the default).
+- **Pick one or more lots** to re-scope on-hand to just those lots; selecting several sums them.
 - The dropdown always lists the **full** set of lots even while a filter is applied, so you can freely add or swap lots.
 
-Notes:
-- The lot list and the per-lot on-hand come straight from the **FIFO inventory layers** (§45.3), so they reflect exactly which batch each unit came from.
-- While a lot filter is active the matrix shows **on-hand only** — the item-level **Available** figure is hidden, because availability isn't tracked per lot (it would otherwise read higher than the lot-scoped on-hand).
-- The filter also applies to PPK-exploded on-hand when **Explode** is on (the sibling packs are filtered by the same lots).
+It works across the three views:
+
+- **Single style** — each color × size cell shows only the picked lots' on-hand. (While a lot filter is active the matrix shows **on-hand only** — the item-level **Available** figure is hidden, because availability isn't tracked per lot.) The filter also applies to PPK-exploded on-hand when **Explode** is on.
+- **All-styles Matrix** — the same lot filter scopes on-hand on every style's grid at once, so a search that pulls up **multiple styles (base + their PPK siblings)** filters them all together. The lot list is the **union** of every listed style's lots.
+- **All-styles Snapshot** — the **On Hand** column is scoped to the picked lots. Note that only On Hand is lot-tracked: the other columns (**Allocated / On SO / On PO / ATS / Sold / Purchased**) aren't recorded per lot, so they stay whole-style.
+
+The lot list and per-lot on-hand come straight from the **FIFO inventory layers** (§45.3), so they reflect exactly which batch each unit came from.
 
 ---
 
@@ -95,7 +98,7 @@ Until those land, lots are an end-to-end **label** — auto-stamped, inherited, 
 - **Matrix body (lot column + toggle):** `src/tanda/LineMatrixBody.tsx` (the `🏷 Show lots / Hide lots` toggle, per-row `Lot` field, and "set all rows"; far-right column after `Total $` — offered in **both PO and SO** modes, hidden on AR; default shown on PO, **hidden on SO** via `showLots` initial `mode === "po"`). SO seeding of existing line lots is in `src/tanda/InternalSalesOrders.tsx` (`lot: l.lot_number` on each seed cell).
 - **PO create-from-SO lot inheritance:** `src/tanda/InternalPurchaseOrders.tsx` (`createFromSO` seeds each cell's lot from the SO's `customer_po`; SO picker shows the 🏷 customer PO).
 - **Server:** `api/_handlers/internal/purchase-orders/*` (auto-stamp PO# at issue on un-lotted lines; default un-lotted lines to the linked SO's `customer_po`), `sales-orders/*` (accept per-line lot), receiving's `createLayer` (carries the PO line's lot onto `inventory_layers`).
-- **Inventory Matrix lot filter:** `src/tanda/InternalInventoryMatrix.tsx` (the **Lot #** `MultiSelectDropdown`, `lotFilter` state → `&lots=` on the fetch, reset on style change). Server: `api/_lib/styleMatrix.js` `enumerateStyleMatrix` reads `inventory_layers.lot_number`, returns the full `lots` list, and (when `opts.lotFilter` is set) scopes on-hand to those lots — threaded through `computePpkExplode`; `NO_LOT` / `lotKeyOf` normalize the unlotted bucket. Endpoint `api/_handlers/internal/style-matrix/index.js` parses `?lots=A,B`.
+- **Inventory Matrix lot filter:** `src/tanda/InternalInventoryMatrix.tsx` (the **Lot #** `MultiSelectDropdown`; `lotFilter` state; `availableLots` memo picks the lot list per view — single `payload.lots`, snapshot `snapLots`, or the union of `brandPayloads[].payload.lots`; `&lots=`/`lots` threaded into all three fetches). Servers: `api/_lib/styleMatrix.js` `enumerateStyleMatrix` reads `inventory_layers.lot_number`, returns the full `lots` list, and (when `opts.lotFilter` is set) scopes on-hand to those lots — threaded through `computePpkExplode`; `api/_handlers/internal/inventory-snapshot.js` does the same for the Snapshot **On Hand** column (accepts `body.lots`, returns `lots`); `NO_LOT` / `lotKeyOf` (exported from `styleMatrix.js`) normalize the unlotted bucket. Endpoint `api/_handlers/internal/style-matrix/index.js` parses `?lots=A,B`.
 - **Schema:** migration `20260899000000` — `lot_number text` on `purchase_order_lines`, `sales_order_lines`, `inventory_layers`, plus a partial index `inventory_layers(entity_id, item_id, lot_number)` for the later lot-aware allocation.
 
 ## Related docs

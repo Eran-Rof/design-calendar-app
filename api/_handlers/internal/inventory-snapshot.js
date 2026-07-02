@@ -25,7 +25,7 @@
 // Entity scoped (ROF default). Read-only. No migration — reuses existing tables.
 
 import { createClient } from "@supabase/supabase-js";
-import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
+import { isPpkStyle, ppkUnitsPerPackByStyle, lotKeyOf, NO_LOT } from "../../_lib/styleMatrix.js";
 
 export const config = { maxDuration: 60 };
 
@@ -133,6 +133,17 @@ export default async function handler(req, res) {
   // warehouses (the prior behaviour). Match is case-insensitive on the name.
   const warehouse = String(body?.warehouse || "").trim() || null;
   const whKey = warehouse ? warehouse.toLowerCase() : null;
+  // Optional Lot filter. When a non-empty list is supplied, the On Hand column is
+  // summed only from inventory layers whose lot_number (or NO_LOT bucket) is in
+  // the set — the same lot grain as the single-style matrix. The response's
+  // `lots` list is ALWAYS the full set of lots present on these styles' on-hand
+  // (filter-independent) so the UI dropdown stays populated. Only On Hand is
+  // lot-scoped: allocated / SO / PO / ATS / sold / purchased are not lot-tracked
+  // and remain whole-style. Empty = all lots (prior behaviour).
+  const lotFilter = Array.isArray(body?.lots) && body.lots.length
+    ? new Set(body.lots.map((s) => lotKeyOf(s)))
+    : null;
+  const lotsSeen = new Set();
 
   try {
     const eid = await entityId(admin);
@@ -209,7 +220,7 @@ export default async function handler(req, res) {
     for (const it of itemRows) bucketFor(it.style_id, it.color);
     const bucketOfItem = (itemId) => { const it = itemById.get(itemId); return it ? bucketFor(it.style_id, it.color) : null; };
 
-    if (itemIds.length === 0) return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow) });
+    if (itemIds.length === 0) return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow), lots: [] });
 
     // ── Tuple index (built up-front; needed to merge the Xoro PO lines). ──────
     const idByTuple = new Map();   // tupleKey → item_id
@@ -278,7 +289,7 @@ export default async function handler(req, res) {
     }
 
     const [layerRows, ohRows, solRows, polRows, tandaLines, whRows, ecRows, rcRows, billBundle, avgBundle] = await Promise.all([
-      fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes").in("item_id", ids)),
+      fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes, lot_number").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand, warehouse_code").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status, order_date)").in("inventory_item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status, po_number)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
@@ -301,8 +312,12 @@ export default async function handler(req, res) {
       return m ? m[1].trim() : null;
     };
     for (const r of layerRows) {
+      const rawQ = Number(r.remaining_qty) || 0;
+      const lot = lotKeyOf(r.lot_number);
+      if (rawQ > 0) lotsSeen.add(lot);                          // full lot list (filter-independent)
       if (whKey && String(layerWh(r) || "").toLowerCase() !== whKey) continue;
-      const q = (Number(r.remaining_qty) || 0) * mult(r.item_id);
+      if (lotFilter && !lotFilter.has(lot)) continue;           // scope On Hand to the picked lots
+      const q = rawQ * mult(r.item_id);
       if (q > 0) { const b = bucketOfItem(r.item_id); if (b) b.on_hand += q; }
     }
     // On hand (ATS source — latest snapshot per item). The ATS source carries a
@@ -413,7 +428,11 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow), entity_id: eid });
+    // Lots present on these styles' on-hand, sorted; the NO_LOT bucket last. Full
+    // set (filter-independent) so the UI lot dropdown keeps every choice.
+    const lots = [...lotsSeen].filter((l) => l !== NO_LOT).sort((a, b) => a.localeCompare(b));
+    if (lotsSeen.has(NO_LOT)) lots.push(NO_LOT);
+    return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow), entity_id: eid, lots });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
