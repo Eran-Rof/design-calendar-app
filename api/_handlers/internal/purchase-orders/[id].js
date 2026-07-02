@@ -235,7 +235,8 @@ export default async function handler(req, res, params) {
     }
 
     // P13/C0 — open-PO commitment tracking (off-balance-sheet, D3).
-    // On first issue, record one po_commitments row per line; on cancel, close them.
+    // On first issue, record one po_commitments row per line; on cancel, close them;
+    // on reinstate (cancelled → issued), re-open the ones this PO's cancel closed.
     if ("status" in body) {
       if (body.status === "issued" && po.status !== "issued") {
         const { count } = await admin.from("po_commitments")
@@ -251,6 +252,13 @@ export default async function handler(req, res, params) {
               status: "open", expected_in_dc_date: data.expected_date || null,
             }));
           if (rows.length) await admin.from("po_commitments").insert(rows);
+        } else if (po.status === "cancelled") {
+          // Reinstating a cancelled PO — restore the commitments its cancel closed
+          // so the open-PO commitment (D3) reflects the live PO again. (A partially-
+          // received PO reopened here returns to 'open', not 'partial' — rare edge.)
+          await admin.from("po_commitments")
+            .update({ status: "open", closed_at: null })
+            .eq("purchase_order_id", id).eq("status", "cancelled");
         }
       } else if (body.status === "cancelled") {
         await admin.from("po_commitments")

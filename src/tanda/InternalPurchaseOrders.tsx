@@ -1008,6 +1008,48 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     finally { setSubmitting(false); }
   }
 
+  // Cancel a live PO — moves to 'cancelled' (kept for history) and releases its
+  // open-PO commitments (server-side). Reversible via Reinstate below.
+  async function cancelPo() {
+    if (!po) return;
+    const ok = await confirmDialog(
+      "This purchase order will move to cancelled (kept for history). Its open-PO commitments are released; reinstate it later to restore them.",
+      { confirmText: "Cancel PO", title: `Cancel ${po.po_number || "purchase order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Purchase order ${po.po_number || ""} cancelled.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not cancel: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
+  // Reinstate a cancelled PO — status returns to 'issued' (keeps its PO #); the
+  // server re-opens the commitments the cancel closed (P13 open-PO tracking).
+  async function reinstatePo() {
+    if (!po) return;
+    const ok = await confirmDialog(
+      "This purchase order's status will change back to issued and its open-PO commitments will be restored.",
+      { confirmText: "Reinstate", title: `Reinstate ${po.po_number || "purchase order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "issued" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Purchase order ${po.po_number || ""} reinstated — status is now issued.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not reinstate: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
   // Unsaved-changes guard: warn before closing (Close button or click-outside)
   // a NEW PO that carries data that hasn't been saved.
   function hasUnsavedData(): boolean {
@@ -1296,6 +1338,15 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
               is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
             <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">Receive…</button>
+          )}
+          {/* Cancel a live (issued / in-transit) PO — kept for history, releases
+              its open-PO commitments; reversible via Reinstate. */}
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && (
+            <button onClick={() => void cancelPo()} style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} disabled={submitting} title="Cancel this purchase order (moves to cancelled, kept for history)">Cancel PO</button>
+          )}
+          {/* Reinstate a cancelled PO — status returns to issued (keeps its PO #). */}
+          {!isNew && po != null && po.status === "cancelled" && !editMode && (
+            <button onClick={() => void reinstatePo()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Reinstate this cancelled purchase order — its status returns to issued">Reinstate</button>
           )}
 
           {/* Revising a saved PO — save the revision (notifies the vendor) or cancel. */}
