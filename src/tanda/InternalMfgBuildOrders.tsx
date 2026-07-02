@@ -634,6 +634,24 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     finally { setBusy(false); }
   }
 
+  // Cancel goes through PATCH (not an /action endpoint). The server refuses to
+  // cancel an ISSUED build (parts already consumed into WIP → needs a reversing
+  // entry) or a COMPLETED one, returning a 409 with the reason. The old inline
+  // handler ignored r.ok, so that refusal was swallowed silently — the operator
+  // saw the confirm, clicked Continue, and nothing happened. Check the response
+  // and surface the error like act() does.
+  async function cancelBuild() {
+    if (!(await confirmDialog(`Cancel build ${build?.build_number}? This can't be undone.`))) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Build ${build?.build_number} cancelled.`, "success");
+      await load(); onChanged();
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
+    finally { setBusy(false); }
+  }
+
   async function capitalizeService(componentId: string, label: string, suggested: number | null) {
     const def = suggested != null ? (suggested / 100).toFixed(2) : "";
     const v = await promptDialog(`Conversion charge for "${label}" ($)`, { inputType: "number", defaultValue: def, placeholder: "0.00", required: true });
@@ -767,7 +785,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
             >Complete → finished goods</button>
           )}
           {(status === "draft" || status === "released" || status === "issued") && (
-            <button disabled={busy} onClick={async () => { if (await confirmDialog(`Cancel build ${build?.build_number}?`)) { await fetch(`/api/internal/build-orders/${buildId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) }); await load(); onChanged(); } }} style={btnDanger}>Cancel build</button>
+            <button disabled={busy} onClick={() => void cancelBuild()} style={btnDanger}>Cancel build</button>
           )}
         </div>
       </div>
