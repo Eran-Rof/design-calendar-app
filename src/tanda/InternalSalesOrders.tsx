@@ -123,7 +123,7 @@ type SO = {
 type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
 type BulkMatchRow = { id: string; so_number: string | null; customer_po: string | null; status: string; matched_units: number; bulk_units: number; distro_units: number; match_pct: number; bulk_coverage_pct: number; breakdown: BulkBreakdownRow[] };
 // Scenario 5 — lot-aware allocation shapes (mirror /sales-orders/allocate-by-lot).
-type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null };
+type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null; customer_po?: string | null };
 type LotPick = { lot_number: string | null; qty: number };
 type PlanLine = { item_id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null; qty_ordered: number; picks: LotPick[]; filled: number; shortfall: number };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null; payment_terms_id?: string | null; contacts?: { id?: string; name?: string; email?: string; phone?: string; title?: string }[] };
@@ -1222,11 +1222,32 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // POST/PATCH the SO with a final line set (per-lot-expanded for ATS, or raw).
   async function commitSave(lines: SaveLine[], confirm: boolean) {
     try {
+      // Per-line Customer PO split: pull every line whose customer_po differs
+      // from the header PO onto a NEW auto-created SO, grouped by that PO. Lines
+      // matching the header PO (or carrying none) stay on this order. The per-
+      // line tag is stripped from the payload — each resulting SO's HEADER
+      // carries its PO (no line-level column needed).
+      const headerPo = customerPo.trim();
+      const stripPo = (l: SaveLine): SaveLine => { const { customer_po: _drop, ...rest } = l; return rest; };
+      const parentLines: SaveLine[] = [];
+      const childByPo = new Map<string, SaveLine[]>();
+      for (const l of lines) {
+        const lp = (l.customer_po ?? "").trim();
+        if (!lp || lp === headerPo) parentLines.push(stripPo(l));
+        else { const g = childByPo.get(lp) || []; g.push(stripPo(l)); childByPo.set(lp, g); }
+      }
+      const hasSplit = childByPo.size > 0;
+      if (hasSplit && parentLines.length === 0) {
+        setErr("At least one style line must keep the header Customer PO. Change one line back to the header PO, or update the header PO to match.");
+        setSubmitting(false);
+        return;
+      }
+
       const body: Record<string, unknown> = {
         customer_id: customerId, ship_to_location_id: shipToLocationId || null,
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
-        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines,
+        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: parentLines,
         customer_po: customerPo.trim() || null,
         customer_po_is_placeholder: customerPoIsPlaceholder,
         is_bulk_order: isBulkOrder,
@@ -1265,6 +1286,36 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         if (cj?.production_notice?.skipped) notify(cj.production_notice.reason || "Production order: no Production recipient configured.", "info");
         else if (cj?.production_notice?.sent) notify(`Production Manager notified (${cj.production_notice.sent} recipient${cj.production_notice.sent === 1 ? "" : "s"}).`, "success");
       }
+
+      // Per-line PO split — after the parent is saved (+ confirmed as clicked),
+      // create one NEW SO per distinct new PO. Each child copies ALL of this
+      // order's header info (customer, ship-to, brand, channel, dates, terms,
+      // buyer, warehouse, fulfillment, factor…) via the shared `body`, carries
+      // only its own line group, is force-confirmed, and gets an audit note.
+      if (hasSplit && soId) {
+        const AUTO_NOTE = "Auto created due to new Customer PO";
+        const childNotes = notes.trim() ? `${notes.trim()}\n${AUTO_NOTE}` : AUTO_NOTE;
+        const created: { id: string | null; so_number: string | null; po: string; qty: number; styles: number }[] = [];
+        for (const [po, childLines] of childByPo) {
+          const childBody = { ...body, lines: childLines, customer_po: po, customer_po_is_placeholder: false, notes: childNotes };
+          const cr = await fetch("/api/internal/sales-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(childBody) });
+          if (!cr.ok) throw new Error(`Auto-split SO for PO ${po} failed: ${(await cr.json().catch(() => ({}))).error || `HTTP ${cr.status}`}`);
+          const childRow = await cr.json();
+          const childId: string | null = childRow?.id || null;
+          let childNo: string | null = childRow?.so_number || null;
+          if (childId) {
+            const cf = await fetch(`/api/internal/sales-orders/${childId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "confirmed" }) });
+            if (!cf.ok) throw new Error(`Auto-split SO for PO ${po} was created but could not be confirmed: ${(await cf.json().catch(() => ({}))).error || `HTTP ${cf.status}`}`);
+            const cfj = await cf.json().catch(() => ({}));
+            childNo = cfj?.so_number || childNo;
+          }
+          created.push({ id: childId, so_number: childNo, po, qty: childLines.reduce((a, l) => a + (l.qty_ordered || 0), 0), styles: childLines.length });
+        }
+        setSplitResult({ parentPo: headerPo || null, created });
+        setSubmitting(false);
+        return; // summary modal handles the refresh on close
+      }
+
       // Scenario 4.2 — a saved distro (non-bulk SO with a customer PO) is matched
       // against open bulk orders for the same customer. If any overlap, show the
       // match modal (which calls onSaved on close) instead of closing now.
@@ -1324,6 +1375,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const canInvoice = !isNew && so != null && ["confirmed", "allocated", "fulfilling", "shipped"].includes(so.status);
   // Item 1 — the just-created draft invoice (drives the View / Post / Close dialog).
   const [invoiceResult, setInvoiceResult] = useState<{ id: string; number: string } | null>(null);
+  // Per-line PO split result — the new SOs auto-created for lines whose Customer
+  // PO differed from the header. Shown in a summary modal (open each in a tab).
+  const [splitResult, setSplitResult] = useState<{ parentPo: string | null; created: { id: string | null; so_number: string | null; po: string; qty: number; styles: number }[] } | null>(null);
   const [postingInvoice, setPostingInvoice] = useState(false);
   async function createInvoice() {
     if (!so) return;
@@ -1992,6 +2046,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             atsAsOfDate={reqShip || null}
             onTotalsChange={setBodyTotals}
             onPrimaryBrandChange={(b) => { if (b) setBrandId(b); }}
+            enableLinePo
+            headerCustomerPo={customerPo}
           />
         </div>
 
@@ -2093,6 +2149,41 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <button onClick={() => void postInvoiceNow()} disabled={postingInvoice} style={{ ...btnPrimary, background: C.success, opacity: postingInvoice ? 0.6 : 1 }}>
                 {postingInvoice ? "Posting…" : "Post now"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Per-line Customer PO split — the SOs auto-created (and confirmed) for the
+          style lines whose PO differed from the header. Each is openable in a new
+          tab (reuses the ?m=sales_orders&q=<SO#> deep-link). Closing refreshes. */}
+      {splitResult && (
+        <div onClick={() => { setSplitResult(null); onSaved(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(560px, 95vw)", maxHeight: "90vh", overflow: "auto", padding: 22, color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>{splitResult.created.length} new sales order{splitResult.created.length === 1 ? "" : "s"} auto-created</h3>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 14 }}>
+              Style lines carrying a Customer PO other than the header PO{splitResult.parentPo ? <> (<strong>{splitResult.parentPo}</strong>)</> : null} were split onto their own confirmed sales order{splitResult.created.length === 1 ? "" : "s"} — same customer, ship-to and header details, with the note “Auto created due to new Customer PO”.
+            </div>
+            <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+              {splitResult.created.map((c, i) => (
+                <div key={c.id || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderTop: i === 0 ? "none" : `1px solid ${C.cardBdr}`, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 13 }}>
+                    <div><strong>{c.so_number || "(draft)"}</strong> · PO <strong>{c.po}</strong></div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>{c.styles} style{c.styles === 1 ? "" : "s"} · {c.qty.toLocaleString()} qty</div>
+                  </div>
+                  <button
+                    onClick={() => window.open(`?m=sales_orders&q=${encodeURIComponent(c.so_number || c.po)}`, "_blank")}
+                    style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Open</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => splitResult.created.forEach((c) => window.open(`?m=sales_orders&q=${encodeURIComponent(c.so_number || c.po)}`, "_blank"))}
+                style={btnSecondary}>Open all</button>
+              <button onClick={() => { setSplitResult(null); onSaved(); }} style={btnPrimary}>Done</button>
             </div>
           </div>
         </div>
