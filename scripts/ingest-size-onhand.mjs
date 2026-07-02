@@ -66,6 +66,7 @@ import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
+import { repairSizeCell } from "../api/_lib/inventory/restCsvSize.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -228,13 +229,19 @@ const bySize = new Map(); // bp -> Map(size -> qty)  (style-level size profile)
 // Store-grain cells for --apply (ROF Main vs ROF - ECOM stay SEPARATE layers).
 // key = bp||color||size||store -> { bp, color, size, store, qty }
 const cellStoreMap = new Map();
+let repairedCells = 0; // kids age-range "XS(5,6)" comma corruption fixed (see restCsvSize.js)
 for (let i = 1; i < lines.length; i++) {
   const f = parseCsvLine(lines[i]);
   const bp = (f[cBP] || "").trim();
   if (!bp) continue;
   if (ONLY_STYLE && bp.toUpperCase() !== ONLY_STYLE.toUpperCase()) continue;
-  const color = (f[cColor] || "").trim();
-  const size = (f[cSize] || "").trim();
+  // Xoro bakes kids age-range sizes into Color with an UNQUOTED comma
+  // ("DEEP BLACK-XS(5,6)"), so the CSV split spills "6)" into Size. Rebuild the
+  // clean (color,size) before it forks garbage SKUs.
+  const fixed = repairSizeCell(f[cColor] || "", f[cSize] || "");
+  if (fixed.repaired) repairedCells++;
+  const color = fixed.color;
+  const size = fixed.size;
   const qty = Number(f[cOnHand] || 0) || 0;
   const store = cStore >= 0 ? (f[cStore] || "").trim() : "DEFAULT";
   const key = `${bp}||${color}||${size}`;
@@ -261,6 +268,7 @@ for (const [bp, sm] of bySize.entries()) {
 
 const bps = Array.from(restStyleTotal.keys());
 console.log(`# REST styles in CSV (after filter): ${bps.length}`);
+if (repairedCells > 0) console.log(`# Repaired ${repairedCells} kids age-range size cells (XS(5,6) comma corruption)`);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // --apply : STYLE-SCOPED PROD cutover (writes). Replaces a style's color-grain
