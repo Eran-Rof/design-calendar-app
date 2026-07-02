@@ -770,7 +770,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // style_code/color/size/sku_code.
   useEffect(() => {
     if (isNew || !so) return;
-    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null; description: string | null };
+    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null; description: string | null; lot_number: string | null };
     fetch(`/api/internal/sales-orders/${so.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
       const byStyle = new Map<string, SeedSection>();
@@ -781,7 +781,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color, size: l.size, inseam: l.inseam ?? null, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined });
+          sec.cells.push({ color: l.color, size: l.size, inseam: l.inseam ?? null, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined, lot: l.lot_number || undefined });
         } else {
           // A null-linked (unresolved-SKU) line carries no sku_code/style_code —
           // fall back to the line description so the document/list shows what it is

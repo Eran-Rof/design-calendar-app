@@ -15,6 +15,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
@@ -69,6 +70,10 @@ type MatrixPayload = {
   inseams: string[];
   rises: string[];
   warehouses?: string[];
+  // Additive — the full set of lot numbers present on this style's on-hand
+  // (NO_LOT bucket "(no lot)" sorts last). Populates the lot filter dropdown; it
+  // stays the full list even when the fetch scopes on-hand to selected lots.
+  lots?: string[];
   skus: MatrixSku[];
   // Additive — present only when fetched with explode_ppk=true.
   explode?: ExplodeInfo;
@@ -1339,6 +1344,10 @@ export default function InternalInventoryMatrix() {
   // On-Hand is the only metric. The old "Available" toggle was replaced by an
   // ATS app link (see the Show/ATS controls below).
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
+  // Lot filter (single-style view): [] = all lots (whole-style on-hand). When one
+  // or more lots are picked, the fetch re-scopes on-hand to just those lots. The
+  // option list comes from payload.lots (always the full set). Reset on style change.
+  const [lotFilter, setLotFilter] = useState<string[]>([]);
   // Global warehouse names (inventory_locations kind='warehouse') — these match
   // the keys in each SKU's on_hand_by_wh map, so the dropdown works even in the
   // multi-style view where no single-style payload (with its own list) exists.
@@ -1463,7 +1472,8 @@ export default function InternalInventoryMatrix() {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}`;
+    const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`;
     fetch(url)
       .then(async (r) => {
         if (!r.ok) {
@@ -1478,7 +1488,7 @@ export default function InternalInventoryMatrix() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, explodePpk]);
+  }, [styleId, explodePpk, lotFilter]);
 
 
   // Reset rise + warehouse + inseam-mode filters on a STYLE change only (not on
@@ -1488,6 +1498,7 @@ export default function InternalInventoryMatrix() {
     setRiseFilter([]);
     setWarehouse(ALL_WAREHOUSES);
     setInseamMode(false);
+    setLotFilter([]);
   }, [styleId]);
 
   // Fetch per-color thumbnail images for the active style from the PIM endpoint.
@@ -2222,6 +2233,25 @@ export default function InternalInventoryMatrix() {
               inputStyle={inputStyle}
             />
           </label>
+
+          {/* Lot filter — single-style view only. A style/color received at
+              different times carries multiple lot numbers; pick any combination
+              to scope the matrix on-hand to those lots (empty = all lots). The
+              option list is the full set of lots on this style (payload.lots). */}
+          {styleId && (payload?.lots?.length ?? 0) > 0 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+              Lot #
+              <MultiSelectDropdown
+                selected={lotFilter}
+                onChange={setLotFilter}
+                options={(payload?.lots ?? []).map((l) => ({ value: l, label: l }))}
+                allLabel="All lots"
+                placeholder="Search lot…"
+                title="Show on-hand from one or more lots (empty = all lots)"
+                minWidth={180}
+              />
+            </label>
+          )}
 
           {/* Column show/hide — sits at the end of Row 1, right of Warehouse.
               Only meaningful on the all-styles Snapshot view. */}

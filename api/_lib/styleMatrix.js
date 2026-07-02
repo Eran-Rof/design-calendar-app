@@ -81,6 +81,13 @@ export function canonColor(raw) {
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
 
+// Bucket label for inventory layers that carry no lot_number (legacy / opening
+// balance stock received before lot tracking). Surfaced in the payload `lots`
+// list so the UI's lot filter can also isolate unlotted stock.
+export const NO_LOT = "(no lot)";
+// Normalize a layer's lot_number to the filter/label key (trim; null → NO_LOT).
+export function lotKeyOf(v) { const s = v == null ? "" : String(v).trim(); return s === "" ? NO_LOT : s; }
+
 // "Loose" SKU key — uppercase, strip every non-alphanumeric. Used ONLY to
 // reconcile the avg-cost grain mismatch (master "NAVY-CAMO" vs costing
 // "NAVYCAMO"); both collapse to "NAVYCAMO" here. Never used to write data.
@@ -162,6 +169,15 @@ function dedupeOrdered(list) {
  */
 export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) {
   const explodePpk = opts.explodePpk === true;
+  // Lot filter (opt-in): when a non-empty list of lot keys is supplied, on-hand
+  // is summed only from inventory layers whose lot_number (or NO_LOT) is in the
+  // set. The payload's `lots` list is ALWAYS the full set of lots seen (computed
+  // regardless of the filter) so the UI dropdown stays populated. `lotsSeen`
+  // accumulates the full set across the base layers and any PPK-sibling layers.
+  const lotFilter = Array.isArray(opts.lotFilter) && opts.lotFilter.length
+    ? new Set(opts.lotFilter.map((s) => lotKeyOf(s)))
+    : null;
+  const lotsSeen = new Set();
   const { data: style } = await admin
     .from("style_master")
     .select("id, style_code, style_name, description, size_scale_id, brand_id, gender_code, attributes")
@@ -252,11 +268,14 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   if (ids.length > 0) {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, received_at, notes, location_id")
+      .select("item_id, remaining_qty, received_at, notes, location_id, lot_number")
       .in("item_id", ids);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
-      if (q > 0) {
+      const lot = lotKeyOf(l.lot_number);
+      if (q > 0) lotsSeen.add(lot);                 // full lot list (filter-independent)
+      const included = !lotFilter || lotFilter.has(lot);
+      if (q > 0 && included) {
         onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + q);
         const locName = l.location_id ? locNameById.get(l.location_id) : null;
         const m = (l.notes || "").match(/wh=(.+)$/);
@@ -266,13 +285,18 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
         if (!byWh) { byWh = {}; onHandByWh.set(l.item_id, byWh); }
         byWh[wh] = (byWh[wh] || 0) + q;
       }
-      if (l.received_at) {
+      if (included && l.received_at) {
         const prev = lastReceived.get(l.item_id);
         if (!prev || l.received_at > prev) lastReceived.set(l.item_id, l.received_at);
       }
     }
-    const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
-    for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+    // Available (M18 view) is item-level and not lot-aware. When a lot filter is
+    // active we deliberately leave `avail` empty so the UI shows only the
+    // lot-scoped on-hand rather than a whole-item available that would exceed it.
+    if (!lotFilter) {
+      const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
+      for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+    }
   }
 
   // Avg cost: ip_item_avg_cost is keyed by sku_code, storing dollars in avg_cost.
@@ -340,7 +364,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       onHand, onHandByWh, lastReceived, avgCostCentsBySku, avgCostCentsByLoose,
     });
   } else if (explodePpk && !isPpkStyle(style.style_code)) {
-    explode = await computePpkExplode(admin, entityId, style, whSeenAll);
+    explode = await computePpkExplode(admin, entityId, style, whSeenAll, lotFilter, lotsSeen);
   }
 
   // ── Prepack pack-entry block (additive) ─────────────────────────────────────
@@ -356,6 +380,13 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   const warehouses = [...whSeenAll].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
   if (whSeenAll.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
 
+  // Lot numbers present on this style's on-hand (base SKUs + any PPK-sibling
+  // packs), sorted; the NO_LOT bucket (unlotted stock) sorts last. Always the
+  // FULL set — independent of any active lot filter — so the UI dropdown keeps
+  // every choice selectable. Exposed as payload `lots` for the lot filter.
+  const lots = [...lotsSeen].filter((l) => l !== NO_LOT).sort((a, b) => a.localeCompare(b));
+  if (lotsSeen.has(NO_LOT)) lots.push(NO_LOT);
+
   // SELF-explode: the picked style IS a PPK and a matrix was found → return the
   // exploded sized matrix in place of the pack-token grid (no double count).
   if (selfExplode) {
@@ -366,6 +397,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       inseams: [],
       rises: [],
       warehouses,
+      lots,
       explode: {
         enabled: true,
         self: true,
@@ -399,6 +431,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     inseams,
     rises,
     warehouses,
+    lots,
     // Additive: present only when explodePpk was requested. UI folds
     // explode.cells into the matrix and shows the indicator/unmatched note.
     explode: explode ? {
@@ -643,7 +676,7 @@ async function computePrepackBlock(admin, entityId, style, skus) {
  * them). Packs whose PPK style_code has no matrix in prepack_matrices are
  * reported in `unmatched` and NOT exploded.
  */
-async function computePpkExplode(admin, entityId, style, whSeenAll) {
+async function computePpkExplode(admin, entityId, style, whSeenAll, lotFilter = null, lotsSeen = null) {
   const stem = ppkStem(style.style_code);
   const empty = { cells: [], packsExploded: 0, unmatched: [], ppkStyles: [], extraSizes: [], extraColors: [] };
   if (!stem) return empty;
@@ -677,11 +710,14 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
   {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, notes, location_id")
+      .select("item_id, remaining_qty, notes, location_id, lot_number")
       .in("item_id", ppkIds);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
       if (!(q > 0)) continue;
+      const lot = lotKeyOf(l.lot_number);
+      if (lotsSeen) lotsSeen.add(lot);              // sibling pack lots feed the full list
+      if (lotFilter && !lotFilter.has(lot)) continue;
       let rec = packOnHand.get(l.item_id);
       if (!rec) { rec = { total: 0, byWh: {} }; packOnHand.set(l.item_id, rec); }
       rec.total += q;

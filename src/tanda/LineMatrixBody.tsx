@@ -249,9 +249,13 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [flat, setFlat] = useState<FlatLine[]>([]);
-  // PO: per style+color lot column. Auto-stamped to the PO number at issue
-  // server-side; shown here so the operator can view/override per line. Hidden on
-  // SO/AR (lots populated by later scenarios). Default visible in PO mode.
+  // PO/SO: per style+color lot column (far-right, after the Total $ column). On
+  // POs it auto-stamps to the PO number at issue; on SOs the lot is the customer
+  // PO / allocated stock lot (Scenarios 2/3/5) but the operator can also view and
+  // set it by hand here. Hidden on AR. The toggle is offered in both PO and SO
+  // modes; the column is shown by default on POs but hidden on SOs (operator
+  // clicks "Show lots" when needed).
+  const showLotsMode = mode === "po" || mode === "so";
   const [showLots, setShowLots] = useState(mode === "po");
   // Prepack composition view (inner pack × N = carton) — shown by default; the
   // operator can hide it per section. Tracks the section ids that are hidden.
@@ -616,7 +620,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           lines.push({
             inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100),
             ...(showLineDates ? { requested_ship_date: s.dates?.requested || null, vendor_confirmed_ship_date: s.dates?.confirmed || null } : {}),
-            ...(mode === "po" ? { lot_number: lotVal || null } : {}),
+            ...(showLotsMode ? { lot_number: lotVal || null } : {}),
           });
         }
       }
@@ -738,9 +742,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           title={showImages ? "Hide style images (and exclude them from downloads/print/email)" : "Show a style image on each line (also included in downloads, print and email)"}>
           {showImages ? "Hide images" : "Show images"}
         </button>
-        {mode === "po" && (
+        {showLotsMode && (
           <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
-            title={showLots ? "Hide the per-line Lot column" : "Show the per-line Lot column (auto-set to the PO number at issue)"}>
+            title={showLots ? "Hide the per-line Lot column" : (mode === "po" ? "Show the per-line Lot column (auto-set to the PO number at issue)" : "Show the per-line Lot column (customer PO / allocated stock lot)")}>
             {showLots ? "Hide lots" : "Show lots"}
           </button>
         )}
@@ -977,11 +981,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                       onSetAll: (v) => setAllUnitEach(s.id, rows, v, packSize),
                     } } : {}),
                   }}
-                  lot={mode === "po" && showLots ? {
+                  lot={showLotsMode && showLots ? {
                     values: s.lot,
                     onChange: (rk, v) => setLot(s.id, rk, v),
                     onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
-                    placeholder: "PO# at issue",
+                    placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
                   } : undefined}
                 />
                 {pp.has_matrix && (
@@ -1013,11 +1017,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   disabledTitle: "Set a size scale (pack) for this style in Style Master → Scale to enable quick-fill.",
                   valueFor: (rk) => s.quickFill?.[rk],
                 } : undefined}
-                lot={mode === "po" && showLots ? {
+                lot={showLotsMode && showLots ? {
                   values: s.lot,
                   onChange: (rk, v) => setLot(s.id, rk, v),
                   onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
-                  placeholder: "PO# at issue",
+                  placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
                 } : undefined}
               />
             )}
