@@ -53,6 +53,39 @@ export function sizeVariantsOf(raw) {
   return SIZE_VARIANTS[canon] || [String(raw).trim()];
 }
 
+// Column-ordering rank for a size label on the FALLBACK path (a style with no
+// explicit size_scale). Understands letter sizes — including the catalog's kids
+// age-range forms like "XS(5-6)" and the canonical XSMALL…3XLARGE labels — plus
+// numeric waist sizes. Returns a [tier, rank, tiebreak] tuple: letter sizes
+// (tier 0) order XS→…→5XL, numeric waists (tier 1) order by value, anything else
+// (tier 2) sorts last alphabetically. Without this the fallback kept raw SKU
+// insertion order, so kids styles rendered scrambled columns (XS, L, M, S, XL).
+const SIZE_TIER = {
+  XXSMALL: -2, XSMALL: -1, SMALL: 0, MEDIUM: 1, LARGE: 2,
+  XLARGE: 3, "2XLARGE": 4, "3XLARGE": 5, "4XLARGE": 6, "5XLARGE": 7,
+};
+export function sizeSortKey(size) {
+  const s = String(size ?? "").trim();
+  if (!s) return [3, Number.POSITIVE_INFINITY, ""];
+  const base = s.split(/[\s(]/)[0];            // "XS(5-6)" -> "XS"; "MEDIUM" -> "MEDIUM"
+  const canon = normalizeSize(base);           // "XS" -> "XSMALL"; canonical labels pass through
+  if (canon in SIZE_TIER) {
+    const lo = (s.match(/\((\d+)/) || [])[1];  // age-range low bound as a tiebreak
+    return [0, SIZE_TIER[canon], lo ? Number(lo) : 0];
+  }
+  if (/^\d+(\.\d+)?$/.test(s)) return [1, Number(s), 0]; // numeric waist
+  return [2, Number.POSITIVE_INFINITY, s.toUpperCase()];
+}
+// Comparator over size labels using sizeSortKey (stable within a tier).
+export function compareSizes(a, b) {
+  const ka = sizeSortKey(a), kb = sizeSortKey(b);
+  for (let i = 0; i < 3; i++) {
+    if (ka[i] < kb[i]) return -1;
+    if (ka[i] > kb[i]) return 1;
+  }
+  return 0;
+}
+
 // Color canonicalization — the SAME physical color arrives from different ingest
 // paths spelled differently: CASE ("Black" vs "BLACK"), abbreviation ("Light
 // Wash" vs "Lt Wash", "…with Tint" vs "…w Tint"), and punctuation/spacing
@@ -203,6 +236,9 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   if (sizes.length === 0) {
     const seen = new Set();
     for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
+    // No scale to order by → sort into intuitive size order (XS→XL, kids
+    // age-ranges, numeric waists) instead of arbitrary SKU insertion order.
+    sizes.sort(compareSizes);
   }
   // Canonicalize colors so spelling/case variants of one physical color collapse
   // to a single row (see canonColor). Dedupe preserving first-seen order.
