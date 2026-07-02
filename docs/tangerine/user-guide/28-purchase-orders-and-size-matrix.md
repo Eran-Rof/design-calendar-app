@@ -121,7 +121,9 @@ flowchart LR
     Issued -->|"post a goods receipt"| Received
     Transit -->|"post a goods receipt"| Received
     Draft -. "delete (drafts only)" .-> Cancelled
-    Issued -. "cancel" .-> Cancelled
+    Issued -. "Cancel PO" .-> Cancelled
+    Transit -. "Cancel PO" .-> Cancelled
+    Cancelled -. "Reinstate" .-> Issued
 ```
 
 The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`draft`, `issued`, `in_transit`, `received`, `cancelled`). **`received` is no longer a manual flip** — a PO becomes `received` (or `in_transit` for a partial) **only when a goods receipt is posted** in Receiving (§28.5, step 6); a direct manual `status:'received'` is rejected.
@@ -159,6 +161,7 @@ The five statuses are enforced by a DB `CHECK` on `purchase_orders.status` (`dra
 4. **Issue** — `PATCH {status:'issued'}` assigns the immutable `po_number` = `PO-<order-year>-NNNNN` (zero-padded, entity-unique). The PO number is **never** reassigned.
 5. **✎ Edit (revise an issued PO)** — re-open a saved PO and click **✎ Edit** in the footer to unlock **everything** (header *and* lines) for revision — no more cancel-and-recreate. Saving (**💾 Save revision**) sends a **"Purchase order revised" notification** to the vendor's portal users (bell + email) when the vendor is connected to the Vendor Portal (`notifyVendor` over `vendor_users`; a no-op if they have no portal login). The change is recorded in the Audit trail. Server-side this is `PATCH {revise:true, …}`, which lifts the draft-only line lock for that one save. **Cancel edit** discards. _(Note: open-PO commitment rows aren't yet re-derived on a line-changing revision — folded into the receiving/GL rework below.)_
 6. **Mark in-transit** — manual logistics flag. **📥 Receive** — opens the **Receiving** panel for this PO (`?m=receiving&po=<id>`). "Received" is **no longer a manual flip**: a PO becomes `received` (or `in_transit` for a partial) **only when a goods receipt is POSTED** in Receiving — which creates the FIFO inventory layers + the GR/IR journal entry and rolls each line's `qty_received`. A direct manual `status:'received'` PATCH is rejected.
+7. **Cancel PO / Reinstate** — an **issued** or **in-transit** PO shows a red **Cancel PO** button in the footer → confirm → `PATCH {status:'cancelled'}`. Cancelling **keeps the PO for history** and **releases its open-PO commitments** (the P13/D3 off-balance-sheet rows close). A cancelled PO then shows a green **Reinstate** button → confirm → `PATCH {status:'issued'}`: the status returns to **issued** (the PO **keeps its original number**) and the server **re-opens the commitments** the cancel closed, so the open-PO commitment reflects the live PO again. *(A partially-received PO reinstated this way returns its commitments to `open` rather than `partial` — a rare edge.)* Mirrors the Sales Order **Cancel order / Reinstate** pair (ch27).
 
 **Finding a PO (list search).** The **Search PO #, vendor, style…** box is **all-field**: the server matches the typed text against the **PO number**, the **vendor name / code**, the order **notes**, and any **line's style / SKU / line description** (case-insensitive, substring), alongside the **Vendor** and **Status** filters (all ANDed), updating as you type (200 ms debounce). The whole search runs in the `search_purchase_orders` SQL function, so it spans the entire book — not just the loaded rows — including the line-level style/SKU match.
 
