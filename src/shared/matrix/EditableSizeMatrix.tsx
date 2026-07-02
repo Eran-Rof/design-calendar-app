@@ -91,6 +91,19 @@ export type EditableSizeMatrixProps = {
     /** Stamp the given value onto every row. */
     onSetAll?: (value: string) => void;
   };
+  /** Optional per-row Customer PO column (SO per-line PO feature). Grain is the
+   *  row (style+color), mirroring `lot`. A row whose PO differs from the header
+   *  PO is split onto a new SO at save (caller owns the split). Opt-in. */
+  customerPo?: {
+    label?: string;                         // default "Customer PO"
+    placeholder?: string;
+    /** Per-row PO value (already defaulted to the header PO by the caller). Key = rowKey. */
+    values: Record<string, string>;
+    onChange: (rowKey: string, value: string) => void;
+    onSetAll?: (value: string) => void;
+    /** Amber-highlight rows whose PO differs from this (the header PO) — flags a split. */
+    highlightWhenDiffersFrom?: string;
+  };
   /** Optional per-row quick-fill: a "Qty" column between the lead columns and
    *  the first size. The operator types one TOTAL for the row and on Enter/Tab
    *  the caller distributes it across the sizes (via the style's stored size
@@ -203,7 +216,9 @@ function QtyCell({
       onBlur={() => { const committed = toInt(buf, allowNegative); setBuf(value ? String(value) : ""); onCommit?.(rowKey, size, committed, focusVal.current); }}
       placeholder="0"
       aria-label={`Qty ${color || ""} ${size}`}
-      style={{ ...cellInput, color: value ? C.text : C.emptyCell }}
+      // #2 — auto-grow the qty field to the digits entered (monospace ch units,
+      // +2 covers the box-border padding) so 4-5 digit quantities aren't clipped.
+      style={{ ...cellInput, width: `${Math.max(5, buf.length + 2)}ch`, color: value ? C.text : C.emptyCell }}
     />
   );
 }
@@ -249,12 +264,13 @@ function QuickFillCell({
 }
 
 export function EditableSizeMatrix({
-  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot,
+  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot, customerPo,
   allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
   const [bulkEach, setBulkEach] = React.useState("");
   const [bulkLot, setBulkLot] = React.useState("");
+  const [bulkPo, setBulkPo] = React.useState("");
   const [collapsed, setCollapsed] = React.useState(false);
 
   // Normalise a typed unit value for "set all": blank → null (no stamp); else
@@ -387,6 +403,23 @@ export function EditableSizeMatrix({
                 )}
               </th>
             )}
+            {customerPo && (
+              <th style={{ ...thBase, textAlign: "left", minWidth: 150, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{customerPo.label || "Customer PO"}</div>
+                {customerPo.onSetAll && (
+                  <input
+                    type="text"
+                    value={bulkPo}
+                    onChange={(e) => setBulkPo(e.target.value)}
+                    onBlur={() => { const v = bulkPo.trim(); if (v !== "") customerPo.onSetAll!(v); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = bulkPo.trim(); if (v !== "") customerPo.onSetAll!(v); } }}
+                    placeholder={customerPo.placeholder || "set all"}
+                    title="Type a Customer PO and press Enter to stamp it onto every color row; a row with a PO different from the header splits onto a new SO when you save."
+                    style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: C.primary }}
+                  />
+                )}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -490,6 +523,24 @@ export function EditableSizeMatrix({
                     />
                   </td>
                 )}
+                {customerPo && (() => {
+                  const val = customerPo.values[row.key] ?? "";
+                  const hdr = customerPo.highlightWhenDiffersFrom;
+                  const differs = hdr != null && val.trim() !== "" && val.trim() !== hdr.trim();
+                  return (
+                    <td style={{ padding: "4px 6px", textAlign: "left" }}>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => customerPo.onChange(row.key, e.target.value)}
+                        placeholder={customerPo.placeholder || "PO #"}
+                        aria-label={`Customer PO ${row.color || ""}`}
+                        title={differs ? "Differs from the header PO — this color splits onto a new confirmed SO when you save." : undefined}
+                        style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: differs ? C.amber : C.cardBdr }}
+                      />
+                    </td>
+                  );
+                })()}
               </tr>
             );
           })}
@@ -510,6 +561,7 @@ export function EditableSizeMatrix({
               <td style={{ padding: "10px 12px", textAlign: "right", color: grandExt ? C.green : C.emptyCell, fontWeight: 800, fontFamily: "monospace" }}>{grandExt ? `$${fmtMoney(grandExt)}` : "—"}</td>
             )}
             {lot && <td style={{ padding: "10px 12px" }} />}
+            {customerPo && <td style={{ padding: "10px 12px" }} />}
           </tr>
         </tfoot>
       </table>
