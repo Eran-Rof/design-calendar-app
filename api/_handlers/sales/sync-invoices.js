@@ -20,6 +20,7 @@ import formidable from "formidable";
 import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonSku, canonStyleColor } from "../../_lib/sku-canon.js";
+import { canonCodeKey, codeBareKey } from "../../_lib/customers/customerCodeKey.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import {
   deriveSalesGrainFields,
@@ -108,6 +109,8 @@ function toIsoDate(v) {
 function canonName(raw) {
   return String(raw ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 }
+// canonCodeKey / codeBareKey (customer_code minting + matching) live in
+// _lib/customers/customerCodeKey.js so the ingest and its unit test share them.
 
 // Map Sale Store + Customer to a channel_code. detectSoStore handles the
 // store-string fuzzy match (covers Xoro variants like "Psycho Tuna" and
@@ -261,7 +264,10 @@ export default async function handler(req, res) {
       // token. Without this we can't tell which grain Xoro recorded.
       rawItemNumber: itemNumber,
       txnDate, qty, unitPrice, amount, invoiceNumber,
-      customerName, customerKey: customerName ? canonName(customerName) : null,
+      customerName,
+      customerKey: customerName ? canonName(customerName) : null,
+      // Space-stripped key for matching against customer_code (see canonCodeKey).
+      customerCodeKey: customerName ? canonCodeKey(customerName) : null,
       saleStore: saleStore || null,
     });
   }
@@ -400,8 +406,10 @@ export default async function handler(req, res) {
   const customerCodeToId = new Map();
   const customerNameToId = new Map();
   if (missingCustomers.size > 0) {
-    const codes = Array.from(missingCustomers.keys()).map((k) => `EXCEL:${k}`);
-    const codesAuto = Array.from(missingCustomers.keys()).map((k) => `XORO:${k}`);
+    // Match on the space-stripped code form so existing legacy rows
+    // (EXCEL:BRIGSURFSHOP) are found instead of forking EXCEL:BRIG SURF SHOP.
+    const codes = Array.from(missingCustomers.keys()).map((k) => `EXCEL:${canonCodeKey(k)}`);
+    const codesAuto = Array.from(missingCustomers.keys()).map((k) => `XORO:${canonCodeKey(k)}`);
     const allCodes = [...codes, ...codesAuto];
     for (let i = 0; i < allCodes.length; i += CHUNK) {
       const chunk = allCodes.slice(i, i + CHUNK);
@@ -411,7 +419,7 @@ export default async function handler(req, res) {
         .in("customer_code", chunk);
       if (error) { counts.errors.push(`customer code lookup chunk ${i}: ${error.message}`); continue; }
       for (const row of data ?? []) {
-        customerCodeToId.set(canonName(row.customer_code), row.id);
+        customerCodeToId.set(codeBareKey(row.customer_code), row.id);
         if (row.name) customerNameToId.set(canonName(row.name), row.id);
       }
     }
@@ -426,7 +434,7 @@ export default async function handler(req, res) {
       if (error) { counts.errors.push(`customer name lookup chunk ${i}: ${error.message}`); continue; }
       for (const row of data ?? []) {
         if (row.name) customerNameToId.set(canonName(row.name), row.id);
-        customerCodeToId.set(canonName(row.customer_code), row.id);
+        customerCodeToId.set(codeBareKey(row.customer_code), row.id);
       }
     }
   }
@@ -434,11 +442,14 @@ export default async function handler(req, res) {
   // Bulk-create customers we still haven't found
   const newCustomers = [];
   for (const [canonKey, displayName] of missingCustomers) {
-    if (customerNameToId.has(canonKey) || customerCodeToId.has(canonKey)) continue;
-    // Match the browser modal's customer_code prefix so manually-uploaded
-    // and auto-synced customers don't fork into two rows.
+    // customerCodeToId is keyed by the bare space-stripped code, so compare with
+    // the stripped form of the name key (canonKey is canonName, i.e. spaced).
+    if (customerNameToId.has(canonKey) || customerCodeToId.has(canonCodeKey(canonKey))) continue;
+    // Mint the code in the canonical space-stripped form so the
+    // onConflict=customer_code upsert merges into any existing legacy row
+    // instead of forking a duplicate (EXCEL:BRIGSURFSHOP, not EXCEL:BRIG SURF SHOP).
     newCustomers.push({
-      customer_code: `EXCEL:${canonKey}`,
+      customer_code: `EXCEL:${canonCodeKey(canonKey)}`,
       name: displayName,
     });
   }
@@ -454,7 +465,7 @@ export default async function handler(req, res) {
         continue;
       }
       for (const row of data ?? []) {
-        customerCodeToId.set(canonName(row.customer_code), row.id);
+        customerCodeToId.set(codeBareKey(row.customer_code), row.id);
         if (row.name) customerNameToId.set(canonName(row.name), row.id);
       }
       counts.new_customers_created += chunk.length;
@@ -556,7 +567,7 @@ export default async function handler(req, res) {
     if ((Number(c.unitPrice) || 0) < cost * SUSPICIOUS_PRICE_RATIO) continue;
     const skuId = skuToId.get(c.sku);
     const custId = c.customerKey
-      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
+      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerCodeKey) ?? null)
       : null;
     if (!skuId || !custId) continue;
     const sibling = findSiblingPpkMaster(m, skuToMaster);
@@ -602,7 +613,7 @@ export default async function handler(req, res) {
   for (const c of candidates) {
     const skuId = skuToId.get(c.sku);
     const custId = c.customerKey
-      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
+      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerCodeKey) ?? null)
       : null;
     if (!skuId || !custId) continue;
     const key = `${skuId}|${custId}`;
@@ -638,7 +649,7 @@ export default async function handler(req, res) {
     const skuId = skuToId.get(c.sku);
     if (!skuId) { counts.skipped_no_sku++; continue; }
     const customerId = c.customerKey
-      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerKey) ?? null)
+      ? (customerNameToId.get(c.customerKey) ?? customerCodeToId.get(c.customerCodeKey) ?? null)
       : null;
 
     // Match the line-key format the browser modal uses so the same invoice
