@@ -148,6 +148,8 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
+> **Missing-price warning on save.** If any style/color that carries a quantity has a **$0 Unit $**, saving pops a **"Missing unit prices"** confirmation listing each offending *style — color*. It's a **warning, not a block** — click **Save anyway** to proceed ($0 is sometimes intended, e.g. a free replacement) or **Add price** to go back and fill them in. Runs for both *Save draft* and *Save & confirm*.
+
 ### Per-color Customer PO — auto-split into separate SOs
 
 Sometimes a single order you're entering actually spans **more than one customer PO** — the buyer sent one document but some styles/colors belong to a different PO number. Rather than re-key each into its own order, use the **per-color Customer PO** column.

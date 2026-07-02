@@ -1169,6 +1169,35 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
     if (!saleStore.trim()) { setErr("Pick a Warehouse."); return; }
     if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Start ship date."); return; }
+
+    // Missing-price guard — warn (don't block) when a style/color that carries a
+    // quantity has a $0 unit price, so a price isn't left off by accident. Read
+    // from getDocumentData() (pure, no SKU side-effects) so it runs before the
+    // resolve/allocate below. The operator can accept ($0 is sometimes intended,
+    // e.g. a free replacement) or go back and add the price.
+    {
+      const doc = bodyRef.current?.getDocumentData();
+      const zeroPriced = new Set<string>();
+      if (doc) {
+        for (const st of doc.styles) {
+          for (const row of st.rows) {
+            const rowQty = Object.values(row.qtyBySize).reduce((a, b) => a + (b || 0), 0);
+            if (rowQty > 0 && !(row.unitDollars > 0)) zeroPriced.add(`${st.style}${row.color ? ` — ${row.color}` : ""}`);
+          }
+        }
+        for (const f of doc.flats) {
+          if ((f.qty || 0) > 0 && !((f.unitDollars || 0) > 0)) zeroPriced.add(f.label || "(line)");
+        }
+      }
+      if (zeroPriced.size > 0) {
+        const ok = await confirmDialog(
+          "One or more styles have a $0 unit price. Save anyway, or cancel to add a price first.",
+          { title: "Missing unit prices", confirmText: "Save anyway", cancelText: "Add price", confirmColor: "#F59E0B", icon: "!", listItems: [...zeroPriced] },
+        );
+        if (!ok) return;
+      }
+    }
+
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
     // SKUs). Done before the header build so a resolve error surfaces cleanly.
