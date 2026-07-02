@@ -158,13 +158,26 @@ async function enrichPricing(admin, rows, styleFilter) {
   // with HeadersOverflowError, the query silently returns no rows, and EVERY
   // money column goes blank). 200 uuids ≈ 8KB, safely under. (Same pattern the
   // SO grid's computeSoMetrics already uses.)
+  // PostgREST caps a response at 1000 rows. A 200-PO chunk can hold FAR more than
+  // 1000 lines (denim size-matrix POs run dozens of lines each — ~68/PO seen in
+  // prod), so a single `.in()` fetch silently dropped every line past row 1000 →
+  // those POs got NO lines → Avg PO Price / Sell / Margin blank on most rows.
+  // Page through each chunk with .range() (stable order) until it's exhausted.
   const allLines = [];
+  const LINE_PAGE = 1000;
   for (const slice of chunkIds(poIds, 200)) {
-    const { data } = await admin
-      .from("purchase_order_lines")
-      .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
-      .in("purchase_order_id", slice);
-    for (const l of data || []) allLines.push(l);
+    for (let from = 0; ; from += LINE_PAGE) {
+      const { data } = await admin
+        .from("purchase_order_lines")
+        .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
+        .in("purchase_order_id", slice)
+        .order("purchase_order_id", { ascending: true })
+        .order("line_number", { ascending: true })
+        .range(from, from + LINE_PAGE - 1);
+      const batch = data || [];
+      for (const l of batch) allLines.push(l);
+      if (batch.length < LINE_PAGE) break;
+    }
   }
 
   // SKU → { style_id, style_code, sku_code } for every line item.

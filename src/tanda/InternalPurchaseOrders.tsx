@@ -136,14 +136,20 @@ const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, issued: C.primary, in_transit: C.warn, received: C.success, cancelled: C.danger,
 };
+// Human-readable status label — drops the underscore ("in_transit" → "in transit")
+// for every place the raw status is shown (filter options, grid chip, modal).
+const statusLabel = (s: string) => s.replace(/_/g, " ");
+// Default status filter — the live/actionable set the buyer works from.
+const DEFAULT_PO_STATUSES = ["draft", "issued", "in_transit"];
 
 export default function InternalPurchaseOrders() {
   const [rows, setRows] = useState<PO[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  // Multi-select status filter (model after the SO grid). Empty = all statuses.
-  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  // Multi-select status filter (model after the SO grid). Defaults to the live
+  // set (draft / issued / in-transit); empty = all statuses.
+  const [statusFilters, setStatusFilters] = useState<string[]>(DEFAULT_PO_STATUSES);
   // Grid-level EXPLODE PPK toggle — one control drives every row expander
   // (moved out of the individual detail rows). Persisted, shared with the tab.
   const [explodePpk, setExplodePpk] = useState<boolean>(readExplodePpk);
@@ -329,7 +335,7 @@ export default function InternalPurchaseOrders() {
         <MultiSelectDropdown
           selected={statusFilters}
           onChange={setStatusFilters}
-          options={STATUSES.map((s) => ({ value: s, label: s }))}
+          options={STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
           allLabel="All statuses"
           placeholder="Search status…"
           title="Filter by one or more statuses"
@@ -437,7 +443,7 @@ export default function InternalPurchaseOrders() {
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(po.order_date)}</td>
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("cancel_date")}>{po.cancel_date ? fmtDateDisplay(po.cancel_date) : "—"}</td>
-                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
+                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span></td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost">{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_po_price")} title="This PO's actual unit price">{po.avg_po_price_cents != null ? fmtCents(po.avg_po_price_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
@@ -683,7 +689,6 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   // ── Rich header fields ──────────────────────────────────────────────────────
   const [poType, setPoType] = useState("");
   const [customerId, setCustomerId] = useState("");
-  const [poPrefix, setPoPrefix] = useState("");
   const [vendorContact, setVendorContact] = useState("");
   const [vendorEmail, setVendorEmail] = useState("");
   const [vendorRef, setVendorRef] = useState("");
@@ -758,7 +763,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full) return;
       // Populate the rich-header state from the full PO record + the rollup.
-      setPoType(full.po_type || ""); setCustomerId(full.customer_id || ""); setPoPrefix(full.po_prefix || "");
+      setPoType(full.po_type || ""); setCustomerId(full.customer_id || "");
       setVendorContact(full.vendor_contact || ""); setVendorEmail(full.vendor_email || ""); setVendorRef(full.vendor_ref || "");
       setFactoryLocation(full.factory_location || ""); setCoo(full.coo || "");
       setRequestedDeliveryDate(full.requested_delivery_date || ""); setShipWindowStart(full.ship_window_start || ""); setShipWindowEnd(full.ship_window_end || "");
@@ -958,7 +963,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
       order_date: orderDate, expected_date: expectedDate || null,
       payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines,
       // Rich header
-      po_type: poType || null, customer_id: customerId || null, po_prefix: poPrefix.trim() || null,
+      po_type: poType || null, customer_id: customerId || null,
       vendor_contact: vendorContact.trim() || null, vendor_email: vendorEmail.trim() || null, vendor_ref: vendorRef.trim() || null,
       factory_location: factoryLocation.trim() || null, coo: coo || null,
       requested_delivery_date: requestedDeliveryDate || null, ship_window_start: shipWindowStart || null, ship_window_end: shipWindowEnd || null,
@@ -1118,7 +1123,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             grid status chip (STATUS_COLORS), so the open view matches the list. */}
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
           {isNew ? "New purchase order" : (
-            <>Purchase order {po?.po_number || "(draft)"} — <span style={{ color: STATUS_COLORS[po?.status || ""] || C.text, fontWeight: 700 }}>● {po?.status}</span></>
+            <>Purchase order {po?.po_number || "(draft)"} — <span style={{ color: STATUS_COLORS[po?.status || ""] || C.text, fontWeight: 700 }}>● {statusLabel(po?.status || "")}</span></>
           )}
         </h3>
 
@@ -1151,7 +1156,6 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
                 onAddNew={editable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
                 addNewLabel={(q) => `+ Add customer "${q.trim()}"`} />
             </Field>
-            <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
             <Field label="PO number / status">
               {/* #6 — read-only chip carrying the grid's status color so the open
                   PO matches the list. Rendered as a div (not an input) so the
@@ -1159,7 +1163,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
               <div style={{ ...inputStyle, display: "flex", alignItems: "center", gap: 8, minHeight: 33 }}>
                 <span>{po?.po_number || "(draft — assigned on issue)"}</span>
                 {po?.status && (
-                  <span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span>
+                  <span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span>
                 )}
               </div>
             </Field>
