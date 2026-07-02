@@ -61,7 +61,7 @@
 //
 // Reads SUPABASE_PAT from .env.local / .env.staging (same as run-sql-prod.mjs).
 
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from "fs";
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { tmpdir } from "os";
@@ -338,18 +338,71 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   console.log(`# (color,size,store) cells: ${cells.length}   REST total: ${restTotal}   per-warehouse: ${JSON.stringify(whTotals)}`);
 
   // Resolve the style_id from prod (must exist; do NOT create styles here).
+  // 0 rows is NOT fatal here: an inseam-suffixed BP (e.g. RYB059430) may have no
+  // style_master row of its own yet still have SKUs under a parent — PREFIX-MODE
+  // below resolves it. Only >1 is a hard error. If styleId stays null and
+  // prefix-mode doesn't fire, we fail cleanly further down.
   let styleId = styleIdHint || null;
   if (!styleId) {
     const { data: srows, error: sErr } = await admin
       .from("style_master").select("id")
       .eq("style_code", styleCode).eq("entity_id", ROF_ENTITY_ID);
     if (sErr) return { ok: false, error: `resolve style_id: ${sErr.message}`, code: 3 };
-    if (!srows || srows.length !== 1) {
-      return { ok: false, error: `expected exactly 1 style_master row for ${styleCode} in ROF entity, got ${srows ? srows.length : 0}`, code: 3 };
+    if (srows && srows.length > 1) {
+      return { ok: false, error: `expected ≤1 style_master row for ${styleCode} in ROF entity, got ${srows.length}`, code: 3 };
     }
-    styleId = srows[0].id;
+    styleId = srows && srows.length === 1 ? srows[0].id : null;
   }
-  console.log(`# style_id:      ${styleId}`);
+  console.log(`# style_id:      ${styleId || "(none — trying prefix-mode)"}`);
+
+  // ── PREFIX-MODE (inseam-suffixed BP) ────────────────────────────────────────
+  // Some Xoro BasePartNumbers bake the INSEAM into the code: RYB059432 = style
+  // RYB0594 + inseam 32. Those BPs have a style_master row with ZERO SKUs of
+  // their own; the actual SKUs live under the PARENT style (RYB0594), coded by
+  // the BP prefix ('RYB059432-…') with `inseam` populated — the parent holds
+  // every inseam side-by-side. Without special handling the batch guard skips
+  // them (resolved SKUs are "foreign" to the empty BP style) and their on-hand
+  // never refreshes. Here: if THIS style has no SKUs but 'BP-%' SKUs exist under
+  // exactly ONE parent at ONE inseam, refresh AGAINST THE PARENT, scoped to just
+  // this BP's inseam SKUs (so sibling inseams like RYB059430 are untouched).
+  let prefixMode = false;
+  let prefixSkuIds = null; // when set, retire/delete/verify scope to these SKUs
+  let resolveInseam = null;
+  {
+    // Own-SKU check only when this BP has a style row of its own.
+    let ownCount = 0;
+    if (styleId) {
+      const { data: ownSkus } = await admin
+        .from("ip_item_master").select("id")
+        .eq("entity_id", ROF_ENTITY_ID).eq("style_id", styleId).limit(1);
+      ownCount = (ownSkus || []).length;
+    }
+    // No own SKUs (empty style row) OR no style row at all → look for parent SKUs
+    // coded with this BP prefix.
+    if (ownCount === 0) {
+      const { data: pfx } = await admin
+        .from("ip_item_master").select("id, style_id, inseam")
+        .eq("entity_id", ROF_ENTITY_ID).like("sku_code", `${styleCode}-%`);
+      if (pfx && pfx.length > 0) {
+        const parentIds = [...new Set(pfx.map((r) => r.style_id).filter(Boolean))];
+        const inseams = [...new Set(pfx.map((r) => r.inseam).filter((v) => v != null).map((v) => String(v).trim()))];
+        if (parentIds.length === 1 && inseams.length === 1) {
+          prefixMode = true;
+          styleId = parentIds[0];
+          resolveInseam = inseams[0];
+          prefixSkuIds = pfx.map((r) => r.id);
+          console.log(`# PREFIX-MODE: '${styleCode}' → refresh under PARENT ${styleId} (inseam ${resolveInseam}), scoped to ${prefixSkuIds.length} '${styleCode}-*' SKUs.`);
+        } else {
+          return { ok: false, skip: true, code: 3, error: `sized-BP '${styleCode}' maps to ${parentIds.length} parent style(s) / ${inseams.length} inseam(s) — ambiguous, skipped` };
+        }
+      }
+    }
+  }
+  // If we still have no style to write to (unmatched BP, no parent prefix SKUs),
+  // skip cleanly — nothing to cut over.
+  if (!styleId) {
+    return { ok: false, skip: true, code: 3, error: `'${styleCode}' has no style_master row and no parent prefix SKUs — skipped (unmatched)` };
+  }
 
   // 1. Find-or-create per-size SKU per (color,size). Store is NOT part of the
   //    SKU. We do this INLINE (not via the shared resolveOrCreateSku) because
@@ -363,22 +416,54 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   // SML/LRG row instead of forking), creates canonical, and catches a 23505 on
   // the logical-SKU UNIQUE index by re-finding the tuple. isApparel:false
   // matches this style's existing color-grain SKUs + avoids apparel_dims_required.
-  const { resolveOrCreateSku } = await import("../api/_lib/styleMatrix.js");
-  async function findOrCreateSizeSku(color, size) {
-    return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: null }, { isApparel: false });
-  }
-
+  const { resolveOrCreateSku, canonColor, normalizeSize } = await import("../api/_lib/styleMatrix.js");
   const skuByColorSize = new Map(); // `${color}||${size}` -> item_id
   let created = 0, reused = 0;
-  for (const cell of cells) {
-    const k = `${cell.color}||${cell.size}`;
-    if (skuByColorSize.has(k)) continue;
-    const res = await findOrCreateSizeSku(cell.color, cell.size);
-    if (res.error || !res.id) {
-      return { ok: false, error: `findOrCreateSizeSku failed for (${cell.color}, ${cell.size}): ${res.error}`, code: 4 };
+
+  if (prefixMode) {
+    // REUSE-ONLY: match REST cells to the parent's EXISTING '<BP>-*' SKUs by
+    // (canonColor, normalizeSize). NEVER create here — the inseam SKUs were laid
+    // down by the original by-size cutover, so a cell with no match is a genuine
+    // data gap (a new color/size Xoro added since). Creating would fork a
+    // wrong/null-style SKU (resolveOrCreateSku's create path mis-set style_id in
+    // this scenario) and the guard would skip anyway — but leave clutter. Instead
+    // skip the whole style cleanly and report the gap, so the nightly never
+    // accretes stray SKUs.
+    const pMeta = [];
+    for (let i = 0; i < prefixSkuIds.length; i += 100) {
+      const { data: rows } = await admin
+        .from("ip_item_master").select("id, color, size")
+        .in("id", prefixSkuIds.slice(i, i + 100));
+      for (const r of rows || []) pMeta.push(r);
     }
-    skuByColorSize.set(k, res.id);
-    if (res.created) created++; else reused++;
+    const byCS = new Map();
+    for (const r of pMeta) byCS.set(`${canonColor(r.color)}||${normalizeSize(String(r.size))}`, r.id);
+    const gaps = [];
+    for (const cell of cells) {
+      const k = `${cell.color}||${cell.size}`;
+      if (skuByColorSize.has(k)) continue;
+      const id = byCS.get(`${canonColor(cell.color)}||${normalizeSize(String(cell.size))}`);
+      if (!id) { gaps.push(`${cell.color}/${cell.size}`); continue; }
+      skuByColorSize.set(k, id);
+      reused++;
+    }
+    if (gaps.length > 0) {
+      return { ok: false, skip: true, code: 3, error: `prefix-mode reuse-only: ${gaps.length}/${cells.length} REST cell(s) have no existing parent SKU (e.g. ${gaps[0]}) — new color/size data gap, skipped (no SKUs created)` };
+    }
+  } else {
+    async function findOrCreateSizeSku(color, size) {
+      return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: resolveInseam }, { isApparel: false });
+    }
+    for (const cell of cells) {
+      const k = `${cell.color}||${cell.size}`;
+      if (skuByColorSize.has(k)) continue;
+      const res = await findOrCreateSizeSku(cell.color, cell.size);
+      if (res.error || !res.id) {
+        return { ok: false, error: `findOrCreateSizeSku failed for (${cell.color}, ${cell.size}): ${res.error}`, code: 4 };
+      }
+      skuByColorSize.set(k, res.id);
+      if (res.created) created++; else reused++;
+    }
   }
   console.log(`# SKUs: ${skuByColorSize.size} distinct (color,size)  [${created} created, ${reused} reused]`);
 
@@ -496,13 +581,21 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   // ── Retire the seed (REVERSIBLE) ────────────────────────────────────────────
   // EVERY ip_item_master SKU under this style (not just resolved ones) — the
   // 24 color-grain seed SKUs must all go to 0 so the matrix total == REST.
-  const { data: allStyleSkus, error: allSkuErr } = await admin
-    .from("ip_item_master")
-    .select("id")
-    .eq("entity_id", ROF_ENTITY_ID)
-    .eq("style_id", styleId);
-  if (allSkuErr) { return { ok: false, error: `load style SKUs: ${allSkuErr.message}`, code: 5 }; }
-  const allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
+  // PREFIX-MODE: scope to ONLY this BP's inseam SKUs (+ any just-resolved) so the
+  // parent's OTHER inseams (e.g. RYB059430) keep their layers untouched.
+  let allStyleSkuIds;
+  if (prefixMode) {
+    allStyleSkuIds = [...new Set([...prefixSkuIds, ...skuByColorSize.values()])];
+    console.log(`# PREFIX-MODE scope: ${allStyleSkuIds.length} SKUs (this inseam only).`);
+  } else {
+    const { data: allStyleSkus, error: allSkuErr } = await admin
+      .from("ip_item_master")
+      .select("id")
+      .eq("entity_id", ROF_ENTITY_ID)
+      .eq("style_id", styleId);
+    if (allSkuErr) { return { ok: false, error: `load style SKUs: ${allSkuErr.message}`, code: 5 }; }
+    allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
+  }
 
   // A few legacy styles carry HUNDREDS of stale SKUs; a single `.in(item_id,[…])`
   // over all of them blows past PostgREST's URL length (→ 400 Bad Request). Chunk
@@ -551,8 +644,19 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     all_style_sku_ids: allStyleSkuIds, rest_total: restTotal,
   };
   const manifestPath = join(tmp, `reversal-manifest-${styleCode}-${snapshotDate}.json`);
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
-  console.log(`# reversal manifest written: ${manifestPath}`);
+  // NON-FATAL + self-healing: the OS can clean the temp dir mid-run on a long
+  // --batch (Windows temp cleanup wiped it once → ENOENT threw and ~208 styles
+  // failed pre-write). Recreate the dir; if the write still fails, WARN and
+  // continue — the authoritative per-batch reversal manifest is flushed to
+  // .launchd-logs after every success, so this per-style copy is only a
+  // convenience for the single --apply path.
+  try {
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    console.log(`# reversal manifest written: ${manifestPath}`);
+  } catch (e) {
+    console.log(`# ⚠ per-style manifest write skipped (${e.code || e.message}); batch manifest in .launchd-logs is authoritative.`);
+  }
 
   // 4b. Idempotent re-run: delete any PRIOR xoro_rest_size layers for these SKUs
   //     FIRST (we delete-then-reinsert below; this guards a partial state).
@@ -717,6 +821,11 @@ async function runBatch() {
   // Final work-list: matched, non-PPK, excluding RYB0412 (pilot — verify+skip),
   // and excluding zero-REST styles (no on-hand to cut over; applyStyle would
   // no-op with a "no non-zero cells" error — skip cleanly, don't count failed).
+  // NOTE: unmatched inseam-suffixed BPs (e.g. RYB059430 with no style row) are
+  // deliberately NOT included — their SKUs are tangled across parents and
+  // resolveOrCreateSku would fork null-style clutter (the guard skips them but
+  // after creating stray rows). Matched-but-empty inseam BPs (the 12: RYB059432
+  // etc.) ARE in the list and PREFIX-MODE refreshes them cleanly.
   const PILOT = "RYB0412";
   const matchedNonPilot = candidateBps.filter((bp) => matchedSet.has(bp) && bp !== PILOT);
   const zeroRestSkipped = matchedNonPilot.filter((bp) => (restStyleTotal.get(bp) || 0) === 0);
