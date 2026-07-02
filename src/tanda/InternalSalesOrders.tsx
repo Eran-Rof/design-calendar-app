@@ -223,6 +223,11 @@ async function deleteOrCancelSO(so: { id: string; so_number: string | null; stat
 
 export default function InternalSalesOrders() {
   const [rows, setRows] = useState<SO[]>([]);
+  // Guards against a fetch race: rapidly toggling the status multi-select fires
+  // several load()s; without sequencing a slower earlier response can land last
+  // and clobber the newest filter (e.g. "cancelled only" briefly showing, then
+  // reverting to all statuses). Only the latest request's result is applied.
+  const loadSeqRef = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -381,6 +386,7 @@ export default function InternalSalesOrders() {
   }, [statusFilters, storeFilter, customerFilter, searchDebounced, inDateRange, toExportRow]);
 
   async function load() {
+    const seq = ++loadSeqRef.current;
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
@@ -400,9 +406,11 @@ export default function InternalSalesOrders() {
       params.set("limit", String(SO_LIST_LIMIT));
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as SO[]);
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
+      const data = await r.json() as SO[];
+      if (seq !== loadSeqRef.current) return; // superseded by a newer load — drop this stale result
+      setRows(data);
+    } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
+    finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
   const anyFilter = !!(statusFilters.length || storeFilter || customerFilter || search.trim() || dateFrom || dateTo);
   function clearFilters() { setStatusFilters([]); setStoreFilter(""); setCustomerFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }

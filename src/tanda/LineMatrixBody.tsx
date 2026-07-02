@@ -167,7 +167,7 @@ export interface LineMatrixBodyHandle {
   addFlat: () => void;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean; customerPo?: string };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean; poByRow?: Record<string, string> };
 
 // Parse a free-text money value → number, or null when blank/invalid (item 12).
 function parseMoneyOrNull(v: string): number | null {
@@ -400,7 +400,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
   function setLot(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: { ...s.lot, [rowKey]: v } } : s))); }
-  function setSectionPo(id: number, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, customerPo: v } : s))); }
+  // Per-color Customer PO: set one row, or stamp every row (header "set all").
+  function setRowPo(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, poByRow: { ...(s.poByRow || {}), [rowKey]: v } } : s))); }
+  function setAllRowPo(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, poByRow: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setAllLot(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setSectionDate(id: number, which: "requested" | "confirmed", v: string) {
     // Report a user EDIT of the Vendor-confirmed date (the initial prefill goes
@@ -613,16 +615,16 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const lines: ResolvedLine[] = [];
       for (const s of sections) {
         if (!s.payload) continue;
-        // Per-line PO (SO only): the section's effective Customer PO — its own
-        // override, or the header PO when untouched. Stamped on every resolved
-        // row so the owning modal can group/split by PO at save.
-        const linePo = enableLinePo ? ((s.customerPo ?? headerCustomerPo).trim() || null) : undefined;
         const byCell = new Map<string, MatrixSku>();
         for (const sk of s.payload.skus) byCell.set(skuCellKey(sk.color, sk.size, sk.inseam || null), sk);
         for (const [cell, n] of Object.entries(s.qty)) {
           if (!(n > 0)) continue;
           const [rowKey, size] = cell.split("__");
           const [color, inseam] = rowKey.split("|");
+          // Per-line PO (SO only): this color ROW's effective Customer PO — its
+          // own override, or the header PO when untouched. Stamped on every
+          // resolved SKU of the row so the owning modal groups/splits by PO.
+          const linePo = enableLinePo ? ((s.poByRow?.[rowKey] ?? headerCustomerPo).trim() || null) : undefined;
           const unitDollars = (s.unit[rowKey] || "").trim();
           const existing = byCell.get(skuCellKey(color || null, size, inseam || null));
           let itemId = existing?.id || null;
@@ -770,7 +772,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         )}
         {enableLinePo && (
           <button onClick={() => setShowLinePo((v) => !v)} style={showLinePo ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
-            title={showLinePo ? "Hide the per-line Customer PO field" : "Show a Customer PO field on each style line (defaults to the header PO; a line with a different PO is split onto a new confirmed SO when you save)"}>
+            title={showLinePo ? "Hide the per-color Customer PO column" : "Show a Customer PO column on each color row (defaults to the header PO; a color with a different PO is split onto a new confirmed SO when you save)"}>
             {showLinePo ? "Hide line PO" : "Show line PO"}
           </button>
         )}
@@ -937,19 +939,6 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
               </div>
             </div>
-            {enableLinePo && showLinePo && (() => {
-              const linePo = (s.customerPo ?? headerCustomerPo);
-              const differs = linePo.trim() !== "" && linePo.trim() !== headerCustomerPo.trim();
-              return (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                  <label style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>Customer PO</label>
-                  <input type="text" value={linePo} disabled={!editable}
-                    onChange={(e) => setSectionPo(s.id, e.target.value)} placeholder="Customer PO #"
-                    style={{ background: "#0b1220", color: C.text, border: `1px solid ${differs ? C.warn : C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: 240, maxWidth: "100%", boxSizing: "border-box" }} />
-                  {differs && <span style={{ fontSize: 11, color: C.warn }} title="This PO differs from the header — this style is split onto a new confirmed SO when you save.">↳ splits to a new SO on save</span>}
-                </div>
-              );
-            })()}
             {showLineDates && (s.datesOpen === false ? (
               // Collapsed (a later style was added) — show a compact summary; click to edit.
               <div role="button" tabIndex={0} onClick={() => setSectionDatesOpen(s.id, true)}
@@ -1026,6 +1015,13 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                     onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
                     placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
                   } : undefined}
+                  customerPo={enableLinePo && showLinePo ? {
+                    values: Object.fromEntries(rows.map((r) => [r.key, s.poByRow?.[r.key] ?? headerCustomerPo])),
+                    onChange: (rk, v) => setRowPo(s.id, rk, v),
+                    onSetAll: (v) => setAllRowPo(s.id, rows, v),
+                    placeholder: "Customer PO #",
+                    highlightWhenDiffersFrom: headerCustomerPo,
+                  } : undefined}
                 />
                 {pp.has_matrix && (
                   <div style={{ marginTop: 8 }}>
@@ -1061,6 +1057,13 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   onChange: (rk, v) => setLot(s.id, rk, v),
                   onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
                   placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
+                } : undefined}
+                customerPo={enableLinePo && showLinePo ? {
+                  values: Object.fromEntries(rows.map((r) => [r.key, s.poByRow?.[r.key] ?? headerCustomerPo])),
+                  onChange: (rk, v) => setRowPo(s.id, rk, v),
+                  onSetAll: (v) => setAllRowPo(s.id, rows, v),
+                  placeholder: "Customer PO #",
+                  highlightWhenDiffersFrom: headerCustomerPo,
                 } : undefined}
               />
             )}
