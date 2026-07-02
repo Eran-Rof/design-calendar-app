@@ -119,6 +119,8 @@ type StyleInvoiceRow = {
 
 
 const ALL_WAREHOUSES = "__all__";
+// Bucket label for unlotted stock — must match NO_LOT in api/_lib/styleMatrix.js.
+const NO_LOT_LABEL = "(no lot)";
 
 // ── MatrixRow type (shared by single-style and brand-level views) ─────────────
 
@@ -1320,6 +1322,9 @@ export default function InternalInventoryMatrix() {
   // shows the stacked per-style size grids.
   const [noStyleView, setNoStyleView] = useState<"snapshot" | "matrix">("snapshot");
   const [snapRows, setSnapRows] = useState<SnapshotRow[]>([]);
+  // Lots present across the snapshot's fetched styles (full set, filter-independent)
+  // — feeds the lot dropdown in the all-styles snapshot view.
+  const [snapLots, setSnapLots] = useState<string[]>([]);
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapErr, setSnapErr] = useState<string | null>(null);
   const [snapSortKey, setSnapSortKey] = useState<keyof SnapshotRow>("style_code");
@@ -1676,20 +1681,20 @@ export default function InternalInventoryMatrix() {
   // page — or, when Collapse is active, the full filtered set (#13).
   const snapFetchKey = snapStyleIds.join(",");
   useEffect(() => {
-    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
-    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
+    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
+    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
     let cancelled = false;
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined }),
+      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined, lots: lotFilter.length ? lotFilter : undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
+      .then((j) => { if (!cancelled) { setSnapRows(Array.isArray(j.rows) ? j.rows : []); setSnapLots(Array.isArray(j.lots) ? j.lots : []); } })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse, lotFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1704,7 +1709,8 @@ export default function InternalInventoryMatrix() {
     Promise.all(
       stylesToLoad.map(async (s) => {
         try {
-          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}`, { signal: controller.signal });
+          const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`, { signal: controller.signal });
           if (!r.ok) return null;
           const p = await r.json() as MatrixPayload;
           return { style: s, payload: p };
@@ -1719,7 +1725,25 @@ export default function InternalInventoryMatrix() {
       setBrandLoading(false);
     });
     return () => controller.abort();
-  }, [styleId, brandStyles, multiPage, explodePpk]);
+  }, [styleId, brandStyles, multiPage, explodePpk, lotFilter]);
+
+  // Lot numbers available for the current view, feeding the Lot # filter:
+  //  • single style → the payload's full lot list
+  //  • all-styles Snapshot → lots across the fetched snapshot styles
+  //  • all-styles Matrix → union of every loaded per-style payload's lots
+  // Always the FULL set (filter-independent) so the dropdown stays selectable.
+  const availableLots = useMemo<string[]>(() => {
+    if (styleId) return payload?.lots ?? [];
+    if (noStyleView === "snapshot") return snapLots;
+    const set = new Set<string>();
+    let hasNoLot = false;
+    for (const { payload: bp } of brandPayloads) {
+      for (const l of (bp.lots ?? [])) { if (l === NO_LOT_LABEL) hasNoLot = true; else set.add(l); }
+    }
+    const out = [...set].sort((a, b) => a.localeCompare(b));
+    if (hasNoLot) out.push(NO_LOT_LABEL);
+    return out;
+  }, [styleId, payload, noStyleView, snapLots, brandPayloads]);
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
@@ -2234,17 +2258,18 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
-          {/* Lot filter — single-style view only. A style/color received at
-              different times carries multiple lot numbers; pick any combination
-              to scope the matrix on-hand to those lots (empty = all lots). The
-              option list is the full set of lots on this style (payload.lots). */}
-          {styleId && (payload?.lots?.length ?? 0) > 0 && (
+          {/* Lot filter — single style OR the all-styles views (snapshot / matrix).
+              A style/color received at different times carries multiple lot
+              numbers; pick any combination to scope the On Hand to those lots
+              (empty = all lots). The option list is the full set of lots present
+              on the current styles' on-hand, so it spans base + PPK styles too. */}
+          {availableLots.length > 0 && (
             <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
               Lot #
               <MultiSelectDropdown
                 selected={lotFilter}
                 onChange={setLotFilter}
-                options={(payload?.lots ?? []).map((l) => ({ value: l, label: l }))}
+                options={availableLots.map((l) => ({ value: l, label: l }))}
                 allLabel="All lots"
                 placeholder="Search lot…"
                 title="Show on-hand from one or more lots (empty = all lots)"
