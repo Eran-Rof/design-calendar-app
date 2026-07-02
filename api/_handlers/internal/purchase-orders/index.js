@@ -123,6 +123,10 @@ export function validateInsert(body) {
   };
 }
 
+// Split an id array into pages so a `.in(...)` filter's URL stays under
+// PostgREST's ~16KB header limit (uuids ≈ 39 chars each → 200 ≈ 8KB).
+function chunkIds(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+
 // ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
 // Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
@@ -149,19 +153,27 @@ export function validateInsert(body) {
 async function enrichPricing(admin, rows, styleFilter) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const poIds = rows.map((r) => r.id);
-  const { data: lines } = await admin
-    .from("purchase_order_lines")
-    .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
-    .in("purchase_order_id", poIds);
-  const allLines = lines || [];
+  // NB: chunk every `.in(<id array>)` — a full 500-PO / thousands-of-SKU array
+  // makes the request URL exceed PostgREST's 16KB header limit (the fetch fails
+  // with HeadersOverflowError, the query silently returns no rows, and EVERY
+  // money column goes blank). 200 uuids ≈ 8KB, safely under. (Same pattern the
+  // SO grid's computeSoMetrics already uses.)
+  const allLines = [];
+  for (const slice of chunkIds(poIds, 200)) {
+    const { data } = await admin
+      .from("purchase_order_lines")
+      .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
+      .in("purchase_order_id", slice);
+    for (const l of data || []) allLines.push(l);
+  }
 
   // SKU → { style_id, style_code, sku_code } for every line item.
   const itemIds = [...new Set(allLines.map((l) => l.inventory_item_id).filter(Boolean))];
-  let skuById = new Map();
-  if (itemIds.length) {
+  const skuById = new Map();
+  for (const slice of chunkIds(itemIds, 200)) {
     const { data: skus } = await admin
-      .from("ip_item_master").select("id, style_id, style_code, sku_code").in("id", itemIds);
-    skuById = new Map((skus || []).map((s) => [s.id, s]));
+      .from("ip_item_master").select("id, style_id, style_code, sku_code").in("id", slice);
+    for (const s of skus || []) skuById.set(s.id, s);
   }
   const styleNeedle = styleFilter ? String(styleFilter).trim().toLowerCase() : null;
 
@@ -214,8 +226,11 @@ async function enrichPricing(admin, rows, styleFilter) {
   // Resolve each style's brand, then that brand's default list's price (min_qty=0).
   const brandDefaultByStyle = new Map();
   if (allStyleIds.size) {
-    const { data: styles } = await admin.from("style_master").select("id, brand_id").in("id", [...allStyleIds]);
-    const brandByStyle = new Map((styles || []).map((s) => [s.id, s.brand_id]));
+    const brandByStyle = new Map();
+    for (const slice of chunkIds([...allStyleIds], 200)) {
+      const { data: styles } = await admin.from("style_master").select("id, brand_id").in("id", slice);
+      for (const s of styles || []) brandByStyle.set(s.id, s.brand_id);
+    }
     const brandIds = [...new Set([...brandByStyle.values()].filter(Boolean))];
     if (brandIds.length) {
       const { data: brandLists } = await admin.from("price_lists")
@@ -259,9 +274,11 @@ async function enrichPricing(admin, rows, styleFilter) {
   // engine never sees it, so a placeholder can't leak into a customer quote).
   const provisionalByStyle = new Map();
   if (allStyleIds.size) {
-    const { data: prov } = await admin.from("provisional_style_prices")
-      .select("style_id, price_cents").in("style_id", [...allStyleIds]).eq("is_active", true);
-    for (const p of prov || []) if (p.price_cents != null) provisionalByStyle.set(p.style_id, Number(p.price_cents));
+    for (const slice of chunkIds([...allStyleIds], 200)) {
+      const { data: prov } = await admin.from("provisional_style_prices")
+        .select("style_id, price_cents").in("style_id", slice).eq("is_active", true);
+      for (const p of prov || []) if (p.price_cents != null) provisionalByStyle.set(p.style_id, Number(p.price_cents));
+    }
   }
 
   for (const r of rows) {
