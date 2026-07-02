@@ -76,6 +76,23 @@ The lifecycle:
 
 The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. It also shows a **projected cost** per component from the masters **before anything is issued or capitalized**, so you can see the expected cost of the run up front (actual cost fills in as each step posts). **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
 
+### Cancel a build — including an issued one (full reversal)
+
+Press **Cancel build** in the build's footer.
+
+- A **draft** or **released** build (nothing posted yet) simply flips to *cancelled*.
+- An **issued** build has already drawn parts/styles into WIP and posted journal entries. Tangerine now **fully reverses** it rather than blocking you:
+  1. Reverses the **issue** journal entries (`DR 1305 WIP / CR inventory` → undone) on both the accrual and cash books.
+  2. Reverses every **capitalized service** entry (`DR 1305 WIP / CR 2000 AP` → undone).
+  3. **Returns the consumed units to inventory** — the parts go back to part inventory and any consumed finished styles back to style inventory, on the exact FIFO layers they were drawn from (the GL reversal only restores the *dollars*; this puts the *units* back).
+  4. Zeroes the build's WIP, un-stamps the components, and sets status *cancelled*.
+
+  Because this reverses the general ledger, a **reason is required** — you're prompted for one and it's recorded on the reversing journal entries (the ledger's audit policy). The confirmation message reports how many journal entries were reversed and how many part/style units were returned.
+
+- A **completed** build can't be cancelled (its WIP already moved to finished goods) — that would need a separate reverse-completion step.
+
+A cancelled build can then be **deleted** if you want it off the list (see below). The reversal is **idempotent** — already-reversed entries and already-restored draws are skipped.
+
 ### Completing by size — the produced color × size matrix
 
 A build usually makes a run of one style across **many sizes** (and colors) at once, and inventory is tracked **per size**. When the finished good is a **style-backed** item, pressing **Complete → finished goods** now opens a **produced-by-size matrix** — the same color × size grid used on sales-order and PO entry. Enter the quantity actually produced in each cell (an **Even-split target** button splits the target evenly across the sizes of the default colour as a starting point; you can then tweak, and the total is free to differ from the target to reflect real yield).
