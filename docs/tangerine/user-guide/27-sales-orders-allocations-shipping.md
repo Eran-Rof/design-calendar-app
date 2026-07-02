@@ -148,6 +148,18 @@ On save, every filled cell is resolved to an `ip_item_master` SKU (find-or-creat
 
 > **Revenue routing is server-side.** The UI never sends a per-line `revenue_account_id`. On save the handler stamps each line with the customer's `default_revenue_account_id`, falling back to the entity default — see `resolveLineRevenueAccount()` in the handlers.
 
+### Per-line Customer PO — auto-split into separate SOs
+
+Sometimes a single order you're entering actually spans **more than one customer PO** — the buyer sent one document but some styles belong to a different PO number. Rather than re-key each into its own order, use the **per-line Customer PO** field.
+
+- Above the line matrix, click **Show line PO** (a toggle next to *Show lots* / *Show images*). Every **style line** gains a **Customer PO** field, **pre-filled with the header Customer PO**.
+- Leave a line on the header PO and it stays on this order. **Change a line to a different PO** and a `↳ splits to a new SO on save` hint appears (amber border).
+- **On save**, for each distinct new PO, Tangerine **auto-creates a new sales order**: it copies **all of this order's header information** (customer, ship-to, brand, channel, dates, payment terms, buyer, warehouse, fulfillment source, factor fields), carries **only the style line(s) that share that PO** (lines with the same new PO are grouped onto one SO), is **saved and confirmed automatically** (its SO number is assigned immediately), and its **Notes** get the line **“Auto created due to new Customer PO.”**
+- The order you were editing keeps the header PO and the lines that matched it. **At least one line must keep the header PO** — if you reassign *every* line away, save is blocked with a prompt (change one back, or update the header PO instead).
+- A **summary dialog** then lists every new SO (number · PO · style count · qty) with an **Open** button each (opens in a new tab) plus **Open all**. Click **Done** to return to the list.
+
+*This is a Sales-Order-only convenience; it needs no extra setup and creates no line-level PO column — each resulting SO simply carries its own PO in the header. Non-matrix (flat) lines always stay on the parent order.*
+
 ### Fulfillment source — Production vs ATS
 
 Above the matrix grids, a **Fulfillment source** dropdown (`sales_orders.fulfillment_source`). **It is required** — you must pick **ATS** or **Production** before the **Add style (matrix) / + Add non-matrix line** buttons (which sit on this same line, right-aligned) appear, and saving is blocked until it's set (the field shows a warning border + prompt while empty). The fulfillment **helper messages** (the "On-hand hidden; Production Manager is notified on confirm." note, the ATS auto-set confirmation, and the "Pick ATS or Production…" prompt) now render on **their own line directly below** the dropdown (operator item 3) rather than crowding to its right. When you use **🤖 Upload customer PO**, it is **auto-set to ATS and highlighted** (blue border + "confirm it's correct or change it") so you double-check before saving.

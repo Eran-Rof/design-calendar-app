@@ -147,7 +147,7 @@ function PrepackCompositionView({ composition }: {
 }
 
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
-export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
+export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null; customer_po?: string | null };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string; lot?: string | null }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
 export interface LineMatrixBodyHandle {
   resolve: () => Promise<ResolvedLine[]>;
@@ -167,7 +167,7 @@ export interface LineMatrixBodyHandle {
   addFlat: () => void;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean; customerPo?: string };
 
 // Parse a free-text money value → number, or null when blank/invalid (item 12).
 function parseMoneyOrNull(v: string): number | null {
@@ -233,13 +233,22 @@ export interface LineMatrixBodyProps {
    *  (not the initial prefill). Lets the owning modal record an audit trail —
    *  e.g. append the change (with today's date) to the order notes. */
   onVendorConfirmedChange?: (styleCode: string, prev: string, next: string) => void;
+  /** SO only — enable a per-style-line "Customer PO" field. A toolbar toggle
+   *  reveals it on every style section; each line defaults to the header
+   *  Customer PO. Editing a line to a DIFFERENT PO stamps that PO on the line's
+   *  resolved rows (ResolvedLine.customer_po) so the owning SO modal can split
+   *  that style onto a new auto-created SO at save. */
+  enableLinePo?: boolean;
+  /** SO only — the header Customer PO, the default value for every per-line PO
+   *  field when `enableLinePo` is on. */
+  headerCustomerPo?: string;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, hideAddButtons = false, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, hideAddButtons = false, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange, enableLinePo = false, headerCustomerPo = "" }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -257,6 +266,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // clicks "Show lots" when needed).
   const showLotsMode = mode === "po" || mode === "so";
   const [showLots, setShowLots] = useState(mode === "po");
+  // SO per-line customer PO (operator feature): a toolbar toggle reveals a
+  // Customer PO field on every style section, pre-filled with the header PO.
+  // Editing a line to a different PO splits that style onto a new SO at save
+  // (the owning modal reads the customer_po stamped on each resolved line).
+  const [showLinePo, setShowLinePo] = useState(false);
   // Prepack composition view (inner pack × N = carton) — shown by default; the
   // operator can hide it per section. Tracks the section ids that are hidden.
   const [packCompHidden, setPackCompHidden] = useState<Set<number>>(() => new Set());
@@ -386,6 +400,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
   function setLot(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: { ...s.lot, [rowKey]: v } } : s))); }
+  function setSectionPo(id: number, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, customerPo: v } : s))); }
   function setAllLot(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setSectionDate(id: number, which: "requested" | "confirmed", v: string) {
     // Report a user EDIT of the Vendor-confirmed date (the initial prefill goes
@@ -598,6 +613,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const lines: ResolvedLine[] = [];
       for (const s of sections) {
         if (!s.payload) continue;
+        // Per-line PO (SO only): the section's effective Customer PO — its own
+        // override, or the header PO when untouched. Stamped on every resolved
+        // row so the owning modal can group/split by PO at save.
+        const linePo = enableLinePo ? ((s.customerPo ?? headerCustomerPo).trim() || null) : undefined;
         const byCell = new Map<string, MatrixSku>();
         for (const sk of s.payload.skus) byCell.set(skuCellKey(sk.color, sk.size, sk.inseam || null), sk);
         for (const [cell, n] of Object.entries(s.qty)) {
@@ -621,6 +640,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100),
             ...(showLineDates ? { requested_ship_date: s.dates?.requested || null, vendor_confirmed_ship_date: s.dates?.confirmed || null } : {}),
             ...(showLotsMode ? { lot_number: lotVal || null } : {}),
+            ...(linePo !== undefined ? { customer_po: linePo } : {}),
           });
         }
       }
@@ -725,7 +745,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     },
     addSection,
     addFlat,
-  }), [sections, flat, styles]);
+  }), [sections, flat, styles, enableLinePo, headerCustomerPo]);
 
   // Flat-picker options: merge any seeded label whose SKU isn't in the 500-item list.
   const flatOptions = useMemo(() => {
@@ -746,6 +766,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
             title={showLots ? "Hide the per-line Lot column" : (mode === "po" ? "Show the per-line Lot column (auto-set to the PO number at issue)" : "Show the per-line Lot column (customer PO / allocated stock lot)")}>
             {showLots ? "Hide lots" : "Show lots"}
+          </button>
+        )}
+        {enableLinePo && (
+          <button onClick={() => setShowLinePo((v) => !v)} style={showLinePo ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
+            title={showLinePo ? "Hide the per-line Customer PO field" : "Show a Customer PO field on each style line (defaults to the header PO; a line with a different PO is split onto a new confirmed SO when you save)"}>
+            {showLinePo ? "Hide line PO" : "Show line PO"}
           </button>
         )}
         {(canAdd ?? editable) && !hideAddButtons && (
@@ -911,6 +937,19 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 {editable && <button onClick={() => removeSection(s.id)} style={btnDanger} title="Remove this style">✕</button>}
               </div>
             </div>
+            {enableLinePo && showLinePo && (() => {
+              const linePo = (s.customerPo ?? headerCustomerPo);
+              const differs = linePo.trim() !== "" && linePo.trim() !== headerCustomerPo.trim();
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                  <label style={{ fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" }}>Customer PO</label>
+                  <input type="text" value={linePo} disabled={!editable}
+                    onChange={(e) => setSectionPo(s.id, e.target.value)} placeholder="Customer PO #"
+                    style={{ background: "#0b1220", color: C.text, border: `1px solid ${differs ? C.warn : C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: 240, maxWidth: "100%", boxSizing: "border-box" }} />
+                  {differs && <span style={{ fontSize: 11, color: C.warn }} title="This PO differs from the header — this style is split onto a new confirmed SO when you save.">↳ splits to a new SO on save</span>}
+                </div>
+              );
+            })()}
             {showLineDates && (s.datesOpen === false ? (
               // Collapsed (a later style was added) — show a compact summary; click to edit.
               <div role="button" tabIndex={0} onClick={() => setSectionDatesOpen(s.id, true)}
