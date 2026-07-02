@@ -93,6 +93,17 @@ const REVERSE_BATCH = argVal("--reverse-batch");
 const PROD_REF = "qcvqvxxoperiurauoxmp";
 const ROF_ENTITY_ID = "404b8a6b-0d2d-44d2-8539-9064ff0fafee";
 
+// Xoro StoreName → Tangerine inventory_locations.code. Each REST cell carries its
+// StoreName; the layer must sit on THAT store's warehouse location (not one
+// style-level location), else e.g. ROF-ECOM stock shows as on-hand in Main. The
+// per-cell store is also recorded in the layer notes (wh=<Store>).
+const STORE_TO_LOC_CODE = {
+  "ROF Main": "WH-00000",
+  "ROF - ECOM": "WH-00001",
+  "Psycho Tuna": "WH-00002",
+  "Psycho Tuna Ecom": "WH-00003",
+};
+
 // --apply is OPT-IN, PROD-mutating, and STYLE-SCOPED. It must refuse to run
 // catalog-wide. A single explicit --style is mandatory.
 if (APPLY && !BATCH && (!ONLY_STYLE || !ONLY_STYLE.trim())) {
@@ -530,7 +541,17 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     }
   }
   if (!locationId) { return { ok: false, error: `could not resolve a location_id for new layers`, code: 4 }; }
-  console.log(`# location_id:   ${locationId}`);
+  console.log(`# location_id (fallback): ${locationId}`);
+
+  // Per-store location map so each layer sits on ITS store's warehouse (ROF Main
+  // → WH-00000, ROF - ECOM → WH-00001, …). Falls back to `locationId` for any
+  // store not in the map. Without this all stores' stock lands on one location.
+  const { data: allLocs } = await admin
+    .from("inventory_locations")
+    .select("id, code")
+    .eq("entity_id", ROF_ENTITY_ID);
+  const locByCode = new Map((allLocs || []).map((l) => [l.code, l.id]));
+  const locForStore = (store) => locByCode.get(STORE_TO_LOC_CODE[store]) || locationId;
 
   // Avg cost: ip_item_avg_cost keyed by sku_code, dollars. Prefer the exact
   // per-size sku_code; fall back to the color-level sku_code (style-COLOR);
@@ -697,7 +718,7 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     return {
       entity_id: ROF_ENTITY_ID,
       item_id: itemId,
-      location_id: locationId,
+      location_id: locForStore(cell.store),
       received_at: "2026-05-31T23:59:59Z",
       original_qty: cell.qty,
       remaining_qty: cell.qty,
