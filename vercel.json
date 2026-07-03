@@ -55,6 +55,7 @@
     { "path": "/api/cron/bank-feed-sync", "schedule": "0 */4 * * *" },
     { "path": "/api/cron/bank-auto-post-fees", "schedule": "0 16 * * *" },
     { "path": "/api/cron/xoro-mirror-nightly", "schedule": "30 1 * * *" },
+    { "path": "/api/cron/xoro-mirror-backfill-worker", "schedule": "*/2 * * * *" },
     { "path": "/api/cron/xoro-ap-sync", "schedule": "30 2 * * *" },
     { "path": "/api/cron/menu-usage-decay", "schedule": "0 3 * * *" },
     { "path": "/api/cron/walmart-orders-nightly", "schedule": "30 3 * * *" },

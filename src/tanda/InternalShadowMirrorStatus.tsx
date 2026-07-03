@@ -74,6 +74,22 @@ type MirrorRun = {
   status: "running" | "complete" | "failed" | "skipped_no_change" | "skipped_stale_xoro";
 };
 
+type BackfillJob = {
+  id: string;
+  from_date: string;
+  to_date: string;
+  cursor_date: string;
+  status: "pending" | "running" | "complete" | "failed" | "cancelled";
+  days_total: number;
+  days_done: number;
+  totals?: { ar_upserted?: number; ap_upserted?: number; inventory_upserted?: number; summary_jes_posted?: number };
+  je_count?: number;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+};
+
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13,
@@ -160,6 +176,29 @@ export default function InternalShadowMirrorStatus() {
   const [detailRun, setDetailRun] = useState<MirrorRun | null>(null);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [unmatchedKind, setUnmatchedKind] = useState<"customers" | "vendors" | null>(null);
+  const [backfillJobs, setBackfillJobs] = useState<BackfillJob[]>([]);
+
+  // Background backfill jobs — polled while any is active so progress advances
+  // live without a manual refresh.
+  useEffect(() => {
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function poll() {
+      try {
+        const r = await fetch("/api/internal/xoro-mirror/backfill-job?limit=8");
+        if (r.ok) {
+          const rows = await r.json();
+          if (!stop) setBackfillJobs(Array.isArray(rows) ? rows as BackfillJob[] : []);
+          const active = Array.isArray(rows) && rows.some((j: BackfillJob) => j.status === "pending" || j.status === "running");
+          if (!stop) timer = setTimeout(poll, active ? 5000 : 30000);
+          return;
+        }
+      } catch { /* ignore */ }
+      if (!stop) timer = setTimeout(poll, 30000);
+    }
+    void poll();
+    return () => { stop = true; if (timer) clearTimeout(timer); };
+  }, []);
 
   const authUserId = getCachedAuthUserId();
   // Admin guard: if there's no cached uuid the operator hasn't completed
@@ -461,6 +500,39 @@ export default function InternalShadowMirrorStatus() {
         </div>
       </div>
 
+      {/* Background backfills — unattended range jobs drained by the worker cron. */}
+      {backfillJobs.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 14, marginTop: 16 }}>
+          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+            Background backfills
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {backfillJobs.map((j) => {
+              const pct = j.days_total > 0 ? Math.min(100, Math.round((j.days_done / j.days_total) * 100)) : 0;
+              const color = j.status === "complete" ? C.success : j.status === "failed" ? C.danger : j.status === "running" ? C.primary : C.warn;
+              return (
+                <div key={j.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, fontSize: 13 }}>
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>{j.from_date} → {j.to_date}</span>
+                    <span style={{ color, fontSize: 12, fontWeight: 600 }}>● {j.status}{j.status === "running" || j.status === "pending" ? ` · next ${j.cursor_date}` : ""}</span>
+                  </div>
+                  <div style={{ height: 6, background: "#0b1220", borderRadius: 4, overflow: "hidden", margin: "6px 0" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: color }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textMuted }}>
+                    <span>{j.days_done}/{j.days_total} day(s) · {j.totals?.summary_jes_posted ?? j.je_count ?? 0} JE(s)</span>
+                    <span>AR {j.totals?.ar_upserted ?? 0} · AP {j.totals?.ap_upserted ?? 0} · INV {j.totals?.inventory_upserted ?? 0}</span>
+                  </div>
+                  {j.status === "failed" && j.last_error && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: C.danger }}>{j.last_error}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {detailRun && (
         <RunDetailModal run={detailRun} onClose={() => setDetailRun(null)} />
       )}
@@ -541,12 +613,13 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [mirrorDate, setMirrorDate] = useState(todayMinusDays(1));
   const [fromDate, setFromDate] = useState(todayMinusDays(7));
   const [toDate, setToDate] = useState(todayMinusDays(1));
+  const [background, setBackground] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function run() {
-    if (mode === "range") { await runRange(); return; }
+    if (mode === "range") { await (background ? runBackground() : runRange()); return; }
     if (!(await confirmDialog(`Re-run the Xoro mirror for ${mirrorDate}? This will overwrite source='xoro_mirror' rows for that date. Manual entries stay untouched.`))) return;
     setBusy(true); setErr(null); setResult("Running… (this can take a few minutes)");
     try {
@@ -625,6 +698,28 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     }
   }
 
+  // Unattended backfill: enqueue a job and let the worker cron drain it. The
+  // operator can close the tab; progress shows in the Background backfills list.
+  async function runBackground() {
+    if (fromDate > toDate) { setErr("From date must be on or before To date."); return; }
+    if (!(await confirmDialog(`Queue a background backfill for ${fromDate} → ${toDate}? It runs on the server in chunks — you can close this tab and watch progress in "Background backfills". Only source='xoro_mirror' rows are overwritten.`))) return;
+    setBusy(true); setErr(null); setResult("Queuing…");
+    try {
+      const r = await fetch("/api/internal/xoro-mirror/backfill-job", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: fromDate, to: toDate }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(data.error || `HTTP ${r.status}`); setResult(null); return; }
+      setResult(`✓ Queued ${data.days_total ?? "?"} day(s) ${fromDate}→${toDate}. It runs in the background — safe to close. Track it under "Background backfills".`);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setResult(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(95vw, 480px)", color: C.text }}>
@@ -668,6 +763,13 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           </div>
         )}
 
+        {mode === "range" && (
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 12, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
+            <input type="checkbox" checked={background} onChange={(e) => setBackground(e.target.checked)} disabled={busy} style={{ marginTop: 2 }} />
+            <span><b>Run in background</b> — queue it on the server and <b>close the tab</b>. A worker drains it in chunks; track progress under &quot;Background backfills&quot;. Best for long ranges.</span>
+          </label>
+        )}
+
         {result && (
           <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 12, color: busy ? C.textSub : C.success }}>
             {result}
@@ -683,7 +785,7 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           <button onClick={onClose} style={btnSecondary} disabled={busy}>{result && !busy ? "Done" : "Cancel"}</button>
           <button onClick={() => void run()} style={btnPrimary}
             disabled={busy || (mode === "single" ? !mirrorDate : (!fromDate || !toDate))}>
-            {busy ? "Running…" : (mode === "single" ? "Re-run mirror" : "Run range")}
+            {busy ? (background && mode === "range" ? "Queuing…" : "Running…") : (mode === "single" ? "Re-run mirror" : (background ? "Queue backfill" : "Run range"))}
           </button>
           {result && !busy && (
             <button onClick={onDone} style={btnPrimary}>Refresh & close</button>
