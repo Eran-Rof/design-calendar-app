@@ -82,6 +82,7 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
       kind: "mfg_build_complete",
       entity_id: rcpt.entity_id,
       created_by_user_id: null,
+      reason: `Build complete ${build.build_number} (PO receipt)`,
       data: {
         build_order_id: buildOrderId,
         finished_item_id: build.finished_item_id,
@@ -305,6 +306,7 @@ export default async function handler(req, res) {
         kind: "inventory_receipt",
         entity_id: rcpt.entity_id,
         created_by_user_id: null,
+        reason: `Goods receipt (GRNI) ${id}`,
         data: {
           receipt_id: id,
           vendor_id: vendorId,

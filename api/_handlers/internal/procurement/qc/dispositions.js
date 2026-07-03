@@ -119,6 +119,7 @@ export default async function handler(req, res) {
       if (aErr) throw new Error(`adjustment insert failed: ${aErr.message}`);
       const result = await postEvent(admin, {
         kind: "inventory_adjustment", entity_id: entityId, created_by_user_id: null,
+        reason: `QC write-off: ${reason}`,
         data: { adjustment_id: adj.id, item_id: itemId, adjustment_type: "write_off", qty_delta: -qty,
           inventory_account_id: inventoryAcctId, gl_account_id: writeOffAcctId, posting_date: postingDate, reason: `QC write-off: ${reason}` },
       });
@@ -155,6 +156,7 @@ export default async function handler(req, res) {
       });
       const result = await postEvent(admin, {
         kind: "qc_vendor_credit", entity_id: entityId, created_by_user_id: null,
+        reason: `QC vendor credit: ${reason}`,
         data: { invoice_id: credInv.id, vendor_id: vendorId, item_id: itemId, amount: centsToStr(amountCents),
           ap_account_id: apAccountId, inventory_account_id: inventoryAcctId, posting_date: postingDate, memo: `QC vendor credit ${invNo}` },
       });

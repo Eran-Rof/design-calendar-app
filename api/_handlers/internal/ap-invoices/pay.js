@@ -167,6 +167,7 @@ export default async function handler(req, res) {
       kind: "ap_invoice_paid",
       entity_id: invoice.entity_id,
       created_by_user_id: v.data.created_by_user_id,
+      reason: `Pay AP bill ${invoice.invoice_number ?? invoice.id}`,
       data: {
         payment_id: payment.id,
         invoice_id: invoice.id,

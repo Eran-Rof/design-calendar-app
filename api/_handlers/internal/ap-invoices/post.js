@@ -325,6 +325,7 @@ export async function postInvoice(admin, opts) {
       kind: "ap_invoice_received",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: `Post AP bill ${invoice.invoice_number ?? invoice.id}`,
       data: eventData,
     });
   } catch (e) {
