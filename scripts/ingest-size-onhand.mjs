@@ -719,7 +719,12 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
       entity_id: ROF_ENTITY_ID,
       item_id: itemId,
       location_id: locForStore(cell.store),
-      received_at: "2026-05-31T23:59:59Z",
+      // Xoro-date policy: the layer's received_at is the CSV's own snapshot date
+      // (from the postAD_invrest_YYYYMMDD filename), NOT a hardcoded cutover date
+      // — same date already used in `notes` and the tangerine_size_onhand upsert.
+      // (The sync_received_dates RPC later advances this to the true Xoro "Last
+      // Receipt Date"; this is the correct write-time value.)
+      received_at: `${snapshotDate}T23:59:59Z`,
       original_qty: cell.qty,
       remaining_qty: cell.qty,
       unit_cost_cents: unitCostCentsFor(code),
