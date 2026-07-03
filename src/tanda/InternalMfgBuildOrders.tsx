@@ -625,7 +625,6 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
-  const [convMode, setConvMode] = useState<"procurement" | "capitalize">("procurement");
   const styleThumbs = useStyleThumbs([build?.finished_style_id]);
   const finishedThumb = build?.finished_style_id ? (styleThumbs.get(build.finished_style_id)?.default ?? null) : null;
   const partThumbs = usePartThumbs((build?.components || []).filter((c) => c.component_kind === "part").map((c) => c.part_id ?? null));
@@ -706,7 +705,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     try {
       const r = await fetch(`/api/internal/build-orders/${buildId}/conversion-po`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: convMode, unit_cost_cents: unitCostCents }),
+        body: JSON.stringify({ mode: "procurement", unit_cost_cents: unitCostCents }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -726,11 +725,12 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   }
 
   const status = build?.status;
-  // M11 — in 'capitalize' mode the CMT is capitalized into WIP by the conversion
-  // PO's AP bill, so the per-service Capitalize buttons are hidden and completion
-  // is not gated on manual capitalization (the receipt path skips that guard).
-  const capMode = build?.conversion_po_mode === "capitalize";
-  const allServicesCapitalized = capMode || (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
+  // Conversion PO 'capitalize' mode (AP bill capitalizes CMT into WIP) is NOT
+  // wired to the GL yet, so it is disabled everywhere until that posting lands —
+  // completion always requires the services to be capitalized manually, and the
+  // Capitalize buttons always show. (The conversion_po_mode column is pre-staged.)
+  const capMode = false;
+  const allServicesCapitalized = (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
@@ -856,14 +856,8 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                   </div>
                 ) : (status === "draft" || status === "released" || status === "issued") ? (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <label style={{ fontSize: 12, color: C.textMuted }}>GL mode</label>
-                    <select value={convMode} onChange={(e) => setConvMode(e.target.value as "procurement" | "capitalize")} disabled={busy}
-                      style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}>
-                      <option value="procurement">Procurement — document only (no GL)</option>
-                      <option value="capitalize">Capitalize — AP bill capitalizes CMT into WIP</option>
-                    </select>
                     <button disabled={busy} onClick={() => void createConversionPo()} style={btnSecondary}>Create conversion PO</button>
-                    <span style={{ fontSize: 11, color: C.textMuted }}>Vendor defaults to the BOM's conversion vendor.</span>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>A draft PO to the BOM's conversion vendor (document only — no GL until received).</span>
                   </div>
                 ) : (
                   <div style={{ fontSize: 12, color: C.textMuted }}>No conversion PO.</div>

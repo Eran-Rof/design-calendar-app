@@ -85,8 +85,13 @@ export default async function handler(req, res) {
     });
   }
 
-  // Mode: body → 'procurement' default.
-  const mode = MODES.includes(body.mode) ? body.mode : "procurement";
+  // Mode: 'procurement' only for now. 'capitalize' (AP bill → WIP) is not
+  // GL-wired yet, so it is rejected to prevent completing an under-costed build.
+  if (body.mode && body.mode !== "procurement") {
+    return res.status(400).json({ error: "conversion PO 'capitalize' mode is not available yet — use 'procurement' (document only)." });
+  }
+  const mode = "procurement";
+  void MODES;
 
   // Vendor: body → BOM default_conversion_vendor_id.
   let vendorId = body.vendor_id && UUID_RE.test(String(body.vendor_id)) ? String(body.vendor_id) : null;
