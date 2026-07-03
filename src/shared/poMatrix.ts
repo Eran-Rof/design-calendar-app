@@ -54,7 +54,12 @@ export interface PoMatrix {
  */
 export function buildPoMatrix(items: any[], headerDeliveryDate?: string | null): PoMatrix {
   const parsed: PoMatrixParsedLine[] = (items || []).map((item: any) => {
-    const sku = item.ItemNumber ?? "";
+    // Strip trailing dashes first: some Xoro ItemNumbers carry one (e.g.
+    // "PTYT0023C-Glacier-SML-", a blank-size data quirk). Without this the split
+    // yields a trailing "" element, so parts.length===4 mis-reads "Glacier-SML"
+    // as a two-word color with an empty size — the line then falls out of the
+    // size matrix and renders as a broken/non-matrix row.
+    const sku = (item.ItemNumber ?? "").replace(/-+$/, "");
     const parts = sku.split("-");
     const color = parts.length === 4 ? `${parts[1]}-${parts[2]}` : (parts.length >= 2 ? parts[1] : "");
     const size = normalizeSize(parts.length === 4 ? parts[3] : parts.length >= 3 ? parts.slice(2).join("-") : "");
