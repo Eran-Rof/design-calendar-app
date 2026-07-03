@@ -139,3 +139,11 @@ Parts are stocked the proper way too — as a **vendor purchase**, not just open
 - **Parts valuation** — on-hand parts ranked by value, plus the total parts inventory value.
 
 Every section exports to Excel. This closes out the module: masters → part inventory → BOM → build orders + WIP → PO-driven completion → reports.
+
+## Images, attachments & one-click conversion PO
+
+**Images (parts & finished goods).** Parts now carry photos: on the **Part Master**, each part shows a thumbnail and its edit modal has an upload/manage area (upload, ★ set-primary, ✕ delete). Those part photos also appear next to **part components** in the BOM editor and build detail. Finished goods reuse the existing **style images** (PIM) — the finished style's thumbnail shows in the BOM editor header, the New Build modal, and the build detail header.
+
+**Attachments (files on any record).** Parts, services, BOMs, and builds each have an **Attachments** section (in their edit/detail view, once saved) — upload files with a *kind*, download them, and keep versions. It's the same shared, versioned document store used elsewhere in the suite (e.g. a BOM's tech pack, a build's packing list, a part's COA).
+
+**Auto-create a conversion PO.** From a build's detail, **Create conversion PO** drafts a native purchase order to the BOM's **conversion vendor** (the contractor) for the finished good, and links it to the build. Receiving that PO completes the build (the M5 path above). It's a **document only** — it posts no GL by itself. *(A future "capitalize" mode, where the contractor's AP bill capitalizes the CMT cost straight into WIP, is pre-staged but not enabled yet — completion still expects services to be capitalized the normal way.)*
