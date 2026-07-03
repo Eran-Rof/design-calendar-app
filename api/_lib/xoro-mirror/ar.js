@@ -136,6 +136,11 @@ export function composeInvoiceHeader({
     invoice_kind: "customer_invoice",
     gl_status: "unposted",
     invoice_date,
+    // posting_date is NOT NULL on ar_invoices and was never set → every mirror
+    // insert failed once the read was fixed. Date it to the Xoro txn date (=
+    // invoice_date) per the Xoro-date policy so the shadow invoice lands in the
+    // period it actually belongs to.
+    posting_date: invoice_date,
     due_date,
     total_amount_cents,
     source: "xoro_mirror",
@@ -348,6 +353,7 @@ async function processGroup(supabase, { entity_id, group, summary }) {
         .update({
           customer_id: header.customer_id,
           invoice_date: header.invoice_date,
+          posting_date: header.posting_date,
           due_date: header.due_date,
           total_amount_cents: header.total_amount_cents,
         })
