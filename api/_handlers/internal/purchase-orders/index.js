@@ -299,12 +299,19 @@ async function enrichPricing(admin, rows, styleFilter) {
     // priceNum/Den → Avg PO Price (PO's own line cost); stdNum/Den → Avg cost
     // (standard/catalog cost, only over lines that actually have one).
     let priceNum = 0, priceDen = 0, stdNum = 0, stdDen = 0, sellNum = 0, sellDen = 0;
+    let unlinkedCostLines = 0;
     const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
       if (qty <= 0) continue;
       const poPrice = Number(l.unit_cost_cents) || 0;
-      priceNum += poPrice * qty; priceDen += qty;
+      // Exclude UNLINKED (no resolved SKU) lines from Avg PO Price. Some Xoro POs
+      // carry pack-priced aggregate lines with no SKU (unit_cost = the ~24× pack
+      // price against a unit-level qty), which otherwise blow up the per-unit
+      // average and produce nonsense margins (e.g. −1,762%). Orphan lines can't be
+      // per-unit-validated anyway (std-cost + sell below also require a SKU).
+      if (l.sku_code || l.style_id) { priceNum += poPrice * qty; priceDen += qty; }
+      else { unlinkedCostLines += 1; }
       const std = stdCostForSku(l.sku_code);
       if (std != null) { stdNum += std * qty; stdDen += qty; }
       // Sell resolution order: customer price → brand-default list → recent
@@ -323,6 +330,10 @@ async function enrichPricing(admin, rows, styleFilter) {
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
     r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
+    // Flag POs that carry unlinked (SKU-less) cost lines — typically the Xoro
+    // pack-priced aggregate lines excluded above; their qty/value are real but
+    // their per-unit price is unreliable, so the Total may still be inflated.
+    r.cost_anomaly = unlinkedCostLines > 0;
     r.sell_cents = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
     // Margin = Sell − Avg PO Price (gross margin at list, against actual PO cost).
     if (r.sell_cents != null && r.avg_po_price_cents != null) {
