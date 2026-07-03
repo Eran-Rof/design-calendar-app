@@ -573,6 +573,7 @@ import r_internal_workspaces_id_tasks_index from "./internal/workspaces/[id]/tas
 import r_internal_workspaces_index from "./internal/workspaces/index.js";
 import r_internal_xoro_mirror_ap from "./internal/xoro-mirror/ap.js";
 import r_internal_xoro_mirror_ar from "./internal/xoro-mirror/ar.js";
+import r_internal_xoro_mirror_backfill_range from "./internal/xoro-mirror/backfill-range.js";
 import r_internal_xoro_mirror_inventory from "./internal/xoro-mirror/inventory.js";
 import r_internal_xoro_mirror_summary_je from "./internal/xoro-mirror/summary-je.js";
 import r_internal_year_end_close_run from "./internal/year-end-close/run.js";
@@ -908,6 +909,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
+  { pattern: "/api/internal/xoro-mirror/backfill-range", handler: r_internal_xoro_mirror_backfill_range },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },

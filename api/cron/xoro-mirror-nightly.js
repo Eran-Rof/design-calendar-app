@@ -142,6 +142,8 @@ export default async function handler(req, res) {
  * @param {Object} opts
  * @param {string} opts.mirror_date   ISO YYYY-MM-DD
  * @param {string|null} [opts.entity_id_override]
+ * @param {boolean} [opts.skipStaleGuard]      bypass the stale-fetch guard (backfills)
+ * @param {boolean} [opts.suppressNotification] skip the per-run notification (range emits one)
  * @param {Object} [opts.deps]        injection point for tests (mirrorAr, mirrorAp, ...)
  */
 export async function runNightlyMirror(supabase, opts = {}) {
@@ -198,15 +200,20 @@ export async function runNightlyMirror(supabase, opts = {}) {
   }
 
   // --- Guard: stale Xoro fetch ---
-  const stale = await isXoroFetchStale(supabase);
-  if (stale.stale) {
-    return await skipStaleXoroFetch(supabase, {
-      entity_id: entity.id,
-      mirror_date,
-      last_completed_at: stale.last_completed_at,
-      hours_since: stale.hours_since,
-      enqueue: deps.enqueue,
-    });
+  // Skipped for an explicit backfill (opts.skipStaleGuard): a range re-mirror of
+  // historical dates intentionally works off already-loaded data, so the "is the
+  // live fetch fresh?" check doesn't apply and would otherwise skip every date.
+  if (!opts.skipStaleGuard) {
+    const stale = await isXoroFetchStale(supabase);
+    if (stale.stale) {
+      return await skipStaleXoroFetch(supabase, {
+        entity_id: entity.id,
+        mirror_date,
+        last_completed_at: stale.last_completed_at,
+        hours_since: stale.hours_since,
+        enqueue: deps.enqueue,
+      });
+    }
   }
 
   // --- Run the four domains in order ---
@@ -234,6 +241,9 @@ export async function runNightlyMirror(supabase, opts = {}) {
   }
 
   // --- Emit notification ---
+  // Suppressed inside a range backfill (opts.suppressNotification): runMirrorRange
+  // emits ONE summary rather than one per date.
+  if (opts.suppressNotification) return out;
   const kind = out.status === "complete"
     ? "xoro_mirror_complete"
     : "xoro_mirror_partial_failure";
@@ -554,6 +564,97 @@ function summarizeDomain(d) {
     error_count: Array.isArray(d.errors) ? d.errors.length : 0,
     run_id: d.run_id || null,
   };
+}
+
+// ── Range backfill — "run in one shot" over [from, to] ───────────────────────
+//
+// Loops the proven per-date runNightlyMirror over every date in the inclusive
+// range, so each date's AR/AP/inventory mirror + summary JE post with that
+// date's own posting_date into its own period (the per-date logic + idempotency
+// are unchanged — this just drives them across a span). The stale-fetch guard is
+// bypassed (an explicit historical backfill) and per-date notifications are
+// suppressed; the caller gets one aggregate result. Re-running a range is safe
+// (summary JEs skip already-posted dates; mirrors upsert idempotently).
+
+export const MAX_RANGE_DAYS = 45; // one call; split larger backfills to stay under the function time limit
+
+/** Inclusive list of YYYY-MM-DD dates from `from`..`to` (UTC, DST-safe). */
+export function enumerateDates(from, to) {
+  const out = [];
+  const start = new Date(`${from}T00:00:00Z`).getTime();
+  const end = new Date(`${to}T00:00:00Z`).getTime();
+  for (let t = start; t <= end; t += 24 * 60 * 60 * 1000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/**
+ * Mirror a DATE RANGE in one invocation.
+ *
+ * @param {Object} supabase  service-role client
+ * @param {Object} opts
+ * @param {string} opts.from  ISO YYYY-MM-DD (inclusive)
+ * @param {string} opts.to    ISO YYYY-MM-DD (inclusive)
+ * @param {string|null} [opts.entity_id_override]
+ * @param {boolean} [opts.skipStaleGuard=true]  default true — a backfill mirrors historical dates
+ * @param {Object} [opts.deps]  test injection, forwarded to runNightlyMirror
+ * @returns aggregate { from, to, days, status, totals, je_ids, per_date, errors }
+ */
+export async function runMirrorRange(supabase, opts = {}) {
+  const { from, to } = opts;
+  if (!ISO_DATE_RE.test(from || "") || !ISO_DATE_RE.test(to || "")) {
+    throw new Error("runMirrorRange: from and to must be YYYY-MM-DD");
+  }
+  if (from > to) throw new Error(`runMirrorRange: from (${from}) must be on or before to (${to})`);
+  const dates = enumerateDates(from, to);
+  if (dates.length > MAX_RANGE_DAYS) {
+    throw new Error(`runMirrorRange: range spans ${dates.length} days (max ${MAX_RANGE_DAYS}) — split it into smaller backfills`);
+  }
+
+  const out = {
+    from, to, days: dates.length,
+    status: "complete",
+    totals: { ar_upserted: 0, ap_upserted: 0, inventory_upserted: 0, summary_jes_posted: 0 },
+    je_ids: [],
+    per_date: [],
+    errors: [],
+  };
+
+  for (const mirror_date of dates) {
+    let r;
+    try {
+      r = await runNightlyMirror(supabase, {
+        mirror_date,
+        entity_id_override: opts.entity_id_override || null,
+        skipStaleGuard: opts.skipStaleGuard !== false, // default TRUE for backfills
+        suppressNotification: true,
+        deps: opts.deps,
+      });
+    } catch (e) {
+      out.status = "partial";
+      out.errors.push({ mirror_date, message: e instanceof Error ? e.message : String(e) });
+      out.per_date.push({ mirror_date, status: "failed" });
+      continue;
+    }
+    out.totals.ar_upserted += r.ar?.rows_upserted || 0;
+    out.totals.ap_upserted += r.ap?.rows_upserted || 0;
+    out.totals.inventory_upserted += r.inventory?.rows_upserted || 0;
+    const jes = (r.summary_jes && Array.isArray(r.summary_jes.je_ids)) ? r.summary_jes.je_ids : [];
+    out.totals.summary_jes_posted += (r.summary_jes && r.summary_jes.posted) || jes.length || 0;
+    for (const id of jes) if (id) out.je_ids.push(id);
+    if (r.status !== "complete") out.status = "partial";
+    out.per_date.push({
+      mirror_date,
+      status: r.status,
+      ar: summarizeDomain(r.ar),
+      ap: summarizeDomain(r.ap),
+      inventory: summarizeDomain(r.inventory),
+      summary_jes: r.summary_jes,
+    });
+  }
+
+  return out;
 }
 
 function composeNotificationBody(out) {

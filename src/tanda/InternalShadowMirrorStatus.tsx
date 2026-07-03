@@ -517,12 +517,16 @@ function RunDetailModal({ run, onClose }: { run: MirrorRun; onClose: () => void 
 // a manual_trigger=true override so it ignores the idempotency skip.
 // ─────────────────────────────────────────────────────────────────────────
 function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<"single" | "range">("single");
   const [mirrorDate, setMirrorDate] = useState(todayMinusDays(1));
+  const [fromDate, setFromDate] = useState(todayMinusDays(7));
+  const [toDate, setToDate] = useState(todayMinusDays(1));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function run() {
+    if (mode === "range") { await runRange(); return; }
     if (!(await confirmDialog(`Re-run the Xoro mirror for ${mirrorDate}? This will overwrite source='xoro_mirror' rows for that date. Manual entries stay untouched.`))) return;
     setBusy(true); setErr(null); setResult("Running… (this can take a few minutes)");
     try {
@@ -543,25 +547,77 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     }
   }
 
+  // One-shot backfill of a whole date range. Each date mirrors + posts its own
+  // summary JEs into its own period; the reversal-safe, idempotent per-date
+  // pipeline is reused. Overwrites only source='xoro_mirror' rows.
+  async function runRange() {
+    if (fromDate > toDate) { setErr("From date must be on or before To date."); return; }
+    if (!(await confirmDialog(`Re-run the Xoro mirror for every date from ${fromDate} to ${toDate}? Each date is mirrored and its summary JEs post into that date's period. Only source='xoro_mirror' rows are overwritten; manual entries stay untouched.`))) return;
+    setBusy(true); setErr(null); setResult("Running the range… (this can take several minutes — don't close)");
+    try {
+      const r = await fetch("/api/internal/xoro-mirror/backfill-range", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: fromDate, to: toDate }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(data.error || `HTTP ${r.status}`); setResult(null); return; }
+      const t = data.totals || {};
+      setResult(
+        `${data.status === "complete" ? "✓" : "⚠"} ${data.days ?? "?"} day(s) ${data.from}→${data.to} — ` +
+        `AR ${t.ar_upserted ?? 0} · AP ${t.ap_upserted ?? 0} · INV ${t.inventory_upserted ?? 0} · ` +
+        `${t.summary_jes_posted ?? 0} JE(s)` +
+        (Array.isArray(data.errors) && data.errors.length ? ` · ${data.errors.length} error(s)` : ""),
+      );
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setResult(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(95vw, 480px)", color: C.text }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>Re-run shadow mirror</h3>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16, lineHeight: 1.5 }}>
-          Forces the nightly mirror handler to re-process a single business date. Operator-typed (manual) rows are never touched; only xoro_mirror rows for that date get rewritten.
+          Re-processes the Xoro mirror for a single business date or a whole date range in one shot. Each date mirrors AR/AP/inventory and posts its summary JEs into that date&apos;s own period. Operator-typed (manual) rows are never touched; only xoro_mirror rows get rewritten.
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Mirror date</div>
-          <input
-            type="date"
-            value={mirrorDate}
-            onChange={(e) => setMirrorDate(e.target.value)}
-            disabled={busy}
-            style={{ ...inputStyle, width: "100%" }}
-            max={todayMinusDays(0)}
-          />
+        {/* Single date vs date range */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {(["single", "range"] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)} disabled={busy}
+              style={{ ...(mode === m ? btnPrimary : btnSecondary), flex: 1, textTransform: "capitalize" }}>
+              {m === "single" ? "Single date" : "Date range"}
+            </button>
+          ))}
         </div>
+
+        {mode === "single" ? (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Mirror date</div>
+            <input
+              type="date"
+              value={mirrorDate}
+              onChange={(e) => setMirrorDate(e.target.value)}
+              disabled={busy}
+              style={{ ...inputStyle, width: "100%" }}
+              max={todayMinusDays(0)}
+            />
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>From</div>
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} disabled={busy} style={{ ...inputStyle, width: "100%" }} max={todayMinusDays(0)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase" }}>To</div>
+              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} disabled={busy} style={{ ...inputStyle, width: "100%" }} max={todayMinusDays(0)} />
+            </div>
+          </div>
+        )}
 
         {result && (
           <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 12, color: busy ? C.textSub : C.success }}>
@@ -576,8 +632,9 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onClose} style={btnSecondary} disabled={busy}>{result && !busy ? "Done" : "Cancel"}</button>
-          <button onClick={() => void run()} style={btnPrimary} disabled={busy || !mirrorDate}>
-            {busy ? "Running…" : "Re-run mirror"}
+          <button onClick={() => void run()} style={btnPrimary}
+            disabled={busy || (mode === "single" ? !mirrorDate : (!fromDate || !toDate))}>
+            {busy ? "Running…" : (mode === "single" ? "Re-run mirror" : "Run range")}
           </button>
           {result && !busy && (
             <button onClick={onDone} style={btnPrimary}>Refresh & close</button>
