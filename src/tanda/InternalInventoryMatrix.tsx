@@ -20,6 +20,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { computeSizeCollapse } from "../shared/matrix";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
@@ -1358,6 +1359,13 @@ export default function InternalInventoryMatrix() {
   // multi-style view where no single-style payload (with its own list) exists.
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
+  // Hide sizes (matrix view): drop ALL per-size columns, leaving the non-size
+  // columns (Color / Total / Avg Cost / Total Cost / Last Received). Off by default.
+  const [hideSizes, setHideSizes] = useState(false);
+  // Empty-size-column collapse (single-style matrix) — mirrors the SO/PO grid:
+  // once any size column has stock, the first VISIBLE size header turns green +
+  // clickable and hides the all-zero leading/trailing size columns.
+  const [sizesCollapsed, setSizesCollapsed] = useState(false);
   // Snapshot column show/hide — lifted up from SnapshotView so the control can
   // live in the filter header row (next to Warehouse). Persisted per browser.
   const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
@@ -1900,6 +1908,17 @@ export default function InternalInventoryMatrix() {
   const grandQty = useMemo(() => visibleRows.reduce((s, r) => s + r.totalQty, 0), [visibleRows]);
   const grandCostCents = useMemo(() => visibleRows.reduce((s, r) => s + r.totalCostCents, 0), [visibleRows]);
 
+  // Empty-size-column collapse for the single-style matrix — the SAME model the
+  // SO/PO grid uses (computeSizeCollapse). Once any size column has stock the
+  // first VISIBLE size header turns green + is clickable to hide the all-zero
+  // leading/trailing size columns. `renderSizes` is the size axis actually drawn:
+  // empty when "Hide sizes" is on, else the collapsed range.
+  const sizeCollapse = useMemo(
+    () => computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed }),
+    [sizeOrder, colTotals, sizesCollapsed],
+  );
+  const renderSizes = hideSizes ? [] : sizeCollapse.visibleSizes;
+
   // By-inseam render model for the single-style table (null when off). Shared
   // logic lives in module-level buildInseamModel (also used per brand block).
   const inseamModel = useMemo<InseamItem[] | null>(
@@ -2381,6 +2400,15 @@ export default function InternalInventoryMatrix() {
               onClick={() => setSnapTotals((v) => !v)}>Totals</button>
           )}
 
+          {/* Hide sizes — matrix views only. Drops every per-size column, leaving
+              the non-size columns (Color / Total / Avg Cost / Total Cost / Last
+              Received). Blue = active. */}
+          {((styleId && viewMode === "matrix") || (!styleId && noStyleView === "matrix")) && (
+            <button type="button" title="Hide all per-size columns; keep totals and the non-size columns"
+              style={{ background: hideSizes ? C.primary : C.card, color: hideSizes ? "#fff" : C.textMuted, border: `1px solid ${hideSizes ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setHideSizes((v) => !v)}>Hide sizes</button>
+          )}
+
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
               view (NOT the Snapshot view). */}
           {((styleId && viewMode === "matrix" && styleHasInseams) || (!styleId && noStyleView === "matrix" && anyBrandInseams)) && (
@@ -2637,6 +2665,8 @@ export default function InternalInventoryMatrix() {
               const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
               for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+              // Honor the global "Hide sizes" toggle — drop all size columns.
+              const bRenderSizes = hideSizes ? [] : bSizeOrder;
               const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
@@ -2649,7 +2679,7 @@ export default function InternalInventoryMatrix() {
                           <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                           <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                           {bShowSecondary && <th style={{ ...thBase, textAlign: "left" }}>{bByInseam ? "Inseam" : "Rise"}</th>}
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
                           ))}
                           <th style={{ ...thBase, textAlign: "center" }}>Total</th>
@@ -2668,7 +2698,7 @@ export default function InternalInventoryMatrix() {
                                   <td style={{ padding: "4px 8px" }} />
                                   <td style={{ padding: "6px 12px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                                   <td style={{ padding: "6px 12px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 10 }}>Subtotal</td>
-                                  {bSizeOrder.map((sz) => (
+                                  {bRenderSizes.map((sz) => (
                                     <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                                       {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                                     </td>
@@ -2688,7 +2718,7 @@ export default function InternalInventoryMatrix() {
                                 </td>
                                 <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                                {bSizeOrder.map((sz) => (
+                                {bRenderSizes.map((sz) => (
                                   <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                     {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                   </td>
@@ -2712,7 +2742,7 @@ export default function InternalInventoryMatrix() {
                               </td>
                               <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                               {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}
-                              {bSizeOrder.map((sz) => (
+                              {bRenderSizes.map((sz) => (
                                 <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                   {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                 </td>
@@ -2729,7 +2759,7 @@ export default function InternalInventoryMatrix() {
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                           <td colSpan={bColSpan} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                               {bColTotals[sz] ? fmtQty(bColTotals[sz]) : "—"}
                             </td>
@@ -2914,9 +2944,28 @@ export default function InternalInventoryMatrix() {
                 <th style={{ ...thBase, textAlign: "left" }}>Description</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                 {showSecondary && <th style={{ ...thBase, textAlign: "left" }}>{byInseam ? "Inseam" : "Rise"}</th>}
-                {sizeOrder.map((sz) => (
-                  <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 60 }}>{sz}</th>
-                ))}
+                {renderSizes.map((sz, i) => {
+                  const isFirst = i === 0;
+                  const isLast = i === renderSizes.length - 1;
+                  const green = sizeCollapse.hasQty && isFirst;
+                  const clickable = isFirst && sizeCollapse.canToggle;
+                  return (
+                    <th
+                      key={sz}
+                      onClick={clickable ? () => setSizesCollapsed((c) => !c) : undefined}
+                      title={clickable
+                        ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with stock")
+                        : undefined}
+                      style={{
+                        ...thBase, textAlign: "center", minWidth: 60,
+                        ...(green ? { color: C.green } : {}),
+                        ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
+                      }}
+                    >
+                      {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                    </th>
+                  );
+                })}
                 <th style={{ ...thBase, textAlign: "center" }}>Total</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
@@ -2937,7 +2986,7 @@ export default function InternalInventoryMatrix() {
                         <td style={{ padding: "8px 14px" }} />
                         <td style={{ padding: "8px 14px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                         <td style={{ padding: "8px 14px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11 }}>Subtotal</td>
-                        {sizeOrder.map((sz) => (
+                        {renderSizes.map((sz) => (
                           <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                             {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                           </td>
@@ -2963,7 +3012,7 @@ export default function InternalInventoryMatrix() {
                       <td style={{ padding: "8px 14px", color: C.desc, fontSize: 12 }}>{payload.style.style_name || payload.style.description || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                      {sizeOrder.map((sz) => (
+                      {renderSizes.map((sz) => (
                         <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                           {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                         </td>
@@ -3008,7 +3057,7 @@ export default function InternalInventoryMatrix() {
                     {showRise && (
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>
                     )}
-                    {sizeOrder.map((sz) => (
+                    {renderSizes.map((sz) => (
                       <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                         {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                       </td>
@@ -3034,7 +3083,7 @@ export default function InternalInventoryMatrix() {
               <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                 <td style={{ padding: "12px 14px" }} />
                 <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                {sizeOrder.map((sz) => (
+                {renderSizes.map((sz) => (
                   <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                     {colTotals[sz] ? fmtQty(colTotals[sz]) : "—"}
                   </td>

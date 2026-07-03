@@ -14,6 +14,7 @@
 // shares one layout. Callers own the qty/unit state and the cell→SKU mapping.
 
 import React from "react";
+import { computeSizeCollapse } from "./sizeCollapse";
 
 const C = {
   headerBg: "#0F172A", headerText: "#6B7280", gridText: "#E5E7EB",
@@ -300,21 +301,13 @@ export function EditableSizeMatrix({
   }
   const leadCols = 1 + (showRise ? 1 : 0);
 
-  // Collapsible size range (opt-in). firstIdx/lastIdx bracket the columns that
-  // actually carry a quantity; collapsing hides the all-zero columns outside
-  // that bracket (mid-range zero sizes stay visible). Recomputed each render so
-  // the visible range tracks the entered quantities live.
-  const hasQty = grandQty > 0;
-  let firstIdx = -1, lastIdx = -1;
-  for (let i = 0; i < sizes.length; i++) {
-    if ((colTotals[sizes[i]] || 0) > 0) { if (firstIdx < 0) firstIdx = i; lastIdx = i; }
-  }
-  const canCollapse = collapsibleSizes && hasQty && firstIdx >= 0 && (firstIdx > 0 || lastIdx < sizes.length - 1);
-  const collapsedActive = collapsibleSizes && collapsed && firstIdx >= 0;
-  const visibleSizes = collapsedActive ? sizes.slice(firstIdx, lastIdx + 1) : sizes;
-  const canToggle = collapsibleSizes && (collapsedActive || canCollapse);
-  const hiddenLeading = collapsedActive ? firstIdx : 0;
-  const hiddenTrailing = collapsedActive ? sizes.length - 1 - lastIdx : 0;
+  // Collapsible size range (opt-in). Shared with the read-only Inventory Matrix
+  // via computeSizeCollapse: firstIdx/lastIdx bracket the columns that actually
+  // carry a quantity; collapsing hides the all-zero columns outside that bracket
+  // (mid-range zero sizes stay visible). Recomputed each render so the visible
+  // range tracks the entered quantities live.
+  const { hasQty, visibleSizes, collapsedActive, canToggle, hiddenLeading, hiddenTrailing } =
+    computeSizeCollapse(sizes, colTotals, { enabled: collapsibleSizes, collapsed });
 
   return (
     <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
