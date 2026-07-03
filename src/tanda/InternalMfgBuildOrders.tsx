@@ -634,19 +634,38 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     finally { setBusy(false); }
   }
 
-  // Cancel goes through PATCH (not an /action endpoint). The server refuses to
-  // cancel an ISSUED build (parts already consumed into WIP → needs a reversing
-  // entry) or a COMPLETED one, returning a 409 with the reason. The old inline
-  // handler ignored r.ok, so that refusal was swallowed silently — the operator
-  // saw the confirm, clicked Continue, and nothing happened. Check the response
-  // and surface the error like act() does.
+  // Cancel goes through the /cancel action endpoint, which FULLY reverses an
+  // issued build: reverses the issue + service journal entries and restores the
+  // consumed parts/styles back to inventory, then flips to cancelled. Draft/
+  // released builds (nothing posted) just cancel. Reversing GL requires a T11
+  // reason, so an issued build prompts for one.
   async function cancelBuild() {
-    if (!(await confirmDialog(`Cancel build ${build?.build_number}? This can't be undone.`))) return;
+    const issued = status === "issued";
+    if (!(await confirmDialog(
+      issued
+        ? `Cancel build ${build?.build_number}? This reverses the WIP postings (issue + capitalized services) and returns the consumed parts/styles to inventory. This can't be undone.`
+        : `Cancel build ${build?.build_number}? This can't be undone.`,
+    ))) return;
+    let reason: string | null = null;
+    if (issued) {
+      reason = await promptDialog(`Reason for cancelling build ${build?.build_number} (required — it's recorded on the reversing journal entries)`, { required: true });
+      if (reason === null) return; // operator backed out of the reason prompt
+    }
     setBusy(true); setErr(null);
     try {
-      const r = await fetch(`/api/internal/build-orders/${buildId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }) });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      notify(`Build ${build?.build_number} cancelled.`, "success");
+      const r = await fetch(`/api/internal/build-orders/${buildId}/cancel`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason || undefined }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const rev = Array.isArray(j.reversed_je_ids) ? j.reversed_je_ids.length : 0;
+      notify(
+        rev > 0
+          ? `Build ${build?.build_number} cancelled — reversed ${rev} journal entr${rev === 1 ? "y" : "ies"}, restored ${Number(j.restored_part_qty || 0)} part + ${Number(j.restored_style_qty || 0)} style unit(s).`
+          : `Build ${build?.build_number} cancelled.`,
+        "success",
+      );
       await load(); onChanged();
     } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
     finally { setBusy(false); }

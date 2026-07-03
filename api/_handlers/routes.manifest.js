@@ -385,6 +385,7 @@ export default [
   ["/api/internal/build-orders/:id/issue"                    , "./internal/build-orders/issue.js"],
   ["/api/internal/build-orders/:id/service"                  , "./internal/build-orders/service.js"],
   ["/api/internal/build-orders/:id/complete"                 , "./internal/build-orders/complete.js"],
+  ["/api/internal/build-orders/:id/cancel"                   , "./internal/build-orders/cancel.js"],
   ["/api/internal/build-orders/:id"                          , "./internal/build-orders/[id].js"],
   ["/api/internal/build-orders"                              , "./internal/build-orders/index.js"],
   // Manufacturing module (M6) — reports.

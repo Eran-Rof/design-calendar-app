@@ -144,6 +144,7 @@ import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/u
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_build_orders_id from "./internal/build-orders/[id].js";
+import r_internal_build_orders_cancel from "./internal/build-orders/cancel.js";
 import r_internal_build_orders_complete from "./internal/build-orders/complete.js";
 import r_internal_build_orders_index from "./internal/build-orders/index.js";
 import r_internal_build_orders_issue from "./internal/build-orders/issue.js";
@@ -814,6 +815,7 @@ export const ROUTES = [
   { pattern: "/api/internal/virtual-cards/:id/cancel", handler: r_internal_virtual_cards_id_cancel },
   { pattern: "/api/vendor/discount-offers/:id/accept", handler: r_vendor_discount_offers_id_accept },
   { pattern: "/api/vendor/discount-offers/:id/reject", handler: r_vendor_discount_offers_id_reject },
+  { pattern: "/api/internal/build-orders/:id/cancel", handler: r_internal_build_orders_cancel },
   { pattern: "/api/internal/edi/:vendor_id/messages", handler: r_internal_edi_vendor_id_messages },
   { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },
