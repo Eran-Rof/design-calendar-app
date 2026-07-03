@@ -107,6 +107,26 @@ function todayMinusDays(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Backfill auto-chunking. The /backfill-range endpoint caps one call at
+// MAX_RANGE_DAYS (server-side) to stay under the function time limit, so a larger
+// range is split here into consecutive windows and run one after another. Keep in
+// sync with MAX_RANGE_DAYS in api/cron/xoro-mirror-nightly.js.
+const RANGE_CHUNK_DAYS = 45;
+function isoAddDays(iso: string, days: number): string {
+  return new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+}
+// Split [from, to] (inclusive) into consecutive [start, end] windows of ≤ size days.
+function chunkDateRange(from: string, to: string, size: number): Array<[string, string]> {
+  const chunks: Array<[string, string]> = [];
+  let start = from;
+  while (start <= to) {
+    const end = isoAddDays(start, size - 1) > to ? to : isoAddDays(start, size - 1);
+    chunks.push([start, end]);
+    start = isoAddDays(end, 1);
+  }
+  return chunks;
+}
+
 // Group the last-30-days runs into a Date → Domain → MirrorRun lookup.
 function indexByDate(rows: MirrorRun[]): Record<string, Partial<Record<Domain, MirrorRun>>> {
   const out: Record<string, Partial<Record<Domain, MirrorRun>>> = {};
@@ -547,26 +567,55 @@ function ReRunModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     }
   }
 
-  // One-shot backfill of a whole date range. Each date mirrors + posts its own
-  // summary JEs into its own period; the reversal-safe, idempotent per-date
-  // pipeline is reused. Overwrites only source='xoro_mirror' rows.
+  // One-shot backfill of a whole date range — of ANY length. Each date mirrors +
+  // posts its own summary JEs into its own period; the reversal-safe, idempotent
+  // per-date pipeline is reused. Ranges longer than the endpoint's per-call cap
+  // are AUTO-CHUNKED here into consecutive windows run one after another, so the
+  // operator picks any span and it just works. Overwrites only source='xoro_mirror'.
   async function runRange() {
     if (fromDate > toDate) { setErr("From date must be on or before To date."); return; }
-    if (!(await confirmDialog(`Re-run the Xoro mirror for every date from ${fromDate} to ${toDate}? Each date is mirrored and its summary JEs post into that date's period. Only source='xoro_mirror' rows are overwritten; manual entries stay untouched.`))) return;
-    setBusy(true); setErr(null); setResult("Running the range… (this can take several minutes — don't close)");
+    const chunks = chunkDateRange(fromDate, toDate, RANGE_CHUNK_DAYS);
+    if (!(await confirmDialog(
+      `Re-run the Xoro mirror for every date from ${fromDate} to ${toDate}` +
+      (chunks.length > 1 ? ` (auto-split into ${chunks.length} chunks of up to ${RANGE_CHUNK_DAYS} days)` : "") +
+      `? Each date is mirrored and its summary JEs post into that date's period. Only source='xoro_mirror' rows are overwritten; manual entries stay untouched.`,
+    ))) return;
+    setBusy(true); setErr(null);
+    const agg = { days: 0, ar: 0, ap: 0, inv: 0, je: 0, errors: 0 };
+    let anyPartial = false;
     try {
-      const r = await fetch("/api/internal/xoro-mirror/backfill-range", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: fromDate, to: toDate }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) { setErr(data.error || `HTTP ${r.status}`); setResult(null); return; }
-      const t = data.totals || {};
+      for (let i = 0; i < chunks.length; i++) {
+        const [cf, ct] = chunks[i];
+        setResult(
+          `Running${chunks.length > 1 ? ` chunk ${i + 1}/${chunks.length}` : ""} (${cf}→${ct})… don't close.` +
+          (i > 0 ? `  So far: ${agg.days} day(s), ${agg.je} JE(s).` : ""),
+        );
+        const r = await fetch("/api/internal/xoro-mirror/backfill-range", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from: cf, to: ct }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          // Stop on a hard failure rather than hammer the backend for every
+          // remaining chunk; report what already completed.
+          setErr(`Chunk ${cf}→${ct} failed: ${data.error || `HTTP ${r.status}`}. Completed ${agg.days} day(s) before this.`);
+          setResult(null);
+          return;
+        }
+        const t = data.totals || {};
+        agg.days += data.days || 0;
+        agg.ar += t.ar_upserted || 0;
+        agg.ap += t.ap_upserted || 0;
+        agg.inv += t.inventory_upserted || 0;
+        agg.je += t.summary_jes_posted || 0;
+        agg.errors += Array.isArray(data.errors) ? data.errors.length : 0;
+        if (data.status !== "complete") anyPartial = true;
+      }
       setResult(
-        `${data.status === "complete" ? "✓" : "⚠"} ${data.days ?? "?"} day(s) ${data.from}→${data.to} — ` +
-        `AR ${t.ar_upserted ?? 0} · AP ${t.ap_upserted ?? 0} · INV ${t.inventory_upserted ?? 0} · ` +
-        `${t.summary_jes_posted ?? 0} JE(s)` +
-        (Array.isArray(data.errors) && data.errors.length ? ` · ${data.errors.length} error(s)` : ""),
+        `${anyPartial || agg.errors ? "⚠" : "✓"} ${agg.days} day(s) ${fromDate}→${toDate}` +
+        (chunks.length > 1 ? ` in ${chunks.length} chunks` : "") +
+        ` — AR ${agg.ar} · AP ${agg.ap} · INV ${agg.inv} · ${agg.je} JE(s)` +
+        (agg.errors ? ` · ${agg.errors} error(s)` : ""),
       );
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
