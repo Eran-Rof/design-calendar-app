@@ -97,6 +97,9 @@ function makeSupabase(opts = {}) {
               maybeSingle() { return Promise.resolve({ data: { id }, error: null }); },
             };
           },
+          // Run rows are opened via upsert (onConflict entity_id,domain,mirror_date)
+          // so re-runs update the existing row. The mock treats it like insert.
+          upsert(row) { return this.insert(row); },
           update(row) {
             this._updateRow = row;
             return this;
@@ -245,6 +248,14 @@ describe("runMirrorRange", () => {
     const sb = makeSupabase();
     await runMirrorRange(sb, { from: "2026-05-27", to: "2026-05-28", deps: makeDeps() });
     expect(sb.state.notificationEvents).toHaveLength(0);
+  });
+
+  it("surfaces a failed domain in errors instead of silently reporting success", async () => {
+    const sb = makeSupabase();
+    const deps = makeDeps({ failDomain: "ap" }); // AP mirror throws → run row marked failed
+    const out = await runMirrorRange(sb, { from: "2026-05-27", to: "2026-05-27", deps });
+    expect(out.status).toBe("partial");
+    expect(out.errors.some((e) => e.domain === "ap")).toBe(true);
   });
 
   it("rejects from > to", async () => {
