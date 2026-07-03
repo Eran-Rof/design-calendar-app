@@ -12,13 +12,15 @@
 //
 // No new API route — reuses the shared style-matrix endpoint. No migration.
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { computeSizeCollapse } from "../shared/matrix";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
@@ -69,6 +71,10 @@ type MatrixPayload = {
   inseams: string[];
   rises: string[];
   warehouses?: string[];
+  // Additive — the full set of lot numbers present on this style's on-hand
+  // (NO_LOT bucket "(no lot)" sorts last). Populates the lot filter dropdown; it
+  // stays the full list even when the fetch scopes on-hand to selected lots.
+  lots?: string[];
   skus: MatrixSku[];
   // Additive — present only when fetched with explode_ppk=true.
   explode?: ExplodeInfo;
@@ -114,6 +120,8 @@ type StyleInvoiceRow = {
 
 
 const ALL_WAREHOUSES = "__all__";
+// Bucket label for unlotted stock — must match NO_LOT in api/_lib/styleMatrix.js.
+const NO_LOT_LABEL = "(no lot)";
 
 // ── MatrixRow type (shared by single-style and brand-level views) ─────────────
 
@@ -406,7 +414,22 @@ type SnapshotRow = {
   on_po: number; in_transit: number; ats: number; ats_incl_po: number;
   sold: number; purchased: number; avg_cost_cents: number | null;
   sale_price_cents: number | null;
+  // Per-column transaction prices (per-each cents): On SO → open_so_price;
+  // Sold → sold_price; inventory/PO columns → current_price (most-recent SO).
+  open_so_price_cents?: number | null;
+  sold_price_cents?: number | null;
+  current_price_cents?: number | null;
 };
+
+// Which per-each price a given quantity column is valued at (per-column
+// transaction pricing). Returns cents or null (null → excluded from that
+// column's Avg Sale, so unpriced units never dilute it).
+function colPriceCents(r: SnapshotRow, k: string): number | null {
+  const v = k === "on_so" ? r.open_so_price_cents
+    : k === "sold" ? r.sold_price_cents
+    : r.current_price_cents; // on_hand / allocated / ats / ats_incl_po / on_po / purchased / in_transit
+  return (v == null || !Number.isFinite(v)) ? null : v;
+}
 // A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
 // (base + its PPK sibling combined) so the table can style it distinctly.
 // `_components` carries the underlying base-style + PPK-pack rows (already
@@ -414,6 +437,24 @@ type SnapshotRow = {
 // expanded (▾) to drill into what it's made of — they reconcile exactly to the
 // merged totals because the merge is a plain sum of these same rows.
 type MergedRow = SnapshotRow & { _merged?: boolean; _components?: SnapshotRow[] };
+
+// Snapshot column key — the real SnapshotRow fields plus the DERIVED "Avg Mrgn %"
+// column (computed from avg sale − avg cost, not a stored field).
+type SnapColKey = keyof SnapshotRow | "avg_margin_pct";
+
+// Gross-margin fraction for a snapshot row: (avg sale − avg cost) / avg sale.
+// Null when the avg sale price is missing or zero (divide-by-zero guard) or the
+// avg cost is missing → the row's Avg Mrgn % renders blank. Cents in, fraction
+// out (e.g. 0.4215 → "42.15%").
+function marginFrac(saleCents: number | null | undefined, costCents: number | null | undefined): number | null {
+  if (saleCents == null || saleCents === 0 || costCents == null) return null;
+  return (saleCents - costCents) / saleCents;
+}
+// Percent display for the Avg Mrgn % cell — two decimals, blank ("—") when null.
+function fmtMarginPct(saleCents: number | null | undefined, costCents: number | null | undefined): string {
+  const m = marginFrac(saleCents, costCents);
+  return m == null ? "—" : `${(m * 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
 
 function openTab(url: string) { window.open(url, "_blank", "noopener"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
@@ -425,7 +466,7 @@ const lnkAlloc  = (code: string)    => `?m=sales_allocations&q=${encodeURICompon
 // ATS is a separate app at /ats; preselect the style via its search filter.
 const lnkATS    = (code: string, inclPo = false) => `/ats?style=${encodeURIComponent(code)}${inclPo ? "&incl_po=1" : ""}`;
 
-const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] = [
+const SNAP_COLS: { key: SnapColKey; label: string; numeric: boolean }[] = [
   { key: "style_code",  label: "Style",                  numeric: false },
   { key: "color",       label: "Color",                  numeric: false },
   { key: "description", label: "Name",                   numeric: false },
@@ -440,7 +481,8 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "category",    label: "Item Category",          numeric: false },
   { key: "in_transit",  label: "In Trnst",               numeric: true },
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
-  { key: "sale_price_cents", label: "Avg Sale",          numeric: true },
+  { key: "sale_price_cents", label: "Avrg Sale",         numeric: true },
+  { key: "avg_margin_pct", label: "Avg Mrgn %",          numeric: true },
 ];
 
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
@@ -519,24 +561,27 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
         const all = [...c.base, ...c.ppk];
         const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
-        const g: MergedRow & { _cost: number[]; _sale: number[] } = {
+        const g: MergedRow & { _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] } = {
           style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [] };
+          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
         for (const r of all) {
           if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
           if (r.color && !g.color) g.color = r.color;
           for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
           if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
           if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+          if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+          if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+          if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
         }
-        const { _cost, _sale, ...row } = g;
+        const { _cost, _sale, _openSo, _sold, _cur, ...row } = g;
         const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
         // Keep the underlying base + PPK rows (already per-unit) so the merged
         // line can be expanded (▾) to drill into its components; only those
         // carrying data are shown. They sum back to the merged totals exactly.
         const components = all.filter(hasData);
-        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), _components: components } as MergedRow);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), open_so_price_cents: avgOf(_openSo), sold_price_cents: avgOf(_sold), current_price_cents: avgOf(_cur), _components: components } as MergedRow);
       }
     }
     src = out;
@@ -549,7 +594,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
   //    collapse onto Item Category shows just the category, the rest blank).
   if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
   const keyDims = DIMS.filter((k) => collapseCols.has(k));
-  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[] };
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] };
   const map = new Map<string, G>();
   for (const r of src) {
     const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
@@ -559,19 +604,22 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
         sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null,
         _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
-        _sids: new Set(), _cost: [], _sale: [] };
+        _sids: new Set(), _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
       map.set(key, g);
     }
     for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
     for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
     if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
     if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+    if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+    if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+    if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
     if (r._merged) g._merged = true;
     g._sids.add(r.style_id);
   }
   const avgOf2 = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
   return [...map.values()].map((g) => {
-    const { _vals, _sids, _cost, _sale, ...row } = g;
+    const { _vals, _sids, _cost, _sale, _openSo, _sold, _cur, ...row } = g;
     const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
     return { ...row,
       style_id: _sids.size === 1 ? [..._sids][0] : "",
@@ -581,6 +629,9 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
       category: one("category"),
       avg_cost_cents: avgOf2(_cost),
       sale_price_cents: avgOf2(_sale),
+      open_so_price_cents: avgOf2(_openSo),
+      sold_price_cents: avgOf2(_sold),
+      current_price_cents: avgOf2(_cur),
     } as MergedRow;
   });
 }
@@ -591,9 +642,9 @@ function SnapshotView({
   rows: SnapshotRow[];
   loading: boolean;
   err: string | null;
-  sortKey: keyof SnapshotRow;
+  sortKey: SnapColKey;
   sortDir: "asc" | "desc";
-  onSort: (k: keyof SnapshotRow) => void;
+  onSort: (k: SnapColKey) => void;
   thumbs: Map<string, StyleThumbInfo>;
   onOpenSold: (r: SnapshotRow) => void;
   onOpenPurchased: (r: SnapshotRow) => void;
@@ -616,6 +667,37 @@ function SnapshotView({
   const toggleExpand = (key: string) =>
     setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
+  // Sticky bottom horizontal scrollbar. The grid can be far wider than the
+  // viewport; its native h-scrollbar sits at the bottom of the (tall) scroll box,
+  // so you'd have to scroll down to reach it. This proxy bar is pinned to the
+  // bottom of the viewport and scroll-synced both ways with the grid, so
+  // horizontal scrolling is always one reach away.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hbarRef = useRef<HTMLDivElement>(null);
+  const syncing = useRef(false);
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollW: 0, clientW: 0 });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setScrollMetrics({ scrollW: el.scrollWidth, clientW: el.clientWidth });
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [rows, explodePpk, mergePpk, showTotals, collapseCols]);
+  const onGridScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; b.scrollLeft = g.scrollLeft; }
+  };
+  const onBarScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; g.scrollLeft = b.scrollLeft; }
+  };
+  const showHBar = scrollMetrics.scrollW > scrollMetrics.clientW + 1;
+
   // ── Collapse / roll-up ────────────────────────────────────────────────────
   // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
   // other text column is dropped so its rows merge, and numerics are summed
@@ -630,10 +712,17 @@ function SnapshotView({
   const sorted = useMemo(() => {
     const r = [...grouped];
     r.sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
       let c: number;
-      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
-      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      if (sortKey === "avg_margin_pct") {
+        // Derived column — sort by computed margin; rows with no margin sort low.
+        const am = marginFrac(a.sale_price_cents, a.avg_cost_cents);
+        const bm = marginFrac(b.sale_price_cents, b.avg_cost_cents);
+        c = (am ?? -Infinity) - (bm ?? -Infinity);
+      } else {
+        const av = a[sortKey as keyof SnapshotRow], bv = b[sortKey as keyof SnapshotRow];
+        if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+        else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      }
       return sortDir === "asc" ? c : -c;
     });
     return r;
@@ -648,18 +737,37 @@ function SnapshotView({
     const qty: Record<string, number> = {};
     const cost: Record<string, number> = {};
     const wholesale: Record<string, number> = {};
-    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; }
+    // Qty of rows that ACTUALLY carry a cost / sale price — the correct
+    // denominator for the per-unit averages (see below).
+    const cQty: Record<string, number> = {};
+    const pQty: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; cQty[k] = 0; pQty[k] = 0; }
     for (const r of sorted) {
+      const hasC = r.avg_cost_cents != null;
       const c = (r.avg_cost_cents ?? 0) / 100;
-      const p = (r.sale_price_cents ?? 0) / 100;
-      for (const k of SNAP_SUM_COLS) { const v = num(r[k] as number); qty[k] += v; cost[k] += v * c; wholesale[k] += v * p; }
+      for (const k of SNAP_SUM_COLS) {
+        const v = num(r[k] as number);
+        qty[k] += v;
+        if (hasC) { cost[k] += v * c; cQty[k] += v; }
+        // Per-column transaction price: On SO uses the open-SO price, Sold the
+        // actual sold price, inventory/PO columns the current price. Unpriced
+        // rows are excluded from that column's average (no dilution).
+        const pc = colPriceCents(r, k);
+        if (pc != null) { wholesale[k] += v * (pc / 100); pQty[k] += v; }
+      }
     }
-    // Per-unit averages = $ total ÷ qty (column-level blended unit cost / price).
+    // Per-unit averages divide by the qty of rows that carry a cost/price — NOT
+    // total qty. Dividing by total qty drags the average DOWN whenever a column
+    // holds units from rows with no known wholesale price (e.g. styles never
+    // sold on an SO): those units count in the denominator but add $0 to the
+    // numerator. That was the bug — On PO / Sold read ~$4.4 while the true
+    // wholesale price is ~$7. ($ Cost / $ Wholesale totals are unchanged since
+    // unpriced rows contribute $0 either way.)
     const avgCost: Record<string, number> = {};
     const avgWhol: Record<string, number> = {};
     for (const k of SNAP_SUM_COLS) {
-      avgCost[k] = qty[k] > 0 ? cost[k] / qty[k] : 0;
-      avgWhol[k] = qty[k] > 0 ? wholesale[k] / qty[k] : 0;
+      avgCost[k] = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+      avgWhol[k] = pQty[k] > 0 ? wholesale[k] / pQty[k] : 0;
     }
     return { qty, cost, wholesale, avgCost, avgWhol };
   }, [sorted]);
@@ -687,7 +795,7 @@ function SnapshotView({
   // card background so scrolling rows don't show through the header. When the
   // Totals strip is on it occupies the top band, so the column header sticks
   // just below it (top: TOTALS_H).
-  const TOTALS_H = 92; // five stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Sale)
+  const TOTALS_H = 108; // six stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Mrgn / Avg Sale)
   const headerTop = showTotals ? TOTALS_H : 0;
   const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
   // Totals strip cells — sticky at the very top, above the column header.
@@ -704,13 +812,15 @@ function SnapshotView({
 
   return (
     <div>
-      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+      <div ref={scrollRef} onScroll={onGridScroll} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
             {/* Totals strip — above the column headers (ATS-modelled). Each
                 quantity column stacks five measures: Qty (unit counts), $ Cost
                 (qty × avg cost), $ Wholesale (qty × avg wholesale SO sale price),
-                Avg Cost (= $ Cost ÷ qty) and Avg Sale (= $ Wholesale ÷ qty). */}
+                Avg Cost and Avg Sale (per-unit means over the units that carry a
+                cost / price — NOT ÷ total qty, which would dilute them with
+                unpriced units). */}
             {showTotals && (() => {
               const visCols = SNAP_COLS.filter((c) => show(c.key as string));
               let labelled = false;
@@ -729,6 +839,7 @@ function SnapshotView({
                             <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
                             <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
                             <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
+                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
                           </div>
                         </th>
                       );
@@ -743,7 +854,8 @@ function SnapshotView({
                             <span style={{ color: C.textSub }}>$ Cost</span>
                             <span style={{ color: C.base }}>$ Wholesale</span>
                             <span style={{ color: C.green }}>Avg Cost</span>
-                            <span style={{ color: "#93C5FD" }}>Avg Sale</span>
+                            <span style={{ color: "#93C5FD" }}>Avrg Sale</span>
+                            <span style={{ color: "#34D399" }}>Avg Mrgn</span>
                           </div>
                         </th>
                       );
@@ -757,12 +869,17 @@ function SnapshotView({
               {/* Frozen header — sticks to the top while the body scrolls. Opaque
                   background so rows don't bleed through. */}
               {show("image") && <th style={{ ...thStick, textAlign: "center" }}>Image</th>}
-              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => (
-                <th key={col.key as string} onClick={() => onSort(col.key)}
-                    style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
-                  {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
-                </th>
-              ))}
+              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => {
+                // The widest headers ("ATS Qty (Incl POs)", "Item Category") WRAP
+                // onto multiple lines (constrained width) so the column stays narrow.
+                const wrap = col.key === "ats_incl_po" || col.key === "category";
+                return (
+                  <th key={col.key as string} onClick={() => onSort(col.key)}
+                      style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: wrap ? "normal" : "nowrap", ...(wrap ? { maxWidth: 72, width: 72 } : {}), userSelect: "none" }}>
+                    {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -808,6 +925,7 @@ function SnapshotView({
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                   {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(r.sale_price_cents, r.avg_cost_cents)}</td>}
                 </tr>
                 {/* Component drill — base-style eaches + PPK-pack contribution
                     (per-unit), each linkable to its own style, summing back to
@@ -839,6 +957,7 @@ function SnapshotView({
                       {show("in_transit") && <td style={tdNum}>{fmtQty(cr.in_transit)}</td>}
                       {show("avg_cost_cents") && <td style={tdNum}>{cr.avg_cost_cents != null ? (cr.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                       {show("sale_price_cents") && <td style={tdNum}>{cr.sale_price_cents != null ? (cr.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(cr.sale_price_cents, cr.avg_cost_cents)}</td>}
                     </tr>
                   );
                 })}
@@ -848,6 +967,15 @@ function SnapshotView({
           </tbody>
         </table>
       </div>
+      {/* Sticky bottom horizontal scrollbar — pinned to the viewport bottom and
+          scroll-synced with the grid above, so wide grids are always scrollable
+          without hunting for the native bar at the end of a tall list. */}
+      {showHBar && (
+        <div ref={hbarRef} onScroll={onBarScroll}
+          style={{ position: "sticky", bottom: 0, zIndex: 5, overflowX: "auto", overflowY: "hidden", height: 14, background: C.card, borderTop: `1px solid ${C.cardBdr}`, borderRadius: "0 0 10px 10px" }}>
+          <div style={{ width: scrollMetrics.scrollW, height: 1 }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -856,7 +984,7 @@ function SnapshotView({
 type SoldDetail = {
   color_totals: { color: string | null; qty: number; avg_unit_price: number | null }[];
   grand_total: number;
-  rows: { color: string | null; store: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
+  rows: { color: string | null; store: string | null; warehouse: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
 };
 type PurchasedDetail = {
   color_totals: { color: string | null; qty: number }[];
@@ -915,10 +1043,10 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
   // Store options across the invoice rows (#7). Wholesale rows carry no store, so
   // this is mostly Ecom vs blank, but it constrains whatever store data exists.
-  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.store).filter((s): s is string => !!s))].sort(), [data]);
+  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.warehouse).filter((s): s is string => !!s))].sort(), [data]);
   // Apply store filter → collapse-on-invoice (optional) → sort.
   const invoiceRows = useMemo<SoldRow[]>(() => {
-    let rows = (data?.rows ?? []).filter((r) => !store || (r.store ?? "") === store);
+    let rows = (data?.rows ?? []).filter((r) => !store || (r.warehouse ?? "") === store);
     if (collapseInv) {
       const map = new Map<string, SoldRow & { _amt: number; _pq: number }>();
       for (const r of rows) {
@@ -961,7 +1089,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
               <span style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Invoices</span>
               {storeOptions.length > 0 && (
                 <label style={{ fontSize: 11, color: C.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                  Store
+                  Warehouse
                   <select value={store} onChange={(e) => setStore(e.target.value)} style={selStyle}>
                     <option value="">All</option>
                     {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -976,7 +1104,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr>
                 <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
-                <th style={th} onClick={() => rowSort.onSort("store")}>Store{rowSort.arrow("store")}</th>
+                <th style={th} onClick={() => rowSort.onSort("warehouse")}>Warehouse{rowSort.arrow("warehouse")}</th>
                 <th style={thR} onClick={() => rowSort.onSort("qty")}>Sold{rowSort.arrow("qty")}</th>
                 <th style={th} onClick={() => rowSort.onSort("invoice_number")}>Invoice #{rowSort.arrow("invoice_number")}</th>
                 <th style={th} onClick={() => rowSort.onSort("customer")}>Customer{rowSort.arrow("customer")}</th>
@@ -987,7 +1115,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpe
                 {invoiceRows.map((r, i) => (
                   <tr key={i}>
                     <td style={td}>{collapseInv ? "—" : (r.color || "—")}</td>
-                    <td style={td}>{r.store || "—"}</td>
+                    <td style={td}>{r.warehouse || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={td}>{r.invoice_number ? (r.ar_invoice_id ? <span role="button" tabIndex={0} onClick={() => onOpenInvoice(r.ar_invoice_id!, r.invoice_number!, r.customer)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.invoice_number}</span> : r.invoice_number) : "—"}</td>
                     <td style={td}>{r.customer || "—"}</td>
@@ -1225,11 +1353,14 @@ export default function InternalInventoryMatrix() {
   // shows the stacked per-style size grids.
   const [noStyleView, setNoStyleView] = useState<"snapshot" | "matrix">("snapshot");
   const [snapRows, setSnapRows] = useState<SnapshotRow[]>([]);
+  // Lots present across the snapshot's fetched styles (full set, filter-independent)
+  // — feeds the lot dropdown in the all-styles snapshot view.
+  const [snapLots, setSnapLots] = useState<string[]>([]);
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapErr, setSnapErr] = useState<string | null>(null);
-  const [snapSortKey, setSnapSortKey] = useState<keyof SnapshotRow>("style_code");
+  const [snapSortKey, setSnapSortKey] = useState<SnapColKey>("style_code");
   const [snapSortDir, setSnapSortDir] = useState<"asc" | "desc">("asc");
-  const onSnapSort = (k: keyof SnapshotRow) => {
+  const onSnapSort = (k: SnapColKey) => {
     setSnapSortKey((prev) => { if (prev === k) { setSnapSortDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setSnapSortDir("asc"); return k; });
   };
   // Header date range — filters the Sold/Purchased columns AND seeds the drills.
@@ -1249,11 +1380,22 @@ export default function InternalInventoryMatrix() {
   // On-Hand is the only metric. The old "Available" toggle was replaced by an
   // ATS app link (see the Show/ATS controls below).
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
+  // Lot filter (single-style view): [] = all lots (whole-style on-hand). When one
+  // or more lots are picked, the fetch re-scopes on-hand to just those lots. The
+  // option list comes from payload.lots (always the full set). Reset on style change.
+  const [lotFilter, setLotFilter] = useState<string[]>([]);
   // Global warehouse names (inventory_locations kind='warehouse') — these match
   // the keys in each SKU's on_hand_by_wh map, so the dropdown works even in the
   // multi-style view where no single-style payload (with its own list) exists.
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
+  // Hide sizes (matrix view): drop ALL per-size columns, leaving the non-size
+  // columns (Color / Total / Avg Cost / Total Cost / Last Received). Off by default.
+  const [hideSizes, setHideSizes] = useState(false);
+  // Empty-size-column collapse (single-style matrix) — mirrors the SO/PO grid:
+  // once any size column has stock, the first VISIBLE size header turns green +
+  // clickable and hides the all-zero leading/trailing size columns.
+  const [sizesCollapsed, setSizesCollapsed] = useState(false);
   // Snapshot column show/hide — lifted up from SnapshotView so the control can
   // live in the filter header row (next to Warehouse). Persisted per browser.
   const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
@@ -1373,7 +1515,8 @@ export default function InternalInventoryMatrix() {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}`;
+    const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`;
     fetch(url)
       .then(async (r) => {
         if (!r.ok) {
@@ -1388,7 +1531,7 @@ export default function InternalInventoryMatrix() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, explodePpk]);
+  }, [styleId, explodePpk, lotFilter]);
 
 
   // Reset rise + warehouse + inseam-mode filters on a STYLE change only (not on
@@ -1398,6 +1541,7 @@ export default function InternalInventoryMatrix() {
     setRiseFilter([]);
     setWarehouse(ALL_WAREHOUSES);
     setInseamMode(false);
+    setLotFilter([]);
   }, [styleId]);
 
   // Fetch per-color thumbnail images for the active style from the PIM endpoint.
@@ -1566,25 +1710,29 @@ export default function InternalInventoryMatrix() {
   // the Totals strip's $ values are per-unit, not pack × pack-price). Merge PPK
   // also implies explode (it folds packs into eaches). (#11)
   const effectiveExplodePpk = explodePpk || mergePpk || (snapTotals && pageHasPpk);
+  // Explode is LOCKED on (can't be unclicked) whenever something else requires
+  // it: Merge PPK (needs eaches) or Totals over a page with a PPK style (the $
+  // totals only reconcile at unit grain). The Explode button reflects this.
+  const explodeLocked = mergePpk || (snapTotals && pageHasPpk);
 
   // Snapshot view (default all-styles): fetch the aggregate rows for the visible
   // page — or, when Collapse is active, the full filtered set (#13).
   const snapFetchKey = snapStyleIds.join(",");
   useEffect(() => {
-    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
-    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
+    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
+    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
     let cancelled = false;
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined }),
+      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined, lots: lotFilter.length ? lotFilter : undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
+      .then((j) => { if (!cancelled) { setSnapRows(Array.isArray(j.rows) ? j.rows : []); setSnapLots(Array.isArray(j.lots) ? j.lots : []); } })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse, lotFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1599,7 +1747,8 @@ export default function InternalInventoryMatrix() {
     Promise.all(
       stylesToLoad.map(async (s) => {
         try {
-          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}`, { signal: controller.signal });
+          const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`, { signal: controller.signal });
           if (!r.ok) return null;
           const p = await r.json() as MatrixPayload;
           return { style: s, payload: p };
@@ -1614,7 +1763,25 @@ export default function InternalInventoryMatrix() {
       setBrandLoading(false);
     });
     return () => controller.abort();
-  }, [styleId, brandStyles, multiPage, explodePpk]);
+  }, [styleId, brandStyles, multiPage, explodePpk, lotFilter]);
+
+  // Lot numbers available for the current view, feeding the Lot # filter:
+  //  • single style → the payload's full lot list
+  //  • all-styles Snapshot → lots across the fetched snapshot styles
+  //  • all-styles Matrix → union of every loaded per-style payload's lots
+  // Always the FULL set (filter-independent) so the dropdown stays selectable.
+  const availableLots = useMemo<string[]>(() => {
+    if (styleId) return payload?.lots ?? [];
+    if (noStyleView === "snapshot") return snapLots;
+    const set = new Set<string>();
+    let hasNoLot = false;
+    for (const { payload: bp } of brandPayloads) {
+      for (const l of (bp.lots ?? [])) { if (l === NO_LOT_LABEL) hasNoLot = true; else set.add(l); }
+    }
+    const out = [...set].sort((a, b) => a.localeCompare(b));
+    if (hasNoLot) out.push(NO_LOT_LABEL);
+    return out;
+  }, [styleId, payload, noStyleView, snapLots, brandPayloads]);
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
@@ -1770,6 +1937,17 @@ export default function InternalInventoryMatrix() {
 
   const grandQty = useMemo(() => visibleRows.reduce((s, r) => s + r.totalQty, 0), [visibleRows]);
   const grandCostCents = useMemo(() => visibleRows.reduce((s, r) => s + r.totalCostCents, 0), [visibleRows]);
+
+  // Empty-size-column collapse for the single-style matrix — the SAME model the
+  // SO/PO grid uses (computeSizeCollapse). Once any size column has stock the
+  // first VISIBLE size header turns green + is clickable to hide the all-zero
+  // leading/trailing size columns. `renderSizes` is the size axis actually drawn:
+  // empty when "Hide sizes" is on, else the collapsed range.
+  const sizeCollapse = useMemo(
+    () => computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed }),
+    [sizeOrder, colTotals, sizesCollapsed],
+  );
+  const renderSizes = hideSizes ? [] : sizeCollapse.visibleSizes;
 
   // By-inseam render model for the single-style table (null when off). Shared
   // logic lives in module-level buildInseamModel (also used per brand block).
@@ -1965,7 +2143,10 @@ export default function InternalInventoryMatrix() {
     () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
       key: c.key as string,
       header: c.label,
-      format: (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents" : (c.numeric ? "number" : undefined),
+      format: c.key === "avg_margin_pct" ? "percent"
+        : (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents"
+        : (c.numeric ? "number" : undefined),
+      ...(c.key === "avg_margin_pct" ? { digits: 2 } : {}),
     })),
     [snapHidden],
   );
@@ -1978,16 +2159,29 @@ export default function InternalInventoryMatrix() {
   // currency_cents, so the $-measure rows store cents in those two columns.
   const snapExportRows = useMemo<Array<Record<string, unknown>>>(
     () => {
-      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => ({ ...r }));
+      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => {
+        // Derived Avg Mrgn % column — percent units (e.g. 42.15), blank when no
+        // margin; matches the on-screen column's percent format (2 decimals).
+        const m = marginFrac(r.sale_price_cents, r.avg_cost_cents);
+        return { ...r, avg_margin_pct: m == null ? "" : +(m * 100).toFixed(2) };
+      });
       if (!snapTotals || data.length === 0) return data;
       const qty: Record<string, number> = {};
       const cost: Record<string, number> = {};
       const whol: Record<string, number> = {};
-      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; }
+      const cQty: Record<string, number> = {}; // qty of rows with a cost
+      const pQty: Record<string, number> = {}; // qty of rows with a price (per column)
+      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; cQty[k] = 0; pQty[k] = 0; }
       for (const r of data) {
+        const hasC = (r as MergedRow).avg_cost_cents != null;
         const c = (num((r as MergedRow).avg_cost_cents) ?? 0) / 100;
-        const p = (num((r as MergedRow).sale_price_cents) ?? 0) / 100;
-        for (const k of SNAP_SUM_COLS) { const v = num((r as unknown as Record<string, number>)[k]); qty[k] += v; cost[k] += v * c; whol[k] += v * p; }
+        for (const k of SNAP_SUM_COLS) {
+          const v = num((r as unknown as Record<string, number>)[k]);
+          qty[k] += v;
+          if (hasC) { cost[k] += v * c; cQty[k] += v; }
+          const pc = colPriceCents(r as MergedRow, k);
+          if (pc != null) { whol[k] += v * (pc / 100); pQty[k] += v; }
+        }
       }
       const mkRow = (label: string, valOf: (k: string) => number): Record<string, unknown> => {
         const row: Record<string, unknown> = { style_code: label };
@@ -1999,8 +2193,13 @@ export default function InternalInventoryMatrix() {
         mkRow("TOTAL — Qty", (k) => qty[k]),
         mkRow("TOTAL — $ Cost", (k) => Math.round(cost[k])),
         mkRow("TOTAL — $ Wholesale", (k) => Math.round(whol[k])),
-        mkRow("AVG — Cost / unit", (k) => (qty[k] > 0 ? +(cost[k] / qty[k]).toFixed(2) : 0)),
-        mkRow("AVG — Sale / unit", (k) => (qty[k] > 0 ? +(whol[k] / qty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Cost / unit", (k) => (cQty[k] > 0 ? +(cost[k] / cQty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Margin %", (k) => {
+          const s = pQty[k] > 0 ? whol[k] / pQty[k] : 0;
+          const c = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+          return s > 0 ? +(((s - c) / s) * 100).toFixed(2) : 0;
+        }),
+        mkRow("AVG — Sale / unit", (k) => (pQty[k] > 0 ? +(whol[k] / pQty[k]).toFixed(2) : 0)),
       ];
     },
     [snapVisibleRows, mergePpk, snapCollapse, snapTotals],
@@ -2121,6 +2320,26 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
+          {/* Lot filter — single style OR the all-styles views (snapshot / matrix).
+              A style/color received at different times carries multiple lot
+              numbers; pick any combination to scope the On Hand to those lots
+              (empty = all lots). The option list is the full set of lots present
+              on the current styles' on-hand, so it spans base + PPK styles too. */}
+          {availableLots.length > 0 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+              Lot #
+              <MultiSelectDropdown
+                selected={lotFilter}
+                onChange={setLotFilter}
+                options={availableLots.map((l) => ({ value: l, label: l }))}
+                allLabel="All lots"
+                placeholder="Search lot…"
+                title="Show on-hand from one or more lots (empty = all lots)"
+                minWidth={180}
+              />
+            </label>
+          )}
+
           {/* Column show/hide — sits at the end of Row 1, right of Warehouse.
               Only meaningful on the all-styles Snapshot view. */}
           {!styleId && noStyleView === "snapshot" && (
@@ -2193,10 +2412,19 @@ export default function InternalInventoryMatrix() {
             style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
             onClick={() => setHideZeros((v) => !v)}>Hide 0s</button>
 
-          {/* Explode PPK toggle — blue = active. */}
-          <button type="button" title="Convert PPK packs into sized eaches using the Prepack Matrix master"
-            style={{ background: explodePpk ? C.primary : C.card, color: explodePpk ? "#fff" : C.textMuted, border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
-            onClick={() => setExplodePpk((v) => !v)}>Explode</button>
+          {/* Explode PPK toggle — blue = active. LOCKED on (darker blue + not-allowed
+              cursor + explanatory tooltip + no-op click) whenever it's required:
+              Merge PPK (needs eaches) OR Totals over a PPK page ($ totals reconcile
+              only at unit grain). Unlocks when that driver is switched off. */}
+          <button type="button"
+            aria-disabled={explodeLocked}
+            title={explodeLocked
+              ? (mergePpk
+                  ? "Explode stays on while Merge PPK is selected — merging a base style with its PPK sibling needs unit-grain eaches. Turn off Merge PPK to change this."
+                  : "Explode stays on while Totals is selected — the $ totals reconcile only at unit grain (a pack of 24 must read per-unit). Turn off Totals to change this.")
+              : "Convert PPK packs into sized eaches using the Prepack Matrix master"}
+            style={{ background: explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.card), color: (explodeLocked || explodePpk) ? "#fff" : C.textMuted, border: `1px solid ${explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.cardBdr)}`, padding: "6px 14px", borderRadius: 6, cursor: explodeLocked ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => { if (explodeLocked) return; setExplodePpk((v) => !v); }}>Explode</button>
 
           {/* Merge PPK — snapshot only. Collapse each base style + its PPK
               sibling into one "BASE/PPK" row; forces Explode on (needs eaches). */}
@@ -2213,6 +2441,15 @@ export default function InternalInventoryMatrix() {
             <button type="button" title="Totals strip above the headers — Qty + $ Cost (qty × avg cost) + $ Wholesale (qty × avg wholesale SO price) + Avg Cost + Avg Sale per unit"
               style={{ background: snapTotals ? C.primary : C.card, color: snapTotals ? "#fff" : C.textMuted, border: `1px solid ${snapTotals ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
               onClick={() => setSnapTotals((v) => !v)}>Totals</button>
+          )}
+
+          {/* Hide sizes — matrix views only. Drops every per-size column, leaving
+              the non-size columns (Color / Total / Avg Cost / Total Cost / Last
+              Received). Blue = active. */}
+          {((styleId && viewMode === "matrix") || (!styleId && noStyleView === "matrix")) && (
+            <button type="button" title="Hide all per-size columns; keep totals and the non-size columns"
+              style={{ background: hideSizes ? C.primary : C.card, color: hideSizes ? "#fff" : C.textMuted, border: `1px solid ${hideSizes ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setHideSizes((v) => !v)}>Hide sizes</button>
           )}
 
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
@@ -2471,6 +2708,8 @@ export default function InternalInventoryMatrix() {
               const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
               for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+              // Honor the global "Hide sizes" toggle — drop all size columns.
+              const bRenderSizes = hideSizes ? [] : bSizeOrder;
               const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
@@ -2483,7 +2722,7 @@ export default function InternalInventoryMatrix() {
                           <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                           <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                           {bShowSecondary && <th style={{ ...thBase, textAlign: "left" }}>{bByInseam ? "Inseam" : "Rise"}</th>}
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
                           ))}
                           <th style={{ ...thBase, textAlign: "center" }}>Total</th>
@@ -2502,7 +2741,7 @@ export default function InternalInventoryMatrix() {
                                   <td style={{ padding: "4px 8px" }} />
                                   <td style={{ padding: "6px 12px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                                   <td style={{ padding: "6px 12px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 10 }}>Subtotal</td>
-                                  {bSizeOrder.map((sz) => (
+                                  {bRenderSizes.map((sz) => (
                                     <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                                       {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                                     </td>
@@ -2522,7 +2761,7 @@ export default function InternalInventoryMatrix() {
                                 </td>
                                 <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                                {bSizeOrder.map((sz) => (
+                                {bRenderSizes.map((sz) => (
                                   <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                     {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                   </td>
@@ -2546,7 +2785,7 @@ export default function InternalInventoryMatrix() {
                               </td>
                               <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                               {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}
-                              {bSizeOrder.map((sz) => (
+                              {bRenderSizes.map((sz) => (
                                 <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                   {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                 </td>
@@ -2563,7 +2802,7 @@ export default function InternalInventoryMatrix() {
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                           <td colSpan={bColSpan} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                               {bColTotals[sz] ? fmtQty(bColTotals[sz]) : "—"}
                             </td>
@@ -2748,9 +2987,28 @@ export default function InternalInventoryMatrix() {
                 <th style={{ ...thBase, textAlign: "left" }}>Description</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                 {showSecondary && <th style={{ ...thBase, textAlign: "left" }}>{byInseam ? "Inseam" : "Rise"}</th>}
-                {sizeOrder.map((sz) => (
-                  <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 60 }}>{sz}</th>
-                ))}
+                {renderSizes.map((sz, i) => {
+                  const isFirst = i === 0;
+                  const isLast = i === renderSizes.length - 1;
+                  const green = sizeCollapse.hasQty && isFirst;
+                  const clickable = isFirst && sizeCollapse.canToggle;
+                  return (
+                    <th
+                      key={sz}
+                      onClick={clickable ? () => setSizesCollapsed((c) => !c) : undefined}
+                      title={clickable
+                        ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with stock")
+                        : undefined}
+                      style={{
+                        ...thBase, textAlign: "center", minWidth: 60,
+                        ...(green ? { color: C.green } : {}),
+                        ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
+                      }}
+                    >
+                      {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                    </th>
+                  );
+                })}
                 <th style={{ ...thBase, textAlign: "center" }}>Total</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
@@ -2771,7 +3029,7 @@ export default function InternalInventoryMatrix() {
                         <td style={{ padding: "8px 14px" }} />
                         <td style={{ padding: "8px 14px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                         <td style={{ padding: "8px 14px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11 }}>Subtotal</td>
-                        {sizeOrder.map((sz) => (
+                        {renderSizes.map((sz) => (
                           <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                             {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                           </td>
@@ -2797,7 +3055,7 @@ export default function InternalInventoryMatrix() {
                       <td style={{ padding: "8px 14px", color: C.desc, fontSize: 12 }}>{payload.style.style_name || payload.style.description || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                      {sizeOrder.map((sz) => (
+                      {renderSizes.map((sz) => (
                         <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                           {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                         </td>
@@ -2842,7 +3100,7 @@ export default function InternalInventoryMatrix() {
                     {showRise && (
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>
                     )}
-                    {sizeOrder.map((sz) => (
+                    {renderSizes.map((sz) => (
                       <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                         {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                       </td>
@@ -2868,7 +3126,7 @@ export default function InternalInventoryMatrix() {
               <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                 <td style={{ padding: "12px 14px" }} />
                 <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                {sizeOrder.map((sz) => (
+                {renderSizes.map((sz) => (
                   <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                     {colTotals[sz] ? fmtQty(colTotals[sz]) : "—"}
                   </td>

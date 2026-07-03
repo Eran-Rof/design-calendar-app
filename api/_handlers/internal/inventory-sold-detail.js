@@ -81,9 +81,18 @@ export default async function handler(req, res) {
     // Wholesale invoiced lines (the rows the popup lists).
     // NB: ip_sales_history_wholesale has NO `store` column — selecting it 400s
     // (PostgREST) and the drill returns 500. Wholesale rows show store = null.
+    // Channel → warehouse: a sale's channel is its Xoro store = a Tangerine
+    // warehouse (ROF→Main Warehouse, ROF ECOM→ROF Ecom, PT→Psycho Tuna, PT ECOM→
+    // Psycho Tuna Ecom). Lets the drill show/filter warehouse for wholesale rows
+    // too (which carry no store column).
+    const CHANNEL_TO_WH = { "rof": "Main Warehouse", "rof ecom": "ROF Ecom", "pt": "Psycho Tuna", "pt ecom": "Psycho Tuna Ecom" };
+    const channelIdToWh = new Map();
+    { const { data: chRows } = await admin.from("ip_channel_master").select("id, channel_code");
+      for (const cr of chRows || []) { const wh = CHANNEL_TO_WH[String(cr.channel_code || "").toLowerCase().trim()]; if (wh) channelIdToWh.set(cr.id, wh); } }
+
     const whRows = await fetchChunked(itemIds, (ids) => {
       let q = admin.from("ip_sales_history_wholesale")
-        .select("sku_id, qty, unit_price, txn_date, invoice_number, customer_id")
+        .select("sku_id, qty, unit_price, txn_date, invoice_number, customer_id, channel_id")
         .in("sku_id", ids);
       if (from) q = q.gte("txn_date", from);
       if (to) q = q.lte("txn_date", to);
@@ -92,7 +101,7 @@ export default async function handler(req, res) {
     // Ecom orders (no invoice number — keyed by order number).
     const ecRows = await fetchChunked(itemIds, (ids) => {
       let q = admin.from("ip_sales_history_ecom")
-        .select("sku_id, net_qty, order_number, order_date")
+        .select("sku_id, net_qty, order_number, order_date, channel_id")
         .in("sku_id", ids);
       if (from) q = q.gte("order_date", from);
       if (to) q = q.lte("order_date", to);
@@ -127,7 +136,7 @@ export default async function handler(req, res) {
       const qty = (Number(r.qty) || 0) * packRatio;
       const price = r.unit_price != null ? Number(r.unit_price) / packRatio : null;
       addRow(`w|${r.invoice_number ?? ""}|${color ?? ""}`, {
-        color, store: r.store ?? null, invoice_number: r.invoice_number ?? null,
+        color, store: r.store ?? null, warehouse: channelIdToWh.get(r.channel_id) ?? null, invoice_number: r.invoice_number ?? null,
         ar_invoice_id: arIdByNum.get(r.invoice_number) || null,
         customer: custName.get(r.customer_id) || null, date: r.txn_date ?? null, kind: "wholesale",
       }, qty, price);
@@ -135,7 +144,7 @@ export default async function handler(req, res) {
     for (const r of ecRows) {
       const color = colorByItem.get(r.sku_id) ?? null;
       addRow(`e|${r.order_number ?? ""}|${color ?? ""}`, {
-        color, store: "Ecom", invoice_number: r.order_number ?? null, ar_invoice_id: null,
+        color, store: "Ecom", warehouse: channelIdToWh.get(r.channel_id) ?? null, invoice_number: r.order_number ?? null, ar_invoice_id: null,
         customer: null, date: r.order_date ?? null, kind: "ecom",
       }, (Number(r.net_qty) || 0) * packRatio, null);
     }

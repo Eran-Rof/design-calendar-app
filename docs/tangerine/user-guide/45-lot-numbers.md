@@ -39,12 +39,18 @@ This inheritance also applies to any programmatic "PO from SO" path (a PO that c
 
 ## 45.2 The lot column on a Sales Order
 
-A sales-order line carries the same per-style+color lot field, but the **SO matrix does not show a lot column for hand entry**. SO lots are populated by the downstream flows rather than typed in:
+A sales-order line carries the same per-style+color lot field, and the SO matrix now shows a **Lot column at the far right — after the Total $ column** — exactly like the PO matrix:
+
+- A **🏷 Show lots / Hide lots** toggle sits at the top-right of the matrix; on an SO the column is **hidden by default — click "Show lots"** to reveal it (on a PO it is shown by default). Each color row gets a per-row `Lot` field plus a "set all rows" header entry.
+- The placeholder reads **"customer PO / lot"** — a reminder that on a sales order the lot is normally the customer's PO number (or the stock lot the order ships from), not a production PO#.
+- The column is fully editable in a draft/editable SO and read-only when the order is locked, and any lot you type is saved onto the sales-order line.
+
+You still usually don't have to type lots in by hand — they flow in automatically:
 
 - When a **production PO is created from the order**, the lot the PO inherits (the customer PO, §45.1) is the thread that links the customer order to the production batch.
-- Later scenarios (lot-aware availability and allocation) read and write this same SO-line lot.
+- **Lot-aware ATS allocation** (Scenario 5) writes the allocated stock lots onto the SO lines at save, splitting a line per lot as needed.
 
-So on a sales order you generally don't enter lots directly — they flow in from the order's customer PO and the production PO created against it.
+The hand-entry column simply lets the operator view those flowed-in lots and override any line before saving.
 
 ---
 
@@ -56,7 +62,26 @@ Because lots ride the FIFO layer, they're the foundation for lot-aware availabil
 
 ---
 
-## 45.4 What's NOT yet usable
+## 45.4 Viewing on-hand by lot on the Inventory Matrix
+
+A single style + color can be **received at different times**, so its on-hand stock may sit across **several lots** at once. The **Inventory Matrix** (`/tangerine?m=inventory_matrix`) lets you break on-hand down by lot — in **every** view, not just a single style:
+
+- A **Lot #** filter sits next to the Warehouse filter whenever the current styles have any lotted on-hand. It's a multi-select populated with **every lot number present on those styles' on-hand** — including a **`(no lot)`** bucket for legacy / opening-balance stock received before lot tracking.
+- **Leave it empty to see everything** (on-hand summed across all lots — the default).
+- **Pick one or more lots** to re-scope on-hand to just those lots; selecting several sums them.
+- The dropdown always lists the **full** set of lots even while a filter is applied, so you can freely add or swap lots.
+
+It works across the three views:
+
+- **Single style** — each color × size cell shows only the picked lots' on-hand. (While a lot filter is active the matrix shows **on-hand only** — the item-level **Available** figure is hidden, because availability isn't tracked per lot.) The filter also applies to PPK-exploded on-hand when **Explode** is on.
+- **All-styles Matrix** — the same lot filter scopes on-hand on every style's grid at once, so a search that pulls up **multiple styles (base + their PPK siblings)** filters them all together. The lot list is the **union** of every listed style's lots.
+- **All-styles Snapshot** — the **On Hand** column is scoped to the picked lots. Note that only On Hand is lot-tracked: the other columns (**Allocated / On SO / On PO / ATS / Sold / Purchased**) aren't recorded per lot, so they stay whole-style.
+
+The lot list and per-lot on-hand come straight from the **FIFO inventory layers** (§45.3), so they reflect exactly which batch each unit came from.
+
+---
+
+## 45.5 What's NOT yet usable
 
 These build on the same lot column and ship in later phases:
 
@@ -68,11 +93,12 @@ Until those land, lots are an end-to-end **label** — auto-stamped, inherited, 
 
 ---
 
-## 45.5 Code map
+## 45.6 Code map
 
-- **Matrix body (lot column + toggle):** `src/tanda/LineMatrixBody.tsx` (the `🏷 Show lots / Hide lots` toggle, per-row `Lot` field, and "set all rows"; PO-only, default shown).
+- **Matrix body (lot column + toggle):** `src/tanda/LineMatrixBody.tsx` (the `🏷 Show lots / Hide lots` toggle, per-row `Lot` field, and "set all rows"; far-right column after `Total $` — offered in **both PO and SO** modes, hidden on AR; default shown on PO, **hidden on SO** via `showLots` initial `mode === "po"`). SO seeding of existing line lots is in `src/tanda/InternalSalesOrders.tsx` (`lot: l.lot_number` on each seed cell).
 - **PO create-from-SO lot inheritance:** `src/tanda/InternalPurchaseOrders.tsx` (`createFromSO` seeds each cell's lot from the SO's `customer_po`; SO picker shows the 🏷 customer PO).
 - **Server:** `api/_handlers/internal/purchase-orders/*` (auto-stamp PO# at issue on un-lotted lines; default un-lotted lines to the linked SO's `customer_po`), `sales-orders/*` (accept per-line lot), receiving's `createLayer` (carries the PO line's lot onto `inventory_layers`).
+- **Inventory Matrix lot filter:** `src/tanda/InternalInventoryMatrix.tsx` (the **Lot #** `MultiSelectDropdown`; `lotFilter` state; `availableLots` memo picks the lot list per view — single `payload.lots`, snapshot `snapLots`, or the union of `brandPayloads[].payload.lots`; `&lots=`/`lots` threaded into all three fetches). Servers: `api/_lib/styleMatrix.js` `enumerateStyleMatrix` reads `inventory_layers.lot_number`, returns the full `lots` list, and (when `opts.lotFilter` is set) scopes on-hand to those lots — threaded through `computePpkExplode`; `api/_handlers/internal/inventory-snapshot.js` does the same for the Snapshot **On Hand** column (accepts `body.lots`, returns `lots`); `NO_LOT` / `lotKeyOf` (exported from `styleMatrix.js`) normalize the unlotted bucket. Endpoint `api/_handlers/internal/style-matrix/index.js` parses `?lots=A,B`.
 - **Schema:** migration `20260899000000` — `lot_number text` on `purchase_order_lines`, `sales_order_lines`, `inventory_layers`, plus a partial index `inventory_layers(entity_id, item_id, lot_number)` for the later lot-aware allocation.
 
 ## Related docs

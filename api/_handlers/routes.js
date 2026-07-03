@@ -145,7 +145,9 @@ import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/u
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_build_orders_id from "./internal/build-orders/[id].js";
+import r_internal_build_orders_cancel from "./internal/build-orders/cancel.js";
 import r_internal_build_orders_complete from "./internal/build-orders/complete.js";
+import r_internal_build_orders_conversion_po from "./internal/build-orders/conversion-po.js";
 import r_internal_build_orders_index from "./internal/build-orders/index.js";
 import r_internal_build_orders_issue from "./internal/build-orders/issue.js";
 import r_internal_build_orders_release from "./internal/build-orders/release.js";
@@ -342,8 +344,11 @@ import r_internal_part_inventory_index from "./internal/part-inventory/index.js"
 import r_internal_part_master_id from "./internal/part-master/[id].js";
 import r_internal_part_master_index from "./internal/part-master/index.js";
 import r_internal_part_purchases_index from "./internal/part-purchases/index.js";
+import r_internal_part_thumbs from "./internal/part-thumbs.js";
 import r_internal_part_types_id from "./internal/part-types/[id].js";
 import r_internal_part_types_index from "./internal/part-types/index.js";
+import r_internal_parts_part_id_images_image_id from "./internal/parts/[part_id]/images/[image_id].js";
+import r_internal_parts_part_id_images_index from "./internal/parts/[part_id]/images/index.js";
 import r_internal_payment_terms_id from "./internal/payment-terms/[id].js";
 import r_internal_payment_terms_index from "./internal/payment-terms/index.js";
 import r_internal_payments_id_fx_detail from "./internal/payments/[id]/fx-detail.js";
@@ -407,6 +412,7 @@ import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procu
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
 import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/split-by-lot.js";
+import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
 import r_internal_recon_cutovers from "./internal/recon/cutovers.js";
 import r_internal_recon_run_ap from "./internal/recon/run-ap.js";
@@ -760,6 +766,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/comp/ly", handler: r_internal_costing_comp_ly },
   { pattern: "/api/internal/costing/comp/t3", handler: r_internal_costing_comp_t3 },
   { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: r_internal_inventory_cycle_counts_lines },
+  { pattern: "/api/internal/parts/:part_id/images/:image_id", handler: r_internal_parts_part_id_images_image_id },
   { pattern: "/api/internal/vendors/:id/preferred/:pref_id", handler: r_internal_vendors_id_preferred_pref_id },
   { pattern: "/api/internal/workspaces/:id/tasks/:task_id", handler: r_internal_workspaces_id_tasks_task_id },
   { pattern: "/api/internal/workspaces/:id/pins/:pin_id", handler: r_internal_workspaces_id_pins_pin_id },
@@ -785,6 +792,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: r_internal_sales_orders_create_invoice },
   { pattern: "/api/internal/sales-orders/:id/record-payment", handler: r_internal_sales_orders_id_record_payment },
   { pattern: "/api/internal/workflow-executions/:id/approve", handler: r_internal_workflow_executions_id_approve },
+  { pattern: "/api/internal/build-orders/:id/conversion-po", handler: r_internal_build_orders_conversion_po },
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof", handler: r_internal_entities_id_coa_copy },
   { pattern: "/api/internal/inventory-adjustments/:id/post", handler: r_internal_inventory_adjustments_post },
   { pattern: "/api/internal/workflow-executions/:id/reject", handler: r_internal_workflow_executions_id_reject },
@@ -814,6 +822,7 @@ export const ROUTES = [
   { pattern: "/api/internal/virtual-cards/:id/cancel", handler: r_internal_virtual_cards_id_cancel },
   { pattern: "/api/vendor/discount-offers/:id/accept", handler: r_vendor_discount_offers_id_accept },
   { pattern: "/api/vendor/discount-offers/:id/reject", handler: r_vendor_discount_offers_id_reject },
+  { pattern: "/api/internal/build-orders/:id/cancel", handler: r_internal_build_orders_cancel },
   { pattern: "/api/internal/edi/:vendor_id/messages", handler: r_internal_edi_vendor_id_messages },
   { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },
@@ -832,6 +841,7 @@ export const ROUTES = [
   { pattern: "/api/internal/entities/:id/branding", handler: r_internal_entities_id_branding },
   { pattern: "/api/internal/faire/post-payout/:id", handler: r_internal_faire_post_payout_id },
   { pattern: "/api/internal/gl-periods/:id/reopen", handler: r_internal_gl_periods_reopen },
+  { pattern: "/api/internal/parts/:part_id/images", handler: r_internal_parts_part_id_images_index },
   { pattern: "/api/internal/sales-orders/:id/ship", handler: r_internal_sales_orders_ship },
   { pattern: "/api/internal/sales-orders/:id/wave", handler: r_internal_sales_orders_wave },
   { pattern: "/api/internal/shopify/post-cogs/:id", handler: r_internal_shopify_post_cogs_id },
@@ -970,6 +980,7 @@ export const ROUTES = [
   { pattern: "/api/internal/audit/row-history", handler: r_internal_audit_row_history },
   { pattern: "/api/internal/crm/opportunities", handler: r_internal_crm_opportunities_index },
   { pattern: "/api/internal/faire/sync-orders", handler: r_internal_faire_sync_orders },
+  { pattern: "/api/internal/rbac/observations", handler: r_internal_rbac_observations },
   { pattern: "/api/internal/vendors/diversity", handler: r_internal_vendors_diversity },
   { pattern: "/api/vendor/marketplace/listing", handler: r_vendor_marketplace_listing_index },
   { pattern: "/api/vendor/rfqs/messages-inbox", handler: r_vendor_rfqs_messages_inbox_index },
@@ -1268,6 +1279,7 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
   { pattern: "/api/internal/mfg-reports", handler: r_internal_mfg_reports_index },
   { pattern: "/api/internal/part-master", handler: r_internal_part_master_index },
+  { pattern: "/api/internal/part-thumbs", handler: r_internal_part_thumbs },
   { pattern: "/api/internal/phase-notes", handler: r_internal_phase_notes_index },
   { pattern: "/api/internal/price-lists", handler: r_internal_price_lists_index },
   { pattern: "/api/internal/rma-reasons", handler: r_internal_rma_reasons_index },

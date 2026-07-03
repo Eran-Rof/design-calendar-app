@@ -27,11 +27,27 @@ export default async function handler(req, res) {
   if (!build) return res.status(404).json({ error: "Build order not found" });
   if (build.status !== "draft") return res.status(409).json({ error: `Build is '${build.status}', not draft — already released.` });
 
-  // Resolve the BOM (explicit, else active for the finished item).
+  // Resolve the BOM (explicit, else the active BOM for the finished STYLE —
+  // falling back to the representative finished_item_id for pre-style BOMs).
   let bomId = build.bom_id;
   if (!bomId) {
-    const { data: activeBom } = await admin.from("mfg_bom")
-      .select("id").eq("entity_id", build.entity_id).eq("finished_item_id", build.finished_item_id).eq("status", "active").maybeSingle();
+    let activeBom = null;
+    if (build.finished_style_id) {
+      // Prefer a customer-specific active BOM for this build's customer, else
+      // the generic (customer-less) active BOM for the style.
+      if (build.customer_id) {
+        ({ data: activeBom } = await admin.from("mfg_bom")
+          .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).eq("customer_id", build.customer_id).eq("status", "active").maybeSingle());
+      }
+      if (!activeBom) {
+        ({ data: activeBom } = await admin.from("mfg_bom")
+          .select("id").eq("entity_id", build.entity_id).eq("finished_style_id", build.finished_style_id).is("customer_id", null).eq("status", "active").maybeSingle());
+      }
+    }
+    if (!activeBom) {
+      ({ data: activeBom } = await admin.from("mfg_bom")
+        .select("id").eq("entity_id", build.entity_id).eq("finished_item_id", build.finished_item_id).eq("status", "active").maybeSingle());
+    }
     if (!activeBom) return res.status(400).json({ error: "No BOM on this build and no active BOM for the finished style. Create/activate a BOM first." });
     bomId = activeBom.id;
   }
@@ -59,13 +75,18 @@ export default async function handler(req, res) {
       qty_required: qtyRequired,
       qty_consumed: 0,
       actual_cost_cents: 0,
+      // Seed on EVERY row (not just service rows): PostgREST unions the keys
+      // across a multi-row insert, so once any service row carries
+      // service_capitalized the column is sent for all rows — a part /
+      // finished_style row that omitted it would get an explicit null, which
+      // bypasses the DB DEFAULT false and violates the NOT NULL constraint.
+      service_capitalized: false,
       line_number: i + 1,
     };
     if (c.component_kind === "service") {
       const def = svcDefaults.get(c.service_item_id);
       row.service_vendor_id = def?.default_vendor_id || null;
       row.service_charge_cents = def?.default_charge_cents != null ? Math.round(def.default_charge_cents * qtyRequired) : null;
-      row.service_capitalized = false;
     }
     return row;
   });

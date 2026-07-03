@@ -237,6 +237,18 @@ export function NavDrawer({
     navigate(key);
   }, [navigate]);
 
+  // Right-click a nav row → open that same view in a NEW browser tab and focus
+  // it. Left-click behavior is untouched. The app deep-links from ?m=<key> on
+  // mount (see Tangerine.tsx), so the opened tab lands directly on that view.
+  const RIGHT_CLICK_HINT = "Right-click: open in new tab";
+  const onNavContext = useCallback((e: React.MouseEvent, key: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = new URL(moduleHref(key), window.location.href).toString();
+    const win = window.open(url, "_blank");
+    if (win) win.focus();
+  }, []);
+
   // Favorites click — navigate, suppress the menu-section auto-open below, and
   // mark the selection favorites-driven so the menu copy isn't highlighted.
   // Only arm the skip when activeModule will actually change (so a re-click of
@@ -448,8 +460,9 @@ export function NavDrawer({
             {searchHits.length === 0
               ? <div style={{ color:C.textMuted, fontSize:12, padding:"8px 12px" }}>No matches</div>
               : searchHits.map(m => (
-                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }}
+                <a key={m.key} href={moduleHref(m.key)} title={RIGHT_CLICK_HINT} style={{ ...rowStyle(m.key), textDecoration:"none" }}
                   onClick={e => onNavClick(e, m.key)}
+                  onContextMenu={e => onNavContext(e, m.key)}
                   onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
                 >
                   <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>
@@ -481,8 +494,9 @@ export function NavDrawer({
               <div style={{ color:C.textMuted, fontSize:9.6, padding:"2px 10px 7px", fontStyle:"italic", opacity:0.6 }}>Use ☆ to star the current view</div>
             )}
             {favMods.map(m => (
-              <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? m.label : undefined}
+              <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? `${m.label} — ${RIGHT_CLICK_HINT}` : RIGHT_CLICK_HINT}
                 onClick={e => onFavClick(e, m.key)}
+                onContextMenu={e => onNavContext(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
                 {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>}
@@ -504,8 +518,9 @@ export function NavDrawer({
           const showGroupHeaders = groups.length > 1;
 
           const renderRow = (m: NavModule) => (
-            <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
+            <a key={m.key} href={moduleHref(m.key)} title={RIGHT_CLICK_HINT} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
               onClick={e => onNavClick(e, m.key)}
+              onContextMenu={e => onNavContext(e, m.key)}
               onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
             >
               <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>

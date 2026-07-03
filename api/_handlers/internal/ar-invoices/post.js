@@ -408,6 +408,7 @@ export async function postInvoice(admin, opts) {
       kind: "ar_invoice_sent",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: `Post AR invoice ${invoice.invoice_number ?? invoice.id}`,
       data: eventData,
     });
   } catch (e) {

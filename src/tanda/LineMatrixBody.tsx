@@ -26,6 +26,7 @@ import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
+import { canonColor } from "./colorCanon";
 import { confirmDialog } from "../shared/ui/warn";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
@@ -109,8 +110,44 @@ function PrepackExplodePreview({ rows, packsByRow, composition }: {
   );
 }
 
+// Visual pack composition for a prepack (from the Prepack Matrix master): the
+// INNER pack per size × N = the CARTON pack per size, with the inner-pack and
+// carton totals. Replaces the old "1 pack = N units: 30×3, …" text line.
+function PrepackCompositionView({ composition }: {
+  composition: { size: string; qty_per_pack: number; inner_pack_qty?: number }[];
+}) {
+  const PC = { headerBg: "#0F172A", sect: "#334155", chip: "#0b1220", amber: "#F59E0B", text: "#E5E7EB", muted: "#94A3B8" };
+  const sizes = composition.map((c) => c.size);
+  const inner = composition.map((c) => Number(c.inner_pack_qty) || 0);
+  const carton = composition.map((c) => Number(c.qty_per_pack) || 0);
+  const innerTotal = inner.reduce((a, b) => a + b, 0);
+  const cartonTotal = carton.reduce((a, b) => a + b, 0);
+  const hasInner = innerTotal > 0;
+  const mult = hasInner ? Math.round(cartonTotal / innerTotal) : 0;
+  const chip: React.CSSProperties = { background: PC.chip, color: PC.muted, fontFamily: "monospace", fontSize: 12, padding: "4px 9px", borderRadius: 3, textAlign: "center", minWidth: 26 };
+  const num: React.CSSProperties = { color: PC.text, fontFamily: "monospace", fontWeight: 700, fontSize: 13, padding: "3px 9px", textAlign: "center" };
+  const grid = (vals: number[], label: string, total: number) => (
+    <div>
+      <div style={{ fontSize: 12, color: PC.muted, marginBottom: 5 }}>{label} = <b style={{ color: PC.amber }}>{total.toLocaleString()}</b></div>
+      <table style={{ borderCollapse: "separate", borderSpacing: 3 }}>
+        <tbody>
+          <tr>{sizes.map((sz, i) => <td key={i} style={chip}>{sz}</td>)}</tr>
+          <tr>{vals.map((v, i) => <td key={i} style={num}>{v.toLocaleString()}</td>)}</tr>
+        </tbody>
+      </table>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap", background: PC.headerBg, border: `1px solid ${PC.sect}`, borderRadius: 8, padding: "8px 12px", marginTop: 6, overflowX: "auto" }}>
+      {hasInner && grid(inner, "inner packs", innerTotal)}
+      {hasInner && <div style={{ alignSelf: "center", color: PC.text, fontSize: 16, fontWeight: 700, padding: "0 2px" }}>×{mult}</div>}
+      {grid(carton, "carton total", cartonTotal)}
+    </div>
+  );
+}
+
 export type FlatLine = { key: number; inventory_item_id: string; qty_ordered: string; unit_price_dollars: string; label?: string; description?: string; line_total_dollars?: string; revenue_account_id?: string };
-export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
+export type ResolvedLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; description?: string | null; line_total_cents?: number; revenue_account_id?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null; customer_po?: string | null };
 export type SeedSection = { styleCode: string; cells: { color: string | null; size: string; inseam?: string | null; qty: number; unit?: string; lot?: string | null }[]; requestedShipDate?: string | null; vendorConfirmedShipDate?: string | null; defaultUnit?: string; quickFill?: Record<string, number> };
 export interface LineMatrixBodyHandle {
   resolve: () => Promise<ResolvedLine[]>;
@@ -130,7 +167,7 @@ export interface LineMatrixBodyHandle {
   addFlat: () => void;
 }
 
-type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean };
+type Section = { id: number; styleId: string; payload: MatrixPayload | null; qty: Record<string, number>; unit: Record<string, string>; unitEach?: Record<string, string>; lot: Record<string, string>; loading: boolean; err: string | null; dates?: { requested?: string; confirmed?: string }; datesOpen?: boolean; quickFill?: Record<string, string>; explodeOpen?: boolean; poByRow?: Record<string, string> };
 
 // Parse a free-text money value → number, or null when blank/invalid (item 12).
 function parseMoneyOrNull(v: string): number | null {
@@ -196,13 +233,22 @@ export interface LineMatrixBodyProps {
    *  (not the initial prefill). Lets the owning modal record an audit trail —
    *  e.g. append the change (with today's date) to the order notes. */
   onVendorConfirmedChange?: (styleCode: string, prev: string, next: string) => void;
+  /** SO only — enable a per-style-line "Customer PO" field. A toolbar toggle
+   *  reveals it on every style section; each line defaults to the header
+   *  Customer PO. Editing a line to a DIFFERENT PO stamps that PO on the line's
+   *  resolved rows (ResolvedLine.customer_po) so the owning SO modal can split
+   *  that style onto a new auto-created SO at save. */
+  enableLinePo?: boolean;
+  /** SO only — the header Customer PO, the default value for every per-line PO
+   *  field when `enableLinePo` is on. */
+  headerCustomerPo?: string;
 }
 
 export type BodyTotals = { qty: number; cents: number; costCents: number; marginPct: number; marginEstimated: boolean };
 const MARGIN_FALLBACK = 0.21; // assumed gross margin when a style has no cost history
 
 const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(function LineMatrixBody(
-  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, hideAddButtons = false, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange }, ref,
+  { mode = "so", editable, items, seed, showOnHand = true, atsMode = false, atsAsOfDate = null, onTotalsChange, canAdd, hideAddButtons = false, onRequestEdit, revenueAccounts, showLineDates = false, lineDateDefault = null, onPrimaryBrandChange, onAddLine, onVendorConfirmedChange, enableLinePo = false, headerCustomerPo = "" }, ref,
 ) {
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
@@ -212,10 +258,23 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [flat, setFlat] = useState<FlatLine[]>([]);
-  // PO: per style+color lot column. Auto-stamped to the PO number at issue
-  // server-side; shown here so the operator can view/override per line. Hidden on
-  // SO/AR (lots populated by later scenarios). Default visible in PO mode.
+  // PO/SO: per style+color lot column (far-right, after the Total $ column). On
+  // POs it auto-stamps to the PO number at issue; on SOs the lot is the customer
+  // PO / allocated stock lot (Scenarios 2/3/5) but the operator can also view and
+  // set it by hand here. Hidden on AR. The toggle is offered in both PO and SO
+  // modes; the column is shown by default on POs but hidden on SOs (operator
+  // clicks "Show lots" when needed).
+  const showLotsMode = mode === "po" || mode === "so";
   const [showLots, setShowLots] = useState(mode === "po");
+  // SO per-line customer PO (operator feature): a toolbar toggle reveals a
+  // Customer PO field on every style section, pre-filled with the header PO.
+  // Editing a line to a different PO splits that style onto a new SO at save
+  // (the owning modal reads the customer_po stamped on each resolved line).
+  const [showLinePo, setShowLinePo] = useState(false);
+  // Prepack composition view (inner pack × N = carton) — shown by default; the
+  // operator can hide it per section. Tracks the section ids that are hidden.
+  const [packCompHidden, setPackCompHidden] = useState<Set<number>>(() => new Set());
+  const togglePackComp = (id: number) => setPackCompHidden((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Item 25 — style images (same look/usability as the Inventory Matrix): a
   // thumbnail preceding the style on each line, click → full gallery. Toggle is
   // OFF by default and remembered across orders; when ON the printable/Excel/email
@@ -341,6 +400,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   }
   function setUnit(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, unit: { ...s.unit, [rowKey]: v } } : s))); }
   function setLot(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: { ...s.lot, [rowKey]: v } } : s))); }
+  // Per-color Customer PO: set one row, or stamp every row (header "set all").
+  function setRowPo(id: number, rowKey: string, v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, poByRow: { ...(s.poByRow || {}), [rowKey]: v } } : s))); }
+  function setAllRowPo(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, poByRow: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setAllLot(id: number, rows: EditableMatrixRow[], v: string) { setSections((p) => p.map((s) => (s.id === id ? { ...s, lot: Object.fromEntries(rows.map((r) => [r.key, v])) } : s))); }
   function setSectionDate(id: number, which: "requested" | "confirmed", v: string) {
     // Report a user EDIT of the Vendor-confirmed date (the initial prefill goes
@@ -373,6 +435,30 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   function packPriceFromEach(v: string, packSize: number): string | null {
     const each = parseMoneyOrNull(v);
     return each != null && packSize > 0 ? (each * packSize).toFixed(2) : null;
+  }
+  // Inverse — per-each price from the pack price (pack ÷ pack size).
+  function eachPriceFromPack(v: string, packSize: number): string | null {
+    const pack = parseMoneyOrNull(v);
+    return pack != null && packSize > 0 ? (pack / packSize).toFixed(2) : null;
+  }
+  // PPK pack-price entry → also fill the per-each price when it's blank, so the
+  // prepack price works BOTH ways (each→pack via setUnitEach, pack→each here).
+  function setUnitPpk(id: number, rowKey: string, v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const eachVals = { ...(s.unitEach || {}) };
+      if (!((eachVals[rowKey] ?? "").trim())) { const e = eachPriceFromPack(v, packSize); if (e != null) eachVals[rowKey] = e; }
+      return { ...s, unit: { ...s.unit, [rowKey]: v }, unitEach: eachVals };
+    }));
+  }
+  function setAllUnitPpk(id: number, rows: EditableMatrixRow[], v: string, packSize: number) {
+    setSections((p) => p.map((s) => {
+      if (s.id !== id) return s;
+      const e = eachPriceFromPack(v, packSize);
+      const eachVals = { ...(s.unitEach || {}) };
+      for (const r of rows) if (!((eachVals[r.key] ?? "").trim()) && e != null) eachVals[r.key] = e;
+      return { ...s, unit: Object.fromEntries(rows.map((r) => [r.key, v])), unitEach: eachVals };
+    }));
   }
   function setUnitEach(id: number, rowKey: string, v: string, packSize: number) {
     setSections((p) => p.map((s) => {
@@ -407,7 +493,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const id = nextSectionId.current++;
       const qty: Record<string, number> = {}; const unit: Record<string, string> = {}; const lot: Record<string, string> = {};
       for (const c of sec.cells) {
-        const rk = rowKeyOf(c.color, c.inseam ?? null);
+        // Canonicalize the seed color so a document line spelled "Lt Wash" lands
+        // on the same canonical row the backend payload builds ("Light Wash").
+        // Without this, variant-spelled existing lines would key to a row that no
+        // longer exists after the payload merge and their qtys would vanish.
+        const rk = rowKeyOf(canonColor(c.color), c.inseam ?? null);
         if (c.qty > 0) qty[matrixCellKey(rk, c.size)] = c.qty;
         if (c.unit) unit[rk] = c.unit;
         if (c.lot) lot[rk] = c.lot;
@@ -416,7 +506,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
       const defaultUnit = sec.defaultUnit;
       // Per-color imported total → keyed by rowKey, shown in the Qty quick-fill box.
       const quickFill: Record<string, string> | undefined = sec.quickFill
-        ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(color || null, null), String(total)]))
+        ? Object.fromEntries(Object.entries(sec.quickFill).map(([color, total]) => [rowKeyOf(canonColor(color) || null, null), String(total)]))
         : undefined;
       setSections((p) => [...p, { id, styleId: st?.id || "", payload: null, qty, unit, lot, loading: !!st, err: st ? null : `Style ${sec.styleCode} not found`, dates, quickFill }]);
       if (st) loadPayload(st.id).then((pl) => {
@@ -531,6 +621,10 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           if (!(n > 0)) continue;
           const [rowKey, size] = cell.split("__");
           const [color, inseam] = rowKey.split("|");
+          // Per-line PO (SO only): this color ROW's effective Customer PO — its
+          // own override, or the header PO when untouched. Stamped on every
+          // resolved SKU of the row so the owning modal groups/splits by PO.
+          const linePo = enableLinePo ? ((s.poByRow?.[rowKey] ?? headerCustomerPo).trim() || null) : undefined;
           const unitDollars = (s.unit[rowKey] || "").trim();
           const existing = byCell.get(skuCellKey(color || null, size, inseam || null));
           let itemId = existing?.id || null;
@@ -547,7 +641,8 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           lines.push({
             inventory_item_id: itemId, qty_ordered: n, unit_price_cents: Math.round((Number(unitDollars) || 0) * 100),
             ...(showLineDates ? { requested_ship_date: s.dates?.requested || null, vendor_confirmed_ship_date: s.dates?.confirmed || null } : {}),
-            ...(mode === "po" ? { lot_number: lotVal || null } : {}),
+            ...(showLotsMode ? { lot_number: lotVal || null } : {}),
+            ...(linePo !== undefined ? { customer_po: linePo } : {}),
           });
         }
       }
@@ -652,7 +747,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
     },
     addSection,
     addFlat,
-  }), [sections, flat, styles]);
+  }), [sections, flat, styles, enableLinePo, headerCustomerPo]);
 
   // Flat-picker options: merge any seeded label whose SKU isn't in the 500-item list.
   const flatOptions = useMemo(() => {
@@ -669,10 +764,16 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           title={showImages ? "Hide style images (and exclude them from downloads/print/email)" : "Show a style image on each line (also included in downloads, print and email)"}>
           {showImages ? "Hide images" : "Show images"}
         </button>
-        {mode === "po" && (
+        {showLotsMode && (
           <button onClick={() => setShowLots((v) => !v)} style={btnSecondary}
-            title={showLots ? "Hide the per-line Lot column" : "Show the per-line Lot column (auto-set to the PO number at issue)"}>
+            title={showLots ? "Hide the per-line Lot column" : (mode === "po" ? "Show the per-line Lot column (auto-set to the PO number at issue)" : "Show the per-line Lot column (customer PO / allocated stock lot)")}>
             {showLots ? "Hide lots" : "Show lots"}
+          </button>
+        )}
+        {enableLinePo && (
+          <button onClick={() => setShowLinePo((v) => !v)} style={showLinePo ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
+            title={showLinePo ? "Hide the per-color Customer PO column" : "Show a Customer PO column on each color row (defaults to the header PO; a color with a different PO is split onto a new confirmed SO when you save)"}>
+            {showLinePo ? "Hide line PO" : "Show line PO"}
           </button>
         )}
         {(canAdd ?? editable) && !hideAddButtons && (
@@ -868,40 +969,58 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 order line stores PACKS; the explode is for display. */}
             {s.payload && pp && (
               <>
-                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5 }}>
-                  Prepack — enter the number of <b>packs</b> per color (column <b>{pp.pack_token}</b>).{" "}
+                <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   {pp.has_matrix
-                    ? <>1 pack = <b>{pp.pack_total}</b> units: {pp.composition.map((c) => `${c.size}×${c.qty_per_pack}`).join(", ")}.</>
+                    ? <button type="button" onClick={() => togglePackComp(s.id)} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }}>
+                        {packCompHidden.has(s.id) ? `▸ Show ${pp.pack_token} pack composition` : `▾ Hide ${pp.pack_token} pack composition`}
+                      </button>
                     : <>
-                        <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.{" "}</span>
+                        <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.</span>
                         {/* Item 10 — add the matrix inline without leaving the order. */}
                         <button type="button"
                           onClick={() => { const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""; if (s.styleId && code) setPrepackAddFor({ sectionId: s.id, styleId: s.styleId, styleCode: code, packToken: pp.pack_token }); }}
-                          style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px", marginLeft: 2 }}>
+                          style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px" }}>
                           + Add prepack matrix
                         </button>
                       </>}
                 </div>
+                {/* Prepack PPKxx = inner pack × N = carton (from the Prepack Matrices). */}
+                {pp.has_matrix && !packCompHidden.has(s.id) && <PrepackCompositionView composition={pp.composition} />}
                 <EditableSizeMatrix
                   rows={rows} sizes={[pp.pack_token]}
                   qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
                   unit={{
                     label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit,
-                    onChange: (rk, v) => setUnit(s.id, rk, v), onSetAll: (v) => setAllUnit(s.id, rows, v),
+                    // PPK price is two-way: entering the pack price auto-fills the
+                    // per-each price (and vice-versa via the each column below).
+                    onChange: packSize > 0 ? (rk, v) => setUnitPpk(s.id, rk, v, packSize) : (rk, v) => setUnit(s.id, rk, v),
+                    onSetAll: packSize > 0 ? (v) => setAllUnitPpk(s.id, rows, v, packSize) : (v) => setAllUnit(s.id, rows, v),
                     showLineTotal: true, forceDecimals: 2,
-                    // Item 12 — per-each price driver column (preceding the pack price).
-                    // Enter $/each → pack price auto-fills = each × pack size.
-                    ...(packSize > 0 && editable ? { each: {
-                      label: moneyLabel, placeholder: "0.00", values: s.unitEach || {},
+                    // Per-each price column — shown whenever the pack size is known
+                    // (entry AND view): on a saved order with no stored per-each it
+                    // shows the computed each = pack ÷ pack size. Two-way: each→pack.
+                    ...(packSize > 0 ? { each: {
+                      label: `${moneyLabel} / each`, placeholder: "0.00",
+                      values: Object.fromEntries(rows.map((r) => {
+                        const stored = (s.unitEach || {})[r.key];
+                        return [r.key, (stored ?? "").trim() ? stored! : (eachPriceFromPack(s.unit[r.key] ?? "", packSize) ?? "")];
+                      })),
                       onChange: (rk, v) => setUnitEach(s.id, rk, v, packSize),
                       onSetAll: (v) => setAllUnitEach(s.id, rows, v, packSize),
                     } } : {}),
                   }}
-                  lot={mode === "po" && showLots ? {
+                  lot={showLotsMode && showLots ? {
                     values: s.lot,
                     onChange: (rk, v) => setLot(s.id, rk, v),
                     onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
-                    placeholder: "PO# at issue",
+                    placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
+                  } : undefined}
+                  customerPo={enableLinePo && showLinePo ? {
+                    values: Object.fromEntries(rows.map((r) => [r.key, s.poByRow?.[r.key] ?? headerCustomerPo])),
+                    onChange: (rk, v) => setRowPo(s.id, rk, v),
+                    onSetAll: (v) => setAllRowPo(s.id, rows, v),
+                    placeholder: "Customer PO #",
+                    highlightWhenDiffersFrom: headerCustomerPo,
                   } : undefined}
                 />
                 {pp.has_matrix && (
@@ -933,11 +1052,18 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                   disabledTitle: "Set a size scale (pack) for this style in Style Master → Scale to enable quick-fill.",
                   valueFor: (rk) => s.quickFill?.[rk],
                 } : undefined}
-                lot={mode === "po" && showLots ? {
+                lot={showLotsMode && showLots ? {
                   values: s.lot,
                   onChange: (rk, v) => setLot(s.id, rk, v),
                   onSetAll: editable ? (v) => setAllLot(s.id, rows, v) : undefined,
-                  placeholder: "PO# at issue",
+                  placeholder: mode === "po" ? "PO# at issue" : "customer PO / lot",
+                } : undefined}
+                customerPo={enableLinePo && showLinePo ? {
+                  values: Object.fromEntries(rows.map((r) => [r.key, s.poByRow?.[r.key] ?? headerCustomerPo])),
+                  onChange: (rk, v) => setRowPo(s.id, rk, v),
+                  onSetAll: (v) => setAllRowPo(s.id, rows, v),
+                  placeholder: "Customer PO #",
+                  highlightWhenDiffersFrom: headerCustomerPo,
                 } : undefined}
               />
             )}

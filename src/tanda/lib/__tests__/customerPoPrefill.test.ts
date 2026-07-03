@@ -102,3 +102,47 @@ describe("buildSeedFromResolved colorPicks", () => {
     expect(warnings.some((w) => /mapped to/.test(w.detail))).toBe(true);
   });
 });
+
+describe("buildSeedFromResolved PPK packs vs units", () => {
+  // PPK style whose style_code has no digits; the pack token rides on the matrix
+  // sizes (as fetchMatrix now surfaces it from the prepack block).
+  const PPK: StyleLite = { id: "p1", style_code: "RYB0594PPK" };
+  // Real RYB0594PPK has an inseam ("30") on its pack SKUs — the body keys rows by
+  // it, so the seeded cell must carry the same inseam or it disappears.
+  const ppkMatrix = async () => ({ sizes: ["PPK24"], colors: ["Indigo"], inseams: ["30"] });
+  const ppkLine = (over: Partial<ParsedPoLine> = {}): ParsedPoLine => ({
+    style_code: "RYB0594PPK", color: "Indigo", description: null, unit_price: 216,
+    total_qty: 20, size_breakdown: null, ...over,
+  });
+
+  it("seeds the pack count directly when qty_is_packs is true (no division), with the inseam", async () => {
+    const resolved = [{ line: ppkLine({ qty_is_packs: true }), chosen: PPK }];
+    const { sections, warnings } = await buildSeedFromResolved(resolved, ppkMatrix);
+    const sec = sections.find((s) => s.styleCode === "RYB0594PPK");
+    expect(sec).toBeTruthy();
+    // 20 packs on PPK24 (not 20÷24=1), keyed to the style's inseam "30".
+    expect(sec!.cells).toEqual([{ color: "Indigo", size: "PPK24", inseam: "30", qty: 20, unit: "216" }]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("converts units → cartons when qty_is_packs is false", async () => {
+    const resolved = [{ line: ppkLine({ qty_is_packs: false, total_qty: 480 }), chosen: PPK }];
+    const { sections } = await buildSeedFromResolved(resolved, ppkMatrix);
+    const sec = sections.find((s) => s.styleCode === "RYB0594PPK");
+    // 480 units ÷ 24/pack = 20 cartons.
+    expect(sec!.cells[0]).toMatchObject({ size: "PPK24", qty: 20, inseam: "30" });
+  });
+
+  it("no longer fails to size the carton for a no-digit PPK style code", async () => {
+    const resolved = [{ line: ppkLine({ qty_is_packs: true }), chosen: PPK }];
+    const { warnings } = await buildSeedFromResolved(resolved, ppkMatrix);
+    expect(warnings.some((w) => /Couldn't determine the PPK carton/.test(w.detail))).toBe(false);
+  });
+
+  it("seeds inseam null when the style has none (non-inseam style)", async () => {
+    const flatMatrix = async () => ({ sizes: ["PPK24"], colors: ["Indigo"], inseams: [] });
+    const resolved = [{ line: ppkLine({ qty_is_packs: true }), chosen: PPK }];
+    const { sections } = await buildSeedFromResolved(resolved, flatMatrix);
+    expect(sections[0].cells[0]).toMatchObject({ size: "PPK24", inseam: null, qty: 20 });
+  });
+});

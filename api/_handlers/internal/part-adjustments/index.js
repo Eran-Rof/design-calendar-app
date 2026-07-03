@@ -116,6 +116,7 @@ export default async function handler(req, res) {
         kind: "part_adjustment",
         entity_id: entityId,
         created_by_user_id: actorUserId,
+        reason: adj.reason || `Part adjustment ${adj.adjustment_type} ${adj.id}`,
         data: {
           adjustment_id: adj.id,
           part_id: adj.part_id,

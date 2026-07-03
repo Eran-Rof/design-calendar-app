@@ -123,50 +123,108 @@ export function validateInsert(body) {
   };
 }
 
-// ── List enrichment: per-PO Avg cost + Sell price ───────────────────────────
-// Decorates each PO header row with two qty-weighted, per-line aggregates so the
+// Split an id array into pages so a `.in(...)` filter's URL stays under
+// PostgREST's ~16KB header limit (uuids ≈ 39 chars each → 200 ≈ 8KB).
+function chunkIds(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
+
+// ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
+// Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
-//   avg_cost_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's lines.
-//   sell_cents     — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
-//                    • if the PO is tied to a customer (sales_order_id →
-//                      sales_orders.customer_id) the M43 pricing engine resolves
-//                      the customer's price (own → assigned → tier → default);
-//                    • any style the customer path doesn't price (and every line
-//                      when there's no customer) falls back to that style's
-//                      BRAND DEFAULT list price (price_lists.brand_id = style's
-//                      brand, mirroring price-lists/style-cost.js).
-// styleFilter (style_code, case-insensitive) scopes BOTH aggregates to just that
+//   avg_cost_cents     — Σ(std_cost·qty) / Σ(qty). STANDARD/catalog cost from
+//                        ip_item_avg_cost (keyed by sku_code, exact then loose)
+//                        — the same source the Inventory Snapshot + SO grid use.
+//                        Lets the operator compare standard cost vs the actual
+//                        negotiated PO price (PO variance).
+//   avg_po_price_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's OWN
+//                        lines. The actual price this PO pays the vendor.
+//   sell_cents         — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
+//                        • if the PO is tied to a customer (sales_order_id →
+//                          sales_orders.customer_id) the M43 pricing engine resolves
+//                          the customer's price (own → assigned → tier → default);
+//                        • any style the customer path doesn't price (and every line
+//                          when there's no customer) falls back to that style's
+//                          BRAND DEFAULT list price (price_lists.brand_id = style's
+//                          brand, mirroring price-lists/style-cost.js).
+//   margin_cents/_pct  — Sell − Avg PO Price (the gross margin if sold at list,
+//                        priced against what this PO actually costs). Mirrors the
+//                        SO grid's Sell − Cost convention. null when sell is absent.
+// styleFilter (style_code, case-insensitive) scopes ALL aggregates to just that
 // style's lines — mirrors the grid's style search so the numbers match the view.
 async function enrichPricing(admin, rows, styleFilter) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const poIds = rows.map((r) => r.id);
-  const { data: lines } = await admin
-    .from("purchase_order_lines")
-    .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
-    .in("purchase_order_id", poIds);
-  const allLines = lines || [];
+  // NB: chunk every `.in(<id array>)` — a full 500-PO / thousands-of-SKU array
+  // makes the request URL exceed PostgREST's 16KB header limit (the fetch fails
+  // with HeadersOverflowError, the query silently returns no rows, and EVERY
+  // money column goes blank). 200 uuids ≈ 8KB, safely under. (Same pattern the
+  // SO grid's computeSoMetrics already uses.)
+  // PostgREST caps a response at 1000 rows. A 200-PO chunk can hold FAR more than
+  // 1000 lines (denim size-matrix POs run dozens of lines each — ~68/PO seen in
+  // prod), so a single `.in()` fetch silently dropped every line past row 1000 →
+  // those POs got NO lines → Avg PO Price / Sell / Margin blank on most rows.
+  // Page through each chunk with .range() (stable order) until it's exhausted.
+  const allLines = [];
+  const LINE_PAGE = 1000;
+  for (const slice of chunkIds(poIds, 200)) {
+    for (let from = 0; ; from += LINE_PAGE) {
+      const { data } = await admin
+        .from("purchase_order_lines")
+        .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
+        .in("purchase_order_id", slice)
+        .order("purchase_order_id", { ascending: true })
+        .order("line_number", { ascending: true })
+        .range(from, from + LINE_PAGE - 1);
+      const batch = data || [];
+      for (const l of batch) allLines.push(l);
+      if (batch.length < LINE_PAGE) break;
+    }
+  }
 
-  // SKU → { style_id, style_code } for every line item.
+  // SKU → { style_id, style_code, sku_code } for every line item.
   const itemIds = [...new Set(allLines.map((l) => l.inventory_item_id).filter(Boolean))];
-  let skuById = new Map();
-  if (itemIds.length) {
+  const skuById = new Map();
+  for (const slice of chunkIds(itemIds, 200)) {
     const { data: skus } = await admin
-      .from("ip_item_master").select("id, style_id, style_code").in("id", itemIds);
-    skuById = new Map((skus || []).map((s) => [s.id, s]));
+      .from("ip_item_master").select("id, style_id, style_code, sku_code").in("id", slice);
+    for (const s of skus || []) skuById.set(s.id, s);
   }
   const styleNeedle = styleFilter ? String(styleFilter).trim().toLowerCase() : null;
 
-  // Group the (optionally style-filtered) lines under each PO, carrying style_id.
+  // Group the (optionally style-filtered) lines under each PO, carrying style_id
+  // + sku_code (sku_code drives the standard-cost lookup below).
   const linesByPo = new Map();
   const allStyleIds = new Set();
+  const allSkuCodes = new Set();
   for (const l of allLines) {
     const sku = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
     if (styleNeedle && !(sku?.style_code && String(sku.style_code).toLowerCase() === styleNeedle)) continue;
     const arr = linesByPo.get(l.purchase_order_id) || [];
-    arr.push({ ...l, style_id: sku?.style_id || null });
+    arr.push({ ...l, style_id: sku?.style_id || null, sku_code: sku?.sku_code || null });
     linesByPo.set(l.purchase_order_id, arr);
     if (sku?.style_id) allStyleIds.add(sku.style_id);
+    if (sku?.sku_code) allSkuCodes.add(sku.sku_code);
   }
+
+  // Standard (catalog) cost + standard unit selling price per sku_code, resolved
+  // via the normalized-SKU RPC. ip_item_avg_cost stores a punctuation-collapsed
+  // sku_code, so an exact .in() match missed ~60% of lines; the RPC normalizes
+  // both sides (upper + alphanumeric-only) → ~89% coverage. stdSell feeds the
+  // sell fallback below (many PO styles have no customer/brand-list price).
+  const stdCostBySku = new Map(); // sku_code → cents (standard cost)
+  const stdSellBySku = new Map(); // sku_code → cents (standard unit selling price)
+  if (allSkuCodes.size) {
+    const skuList = [...allSkuCodes];
+    for (let i = 0; i < skuList.length; i += 500) {
+      const slice = skuList.slice(i, i + 500);
+      const { data: resolved } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: slice });
+      for (const c of resolved || []) {
+        if (c.avg_cost != null && !stdCostBySku.has(c.input_sku)) stdCostBySku.set(c.input_sku, Math.round(Number(c.avg_cost) * 100));
+        if (c.standard_unit_price != null && !stdSellBySku.has(c.input_sku)) stdSellBySku.set(c.input_sku, Math.round(Number(c.standard_unit_price) * 100));
+      }
+    }
+  }
+  const stdCostForSku = (sku) => (sku && stdCostBySku.has(sku) ? stdCostBySku.get(sku) : null);
+  const stdSellForSku = (sku) => (sku && stdSellBySku.has(sku) ? stdSellBySku.get(sku) : null);
 
   // Resolve the customer for any PO carrying a sales_order_id (sell pricing).
   const soIds = [...new Set(rows.map((r) => r.sales_order_id).filter(Boolean))];
@@ -181,8 +239,11 @@ async function enrichPricing(admin, rows, styleFilter) {
   // Resolve each style's brand, then that brand's default list's price (min_qty=0).
   const brandDefaultByStyle = new Map();
   if (allStyleIds.size) {
-    const { data: styles } = await admin.from("style_master").select("id, brand_id").in("id", [...allStyleIds]);
-    const brandByStyle = new Map((styles || []).map((s) => [s.id, s.brand_id]));
+    const brandByStyle = new Map();
+    for (const slice of chunkIds([...allStyleIds], 200)) {
+      const { data: styles } = await admin.from("style_master").select("id, brand_id").in("id", slice);
+      for (const s of styles || []) brandByStyle.set(s.id, s.brand_id);
+    }
     const brandIds = [...new Set([...brandByStyle.values()].filter(Boolean))];
     if (brandIds.length) {
       const { data: brandLists } = await admin.from("price_lists")
@@ -212,25 +273,65 @@ async function enrichPricing(admin, rows, styleFilter) {
     customerPriceCache.set(cust, m);
   }
 
+  // Most-recent ACTUAL sell per style (wholesale history + native SOs). Ranked
+  // above the standard/provisional fallbacks so a style's real price shows the
+  // moment it has an SO / invoice / Xoro sale (which also supersedes any
+  // provisional placeholder for that style).
+  const recentSellByStyle = new Map();
+  if (allStyleIds.size) {
+    const { data: recent } = await admin.rpc("recent_sell_by_style", { p_style_ids: [...allStyleIds] });
+    for (const rr of recent || []) if (rr.unit_price_cents != null) recentSellByStyle.set(rr.style_id, Number(rr.unit_price_cents));
+  }
+  // Provisional placeholder sell (21% margin off PO cost) for never-sold styles —
+  // the last-resort fallback. Read from the dedicated table only (the M43 quote
+  // engine never sees it, so a placeholder can't leak into a customer quote).
+  const provisionalByStyle = new Map();
+  if (allStyleIds.size) {
+    for (const slice of chunkIds([...allStyleIds], 200)) {
+      const { data: prov } = await admin.from("provisional_style_prices")
+        .select("style_id, price_cents").in("style_id", slice).eq("is_active", true);
+      for (const p of prov || []) if (p.price_cents != null) provisionalByStyle.set(p.style_id, Number(p.price_cents));
+    }
+  }
+
   for (const r of rows) {
     const myLines = linesByPo.get(r.id) || [];
-    let costNum = 0, costDen = 0, sellNum = 0, sellDen = 0;
+    // priceNum/Den → Avg PO Price (PO's own line cost); stdNum/Den → Avg cost
+    // (standard/catalog cost, only over lines that actually have one).
+    let priceNum = 0, priceDen = 0, stdNum = 0, stdDen = 0, sellNum = 0, sellDen = 0;
     const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
       if (qty <= 0) continue;
-      const cost = Number(l.unit_cost_cents) || 0;
-      costNum += cost * qty; costDen += qty;
-      // Sell: customer price → brand-default → skip (can't fabricate a sell).
+      const poPrice = Number(l.unit_cost_cents) || 0;
+      priceNum += poPrice * qty; priceDen += qty;
+      const std = stdCostForSku(l.sku_code);
+      if (std != null) { stdNum += std * qty; stdDen += qty; }
+      // Sell resolution order: customer price → brand-default list → recent
+      // ACTUAL sell (SO/invoice/Xoro) → standard unit price → provisional (21%
+      // placeholder). Each layer covers a wider set of styles; the provisional
+      // is only used for never-sold styles with no price on file.
       let sell = null;
       if (l.style_id) {
         if (custPrices && custPrices.get(l.style_id) != null) sell = custPrices.get(l.style_id);
         else if (brandDefaultByStyle.get(l.style_id) != null) sell = brandDefaultByStyle.get(l.style_id);
+        else if (recentSellByStyle.get(l.style_id) != null) sell = recentSellByStyle.get(l.style_id);
       }
+      if (sell == null) sell = stdSellForSku(l.sku_code);
+      if (sell == null && l.style_id) { const pv = provisionalByStyle.get(l.style_id); if (pv != null) sell = pv; }
       if (sell != null) { sellNum += sell * qty; sellDen += qty; }
     }
-    r.avg_cost_cents = costDen > 0 ? Math.round(costNum / costDen) : null;
+    r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
+    r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
     r.sell_cents = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
+    // Margin = Sell − Avg PO Price (gross margin at list, against actual PO cost).
+    if (r.sell_cents != null && r.avg_po_price_cents != null) {
+      r.margin_cents = r.sell_cents - r.avg_po_price_cents;
+      r.margin_pct = r.sell_cents !== 0 ? Math.round((r.margin_cents / r.sell_cents) * 1000) / 10 : null;
+    } else {
+      r.margin_cents = null;
+      r.margin_pct = null;
+    }
   }
   return rows;
 }
@@ -245,16 +346,22 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
-    const status = (url.searchParams.get("status") || "").trim();
+    // Multi-status filter: `status` may be a comma-separated set (mirrors the SO
+    // grid's multi-select). Empty = all statuses.
+    const statusRaw = (url.searchParams.get("status") || "").trim();
+    const statuses = statusRaw ? statusRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const vendorId = (url.searchParams.get("vendor_id") || "").trim();
     const q = (url.searchParams.get("q") || "").trim();
-    // Optional style scope for the Avg cost + Sell price columns — when set, both
-    // aggregates count only that style's lines (matches the grid's style search).
+    // Optional style scope for the Avg cost / Avg PO Price / Sell / Margin columns
+    // — when set, all aggregates count only that style's lines (matches the grid's
+    // style search).
     const styleScope = (url.searchParams.get("style") || "").trim() || null;
     let limit = parseInt(url.searchParams.get("limit") || "200", 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 200;
     limit = Math.min(limit, 500);
-    if (status && !STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    for (const s of statuses) {
+      if (!STATUSES.includes(s)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+    }
 
     const venId = vendorId && UUID_RE.test(vendorId) ? vendorId : null;
     let data, error;
@@ -262,11 +369,12 @@ export default async function handler(req, res) {
       // All-field search (PO #, notes, vendor name/code, and any line's
       // description / SKU sku_code / style_code / description) runs in the
       // search_purchase_orders RPC so the line-level match never has to ship a
-      // large id.in.(…) URL. NULL brand = "all" unless enforcing.
+      // large id.in.(…) URL. NULL brand = "all" unless enforcing. The RPC takes a
+      // single status, so a multi-status set is filtered client-side below.
       ({ data, error } = await admin.rpc("search_purchase_orders", {
         p_entity_id: entity.id,
         p_q: q,
-        p_status: status || null,
+        p_status: statuses.length === 1 ? statuses[0] : null,
         p_vendor_id: venId,
         p_brand_id: activeBrandId(req),
         p_limit: limit,
@@ -278,12 +386,16 @@ export default async function handler(req, res) {
         .order("created_at", { ascending: false })
         .limit(limit);
       query = applyBrandScope(query, req);
-      if (status) query = query.eq("status", status);
+      if (statuses.length === 1) query = query.eq("status", statuses[0]);
+      else if (statuses.length > 1) query = query.in("status", statuses);
       if (venId) query = query.eq("vendor_id", venId);
       ({ data, error } = await query);
     }
     if (error) return res.status(500).json({ error: error.message });
-    const enriched = await enrichPricing(admin, data || [], styleScope);
+    let headers = data || [];
+    // The search RPC can't express a multi-status set, so narrow it client-side.
+    if (q && statuses.length > 1) { const set = new Set(statuses); headers = headers.filter((h) => set.has(h.status)); }
+    const enriched = await enrichPricing(admin, headers, styleScope);
     return res.status(200).json(enriched);
   }
 

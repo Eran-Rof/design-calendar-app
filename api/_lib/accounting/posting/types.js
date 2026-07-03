@@ -79,6 +79,7 @@
  * @property {string}              kind          'ap_invoice_received' | ...
  * @property {string}              entity_id
  * @property {string}              [created_by_user_id]
+ * @property {string}              [reason]      T11 audit reason for the POST (required by the audit trigger on VOID/POST/REVERSE). Stamped onto each candidate → gl_post_journal_entry.audit_reason.
  * @property {Object}              data          Event-specific payload.
  */
 

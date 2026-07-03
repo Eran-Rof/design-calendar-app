@@ -252,6 +252,36 @@ function localSignOutCleanup() {
   } catch { /* ignore */ }
 }
 
+// Provision the MS→Supabase identity and cache the per-user app JWT. Shared by
+// the initial sign-in AND the P27 Phase 4 silent-refresh timer. Best-effort:
+// never throws (a provision blip must not break a working session — the
+// X-Auth-User-Id stopgap keeps per-user reads alive). Returns true on a mint.
+async function provisionWithMsToken(token: string): Promise<boolean> {
+  try {
+    const pr = await fetch("/api/internal/auth/provision", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ms_access_token: token }),
+    });
+    if (!pr.ok) {
+      console.warn("[Tangerine] auth provision non-OK:", pr.status, await pr.text().catch(() => ""));
+      return false;
+    }
+    const j = await pr.json();
+    if (j?.auth_user_id) {
+      setCachedAuthUserId(j.auth_user_id);
+      // Per-user JWT (present only when SUPABASE_JWT_SECRET is set server-side);
+      // internalApiAuth attaches it as Authorization: Bearer on /api/internal calls.
+      setCachedAuthJwt(j.access_token ?? null);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn("[Tangerine] auth provision failed (non-fatal):", e);
+    return false;
+  }
+}
+
 export default function Tangerine() {
   // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
   // Fires once per tab session at app-shell root. See useAutoLanding.ts.
@@ -426,36 +456,12 @@ export default function Tangerine() {
           } catch { /* initials fallback */ }
         })();
 
-        // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
-        // endpoint fails (network / server-side mis-config), surface a
-        // console warning but do NOT block the login — the operator can
-        // still paste their uuid manually as a fallback while we debug.
-        // First call creates auth.users + entity_users + links EB001;
-        // subsequent calls are idempotent (ON CONFLICT DO NOTHING).
-        try {
-          const pr = await fetch("/api/internal/auth/provision", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ ms_access_token: token }),
-          });
-          if (pr.ok) {
-            const provisioned = await pr.json();
-            if (!cancelled && provisioned?.auth_user_id) {
-              setCachedAuthUserId(provisioned.auth_user_id);
-              // P14 JWT phase — cache the per-user access token (present only
-              // when SUPABASE_JWT_SECRET is set server-side). internalApiAuth
-              // attaches it as Authorization: Bearer on every /api/internal
-              // call, giving the server a verifiable per-user identity. When
-              // absent (secret unset) we fall back to the cached-id stopgap.
-              setCachedAuthJwt(provisioned.access_token ?? null);
-            }
-          } else {
-            const detail = await pr.text().catch(() => "");
-            console.warn("[Tangerine] auth provision returned non-OK:", pr.status, detail);
-          }
-        } catch (provErr) {
-          console.warn("[Tangerine] auth provision failed (non-fatal):", provErr);
-        }
+        // Bridge MS OAuth → Supabase Auth. Best-effort: a provision blip must
+        // not block login (the X-Auth-User-Id stopgap keeps per-user reads
+        // alive). First call creates auth.users + entity_users + links the
+        // employee; subsequent calls are idempotent. The Phase 4 timer below
+        // re-runs this periodically so the 12h JWT never silently expires.
+        await provisionWithMsToken(token);
       } catch (err) {
         console.error("[Tangerine] auth check failed:", err);
         // MS token present but Graph/enrichment failed — don't force a re-login
@@ -478,6 +484,25 @@ export default function Tangerine() {
     };
     return () => { try { ch.close(); } catch { /* noop */ } };
   }, []);
+
+  // P27 Phase 4 — silent app-JWT refresh. The per-user JWT is a 12h token; if a
+  // tab stays open past expiry it 401s per-user endpoints (the original favorites
+  // / audit breakage) and RBAC can't verify the caller. While signed in WITH a
+  // Microsoft session, every few hours silently re-acquire the MS token (MSAL
+  // handles the refresh) and re-provision to mint a fresh JWT. No-op for PLM-only
+  // sessions (no MS token to refresh — those rely on the X-Auth-User-Id stopgap).
+  useEffect(() => {
+    if (authState !== "signed_in") return;
+    if (!loadMsTokens()) return;
+    const REFRESH_MS = 4 * 60 * 60 * 1000; // 4h ≪ the 12h JWT lifetime → always fresh
+    const id = setInterval(() => {
+      void (async () => {
+        const t = await getMsAccessToken();
+        if (t) await provisionWithMsToken(t);
+      })();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [authState]);
 
   // P27 Phase 3 break-glass — adopt the PLM-launcher session as Tangerine identity
   // without a Microsoft sign-in. Only surfaced on the login screen when the SSO

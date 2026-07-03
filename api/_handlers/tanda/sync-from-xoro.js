@@ -40,6 +40,11 @@ const ACTIVE_STATUSES = ["Open", "Released", "Partially Received"];
 // from the terminal set here — stays active.
 const TERMINAL_STATUSES = ["Received", "Closed", "Cancelled"];
 const ALL_STATUSES = [...ACTIVE_STATUSES, ...TERMINAL_STATUSES];
+// Max per-PO re-fetches per run for the "disappeared-active" catch (see below).
+// Single-PO fetches by order_number are fast, but the first run has a backlog
+// of every stale-active PO — cap it so the run stays well under the 300s
+// function timeout and drains over a few nights.
+const REFETCH_CAP = 50;
 
 function isPartial(s) {
   return (s || "").toLowerCase().includes("partial");
@@ -131,6 +136,13 @@ export default async function handler(req, res) {
     archived_source_xoro_terminal: 0,
     archived_source_cache_terminal: 0,
     archived_source_missing_from_xoro: 0,
+    refetch_candidates: 0,
+    refetch_billed_prioritized: 0,
+    refetch_done: 0,
+    refetch_archived: 0,
+    refetch_refreshed: 0,
+    refetch_not_found: 0,
+    refetch_failed: 0,
     skipped_no_po_number: 0,
     skipped_tombstoned: 0,
     user_archived_preserved: 0,
@@ -293,6 +305,59 @@ export default async function handler(req, res) {
         }
       }
     }
+    // Source 1b (disappeared-active re-fetch): a PO that flips to
+    //   Received/Closed in Xoro DROPS OUT of the active-status fetch while
+    //   still cached as Open/Released/Partially Received. Sources 1-3 miss it
+    //   (its CACHED status isn't terminal, and terminal statuses aren't
+    //   fetched wholesale — that walk times out). Re-fetch each such PO by
+    //   order_number (a single-PO query, fast, no full-terminal walk) to get
+    //   its authoritative current status; archive if terminal, else refresh.
+    //   Capped per run; only when all active fetches succeeded (else a missing
+    //   PO may just be a failed page, not a real disappearance).
+    if (allStatusesSucceeded) {
+      const candidates = [];
+      for (const [poNumber, row] of cachedByPo) {
+        if (archiveByPo.has(poNumber) || row.data?._archived) continue;
+        if (byPo.has(poNumber) || tombstoned.has(poNumber)) continue;
+        const lastStatus = row.data?.StatusName ?? "";
+        if (ACTIVE_STATUSES.includes(lastStatus) || isPartial(lastStatus)) candidates.push(poNumber);
+      }
+      result.refetch_candidates = candidates.length;
+      // Prioritize candidates that have an AP bill (invoice_line_items.po_number)
+      // — a bill is a strong "this PO was received" signal, so those most
+      // likely flipped terminal. Fetch them first within the per-run cap so the
+      // real received POs are corrected fastest. Only worth querying when the
+      // candidate list exceeds the cap.
+      let ordered = candidates;
+      if (candidates.length > REFETCH_CAP) {
+        const billed = new Set();
+        for (let i = 0; i < candidates.length; i += 500) {
+          const { data } = await admin
+            .from("invoice_line_items")
+            .select("po_number")
+            .in("po_number", candidates.slice(i, i + 500));
+          for (const r of data || []) if (r.po_number) billed.add(r.po_number);
+        }
+        result.refetch_billed_prioritized = candidates.filter((p) => billed.has(p)).length;
+        ordered = [...candidates].sort((a, b) => (billed.has(b) ? 1 : 0) - (billed.has(a) ? 1 : 0));
+      }
+      for (const poNumber of ordered.slice(0, REFETCH_CAP)) {
+        const r = await fetchXoroAll({ path: PO_PATH, params: { per_page: "200", order_number: poNumber } });
+        if (!r.ok) { result.refetch_failed++; continue; }
+        result.refetch_done++;
+        const recs = Array.isArray(r.body?.Data) ? r.body.Data : [];
+        const match = recs.map(flattenXoroPo).find((f) => String(f.PoNumber ?? "").trim() === poNumber);
+        if (!match) { result.refetch_not_found++; continue; } // deleted/hidden — leave for a later run
+        if (shouldArchive(match.StatusName)) {
+          archiveByPo.set(poNumber, match); // fresh terminal data → archive pass below
+          result.refetch_archived++;
+        } else {
+          byPo.set(poNumber, match); // still active (was paginated off) → active-upsert refreshes it
+          result.refetch_refreshed++;
+        }
+      }
+    }
+
     result.archived_total = archiveByPo.size;
 
     // 5. Build active-upsert rows. Skip POs that are heading to archive —

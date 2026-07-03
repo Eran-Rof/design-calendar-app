@@ -17,6 +17,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
+import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
 
 type Vendor = { id: string; name: string };
 type FabricCode = { id: string; code: string; name: string | null };
@@ -76,6 +78,8 @@ export default function InternalPartMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const thumbs = usePartThumbs(rows.map((r) => r.id));
 
   const vendorName = useMemo(() => {
     const m = new Map(vendors.map((v) => [v.id, v.name]));
@@ -202,6 +206,7 @@ export default function InternalPartMaster() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={{ ...th, width: 56 }}></th>
                 <th style={th}>Code</th>
                 <th style={th}>Name</th>
                 <th style={th}>Type</th>
@@ -215,6 +220,7 @@ export default function InternalPartMaster() {
             <tbody>
               {rows.map((s) => (
                 <ScrollHighlightRow key={s.id} rowId={s.id} highlightedRowId={highlightedId} {...getRowProps(s)} style={!s.is_active ? { opacity: 0.5 } : undefined}>
+                  <td style={{ ...td, padding: 4 }}><PartThumb partId={s.id} url={thumbs.get(s.id) ?? null} label={s.code} size={40} /></td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{s.code}</td>
                   <td style={td}>{s.name}</td>
                   <td style={{ ...td, color: C.textSub }}>{partTypeLabel(s.part_type)}</td>
@@ -368,6 +374,20 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
           </div>
         </div>
 
+        {mode === "edit" && part && (
+          <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Images</div>
+            <PartImagesManager partId={part.id} partLabel={part.code} />
+          </div>
+        )}
+
+        {mode === "edit" && part && (
+          <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Attachments</div>
+            <DocumentAttachmentList contextTable="part_master" contextId={part.id} kinds={["spec", "coa", "invoice", "other"]} />
+          </div>
+        )}
+
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
@@ -386,6 +406,115 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
+    </div>
+  );
+}
+
+// Upload / list / delete / set-primary for a part's images. Backed by
+// /api/internal/parts/:part_id/images (+ /:image_id for PATCH/DELETE). Reuses
+// the same Sharp pipeline + pim-images bucket as the PIM style images.
+type PartImage = {
+  id: string; is_primary: boolean; sort_order: number; alt_text: string | null;
+  signed_urls?: { thumb: string | null; web: string | null; print: string | null };
+};
+function PartImagesManager({ partId, partLabel }: { partId: string; partLabel: string }) {
+  const [images, setImages] = useState<PartImage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [imgErr, setImgErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/internal/parts/${partId}/images`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setImages(await r.json() as PartImage[]);
+      setImgErr(null);
+    } catch (e: unknown) {
+      setImgErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [partId]);
+
+  async function upload(file: File) {
+    setUploading(true); setImgErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch(`/api/internal/parts/${partId}/images`, { method: "POST", body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify("Image uploaded.", "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`Upload failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function setPrimary(id: string) {
+    try {
+      const r = await fetch(`/api/internal/parts/${partId}/images/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_primary: true }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await load();
+    } catch (e: unknown) {
+      notify(`Could not set primary: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  }
+
+  async function remove(id: string) {
+    if (!(await confirmDialog("Delete this image? This can't be undone."))) return;
+    try {
+      const r = await fetch(`/api/internal/parts/${partId}/images/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await load();
+    } catch (e: unknown) {
+      notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        {loading ? (
+          <span style={{ color: C.textMuted, fontSize: 12 }}>Loading images…</span>
+        ) : images.length === 0 ? (
+          <span style={{ color: C.textMuted, fontSize: 12 }}>No images yet. Upload one below.</span>
+        ) : images.map((img) => {
+          const url = img.signed_urls?.thumb || img.signed_urls?.web || null;
+          const full = img.signed_urls?.print || img.signed_urls?.web || url;
+          return (
+            <div key={img.id} style={{ width: 92, border: `1px solid ${img.is_primary ? C.primary : C.cardBdr}`, borderRadius: 6, padding: 4, background: "#0b1220" }}>
+              {url ? (
+                <img src={url} alt={img.alt_text || partLabel} title="Open full image"
+                  onClick={() => full && window.open(full, "_blank", "noopener,noreferrer")}
+                  style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 4, cursor: "pointer", display: "block" }} />
+              ) : (
+                <div style={{ width: 84, height: 84, background: "#1E293B", borderRadius: 4 }} />
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                {img.is_primary ? (
+                  <span style={{ fontSize: 10, color: C.primary }}>★ primary</span>
+                ) : (
+                  <button type="button" onClick={() => void setPrimary(img.id)} style={{ background: "none", border: 0, color: C.textMuted, cursor: "pointer", fontSize: 10, padding: 0 }} title="Make primary">☆ set</button>
+                )}
+                <button type="button" onClick={() => void remove(img.id)} style={{ background: "none", border: 0, color: C.danger, cursor: "pointer", fontSize: 12, padding: 0 }} title="Delete image">✕</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <label style={{ ...btnSecondary, display: "inline-block", cursor: uploading ? "wait" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+        {uploading ? "Uploading…" : "+ Upload image"}
+        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ""; }}
+          style={{ display: "none" }} />
+      </label>
+      {imgErr && <div style={{ background: "#7f1d1d", color: "white", padding: "6px 10px", borderRadius: 6, marginTop: 8, fontSize: 12 }}>{imgErr}</div>}
     </div>
   );
 }

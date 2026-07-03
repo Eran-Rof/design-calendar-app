@@ -4,7 +4,7 @@
 // AR-invoice modal patterns (customer/ship-to/brand/channel pickers, item
 // SearchableSelect, supporting docs). SO number is system-assigned on Confirm.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
@@ -117,16 +117,25 @@ type SO = {
   avg_cost_cents?: number | null; avg_sell_cents?: number | null;
   margin_cents?: number | null; margin_pct?: number | null;
   total_qty?: number | null;  // item 18 — total units across the SO's lines
+  total_qty_exploded?: number | null;  // item 30 — PPK packs exploded to units
 };
 // Scenario 4.2 — bulk↔distro match shapes (mirror /sales-orders/bulk-match).
 type BulkBreakdownRow = { style_code: string; color: string | null; bulk_qty: number; distro_qty: number; matched: number };
 type BulkMatchRow = { id: string; so_number: string | null; customer_po: string | null; status: string; matched_units: number; bulk_units: number; distro_units: number; match_pct: number; bulk_coverage_pct: number; breakdown: BulkBreakdownRow[] };
 // Scenario 5 — lot-aware allocation shapes (mirror /sales-orders/allocate-by-lot).
-type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null };
+type SaveLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; lot_number?: string | null; customer_po?: string | null };
 type LotPick = { lot_number: string | null; qty: number };
 type PlanLine = { item_id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null; qty_ordered: number; picks: LotPick[]; filled: number; shortfall: number };
 type Customer = { id: string; name: string; customer_code?: string; default_brand_id?: string | null; default_channel_id?: string | null; default_revenue_account_id?: string | null; is_factored?: boolean | null; payment_terms_id?: string | null; contacts?: { id?: string; name?: string; email?: string; phone?: string; title?: string }[] };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string; color?: string; size?: string };
+// Item 30 — a sales-order line for the grid row-expander.
+type ExpandLine = { style_code: string | null; color: string | null; size: string | null; sku_code: string | null; description: string | null; qty: number; unit_cents: number };
+// PPK pack size from a line (style has PPK; size = pack token e.g. PPK24 → 24), else 1.
+function packSizeOfLine(l: ExpandLine): number {
+  if (!/PPK/i.test(l.style_code ?? "")) return 1;
+  const n = parseInt(String(l.size ?? "").match(/(\d+)/)?.[1] ?? "1", 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 type Lookup = { id: string; code?: string; name: string };
 type ShipTo = { id: string; name: string; code?: string | null; location_type?: string | null; is_default?: boolean | null; address?: Record<string, unknown> | null };
 
@@ -214,6 +223,11 @@ async function deleteOrCancelSO(so: { id: string; so_number: string | null; stat
 
 export default function InternalSalesOrders() {
   const [rows, setRows] = useState<SO[]>([]);
+  // Guards against a fetch race: rapidly toggling the status multi-select fires
+  // several load()s; without sequencing a slower earlier response can land last
+  // and clobber the newest filter (e.g. "cancelled only" briefly showing, then
+  // reverting to all statuses). Only the latest request's result is applied.
+  const loadSeqRef = useRef(0);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -247,6 +261,29 @@ export default function InternalSalesOrders() {
   // than order date.
   const [dateField, setDateField] = useState<"order_date" | "requested_ship_date">("requested_ship_date");
 
+  // Item 30 — row-expander (per-SO line detail) + Explode toggle. When exploded,
+  // PPK lines show units (packs × pack size) and per-each cost instead of packs.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [soLines, setSoLines] = useState<Record<string, ExpandLine[] | "loading" | "error">>({});
+  const [explode, setExplode] = useState<boolean>(() => { try { return localStorage.getItem("tangerine:so:explode") === "1"; } catch { return false; } });
+  function toggleExplode() { setExplode((v) => { const nv = !v; try { localStorage.setItem("tangerine:so:explode", nv ? "1" : "0"); } catch { /* ignore */ } return nv; }); }
+  async function toggleExpand(so: SO) {
+    setExpanded((prev) => { const n = new Set(prev); n.has(so.id) ? n.delete(so.id) : n.add(so.id); return n; });
+    if (soLines[so.id]) return; // already fetched (or loading)
+    setSoLines((p) => ({ ...p, [so.id]: "loading" }));
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const lines: ExpandLine[] = (Array.isArray(j.lines) ? j.lines : []).map((l: Record<string, unknown>) => ({
+        style_code: (l.style_code as string) || null, color: (l.color as string) || null, size: (l.size as string) || null,
+        sku_code: (l.sku_code as string) || null, description: (l.description as string) || null,
+        qty: Number(l.qty_ordered) || 0, unit_cents: Number(l.unit_price_cents) || 0,
+      }));
+      setSoLines((p) => ({ ...p, [so.id]: lines }));
+    } catch { setSoLines((p) => ({ ...p, [so.id]: "error" })); }
+  }
+
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
@@ -274,7 +311,14 @@ export default function InternalSalesOrders() {
   // Map an SO header → the export row shape (ids resolved to human labels; cents
   // kept in cents for currency formatting). Shared by the on-screen export and
   // the full "Export all" fetch so both produce identical columns.
-  const toExportRow = useCallback((so: SO) => ({
+  const toExportRow = useCallback((so: SO) => {
+   // Mirror the grid's Explode toggle: when on, export per-each metrics + units
+   // (see the row-level packMult note below) so the sheet matches the screen.
+   const pm = explode && so.total_qty != null && Number(so.total_qty) > 0 && so.total_qty_exploded != null
+     ? Number(so.total_qty_exploded) / Number(so.total_qty)
+     : 1;
+   const pe = (c: number | null | undefined): number | null => (c == null ? null : c / pm);
+   return ({
     so_number: so.so_number || "(draft)",
     customer: customerName[so.customer_id] || "—",
     store: so.sale_store || "",
@@ -284,14 +328,14 @@ export default function InternalSalesOrders() {
     status: so.status,
     factor: so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : "",
     credit: showCredit(so.credit_approval_status) ? (CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status!) : "",
-    avg_cost_cents: so.avg_cost_cents ?? null,
-    avg_sell_cents: so.avg_sell_cents ?? null,
+    avg_cost_cents: pe(so.avg_cost_cents),
+    avg_sell_cents: pe(so.avg_sell_cents),
     margin_pct: so.margin_pct ?? null,
-    margin_cents: so.margin_cents ?? null,
+    margin_cents: pe(so.margin_cents),
     total_margin_cents: (so.margin_cents != null && so.total_qty != null) ? so.margin_cents * Number(so.total_qty) : null,
-    total_qty: so.total_qty != null ? Number(so.total_qty) : null,
+    total_qty: explode && so.total_qty_exploded != null ? Number(so.total_qty_exploded) : (so.total_qty != null ? Number(so.total_qty) : null),
     total_cents: Number(so.total_cents ?? 0),
-  }), [customerName]);
+  }); }, [customerName, explode]);
 
   // Export rows mirror the displayed list (same filter/search).
   const exportRows = useMemo(() => filteredRows.map(toExportRow), [filteredRows, toExportRow]);
@@ -342,6 +386,7 @@ export default function InternalSalesOrders() {
   }, [statusFilters, storeFilter, customerFilter, searchDebounced, inDateRange, toExportRow]);
 
   async function load() {
+    const seq = ++loadSeqRef.current;
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
@@ -361,9 +406,11 @@ export default function InternalSalesOrders() {
       params.set("limit", String(SO_LIST_LIMIT));
       const r = await fetch(`/api/internal/sales-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as SO[]);
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
+      const data = await r.json() as SO[];
+      if (seq !== loadSeqRef.current) return; // superseded by a newer load — drop this stale result
+      setRows(data);
+    } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
+    finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
   const anyFilter = !!(statusFilters.length || storeFilter || customerFilter || search.trim() || dateFrom || dateTo);
   function clearFilters() { setStatusFilters([]); setStoreFilter(""); setCustomerFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
@@ -445,6 +492,12 @@ export default function InternalSalesOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        {/* Keep the label "Explode" in both states (highlighted when active) so
+            the control never appears to vanish; the ✓ marks the on-state. */}
+        <button onClick={toggleExplode} style={explode ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
+          title={explode ? "Prepack quantities shown as UNITS (packs × pack size) with per-each cost/sell/margin — click to show PACKS" : "Explode prepack quantities to UNITS (packs × pack size); expand a row to see per-line qty & cost"}>
+          {explode ? "Explode ✓" : "Explode"}
+        </button>
         <ExportButton rows={exportRows} filename="sales-orders" sheetName="Sales Orders" columns={exportColumns} fetchRows={fetchAllForExport} />
       </div>
 
@@ -469,6 +522,7 @@ export default function InternalSalesOrders() {
               scroll. Opaque background so rows don't show through (mirrors the
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
+            <th style={{ ...thStick, width: 28 }} />
             <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
             <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
             <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_margin_amt")}>Total Margin $</th>
@@ -476,12 +530,28 @@ export default function InternalSalesOrders() {
             <th style={{ ...thStick, textAlign: "center" }}>Actions</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={16}>Loading…</td></tr>}
-            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={16}>No sales orders.</td></tr>}
+            {loading && <tr><td style={td} colSpan={17}>Loading…</td></tr>}
+            {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={17}>No sales orders.</td></tr>}
             {filteredRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
+              // Item 30 (fix) — when exploded, the per-unit metric columns (avg
+              // cost / avg sell / margin $) must switch from PER-PACK to PER-EACH
+              // so they stay consistent with the exploded Qty. The blended pack
+              // size is total_qty_exploded / total_qty; dividing the per-pack
+              // aggregate by it yields the per-each average (= total ÷ units).
+              // Margin %, Total and Total Margin $ are invariant to explode.
+              const packMult = explode && so.total_qty != null && Number(so.total_qty) > 0 && so.total_qty_exploded != null
+                ? Number(so.total_qty_exploded) / Number(so.total_qty)
+                : 1;
+              const perEach = (c: number | null | undefined): number | null | undefined => (c == null || packMult === 1 ? c : c / packMult);
+              const metricTitle = explode && packMult !== 1 ? "Per each (exploded)" : undefined;
+              const isOpen = expanded.has(so.id);
               return (
-              <tr key={so.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
+              <Fragment key={so.id}>
+              <tr style={{ cursor: "pointer" }} onClick={() => { setEditing(so); setModalOpen(true); }}>
+                <td style={{ ...td, textAlign: "center" }} onClick={(e) => { e.stopPropagation(); void toggleExpand(so); }} title="Show / hide line detail">
+                  <span style={{ color: C.textMuted, cursor: "pointer", userSelect: "none" }}>{isOpen ? "▾" : "▸"}</span>
+                </td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("so_number")}>{so.so_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("customer")}>{customerName[so.customer_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("store")}>{so.sale_store || <span style={{ color: C.textMuted }}>—</span>}</td>
@@ -495,12 +565,12 @@ export default function InternalSalesOrders() {
                 <td style={td} hidden={!isVisible("credit")}>{showCredit(so.credit_approval_status)
                   ? <span title={so.credit_hold_reason || undefined} style={{ fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 4, color: CREDIT_COLORS[so.credit_approval_status!] || C.text, border: `1px solid ${CREDIT_COLORS[so.credit_approval_status!] || C.cardBdr}` }}>{CREDIT_LABELS[so.credit_approval_status!] || so.credit_approval_status}</span>
                   : <span style={{ color: C.textMuted }}>—</span>}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")}>{fmtCents2(so.avg_cost_cents)}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")}>{fmtCents2(so.avg_sell_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title={metricTitle}>{fmtCents2(perEach(so.avg_cost_cents))}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_sell")} title={metricTitle}>{fmtCents2(perEach(so.avg_sell_cents))}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")}>{fmtPct(so.margin_pct)}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")}>{fmtCents2(so.margin_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")} title={metricTitle}>{fmtCents2(perEach(so.margin_cents))}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("total_margin_amt")}>{so.margin_cents != null && so.total_qty != null ? fmtCents2(so.margin_cents * Number(so.total_qty)) : "—"}</td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")}>{so.total_qty != null ? Number(so.total_qty).toLocaleString() : "—"}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total_qty")} title={explode ? "Exploded units (packs × pack size)" : "Order quantity (packs for prepacks)"}>{(() => { const v = explode ? so.total_qty_exploded : so.total_qty; return v != null ? Number(v).toLocaleString() : "—"; })()}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(so.total_cents)}</td>
                 <td style={{ ...td, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                   {soRemoveMode(so.status)
@@ -512,6 +582,50 @@ export default function InternalSalesOrders() {
                     : <span style={{ color: C.textMuted }}>—</span>}
                 </td>
               </tr>
+              {isOpen && (
+                <tr>
+                  <td />
+                  <td colSpan={16} style={{ ...td, background: "#0b1220", padding: "8px 12px" }}>
+                    {(() => {
+                      const detail = soLines[so.id];
+                      if (detail === "loading" || detail === undefined) return <span style={{ color: C.textMuted, fontSize: 12 }}>Loading line detail…</span>;
+                      if (detail === "error") return <span style={{ color: C.danger, fontSize: 12 }}>Couldn't load line detail.</span>;
+                      if (detail.length === 0) return <span style={{ color: C.textMuted, fontSize: 12 }}>No lines on this order.</span>;
+                      return (
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead><tr style={{ color: C.textMuted }}>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Style</th>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Color</th>
+                            <th style={{ textAlign: "left", padding: "3px 8px" }}>Size</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>{explode ? "Units" : "Qty"}</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>{explode ? "Unit $ / each" : "Unit $"}</th>
+                            <th style={{ textAlign: "right", padding: "3px 8px" }}>Line total</th>
+                          </tr></thead>
+                          <tbody>
+                            {detail.map((l, i) => {
+                              const ps = explode ? packSizeOfLine(l) : 1;
+                              const qtyShown = l.qty * ps;
+                              const unitShown = ps > 1 ? l.unit_cents / ps : l.unit_cents;
+                              const lineTotal = l.qty * l.unit_cents; // invariant to explode
+                              return (
+                                <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                                  <td style={{ textAlign: "left", padding: "3px 8px", fontFamily: "monospace" }}>{l.style_code || l.sku_code || "—"}</td>
+                                  <td style={{ textAlign: "left", padding: "3px 8px" }}>{l.color || (l.description ? l.description : "—")}</td>
+                                  <td style={{ textAlign: "left", padding: "3px 8px" }}>{l.size || "—"}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{qtyShown.toLocaleString()}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{fmtCents2(Math.round(unitShown))}</td>
+                                  <td style={{ textAlign: "right", padding: "3px 8px", fontVariantNumeric: "tabular-nums" }}>{fmtCents(lineTotal)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
               );
             })}
           </tbody>
@@ -664,7 +778,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // style_code/color/size/sku_code.
   useEffect(() => {
     if (isNew || !so) return;
-    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null; description: string | null };
+    type DLine = { inventory_item_id: string | null; qty_ordered: number; unit_price_cents: number; style_code: string | null; color: string | null; size: string | null; inseam: string | null; sku_code: string | null; description: string | null; lot_number: string | null };
     fetch(`/api/internal/sales-orders/${so.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full?.lines) return;
       const byStyle = new Map<string, SeedSection>();
@@ -675,7 +789,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color, size: l.size, inseam: l.inseam ?? null, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined });
+          sec.cells.push({ color: l.color, size: l.size, inseam: l.inseam ?? null, qty: Number(l.qty_ordered) || 0, unit: dollars || undefined, lot: l.lot_number || undefined });
         } else {
           // A null-linked (unresolved-SKU) line carries no sku_code/style_code —
           // fall back to the line description so the document/list shows what it is
@@ -798,7 +912,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     return list;
   }
   // Style → matrix size columns (cached per style id within this parse).
-  const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[] }>>(new Map());
+  const sizeCache = useRef<Map<string, { sizes: string[]; colors: string[]; inseams: string[] }>>(new Map());
   // The operator's confirmed colour-row picks from the last apply, so post-prefill
   // actions (carton rounding) keep them and don't re-raise resolved warnings.
   const poColorPicksRef = useRef<Record<string, string>>({});
@@ -808,13 +922,20 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // reuses the matrices already fetched for the colour questions.
   const poResolvedRef = useRef<{ line: ParsedPoLine; chosen: StyleLite }[]>([]);
   const poUnmatchedRef = useRef<string[]>([]);
-  async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[] }> {
+  async function fetchMatrix(styleId: string): Promise<{ sizes: string[]; colors: string[]; inseams: string[] }> {
     if (sizeCache.current.has(styleId)) return sizeCache.current.get(styleId)!;
     const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}`);
     const p = r.ok ? await r.json() : null;
+    // For a PREPACK style the entry column is the pack token (e.g. "PPK24"), not
+    // the garment sizes — surface it so the PO prefill can size the carton even
+    // when the style_code itself has no digits (e.g. RYB0594PPK → SKU size PPK24).
+    const packToken: string | undefined = p?.prepack?.pack_token;
     const out = {
-      sizes: Array.isArray(p?.sizes) ? p.sizes : [],
+      sizes: packToken ? [packToken] : (Array.isArray(p?.sizes) ? p.sizes : []),
       colors: Array.isArray(p?.colors) ? p.colors : [],
+      // Inseams so the PO prefill keys seeded cells onto the right body rows (the
+      // matrix keys rows by inseam whenever the style has one — e.g. denim/PPK).
+      inseams: Array.isArray(p?.inseams) ? p.inseams : [],
     };
     sizeCache.current.set(styleId, out);
     return out;
@@ -939,18 +1060,41 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     const unmatched: string[] = [...unmatchedStyles];
 
     // Header
-    if (parsed.customer_po_number) { setCustomerPo(parsed.customer_po_number); setCustomerPoIsPlaceholder(false); summary.push(`PO # ${parsed.customer_po_number}`); }
+    // PO # — honour an explicit "use a placeholder" instruction (item: the app
+    // generates the placeholder via its own endpoint instead of trusting an
+    // AI-invented number), else use the parsed real PO number.
+    if (parsed.use_placeholder_po) {
+      try {
+        const rp = await fetch("/api/internal/sales-orders/placeholder-po", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const jp = await rp.json().catch(() => ({}));
+        if (rp.ok && jp.customer_po) { setCustomerPo(jp.customer_po); setCustomerPoIsPlaceholder(true); summary.push(`Placeholder PO ${jp.customer_po}`); }
+        else { unmatched.push("Placeholder PO requested — couldn't generate one, use the Generate placeholder button."); }
+      } catch { unmatched.push("Placeholder PO requested — couldn't generate one, use the Generate placeholder button."); }
+    } else if (parsed.customer_po_number) {
+      setCustomerPo(parsed.customer_po_number); setCustomerPoIsPlaceholder(false); summary.push(`PO # ${parsed.customer_po_number}`);
+    }
     const custId = customerPick !== undefined ? (customerPick || null) : matchCustomer(parsed.customer_name, customers);
-    if (custId) { setCustomerId(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
+    // pickCustomer (not a bare setCustomerId) so the customer's underlying data
+    // loads exactly like a manual selection: ship-to (default location), channel,
+    // brand and payment-terms autofill.
+    if (custId) { pickCustomer(custId); summary.push(`Customer: ${customers.find((c) => c.id === custId)?.name}`); }
     else if (parsed.customer_name) unmatched.push(`Customer "${parsed.customer_name}" — pick manually`);
+    // Payment terms from the PO override the customer-master autofill when present.
     const ptId = matchPaymentTerms(parsed.payment_terms, paymentTerms);
     if (ptId) { setPaymentTermsId(ptId); summary.push(`Terms: ${paymentTerms.find((t) => t.id === ptId)?.name}`); }
     else if (parsed.payment_terms) unmatched.push(`Payment terms "${parsed.payment_terms}" — pick manually`);
     const ss = isoDate(parsed.start_ship_date); if (ss) { setReqShip(ss); summary.push(`Start ship ${fmtDateDisplay(ss)}`); }
     const cd = isoDate(parsed.cancel_date); if (cd) { setCancelDate(cd); summary.push(`Cancel ${fmtDateDisplay(cd)}`); }
-    // An uploaded customer PO is fulfilled from stock by default — auto-pick ATS
-    // and flag the field so the operator confirms (or switches to Production).
-    setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
+    // Fulfillment source — honour an explicit instruction ("from production" /
+    // "from stock"); otherwise default to ATS and flag it for the operator to
+    // confirm. An explicit choice is set without the "please confirm" flag.
+    if (parsed.fulfillment_source === "production") {
+      setFulfillmentSource("production"); setFulfillmentReview(false); summary.push("Fulfillment: Production");
+    } else if (parsed.fulfillment_source === "ats") {
+      setFulfillmentSource("ats"); setFulfillmentReview(false); summary.push("Fulfillment: ATS");
+    } else {
+      setFulfillmentSource("ats"); setFulfillmentReview(true); summary.push("Fulfillment: ATS (please confirm)");
+    }
 
     // Reuse the matrices fetched in prepareConfirm (sizeCache is NOT cleared here)
     // so the seed builds from the exact data the colour questions were based on.
@@ -1025,6 +1169,35 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
     if (!fulfillmentSource) { setErr("Select a Fulfillment source — ATS (ship from stock) or Production (make it)."); return; }
     if (!saleStore.trim()) { setErr("Pick a Warehouse."); return; }
     if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Start ship date."); return; }
+
+    // Missing-price guard — warn (don't block) when a style/color that carries a
+    // quantity has a $0 unit price, so a price isn't left off by accident. Read
+    // from getDocumentData() (pure, no SKU side-effects) so it runs before the
+    // resolve/allocate below. The operator can accept ($0 is sometimes intended,
+    // e.g. a free replacement) or go back and add the price.
+    {
+      const doc = bodyRef.current?.getDocumentData();
+      const zeroPriced = new Set<string>();
+      if (doc) {
+        for (const st of doc.styles) {
+          for (const row of st.rows) {
+            const rowQty = Object.values(row.qtyBySize).reduce((a, b) => a + (b || 0), 0);
+            if (rowQty > 0 && !(row.unitDollars > 0)) zeroPriced.add(`${st.style}${row.color ? ` — ${row.color}` : ""}`);
+          }
+        }
+        for (const f of doc.flats) {
+          if ((f.qty || 0) > 0 && !((f.unitDollars || 0) > 0)) zeroPriced.add(f.label || "(line)");
+        }
+      }
+      if (zeroPriced.size > 0) {
+        const ok = await confirmDialog(
+          "One or more styles have a $0 unit price. Save anyway, or cancel to add a price first.",
+          { title: "Missing unit prices", confirmText: "Save anyway", cancelText: "Add price", confirmColor: "#F59E0B", icon: "!", listItems: [...zeroPriced] },
+        );
+        if (!ok) return;
+      }
+    }
+
     setSubmitting(true);
     // Resolve the matrix grids + flat lines → SO line payload (find-or-create
     // SKUs). Done before the header build so a resolve error surfaces cleanly.
@@ -1086,11 +1259,32 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   // POST/PATCH the SO with a final line set (per-lot-expanded for ATS, or raw).
   async function commitSave(lines: SaveLine[], confirm: boolean) {
     try {
+      // Per-line Customer PO split: pull every line whose customer_po differs
+      // from the header PO onto a NEW auto-created SO, grouped by that PO. Lines
+      // matching the header PO (or carrying none) stay on this order. The per-
+      // line tag is stripped from the payload — each resulting SO's HEADER
+      // carries its PO (no line-level column needed).
+      const headerPo = customerPo.trim();
+      const stripPo = (l: SaveLine): SaveLine => { const { customer_po: _drop, ...rest } = l; return rest; };
+      const parentLines: SaveLine[] = [];
+      const childByPo = new Map<string, SaveLine[]>();
+      for (const l of lines) {
+        const lp = (l.customer_po ?? "").trim();
+        if (!lp || lp === headerPo) parentLines.push(stripPo(l));
+        else { const g = childByPo.get(lp) || []; g.push(stripPo(l)); childByPo.set(lp, g); }
+      }
+      const hasSplit = childByPo.size > 0;
+      if (hasSplit && parentLines.length === 0) {
+        setErr("At least one style line must keep the header Customer PO. Change one line back to the header PO, or update the header PO to match.");
+        setSubmitting(false);
+        return;
+      }
+
       const body: Record<string, unknown> = {
         customer_id: customerId, ship_to_location_id: shipToLocationId || null,
         brand_id: brandId || null, channel_id: channelId || null,
         order_date: orderDate, requested_ship_date: reqShip || null, cancel_date: cancelDate || null,
-        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines,
+        payment_terms_id: paymentTermsId || null, buyer_id: buyerId || null, notes: notes.trim() || null, lines: parentLines,
         customer_po: customerPo.trim() || null,
         customer_po_is_placeholder: customerPoIsPlaceholder,
         is_bulk_order: isBulkOrder,
@@ -1129,6 +1323,36 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
         if (cj?.production_notice?.skipped) notify(cj.production_notice.reason || "Production order: no Production recipient configured.", "info");
         else if (cj?.production_notice?.sent) notify(`Production Manager notified (${cj.production_notice.sent} recipient${cj.production_notice.sent === 1 ? "" : "s"}).`, "success");
       }
+
+      // Per-line PO split — after the parent is saved (+ confirmed as clicked),
+      // create one NEW SO per distinct new PO. Each child copies ALL of this
+      // order's header info (customer, ship-to, brand, channel, dates, terms,
+      // buyer, warehouse, fulfillment, factor…) via the shared `body`, carries
+      // only its own line group, is force-confirmed, and gets an audit note.
+      if (hasSplit && soId) {
+        const AUTO_NOTE = "Auto created due to new Customer PO";
+        const childNotes = notes.trim() ? `${notes.trim()}\n${AUTO_NOTE}` : AUTO_NOTE;
+        const created: { id: string | null; so_number: string | null; po: string; qty: number; styles: number }[] = [];
+        for (const [po, childLines] of childByPo) {
+          const childBody = { ...body, lines: childLines, customer_po: po, customer_po_is_placeholder: false, notes: childNotes };
+          const cr = await fetch("/api/internal/sales-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(childBody) });
+          if (!cr.ok) throw new Error(`Auto-split SO for PO ${po} failed: ${(await cr.json().catch(() => ({}))).error || `HTTP ${cr.status}`}`);
+          const childRow = await cr.json();
+          const childId: string | null = childRow?.id || null;
+          let childNo: string | null = childRow?.so_number || null;
+          if (childId) {
+            const cf = await fetch(`/api/internal/sales-orders/${childId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "confirmed" }) });
+            if (!cf.ok) throw new Error(`Auto-split SO for PO ${po} was created but could not be confirmed: ${(await cf.json().catch(() => ({}))).error || `HTTP ${cf.status}`}`);
+            const cfj = await cf.json().catch(() => ({}));
+            childNo = cfj?.so_number || childNo;
+          }
+          created.push({ id: childId, so_number: childNo, po, qty: childLines.reduce((a, l) => a + (l.qty_ordered || 0), 0), styles: childLines.length });
+        }
+        setSplitResult({ parentPo: headerPo || null, created });
+        setSubmitting(false);
+        return; // summary modal handles the refresh on close
+      }
+
       // Scenario 4.2 — a saved distro (non-bulk SO with a customer PO) is matched
       // against open bulk orders for the same customer. If any overlap, show the
       // match modal (which calls onSaved on close) instead of closing now.
@@ -1188,6 +1412,9 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
   const canInvoice = !isNew && so != null && ["confirmed", "allocated", "fulfilling", "shipped"].includes(so.status);
   // Item 1 — the just-created draft invoice (drives the View / Post / Close dialog).
   const [invoiceResult, setInvoiceResult] = useState<{ id: string; number: string } | null>(null);
+  // Per-line PO split result — the new SOs auto-created for lines whose Customer
+  // PO differed from the header. Shown in a summary modal (open each in a tab).
+  const [splitResult, setSplitResult] = useState<{ parentPo: string | null; created: { id: string | null; so_number: string | null; po: string; qty: number; styles: number }[] } | null>(null);
   const [postingInvoice, setPostingInvoice] = useState(false);
   async function createInvoice() {
     if (!so) return;
@@ -1337,6 +1564,27 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
       notify("Credit hold overridden — order approved to ship.", "success");
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setSubmitting(false); }
+  }
+
+  // Reinstate a cancelled order — status returns to 'confirmed' (keeps its SO #).
+  async function reinstateSO() {
+    if (!so) return;
+    const ok = await confirmDialog(
+      "This order's status will change to confirmed.",
+      { confirmText: "Continue", title: `Reinstate ${so.so_number || "sales order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/sales-orders/${so.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "confirmed" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Sales order ${so.so_number || ""} reinstated — status is now confirmed.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not reinstate: ${e instanceof Error ? e.message : String(e)}`, "error"); }
     finally { setSubmitting(false); }
   }
 
@@ -1835,6 +2083,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
             atsAsOfDate={reqShip || null}
             onTotalsChange={setBodyTotals}
             onPrimaryBrandChange={(b) => { if (b) setBrandId(b); }}
+            enableLinePo
+            headerCustomerPo={customerPo}
           />
         </div>
 
@@ -1873,6 +2123,14 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
                 disabled={submitting}
                 title={so.status === "draft" ? "Permanently delete this draft order" : "Cancel this order (moves to cancelled, kept for history)"}
               >{so.status === "draft" ? "Delete draft" : "Cancel order"}</button>
+            )}
+            {!isNew && so != null && so.status === "cancelled" && (
+              <button
+                onClick={() => void reinstateSO()}
+                style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}
+                disabled={submitting}
+                title="Reinstate this cancelled order — its status returns to confirmed"
+              >Reinstate</button>
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -1928,6 +2186,41 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <button onClick={() => void postInvoiceNow()} disabled={postingInvoice} style={{ ...btnPrimary, background: C.success, opacity: postingInvoice ? 0.6 : 1 }}>
                 {postingInvoice ? "Posting…" : "Post now"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Per-line Customer PO split — the SOs auto-created (and confirmed) for the
+          style lines whose PO differed from the header. Each is openable in a new
+          tab (reuses the ?m=sales_orders&q=<SO#> deep-link). Closing refreshes. */}
+      {splitResult && (
+        <div onClick={() => { setSplitResult(null); onSaved(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(560px, 95vw)", maxHeight: "90vh", overflow: "auto", padding: 22, color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>{splitResult.created.length} new sales order{splitResult.created.length === 1 ? "" : "s"} auto-created</h3>
+            <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 14 }}>
+              Style lines carrying a Customer PO other than the header PO{splitResult.parentPo ? <> (<strong>{splitResult.parentPo}</strong>)</> : null} were split onto their own confirmed sales order{splitResult.created.length === 1 ? "" : "s"} — same customer, ship-to and header details, with the note “Auto created due to new Customer PO”.
+            </div>
+            <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+              {splitResult.created.map((c, i) => (
+                <div key={c.id || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderTop: i === 0 ? "none" : `1px solid ${C.cardBdr}`, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 13 }}>
+                    <div><strong>{c.so_number || "(draft)"}</strong> · PO <strong>{c.po}</strong></div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>{c.styles} style{c.styles === 1 ? "" : "s"} · {c.qty.toLocaleString()} qty</div>
+                  </div>
+                  <button
+                    onClick={() => window.open(`?m=sales_orders&q=${encodeURIComponent(c.so_number || c.po)}`, "_blank")}
+                    style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Open</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={() => splitResult.created.forEach((c) => window.open(`?m=sales_orders&q=${encodeURIComponent(c.so_number || c.po)}`, "_blank"))}
+                style={btnSecondary}>Open all</button>
+              <button onClick={() => { setSplitResult(null); onSaved(); }} style={btnPrimary}>Done</button>
             </div>
           </div>
         </div>

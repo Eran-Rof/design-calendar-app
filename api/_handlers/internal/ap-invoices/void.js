@@ -84,6 +84,7 @@ export default async function handler(req, res) {
       kind: "ap_invoice_voided",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: `Void AP bill ${invoice.invoice_number ?? invoice.id}`,
       data: {
         invoice_id: invoice.id,
         accrual_je_id: invoice.accrual_je_id,

@@ -45,13 +45,17 @@ Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `
 
 A **BOM** is the recipe for assembling a finished style. Find it under **Manufacturing → Bill of Materials** (`/tangerine?m=mfg_bom`).
 
-- **+ New BOM** — pick the **finished style** to build (type to search your styles), set a **version** and **status** (draft / active / archived), optionally a **default conversion vendor** (the factory) and notes.
+- **+ New BOM** — pick the **finished style** to build (the picker lists **base styles** — code + name — not per-size SKUs). If the style isn't on file yet, click **+ New style** to create it inline (admins only). Set a **version** and **status** (draft / active / archived), optionally a **default conversion vendor** (the factory) and notes.
+- **Customer-specific BOM (private label).** Optionally set a **Customer** on the BOM: a style can have a **generic** BOM (no customer) plus **per-customer** variants. When you release a build that's *for a customer*, Tangerine picks that customer's active BOM if one exists, otherwise the generic one. "One active BOM" is enforced per **style + customer**, so the generic and each customer's BOM can each be active at once. The BOM list shows the customer (or *generic*).
 - **Components** — add a row per component. Each row picks a **kind**, then the item:
   - **Part** — a `part_master` component (blank tee, label, trim, packaging) consumed from part inventory.
   - **Service** — a `service_item_master` charge (print, sew, pack) billed by the factory.
   - **Finished style** — an existing finished style consumed into the build (e.g. a base jean → its `PL` packed/labeled variant).
   - Set **Qty/unit** (how much of the component goes into one finished unit), an optional **Scrap %**, and a **Cost** basis (Actual/FIFO is the default).
 - **One active version per finished style** — saving a second BOM as *active* for the same style is rejected; archive the old one or bump the version. Drafts and archives can coexist.
+- **Add a part or service on the fly.** Next to the component picker, **+ New part** / **+ New service** open a popup with the same key fields as the Part / Service masters; on save the item is created, added to the dropdown, and selected — you stay in the BOM. Admins only.
+- **Costs & total.** Each row shows a **unit cost** and an **extended cost** (unit × qty/unit), and the BOM shows a **total cost**. Costs default to the masters — part default cost, service default charge (**editable inline** per BOM), finished-style average cost — so you can see the recipe's cost before ever building.
+- **Save → activate prompt.** Saving a *draft* BOM asks whether to set it **Active** now (OK) or keep it draft (Cancel) — so a finished BOM is one click from buildable. (Manufacturing lives in its **own top-level drawer section** now, not under Master Data.)
 
 A BOM is just the recipe — nothing is consumed or costed until you run a **build order** against it (M4). The two example flows (printed tee = blank-tee part + print service; PL jean = base style + labels part + sew/pack services) are both modeled as a single BOM each.
 
@@ -61,13 +65,47 @@ A **build order** runs a BOM to produce real finished-goods inventory, with all 
 
 The lifecycle:
 
-1. **New build** — pick the finished style and a **target quantity**. Creates a *draft*. **Add a style on the fly (item 1):** if the style you want to build isn't on file, click **+ New style** next to the picker — a popup creates the **Style Master record (with a chosen size scale)** + a **finished-goods SKU for the size you'll build** (a build's finished item is a sized variant SKU), and selects it. You pick the **Size scale** and then the **size to build** from that scale (plus optional colour); the scale is set on the style so other sizes can be built later, while only the chosen size's SKU is minted now. **Admins only** (signed-in users); a non-admin sees a warning. *The new style still needs an active **BOM** (Master Data → BOM) before you can Release the build — that's what makes it fully buildable.*
+1. **New build** — search and pick the **finished style** (the picker lists **base styles** — one row per style, code + name — not per-size SKUs), then **plan the run by size**: a color × size matrix (the same grid as SO/PO entry) lets you enter the quantity per size right away, and the **target quantity is the matrix total**. (If the style has no size scale, you just enter a total.) Creates a *draft*. **Add a style on the fly:** if the style isn't on file, click **+ New style** (admins only). *The new style still needs an active **BOM** before you can Release the build.*
+   - **Active-BOM gate.** You can only build a style that has an **active BOM**. If its BOM is still **Draft**, you're offered a one-click **Activate**; if it has **no BOM**, you're told to create one first. Create stays disabled until a usable BOM resolves.
+   - **Auto customer.** If the resolved BOM is customer-specific, **Build for customer** is auto-filled with that customer.
+   - **Availability under each size.** The plan matrix shows each finished size's **on-hand** underneath the cell (like SO entry), and a **component-availability** panel lists the BOM's parts with required-vs-on-hand and a **shortage warning** when you'd build beyond what's in stock (informational — it never blocks). *First version: parts show aggregate on-hand; per-size and on-PO are a follow-up.*
 2. **Release** — snapshots the style's active BOM into the build, scaling each component to `qty_per_unit × target × (1 + scrap%)`. Status → *released*.
-3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1305 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*.
+3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1305 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*. **Where you see the result:** the build's **WIP rollup** (Parts / Consumed styles / WIP total) and each row's *Consumed* + *Actual cost*; the **General Ledger** (journal entries on **1305 WIP** and the credited inventory accounts); the **part inventory** depleting; and **Manufacturing → Reports** (open WIP). Every posting now carries an **audit reason** (required by the ledger's audit policy) generated automatically per step.
 4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1305 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
 5. **Complete → finished goods** — moves the full accumulated WIP into finished-goods inventory: posts `DR <style inventory> / CR 1305 WIP` and creates the finished style's **FIFO layer at the real build cost** (`accumulated ÷ completed qty`), tagged `source_kind = manufacture`. Status → *completed*. (You must capitalize all service charges first.)
 
-The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
+The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. It also shows a **projected cost** per component from the masters **before anything is issued or capitalized**, so you can see the expected cost of the run up front (actual cost fills in as each step posts). **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
+
+### Cancel a build — including an issued one (full reversal)
+
+Press **Cancel build** in the build's footer.
+
+- A **draft** or **released** build (nothing posted yet) simply flips to *cancelled*.
+- An **issued** build has already drawn parts/styles into WIP and posted journal entries. Tangerine now **fully reverses** it rather than blocking you:
+  1. Reverses the **issue** journal entries (`DR 1305 WIP / CR inventory` → undone) on both the accrual and cash books.
+  2. Reverses every **capitalized service** entry (`DR 1305 WIP / CR 2000 AP` → undone).
+  3. **Returns the consumed units to inventory** — the parts go back to part inventory and any consumed finished styles back to style inventory, on the exact FIFO layers they were drawn from (the GL reversal only restores the *dollars*; this puts the *units* back).
+  4. Zeroes the build's WIP, un-stamps the components, and sets status *cancelled*.
+
+  Because this reverses the general ledger, a **reason is required** — you're prompted for one and it's recorded on the reversing journal entries (the ledger's audit policy). The confirmation message reports how many journal entries were reversed and how many part/style units were returned.
+
+- A **completed** build can't be cancelled (its WIP already moved to finished goods) — that would need a separate reverse-completion step.
+
+A cancelled build can then be **deleted** if you want it off the list (see below). The reversal is **idempotent** — already-reversed entries and already-restored draws are skipped.
+
+### Completing by size — the produced color × size matrix
+
+A build usually makes a run of one style across **many sizes** (and colors) at once, and inventory is tracked **per size**. When the finished good is a **style-backed** item, pressing **Complete → finished goods** now opens a **produced-by-size matrix** — the same color × size grid used on sales-order and PO entry. Enter the quantity actually produced in each cell (an **Even-split target** button splits the target evenly across the sizes of the default colour as a starting point; you can then tweak, and the total is free to differ from the target to reflect real yield).
+
+On submit, each filled cell resolves to (or auto-creates) that size's SKU and Tangerine lands **one finished-goods FIFO layer per size** — so on-hand and future COGS are correct at size grain instead of dumped onto a single item. The accounting stays clean: the per-unit cost is **uniform** (`accumulated ÷ total units produced`), the finished-inventory **debit is split per size** (one line each, so the per-item subledger matches the layers), and the single **WIP credit** clears the whole accumulated cost — the journal entry balances exactly. The completed build lists what it produced under **Produced (by size)**.
+
+The completion matrix is **pre-filled from the plan** you entered at build creation, so you usually just confirm (or adjust for actual yield) and complete. If the finished good has no size scale, completion falls back to the original single-quantity path (`completed qty`, one layer).
+
+### Building for a customer (private label) + auto customer style number
+
+When you create a build you can optionally set **Build for customer** — the customer this run is being made for (private-label / made-to-order). Pick the customer and Tangerine pre-fills a **Customer style #** as `<customer code>-<base style>` (e.g. `CUST-00042-RYB0412`); you can edit it before saving. On create, that number is saved to the shared **customer style-number** register (`style_customer_numbers`) — the same one edited in **Style Master → Customer style numbers** and used to resolve a customer's own number on an incoming PO.
+
+It's **idempotent**: a customer has at most one number per base style, so if a mapping already exists it's kept (not overwritten). The build header shows *For &lt;customer&gt; · cust style &lt;number&gt;*, and every number for a customer is listed read-only under **Customer Master → Style numbers**. Leaving the customer blank keeps the build a normal for-stock build.
 
 **Delete a build (item 2).** Each **draft** or **cancelled** build row has a **Del** button. Deleting checks whether a **BOM is attached** (its components are snapshotted on Release): if so, a warning asks you to **continue or cancel** before it removes the build and its components (they cascade). Issued/in-progress/completed builds can't be deleted — cancel them first (and completed builds are immutable for GL integrity).
 
@@ -101,3 +139,11 @@ Parts are stocked the proper way too — as a **vendor purchase**, not just open
 - **Parts valuation** — on-hand parts ranked by value, plus the total parts inventory value.
 
 Every section exports to Excel. This closes out the module: masters → part inventory → BOM → build orders + WIP → PO-driven completion → reports.
+
+## Images, attachments & one-click conversion PO
+
+**Images (parts & finished goods).** Parts now carry photos: on the **Part Master**, each part shows a thumbnail and its edit modal has an upload/manage area (upload, ★ set-primary, ✕ delete). Those part photos also appear next to **part components** in the BOM editor and build detail. Finished goods reuse the existing **style images** (PIM) — the finished style's thumbnail shows in the BOM editor header, the New Build modal, and the build detail header.
+
+**Attachments (files on any record).** Parts, services, BOMs, and builds each have an **Attachments** section (in their edit/detail view, once saved) — upload files with a *kind*, download them, and keep versions. It's the same shared, versioned document store used elsewhere in the suite (e.g. a BOM's tech pack, a build's packing list, a part's COA).
+
+**Auto-create a conversion PO.** From a build's detail, **Create conversion PO** drafts a native purchase order to the BOM's **conversion vendor** (the contractor) for the finished good, and links it to the build. Receiving that PO completes the build (the M5 path above). It's a **document only** — it posts no GL by itself. *(A future "capitalize" mode, where the contractor's AP bill capitalizes the CMT cost straight into WIP, is pre-staged but not enabled yet — completion still expects services to be capitalized the normal way.)*

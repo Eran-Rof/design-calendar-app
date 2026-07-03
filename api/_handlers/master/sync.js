@@ -27,6 +27,7 @@ import formidable from "formidable";
 import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonStyleColor, parseStyleColor } from "../../_lib/sku-canon.js";
+import { canonColor } from "../../_lib/styleMatrix.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import {
   normalizeRow,
@@ -119,7 +120,10 @@ function buildCandidate(r) {
   return {
     sku_code: canonical,
     style_code: styleCode,
-    color: opt1 || null,
+    // Canonicalize color on write so the nightly master sync never re-introduces
+    // a spelling variant of a physical color (which would fragment matrices and
+    // undo the color-canonicalization backfill). See canonColor.
+    color: canonColor(opt1) || null,
     description: description || null,
     attributes: Object.keys(attributes).length > 0 ? attributes : null,
     uom: "each",

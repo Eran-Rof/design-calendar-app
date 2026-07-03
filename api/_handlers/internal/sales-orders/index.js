@@ -36,8 +36,6 @@ async function resolveDefaultEntity(admin) {
 
 // chunk a list into pages (Supabase .in() URL-length guard).
 function chunks(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
-// loose SKU key — strip non-alphanumerics + uppercase, for fuzzy avg-cost match.
-function looseKey(s) { return String(s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
 
 // Per-SO cost / sell / margin aggregates (operator ask: Avg cost, Avg sell,
 // Margin %, Margin $ columns). Cost source = ip_item_avg_cost (same source the
@@ -66,28 +64,24 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   for (const slice of chunks(itemIds, 200)) {
     if (!slice.length) continue;
     const { data } = await admin.from("ip_item_master")
-      .select("id, sku_code, style_code").in("id", slice);
+      .select("id, sku_code, style_code, size").in("id", slice);
     for (const it of data || []) itemById.set(it.id, it);
   }
 
-  // 3. Avg cost per sku_code (exact + loose), from ip_item_avg_cost.
+  // 3. Avg cost per sku_code from ip_item_avg_cost, via the normalized-SKU RPC.
+  // ip_item_avg_cost stores a punctuation-collapsed sku_code, so an exact .in()
+  // match missed ~60% of lines; the RPC normalizes both sides (upper +
+  // alphanumeric-only) so the cost resolves for ~89% of SKUs.
   const skus = [...new Set([...itemById.values()].map((it) => it.sku_code).filter(Boolean))];
-  const costBySku = new Map(), costByLoose = new Map();
-  for (const slice of chunks(skus, 100)) {
+  const costBySku = new Map();
+  for (const slice of chunks(skus, 500)) {
     if (!slice.length) continue;
-    const { data } = await admin.from("ip_item_avg_cost").select("sku_code, avg_cost").in("sku_code", slice);
+    const { data } = await admin.rpc("resolve_avg_cost_by_norm", { p_skus: slice });
     for (const r of data || []) {
-      if (r.avg_cost == null) continue;
-      const cents = Math.round(Number(r.avg_cost) * 100);
-      costBySku.set(r.sku_code, cents);
-      const lk = looseKey(r.sku_code); if (!costByLoose.has(lk)) costByLoose.set(lk, cents);
+      if (r.avg_cost != null && !costBySku.has(r.input_sku)) costBySku.set(r.input_sku, Math.round(Number(r.avg_cost) * 100));
     }
   }
-  const costForSku = (sku) => {
-    if (!sku) return null;
-    if (costBySku.has(sku)) return costBySku.get(sku);
-    const lk = looseKey(sku); return costByLoose.has(lk) ? costByLoose.get(lk) : null;
-  };
+  const costForSku = (sku) => (sku && costBySku.has(sku) ? costBySku.get(sku) : null);
 
   // 4. Qty-weighted aggregation per SO. styleFilter = case-insensitive substring
   // on style_code or sku_code; only narrows when it actually matches a line.
@@ -102,7 +96,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
   const buckets = new Map(); // so_id -> { qFull,sellFull,costFull,costQFull, qScoped,sellScoped,costScoped,costQScoped, anyScoped }
   const bucketFor = (id) => {
     let b = buckets.get(id);
-    if (!b) { b = { qFull: 0, sellFull: 0, costFull: 0, costQFull: 0, qScoped: 0, sellScoped: 0, costScoped: 0, costQScoped: 0, anyScoped: false }; buckets.set(id, b); }
+    if (!b) { b = { qFull: 0, sellFull: 0, costFull: 0, costQFull: 0, qScoped: 0, sellScoped: 0, costScoped: 0, costQScoped: 0, anyScoped: false, explFull: 0, explScoped: 0 }; buckets.set(id, b); }
     return b;
   };
   for (const l of lines) {
@@ -112,11 +106,14 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
     const it = l.inventory_item_id ? itemById.get(l.inventory_item_id) : null;
     const cost = costForSku(it?.sku_code);
     const b = bucketFor(l.sales_order_id);
-    b.qFull += qty; b.sellFull += unit * qty;
+    // Exploded units: a PPK line stores PACKS at size = the pack token (PPK24);
+    // exploded qty = packs × pack size. Non-PPK lines are already in eaches.
+    const packSize = /PPK/i.test(String(it?.style_code ?? "")) ? (parseInt(String(it?.size ?? "").match(/(\d+)/)?.[1] ?? "1", 10) || 1) : 1;
+    b.qFull += qty; b.sellFull += unit * qty; b.explFull += qty * packSize;
     if (cost != null) { b.costFull += cost * qty; b.costQFull += qty; }
     if (sf && matchesStyle(it)) {
       b.anyScoped = true;
-      b.qScoped += qty; b.sellScoped += unit * qty;
+      b.qScoped += qty; b.sellScoped += unit * qty; b.explScoped += qty * packSize;
       if (cost != null) { b.costScoped += cost * qty; b.costQScoped += qty; }
     }
   }
@@ -133,7 +130,7 @@ async function computeSoMetrics(admin, soIds, styleFilter) {
       margin_cents = avg_sell_cents - avg_cost_cents;
       margin_pct = avg_sell_cents !== 0 ? Math.round((margin_cents / avg_sell_cents) * 1000) / 10 : null;
     }
-    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct, total_qty: q });
+    out.set(id, { avg_cost_cents, avg_sell_cents, margin_cents, margin_pct, total_qty: q, total_qty_exploded: useScoped ? b.explScoped : b.explFull });
   }
   return out;
 }
@@ -354,12 +351,13 @@ export default async function handler(req, res) {
     try {
       const metrics = await computeSoMetrics(admin, headers.map((h) => h.id), styleFilter);
       for (const h of headers) {
-        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null, total_qty: null };
+        const m = metrics.get(h.id) || { avg_cost_cents: null, avg_sell_cents: null, margin_cents: null, margin_pct: null, total_qty: null, total_qty_exploded: null };
         h.avg_cost_cents = m.avg_cost_cents;
         h.avg_sell_cents = m.avg_sell_cents;
         h.margin_cents = m.margin_cents;
         h.margin_pct = m.margin_pct;
         h.total_qty = m.total_qty;  // item 18 — total units across the SO's lines
+        h.total_qty_exploded = m.total_qty_exploded;  // item 30 — PPK packs → units
       }
     } catch { /* leave metrics absent on failure */ }
 

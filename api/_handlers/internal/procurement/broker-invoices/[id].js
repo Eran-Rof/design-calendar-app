@@ -184,6 +184,7 @@ export default async function handler(req, res, params) {
       try {
         const result = await postEvent(admin, {
           kind: "landed_cost_revaluation", entity_id: inv.entity_id, created_by_user_id: null,
+          reason: `Landed-cost revaluation ${invNo}`,
           data: {
             invoice_id: apInv.id, vendor_id: inv.vendor_id, invoice_number: invNo, invoice_date: inv.invoice_date,
             ap_account_id: apAccountId, inventory_account_id: inventoryAcctId, variance_account_id: varianceAcctId,

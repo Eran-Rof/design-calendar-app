@@ -16,6 +16,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type Vendor = { id: string; name: string };
 type Account = { id: string; code: string; name: string; is_postable: boolean };
@@ -338,6 +339,13 @@ function ServiceFormModal({ mode, item, vendors, accounts, onClose, onSaved }: M
             </Field>
           </div>
         </div>
+
+        {mode === "edit" && item && (
+          <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Attachments</div>
+            <DocumentAttachmentList contextTable="service_item_master" contextId={item.id} kinds={["quote", "contract", "other"]} />
+          </div>
+        )}
 
         {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
 

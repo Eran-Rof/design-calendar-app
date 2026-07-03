@@ -199,6 +199,39 @@ describe("postEvent integration", () => {
     expect(result.cash_je_id).toBeNull();
   });
 
+  it("threads event.reason into the RPC payload as audit_reason (T11 D3)", async () => {
+    const supabase = mockSupabase({ glAccounts: goodAccounts });
+    await postEvent(supabase, {
+      kind: "ap_invoice_received", entity_id: ENTITY,
+      created_by_user_id: "user-1",
+      reason: "Manufacturing build issue BLD-001",
+      data: {
+        invoice_id: "inv-1", vendor_id: "v-1",
+        invoice_number: "INV-001", invoice_date: "2026-05-21",
+        amount: "1000.00",
+        ap_account_id: "ap1", expense_account_id: "exp1",
+      },
+    });
+    const post = supabase.rpc.mock.calls.find((c) => c[0] === "gl_post_journal_entry");
+    expect(post[1].payload.audit_reason).toBe("Manufacturing build issue BLD-001");
+  });
+
+  it("omits audit_reason from the payload when no reason supplied (back-compat)", async () => {
+    const supabase = mockSupabase({ glAccounts: goodAccounts });
+    await postEvent(supabase, {
+      kind: "ap_invoice_received", entity_id: ENTITY,
+      created_by_user_id: "user-1",
+      data: {
+        invoice_id: "inv-1", vendor_id: "v-1",
+        invoice_number: "INV-001", invoice_date: "2026-05-21",
+        amount: "1000.00",
+        ap_account_id: "ap1", expense_account_id: "exp1",
+      },
+    });
+    const post = supabase.rpc.mock.calls.find((c) => c[0] === "gl_post_journal_entry");
+    expect("audit_reason" in post[1].payload).toBe(false);
+  });
+
   it("throws PostingError on unknown event kind", async () => {
     const supabase = mockSupabase();
     await expect(postEvent(supabase, { kind: "nonexistent", entity_id: ENTITY, data: {} }))

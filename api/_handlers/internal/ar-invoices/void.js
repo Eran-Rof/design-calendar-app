@@ -106,6 +106,7 @@ export default async function handler(req, res) {
       kind: "ar_invoice_voided",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: reason || `Void AR invoice ${invoice.invoice_number ?? invoice.id}`,
       data: {
         invoice_id: invoice.id,
         accrual_je_id: invoice.accrual_je_id,
