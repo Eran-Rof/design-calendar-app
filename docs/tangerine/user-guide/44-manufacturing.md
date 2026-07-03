@@ -87,7 +87,7 @@ Press **Cancel build** in the build's footer.
   3. **Returns the consumed units to inventory** — the parts go back to part inventory and any consumed finished styles back to style inventory, on the exact FIFO layers they were drawn from (the GL reversal only restores the *dollars*; this puts the *units* back).
   4. Zeroes the build's WIP, un-stamps the components, and sets status *cancelled*.
 
-  Because this reverses the general ledger, a **reason is required** — you're prompted for one and it's recorded on the reversing journal entries (the ledger's audit policy). The confirmation message reports how many journal entries were reversed and how many part/style units were returned.
+  Because this reverses the general ledger, a **reason is required** — you're prompted for one and it's recorded on the reversing journal entries (the ledger's audit policy). Each reversing entry is **dated into the same period as the entry it reverses** (its original posting date), so the two net to zero in that period rather than landing in the current one. (If that period is hard-locked, the reversal is rejected with a clear message.) The confirmation message reports how many journal entries were reversed and how many part/style units were returned.
 
 - A **completed** build can't be cancelled (its WIP already moved to finished goods) — that would need a separate reverse-completion step.
 
