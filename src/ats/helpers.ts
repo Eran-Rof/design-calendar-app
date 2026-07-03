@@ -78,8 +78,9 @@ export function getQtyBg(qty: number): string {
 export function normalizeSku(sku: string): string {
   // 1. Collapse all whitespace runs to single space
   let s = sku.replace(/\s+/g, " ").trim();
-  // 2. Standardize dash spacing: any combo of spaces/dashes → " - "
-  s = s.replace(/\s*-\s*/g, " - ");
+  // 2. Standardize dash spacing: only when hyphen has adjacent whitespace,
+  //    so bare hyphens in style codes (RBB0185-03) are preserved.
+  s = s.replace(/\s+-\s*|\s*-\s+/g, " - ");
   // 3. Title-case the color/wash portion (everything after first " - ")
   const firstDash = s.indexOf(" - ");
   if (firstDash >= 0) {
