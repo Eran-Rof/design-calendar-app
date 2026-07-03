@@ -29,7 +29,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import { resolveVendorId } from "../../_lib/xoro-mirror/ap.js";
-import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber } from "../../_lib/ap-bill-sync.js";
+import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber, billSinglePoNumber } from "../../_lib/ap-bill-sync.js";
 
 // Fetch ip_item_master rows for the styles referenced by a batch of bills so
 // each bill line can be linked to its SKU. Paginated OR-ilike by style prefix.
@@ -154,6 +154,17 @@ export default async function handler(req, res) {
   try { resolveId = makeItemResolver(await fetchMasterForBills(admin, bills)); }
   catch (e) { result.errors.push({ reason: `item resolver build failed: ${e?.message || String(e)}` }); }
 
+  // Single-PO bill → Xoro PO uuid map, so invoices.po_id can be stamped (the AP
+  // anomaly nightly matches one invoice to one PO by po_id and skips nulls).
+  const poUuidByNumber = new Map();
+  try {
+    const poNums = [...new Set(bills.map(billSinglePoNumber).filter(Boolean))];
+    for (let i = 0; i < poNums.length; i += 300) {
+      const { data } = await admin.from("tanda_pos").select("po_number, uuid_id").in("po_number", poNums.slice(i, i + 300));
+      for (const r of data || []) if (r.uuid_id) poUuidByNumber.set(r.po_number, r.uuid_id);
+    }
+  } catch (e) { result.errors.push({ reason: `po_id map build failed: ${e?.message || String(e)}` }); }
+
   for (const bill of bills) {
     // Resolve vendor by name (CSV "Vendor Code" is the Xoro int id, which
     // doesn't map to our vendors table — the name/alias match is the join).
@@ -195,6 +206,8 @@ export default async function handler(req, res) {
     }
 
     const payload = buildInvoicePayload(bill, vendor_id, nowIso);
+    const singlePo = billSinglePoNumber(bill);
+    payload.po_id = (singlePo && poUuidByNumber.get(singlePo)) || null;
 
     let invoiceId;
     if (existing) {
