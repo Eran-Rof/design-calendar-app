@@ -8,7 +8,7 @@
 // separately (mfgServiceCapitalized).
 //
 //   For each component → one sentinel pair:
-//     DR 1305 WIP        (subledger=build_order, id=build_order_id)
+//     DR 1205 WIP        (subledger=build_order, id=build_order_id)
 //     CR inventory       (parts → 1360 subledger=part; style → inv acct subledger=item)
 //   plus a partConsumePlan (parts) / consumePlan (styles) entry with explicit
 //   dr_line_ix / cr_line_ix. postEvent's indexed drains FIFO-consume each and

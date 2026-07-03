@@ -769,7 +769,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
 
   const status = build?.status;
   // Conversion PO 'capitalize' (subcontract) mode: the CMT accrues into WIP when
-  // the conversion PO's finished goods are received (DR 1305 WIP / CR 2160), so
+  // the conversion PO's finished goods are received (DR 1205 WIP / CR 2160), so
   // services are NOT capitalized manually and the build completes via that
   // receipt (not the manual Complete button). Procurement mode = document only.
   const capMode = build?.conversion_po_mode === "capitalize";

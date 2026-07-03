@@ -4,7 +4,7 @@
 //        3-way match it against the conversion PO + the finished-goods receipt.
 //
 // The CMT was already capitalized into WIP at receipt (mfg_cmt_accrued:
-//   DR 1305 WIP / CR 2160 Accrued CMT). This bill CLEARS 2160 and books any
+//   DR 1205 WIP / CR 2160 Accrued CMT). This bill CLEARS 2160 and books any
 // difference vs. the accrued value to PO Variance (6320):
 //   DR 2160 Accrued CMT   = accrued (received) value
 //   DR/CR 6320 PO Variance = bill total − accrued value

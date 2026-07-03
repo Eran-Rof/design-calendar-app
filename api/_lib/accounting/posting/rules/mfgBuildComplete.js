@@ -6,7 +6,7 @@
 // service charges), so downstream AR/COGS draws the real cost.
 //
 //   DR <finished-style inventory acct>  (subledger=item)
-//   CR 1305 WIP                          (subledger=build_order, id=build_order_id)
+//   CR 1205 WIP                          (subledger=build_order, id=build_order_id)
 //   amount = accumulated_cost_cents
 //
 // Phase A — per-SIZE outputs. When data.outputs is supplied (an apparel build

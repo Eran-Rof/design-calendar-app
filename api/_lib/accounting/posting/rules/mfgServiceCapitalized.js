@@ -4,7 +4,7 @@
 // a build's WIP (M4). The factory bills ROF for the print/sew/pack work; that
 // vendor charge is added to the finished good's cost via WIP.
 //
-//   DR 1305 WIP   (subledger=build_order, id=build_order_id)
+//   DR 1205 WIP   (subledger=build_order, id=build_order_id)
 //   CR 2000 AP    (subledger=vendor,      id=vendor_id)
 //
 // Non-cash to the inventory books in the sense that it is recognized at the
