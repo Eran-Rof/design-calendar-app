@@ -362,6 +362,28 @@ describe("mirrorApForDate — happy paths", () => {
     expect(payload.po_id).toBe("po-uuid-1");
   });
 
+  it("dates the bill to the row's own Xoro event date (eventDateFor), not the mirror_date arg", async () => {
+    // Lock-in for future multi-date runs: invoice_date is derived per-row from
+    // eventDateFor (here it resolves from DateReceived, not DateClosed), so every
+    // bill carries its true Xoro date by construction. The summary JE reconciles
+    // by invoice_date, so a run spanning multiple dates posts each into its own
+    // period. (In a single-date run eventDateFor === mirror_date, so this is
+    // value-identical today — but it removes the run-level-date coupling.)
+    const sb = makeSupabase({
+      tandaPos: [{
+        po_number: "PO-R", vendor: "ACME", status: "Closed",
+        // Closed but no DateClosed → eventDateFor falls through to DateReceived,
+        // and invoice_date must follow that resolved date (not the arg).
+        data: { DateReceived: "2026-05-28", TotalAmount: "100" }, uuid_id: "po-r",
+      }],
+      vendors: [{ id: "v-acme", code: "ACME" }],
+      invoices: [],
+    });
+    const r = await mirrorApForDate(sb, "ent-rof", "2026-05-28");
+    expect(r.rows_upserted).toBe(1);
+    expect(sb._inserts[0].payload.invoice_date).toBe("2026-05-28"); // = eventDateFor(row) via DateReceived
+  });
+
   it("upserts five Closed POs in one call", async () => {
     const tandaPos = [];
     for (let i = 0; i < 5; i++) {

@@ -233,6 +233,14 @@ export async function mirrorApForDate(supabase, entity_id, mirror_date) {
 
   for (const row of inScope) {
     const po_number = row?.po_number || null;
+    // Xoro-date policy: the bill's invoice_date is the row's OWN Xoro event date
+    // (DateClosed → DateReceived → …, via eventDateFor), NOT the mirror_date arg.
+    // For a normal single-date run these are equal (the in-scope filter above
+    // requires eventDateFor === mirror_date), but deriving it per-row makes the
+    // date correct BY CONSTRUCTION — so a future multi-date run stamps every bill
+    // with its true Xoro date instead of one run-level date. Falls back to
+    // mirror_date defensively (inScope guarantees eventDate is non-null == mirror_date).
+    const eventDate = eventDateFor(row) || mirror_date;
 
     let vendor_id;
     try {
@@ -289,7 +297,7 @@ export async function mirrorApForDate(supabase, entity_id, mirror_date) {
       vendor_id,
       po_id: row?.uuid_id || null,
       invoice_number,
-      invoice_date: mirror_date,
+      invoice_date: eventDate,
       due_date,
       subtotal: subtotalNum,
       tax: taxNum,
