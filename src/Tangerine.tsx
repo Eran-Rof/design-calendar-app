@@ -223,6 +223,35 @@ function readPlmSessionIdentity(): { email: string | null; name: string | null }
   }
 }
 
+// P27 4c — cross-tab sign-out bus. One tab signing out broadcasts here so every
+// other open Tangerine tab tears down its session too (the httpOnly JWT cookie
+// is already cleared server-side, which is global, but this makes the UI in
+// sibling tabs redirect immediately instead of lingering on stale state).
+const AUTH_CHANNEL = "tangerine-auth";
+function broadcastSignOut() {
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(AUTH_CHANNEL);
+      ch.postMessage("signout");
+      ch.close();
+    }
+  } catch { /* best-effort */ }
+}
+
+// Clear every client-side trace of the session (both auth systems). Shared by the
+// explicit sign-out and the cross-tab listener.
+function localSignOutCleanup() {
+  clearMsTokens();
+  setCachedAuthJwt(null);
+  setCachedAuthUserEmail(null);
+  setCachedAuthUserName(null);
+  setCachedAuthUserId(""); // empty → removes the cached id keys
+  try {
+    sessionStorage.removeItem("plm_user");
+    sessionStorage.removeItem("rof_notif_dismissed_internal");
+  } catch { /* ignore */ }
+}
+
 // Provision the MS→Supabase identity and cache the per-user app JWT. Shared by
 // the initial sign-in AND the P27 Phase 4 silent-refresh timer. Best-effort:
 // never throws (a provision blip must not break a working session — the
@@ -443,6 +472,19 @@ export default function Tangerine() {
     return () => { cancelled = true; };
   }, []);
 
+  // P27 4c — listen for a sign-out from any sibling tab and tear down here too.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const ch = new BroadcastChannel(AUTH_CHANNEL);
+    ch.onmessage = (e) => {
+      if (e?.data === "signout") {
+        localSignOutCleanup();
+        window.location.assign("/");
+      }
+    };
+    return () => { try { ch.close(); } catch { /* noop */ } };
+  }, []);
+
   // P27 Phase 4 — silent app-JWT refresh. The per-user JWT is a 12h token; if a
   // tab stays open past expiry it 401s per-user endpoints (the original favorites
   // / audit breakage) and RBAC can't verify the caller. While signed in WITH a
@@ -492,17 +534,12 @@ export default function Tangerine() {
     // tokens + cached JWT and reloading was a no-op refresh: the no-relogin
     // path (see project_app_no_relogin_g) re-adopts the still-present PLM
     // session (sessionStorage.plm_user) on mount and signs the user straight
-    // back in. So we must also drop the PLM session and leave Tangerine for the
+    // back in. So we also drop the PLM session and leave Tangerine for the
     // launcher, which shows the login form when there's no session.
-    clearMsTokens();
-    setCachedAuthJwt(null);
-    setCachedAuthUserEmail(null);
-    setCachedAuthUserName(null);
-    setCachedAuthUserId(""); // empty → removes the cached id keys
-    try {
-      sessionStorage.removeItem("plm_user");
-      sessionStorage.removeItem("rof_notif_dismissed_internal");
-    } catch { /* ignore */ }
+    // P27 4b — also clear the httpOnly JWT cookie server-side (JS can't delete it).
+    try { await fetch("/api/internal/auth/signout", { method: "POST" }); } catch { /* best-effort */ }
+    localSignOutCleanup();
+    broadcastSignOut(); // 4c — sign sibling tabs out too
     // Navigate away (not reload) → the PLM launcher at "/" with no session
     // renders the sign-in form. A reload would re-enter via the fallback.
     window.location.assign("/");

@@ -122,6 +122,7 @@ import r_internal_ats_size_matrix from "./internal/ats-size-matrix.js";
 import r_internal_audit_log from "./internal/audit/log.js";
 import r_internal_audit_row_history from "./internal/audit/row-history.js";
 import r_internal_auth_provision from "./internal/auth/provision.js";
+import r_internal_auth_signout from "./internal/auth/signout.js";
 import r_internal_b2b_accounts_id from "./internal/b2b-accounts/[id].js";
 import r_internal_b2b_accounts_index from "./internal/b2b-accounts/index.js";
 import r_internal_b2b_price_list_id from "./internal/b2b-price-list/[id].js";
@@ -1028,6 +1029,7 @@ export const ROUTES = [
   { pattern: "/api/external/v1/inventory", handler: r_external_v1_inventory },
   { pattern: "/api/internal/ai/documents", handler: r_internal_ai_documents },
   { pattern: "/api/internal/analytics/fx", handler: r_internal_analytics_fx },
+  { pattern: "/api/internal/auth/signout", handler: r_internal_auth_signout },
   { pattern: "/api/internal/bulk/process", handler: r_internal_bulk_process },
   { pattern: "/api/internal/costing/rfqs", handler: r_internal_costing_rfqs_index },
   { pattern: "/api/internal/edi/settings", handler: r_internal_edi_settings_index },

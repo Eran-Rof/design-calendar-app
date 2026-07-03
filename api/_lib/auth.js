@@ -18,33 +18,53 @@
 import { timingSafeEqual } from "node:crypto";
 import { verifyAppJwt } from "./auth/appJwt.js";
 
+// P27 4b — read the per-user JWT from the httpOnly cookie `tg_jwt` set by
+// /auth/provision. (Same-origin requests send it automatically; no interceptor
+// change needed.) Returns null when absent/malformed.
+function readJwtCookie(req) {
+  const raw = req.headers?.cookie || "";
+  const m = raw.match(/(?:^|;\s*)tg_jwt=([^;]+)/);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+}
+
 export async function authenticateCaller(req, admin) {
+  // Collect every place a token could ride: the Authorization: Bearer header
+  // (today's localStorage path — note it may instead carry the STATIC deploy
+  // token, which is not a user JWT) AND the httpOnly tg_jwt cookie (P27 4b). We
+  // try each so a valid cookie is honoured even when the header holds the static
+  // token, and vice-versa.
+  const candidates = [];
   const header = req.headers?.authorization || "";
-  const jwt = header.startsWith("Bearer ") ? header.slice(7).trim() : null;
-  if (!jwt) {
+  if (header.startsWith("Bearer ")) {
+    const t = header.slice(7).trim();
+    if (t) candidates.push(t);
+  }
+  const cookieJwt = readJwtCookie(req);
+  if (cookieJwt && !candidates.includes(cookieJwt)) candidates.push(cookieJwt);
+
+  if (candidates.length === 0) {
     return { ok: false, status: 401, error: "Missing bearer token", authId: null };
   }
+
   // P14 JWT phase — internal-staff tokens are HS256-signed by us (the MS-OAuth
-  // provision bridge). Verify those LOCALLY first: a self-consistent signature
-  // check with SUPABASE_JWT_SECRET, no GoTrue round-trip, immune to the
-  // legacy-vs-asymmetric signing-key question. Falls through to GoTrue for real
-  // Supabase sessions (e.g. vendor users). No-op when the secret is unset
-  // (verifyAppJwt returns null) → behaves exactly as before.
-  const local = verifyAppJwt(jwt);
-  if (local?.sub) {
-    return { ok: true, status: 200, error: null, authId: local.sub };
+  // provision bridge). Verify those LOCALLY first (no GoTrue round-trip). The
+  // static deploy token fails this and falls through. No-op when the secret is
+  // unset (verifyAppJwt returns null) → behaves exactly as before.
+  for (const jwt of candidates) {
+    const local = verifyAppJwt(jwt);
+    if (local?.sub) {
+      return { ok: true, status: 200, error: null, authId: local.sub };
+    }
   }
-  let authId = null;
-  try {
-    const { data } = await admin.auth.getUser(jwt);
-    authId = data?.user?.id ?? null;
-  } catch {
-    authId = null;
+  // Fall back to GoTrue for real Supabase sessions (e.g. vendor users).
+  for (const jwt of candidates) {
+    try {
+      const { data } = await admin.auth.getUser(jwt);
+      if (data?.user?.id) return { ok: true, status: 200, error: null, authId: data.user.id };
+    } catch { /* try next candidate */ }
   }
-  if (!authId) {
-    return { ok: false, status: 401, error: "Invalid or expired token", authId: null };
-  }
-  return { ok: true, status: 200, error: null, authId };
+  return { ok: false, status: 401, error: "Invalid or expired token", authId: null };
 }
 
 const UUID_RE_AUTH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
