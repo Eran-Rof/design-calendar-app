@@ -137,6 +137,7 @@ export default async function handler(req, res) {
     archived_source_cache_terminal: 0,
     archived_source_missing_from_xoro: 0,
     refetch_candidates: 0,
+    refetch_billed_prioritized: 0,
     refetch_done: 0,
     refetch_archived: 0,
     refetch_refreshed: 0,
@@ -322,7 +323,25 @@ export default async function handler(req, res) {
         if (ACTIVE_STATUSES.includes(lastStatus) || isPartial(lastStatus)) candidates.push(poNumber);
       }
       result.refetch_candidates = candidates.length;
-      for (const poNumber of candidates.slice(0, REFETCH_CAP)) {
+      // Prioritize candidates that have an AP bill (invoice_line_items.po_number)
+      // — a bill is a strong "this PO was received" signal, so those most
+      // likely flipped terminal. Fetch them first within the per-run cap so the
+      // real received POs are corrected fastest. Only worth querying when the
+      // candidate list exceeds the cap.
+      let ordered = candidates;
+      if (candidates.length > REFETCH_CAP) {
+        const billed = new Set();
+        for (let i = 0; i < candidates.length; i += 500) {
+          const { data } = await admin
+            .from("invoice_line_items")
+            .select("po_number")
+            .in("po_number", candidates.slice(i, i + 500));
+          for (const r of data || []) if (r.po_number) billed.add(r.po_number);
+        }
+        result.refetch_billed_prioritized = candidates.filter((p) => billed.has(p)).length;
+        ordered = [...candidates].sort((a, b) => (billed.has(b) ? 1 : 0) - (billed.has(a) ? 1 : 0));
+      }
+      for (const poNumber of ordered.slice(0, REFETCH_CAP)) {
         const r = await fetchXoroAll({ path: PO_PATH, params: { per_page: "200", order_number: poNumber } });
         if (!r.ok) { result.refetch_failed++; continue; }
         result.refetch_done++;
