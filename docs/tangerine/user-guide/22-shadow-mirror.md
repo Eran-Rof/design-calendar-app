@@ -106,7 +106,7 @@ Top-right of the panel. Operator picks a date + domains (AR / AP / Inv / Summary
 - **Single date** — re-mirrors one business date (as above).
 - **Date range** — pick **From** and **To** and it mirrors **every date in the range in one shot** (`POST /api/internal/xoro-mirror/backfill-range`). Each date runs the full pipeline (AR + AP + inventory mirror, then that date's summary JEs), and every entry posts with **its own date, into its own period** — so a backfill reconciles day-by-day, not lumped into today. The stale-fetch guard is bypassed (a backfill intentionally works off already-loaded data), and one aggregate result is returned (days processed, AR/AP/inv row counts, JE count, any errors).
 
-  Re-running a range is safe: already-posted summary JEs are skipped and mirror rows upsert in place. A single call is capped (currently **45 days**) to stay under the function time limit — split larger backfills into consecutive ranges.
+  Re-running a range is safe: already-posted summary JEs are skipped and mirror rows upsert in place. **Any length works** — each server call is capped at **45 days** (to stay under the function time limit), and the panel **auto-splits a longer range into consecutive chunks** and runs them one after another, showing live progress (`chunk 2/8…`). You pick the span; it handles the chunking. Keep the panel open until it finishes.
 
 ### Unmatched inboxes
 
