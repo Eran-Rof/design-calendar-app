@@ -20,6 +20,7 @@ import RowHistory from "./components/RowHistory";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import SearchableSelect from "./components/SearchableSelect";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PERIODS_TABLE_KEY = "tangerine:periods:columns";
@@ -74,6 +75,7 @@ const STATUS_COLORS: Record<PeriodStatus, string> = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13,
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -223,16 +225,28 @@ export default function InternalPeriods() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <select value={fyFilter} onChange={(e) => setFyFilter(e.target.value)} style={inputStyle}>
-          <option value="">All fiscal years</option>
-          {fyOptions.map((y) => <option key={y} value={String(y)}>FY {y}</option>)}
-        </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
-          <option value="">All statuses</option>
-          <option value="open">open</option>
-          <option value="soft_close">soft_close</option>
-          <option value="closed">closed</option>
-        </select>
+        <SearchableSelect
+          value={fyFilter || null}
+          onChange={(v) => setFyFilter(v)}
+          options={[
+            { value: "", label: "All fiscal years" },
+            ...fyOptions.map((y) => ({ value: String(y), label: `FY ${y}` })),
+          ]}
+          placeholder="All fiscal years"
+          inputStyle={inputStyle}
+        />
+        <SearchableSelect
+          value={statusFilter || null}
+          onChange={(v) => setStatusFilter(v)}
+          options={[
+            { value: "", label: "All statuses" },
+            { value: "open", label: "open" },
+            { value: "soft_close", label: "soft_close" },
+            { value: "closed", label: "closed" },
+          ]}
+          placeholder="All statuses"
+          inputStyle={inputStyle}
+        />
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="gl-periods"

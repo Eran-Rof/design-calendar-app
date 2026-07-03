@@ -81,6 +81,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -232,7 +233,7 @@ export default function InternalFabricCodes() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -442,14 +443,15 @@ function FabricFormModal({ mode, fabric, vendors, countries, onClose, onSaved }:
             />
           </Field>
           <Field label="Default vendor">
-            <select
-              value={form.default_vendor_id}
-              onChange={(e) => setForm({ ...form, default_vendor_id: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              <option value="">(select)</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.default_vendor_id || null}
+              onChange={(v) => setForm({ ...form, default_vendor_id: v })}
+              options={[
+                { value: "", label: "(select)" },
+                ...vendors.map((v) => ({ value: v.id, label: v.name })),
+              ]}
+              inputStyle={inputStyle}
+            />
           </Field>
           <Field label="Care instructions" wide>
             <textarea

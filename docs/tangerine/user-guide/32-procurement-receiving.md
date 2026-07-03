@@ -45,7 +45,7 @@ P13 moves purchasing **into** Tangerine so Xoro's PO side can eventually be reti
 - **Mirrored POs** (Xoro → PO WIP) — tracked, not yet receivable in Tangerine (a later step).
 
 ## 32.1 Purchase Orders (recap)
-Create a PO (vendor, dates, lines with style/qty/unit cost), then **Issue** it — issuing assigns the immutable `PO-YYYY-NNNNN` number and records an **open commitment** per line (visible to the future Open-Commitments report). Status flow: draft → issued → in_transit → received → cancelled.
+Create a PO (vendor, dates, lines with style/qty/unit cost), then **Issue** it — issuing assigns the immutable `PO-YYYY-NNNNN` number and records an **open commitment** per line (visible to the future Open-Commitments report). Status flow: draft → issued → in_transit → received → cancelled. **A PO reaches `received` only when a goods receipt is posted here in Receiving** (it bumps each line's `qty_received`, flips fully-received lines to `received`, and sets the header to `received` when everything's in, `in_transit` on a partial) — there is no manual "mark received". An issued PO can also be revised in place via the PO modal's **✎ Edit** (which notifies the vendor portal when connected) instead of cancel-and-recreate — see [chapter 28 §28.5](28-purchase-orders-and-size-matrix.md).
 
 ## 32.2 Receiving (`Procurement → 📥 Receiving`)
 Records goods arriving against an **issued / in-transit** PO.
@@ -56,6 +56,8 @@ Records goods arriving against an **issued / in-transit** PO.
    - Posts the **goods-receipt journal entry (GRNI)**: **DR Inventory** at the landed total (matching the layers), **CR GR/IR Clearing (2050)** for the vendor goods cost, and **CR Accrued Landed (2150)** for the capitalized rollups. The receipt's `je_id` is stamped. Goods are booked into inventory **once** here.
    - Sends each rollup to the **Bookkeeper Approval** queue as a draft AP invoice. **Capitalized** rollups clear **Accrued Landed (2150)** on approval (DR 2150 / CR AP) — they do *not* re-hit an expense account, so freight is never double-counted; **non-capitalized** rollups stay on their chosen expense GL. The matched vendor AP invoice later clears **GR/IR (2050)** (§32.7) — neither AP invoice re-debits inventory.
    - Consumes the PO's open commitments.
+   - **Rolls the native PO:** bumps each line's `qty_received`, flips fully-received lines to `received`, and moves the header to `received` (all in) or `in_transit` (partial). This posted receipt is the **only** thing that makes a PO `received`.
+   - **Carries the lot number** from each PO line onto its new FIFO inventory layer, so on-hand stock stays lot-identified (see [chapter 45 — Lot Numbers](45-lot-numbers.md)).
    - A posted receipt is locked.
 
 > **Accounting model.** GR/IR (Goods-Received-Not-Invoiced) is a two-step: the receipt debits inventory and credits clearing liabilities; the vendor + rollup invoices debit those liabilities and credit AP. The inventory asset is therefore recorded exactly once at landed cost, and no AP invoice creates a second inventory layer.

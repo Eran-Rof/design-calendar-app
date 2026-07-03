@@ -12,7 +12,7 @@ Four new global / entity-scoped reference masters landed under **📚 Master Dat
 
 | Panel | Route | Scope | What it holds |
 |---|---|---|---|
-| **Countries** | `/tangerine?m=countries` | Global (entity-agnostic) | `country_master`: `iso2` (2-letter, uppercased), `name`, `sort_order`, `is_active`. Search matches iso2 OR name. |
+| **Countries** | `/tangerine?m=countries` | Global (entity-agnostic) | `country_master`: `iso2` (2-letter, uppercased), `name`, `phone_code` (E.164 calling code, e.g. `1`, `86`, `880` — the source of the Vendor master's phone dial-code dropdown), `sort_order`, `is_active`. Search matches iso2 OR name. |
 | **Genders** | `/tangerine?m=genders` | Global | `gender_master`: `code`, `label`, `sort_order`, `is_active`. Seeded M/W/B/G/C/T/U. Search matches code OR label. |
 | **Group / Category / Sub** | `/tangerine?m=style_classifications` | Entity-scoped (ROF) | `style_classifications`: one table, three `kind`s — `group`, `category`, `sub_category`. Filter by kind; search on name. |
 | **Factors / Insurance** | `/tangerine?m=factors` | Entity-scoped (ROF) | `factor_master`: a receivables financier / insurer with a full contact profile (`name`, `contact_name`, `phone`, `email`, `website`, `address` jsonb, up to **3 additional contacts** `contacts` jsonb {name·phone·email·title}, `api_enabled`, `notes`). The address Country/State are searchable dropdowns (the old standalone Country picker was removed — it duplicated the address one); email shows a ✉ click-to-send link and phones auto-mask to (XXX) XXX-XXXX. |
@@ -84,6 +84,7 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 - **Customer `by_brand`** comes from `sales_orders.total_cents` grouped by `brand_id` (AR invoices carry no brand column).
 - **Customer `dilution`** is `Σ(DR−CR)` on `contra_revenue` / `dilution` JE lines for JEs sourced from that customer's invoices — and shows **0 with a caption** until dilution GL accounts exist (see [§30.6](#306-pl-dilution-line)).
+- **Customer `commission`** is split by **closeout**: This-Year net sales (gross − dilution) from invoices whose sales order is flagged **closeout** (`sales_orders.is_closeout`, ticked via the **Closeout order** checkbox on SO entry) use the customer's **closeout commission rate** (`customers.closeout_commission_pct`, set on the Reps tab); the rest use the normal `sales_rep_1% + sales_rep_2%`. The scorecard reports `closeout_sales_cents`, `closeout_commission_pct`, and a blended effective `commission_pct`. When no closeout rate is set, the normal rate applies to everything (unchanged behaviour).
 - **Vendor `pct_ontime_required`** is deliberately `null`: the PO schema has no separate required-vs-actual delivery date, so it would be dishonest to compute one.
 
 > **Note:** the **Vendor Scorecard** here (P16, `m=vendor_scorecard`) is the financial/360° drill-through. It is *separate* from the older procurement **Vendor Scorecards** performance grid in the PO-WIP app (`/tanda?view=scorecards`, handler `api/_handlers/internal/scorecards/`), which scores on-time delivery / invoice accuracy / acknowledgment.

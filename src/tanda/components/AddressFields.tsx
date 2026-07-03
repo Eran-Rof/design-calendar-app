@@ -25,7 +25,8 @@ export type Address = {
   line2?: string;
   city?: string;
   state?: string;
-  postal_code?: string;
+  postal?: string;        // canonical key (matches the Xoro sync + live data)
+  postal_code?: string;   // legacy — read as a fallback only
   country?: string;
   [k: string]: unknown;
 };
@@ -79,6 +80,23 @@ export default function AddressFields({
 }) {
   const v = value || {};
   const set = (k: string, val: string) => onChange({ ...v, [k]: val });
+
+  // AI postal-code fill (operator #7) — fills `postal` from the rest of the
+  // address (US ZIP / ZIP+4 when determinable, else 5-digit; standard otherwise).
+  const [postalBusy, setPostalBusy] = useState(false);
+  const suggestPostal = async () => {
+    if (postalBusy || !String(v.city ?? "").trim()) return;
+    setPostalBusy(true);
+    try {
+      const r = await fetch("/api/internal/addresses/postal-suggest", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ line1: v.line1, city: v.city, state: v.state, country: v.country }),
+      });
+      const j = await r.json();
+      if (r.ok && j.postal) onChange({ ...v, postal: String(j.postal) });
+    } catch { /* ignore */ }
+    finally { setPostalBusy(false); }
+  };
 
   const [countries, setCountries] = useState<Country[]>(countriesCache ?? []);
   useEffect(() => {
@@ -145,7 +163,14 @@ export default function AddressFields({
         ) : (
           <input style={input} placeholder="State / province" value={String(v.state ?? "")} onChange={(e) => set("state", e.target.value)} />
         )}
-        <input style={input} placeholder="Postal code" value={String(v.postal_code ?? "")} onChange={(e) => set("postal_code", e.target.value)} />
+        <div style={{ display: "flex", gap: 4 }}>
+          <input style={{ ...input, flex: 1 }} placeholder="Postal code" value={String(v.postal ?? v.postal_code ?? "")} onChange={(e) => set("postal", e.target.value)} />
+          <button type="button" onClick={() => void suggestPostal()} disabled={postalBusy || !String(v.city ?? "").trim()}
+            title="Use AI to fill the postal code from the rest of the address"
+            style={{ background: "#0b1220", color: "#3B82F6", border: "1px solid #3B82F6", borderRadius: 4, padding: "0 8px", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
+            {postalBusy ? "…" : "AI"}
+          </button>
+        </div>
         <SearchableSelect value={countryValue || null} onChange={onCountryChange} options={countryOptions} placeholder="Country" inputStyle={selectInput} />
       </div>
     </div>

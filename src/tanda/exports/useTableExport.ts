@@ -49,6 +49,15 @@ export type UseTableExportArgs<T extends Record<string, unknown>> = {
   filename: string;          // without extension
   format?: ExportFormat;     // default "xlsx"
   sheetName?: string;        // xlsx only; default "Sheet1"
+  /**
+   * Optional totals row appended as the LAST row of the export. Backward
+   * compatible — when omitted nothing changes. Pass a partial record keyed by
+   * the same column keys (e.g. { customer: "Total", amount: 12345 }); unset
+   * keys render blank. In xlsx the row is rendered bold; in csv/pdf it is a
+   * plain final row. The on-screen row count is unaffected (totals are not
+   * counted as a data row).
+   */
+  totalsRow?: Partial<T>;
 };
 
 export function inferColumns<T extends Record<string, unknown>>(rows: T[]): ExportColumn<T>[] {
@@ -275,12 +284,30 @@ export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseT
     });
   });
 
+  // Optional totals row — rendered bold as the final row. Opt-in; absent by
+  // default so existing call sites are byte-for-byte unchanged.
+  if (args.totalsRow) {
+    const tr = args.totalsRow as Record<string, unknown>;
+    const row = ws.getRow(start + 1 + args.rows.length);
+    row.height = 16;
+    cols.forEach((c, ci) => {
+      const cell = row.getCell(ci + 1);
+      const v = formatCell(tr[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
+      const isNum = typeof v === "number";
+      if (v !== "" && v != null) cell.value = v as never;
+      styleBodyCell(cell, args.rows.length, isNum ? "right" : "left", ci === 0 ? "key" : "body");
+      cell.font = { ...(cell.font || {}), bold: true };
+      if (isNum) { const nf = numFmtFor(c.format, c.digits); if (nf) cell.numFmt = nf; }
+    });
+  }
+
   // Auto-fit widths from the DISPLAYED text (so "$12,500.00", "45.0%" etc.
   // fit — the coerced numeric value is shorter than its formatted render),
   // cap 60, then freeze the header.
   cols.forEach((c, i) => {
     let max = String(c.header ?? c.key).length;
-    for (const r of args.rows) {
+    const widthRows = args.totalsRow ? [...args.rows, args.totalsRow as T] : args.rows;
+    for (const r of widthRows) {
       const d = formatCellDisplay(r[c.key], c as unknown as ExportColumn<Record<string, unknown>>);
       if (d.length > max) max = d.length;
     }
@@ -294,6 +321,10 @@ export function buildTableWorkbook<T extends Record<string, unknown>>(args: UseT
 export function exportCsv<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
   const cols = args.columns && args.columns.length > 0 ? args.columns : inferColumns(args.rows);
   const aoa = buildAoA(args.rows, cols);
+  if (args.totalsRow) {
+    const tr = args.totalsRow as Record<string, unknown>;
+    aoa.push(cols.map((c) => formatCell(tr[c.key], c as unknown as ExportColumn<Record<string, unknown>>)));
+  }
   const csv = toCsv(aoa);
   // UTF-8 BOM so Excel opens CSVs without garbling accents.
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
@@ -327,6 +358,12 @@ export function exportPdf<T extends Record<string, unknown>>(args: UseTableExpor
     .slice(1)
     .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
     .join("");
+  // Optional bold totals row appended after the body (opt-in via args.totalsRow).
+  const totalsRowHtml = args.totalsRow
+    ? `<tr class="totals">${cols
+        .map((c) => `<td>${escapeHtml(formatCellDisplay((args.totalsRow as Record<string, unknown>)[c.key], c as unknown as ExportColumn<Record<string, unknown>>))}</td>`)
+        .join("")}</tr>`
+    : "";
 
   const rowCount = args.rows.length;
   const stamp = new Date().toLocaleString();
@@ -345,6 +382,7 @@ export function exportPdf<T extends Record<string, unknown>>(args: UseTableExpor
   th, td { border: 1px solid #d0d8e4; padding: 4px 8px; text-align: left; vertical-align: top; }
   thead th { background: #1F497D; color: #ffffff; font-weight: 600; }
   tbody tr:nth-child(even) { background: #eef3fa; }
+  tbody tr.totals td { font-weight: 700; border-top: 2px solid #1F497D; background: #ffffff; }
   .rof-logo { height: 30px; display: block; margin-bottom: 8px; }
   @media print {
     body { margin: 0; }
@@ -359,7 +397,7 @@ export function exportPdf<T extends Record<string, unknown>>(args: UseTableExpor
   <div class="meta">${rowCount} row${rowCount === 1 ? "" : "s"} · ${escapeHtml(stamp)}</div>
   <table>
     <thead><tr>${headerCells}</tr></thead>
-    <tbody>${bodyRows}</tbody>
+    <tbody>${bodyRows}${totalsRowHtml}</tbody>
   </table>
 </body>
 </html>`;
@@ -404,11 +442,15 @@ export function todayStamp(): string {
  * Components typically call this from a button's onClick.
  */
 export function useTableExport<T extends Record<string, unknown>>(args: UseTableExportArgs<T>) {
-  function exportNow(formatOverride?: ExportFormat) {
+  // `rowsOverride` lets a caller export a row set other than the bound `rows`
+  // (e.g. the SO grid's "Export all" fetches every filtered page on demand and
+  // hands the full set here, instead of the ≤500 rows shown — operator item 17).
+  function exportNow(formatOverride?: ExportFormat, rowsOverride?: T[]) {
     const fmt = formatOverride || args.format || "xlsx";
-    if (fmt === "csv") exportCsv(args);
-    else if (fmt === "pdf") exportPdf(args);
-    else exportXlsx(args);
+    const a = rowsOverride ? { ...args, rows: rowsOverride } : args;
+    if (fmt === "csv") exportCsv(a);
+    else if (fmt === "pdf") exportPdf(a);
+    else exportXlsx(a);
   }
   return { exportNow };
 }

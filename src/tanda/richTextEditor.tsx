@@ -8,6 +8,7 @@ import FontFamily from "@tiptap/extension-font-family";
 import Link from "@tiptap/extension-link";
 import { Extension } from "@tiptap/react";
 import { promptDialog } from "../shared/ui/warn";
+import SearchableSelect from "./components/SearchableSelect";
 
 // Custom fontSize extension — Tiptap doesn't include this by default
 const FontSize = Extension.create({
@@ -141,24 +142,22 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
   return (
     <div style={{ border: "1px solid #334155", borderRadius: 6, background: "#0F172A", overflow: "hidden" }}>
       <div style={{ display: "flex", gap: 4, padding: 6, borderBottom: "1px solid #334155", background: "#1E293B", flexWrap: "wrap", alignItems: "center" }}>
-        <select
-          title="Font"
-          value={matchedFont?.value || ""}
-          onChange={e => { if (e.target.value) editor.chain().focus().setFontFamily(e.target.value).run(); }}
-          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 6px", height: 26, cursor: "pointer", width: "auto" }}
-        >
-          <option value="">Font…</option>
-          {FONT_CHOICES.map(f => <option key={f.label} value={f.value}>{f.label}</option>)}
-        </select>
-        <select
-          title="Font size"
-          value={matchedSize?.value || ""}
-          onChange={e => { if (e.target.value) editor.chain().focus().setMark("textStyle", { fontSize: e.target.value }).run(); }}
-          style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", width: 50 }}
-        >
-          <option value="">Size</option>
-          {FONT_SIZES.map(s => <option key={s.label} value={s.value}>{s.label}</option>)}
-        </select>
+        <div title="Font" style={{ width: 110 }}>
+          <SearchableSelect
+            value={matchedFont?.value || ""}
+            onChange={v => { if (v) editor.chain().focus().setFontFamily(v).run(); }}
+            options={[{ value: "", label: "Font…" }, ...FONT_CHOICES.map(f => ({ value: f.value, label: f.label }))]}
+            inputStyle={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 6px", height: 26, cursor: "pointer", width: 110 }}
+          />
+        </div>
+        <div title="Font size" style={{ width: 50 }}>
+          <SearchableSelect
+            value={matchedSize?.value || ""}
+            onChange={v => { if (v) editor.chain().focus().setMark("textStyle", { fontSize: v }).run(); }}
+            options={[{ value: "", label: "Size" }, ...FONT_SIZES.map(s => ({ value: s.value, label: s.label }))]}
+            inputStyle={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 4, color: "#94A3B8", fontSize: 11, padding: "3px 4px", height: 26, cursor: "pointer", width: 50 }}
+          />
+        </div>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
         <button type="button" title="Bold (Ctrl+B)" style={sty(editor.isActive("bold"), { fontWeight: 700 })} onClick={() => editor.chain().focus().toggleBold().run()}>B</button>
         <button type="button" title="Italic (Ctrl+I)" style={sty(editor.isActive("italic"), { fontStyle: "italic" })} onClick={() => editor.chain().focus().toggleItalic().run()}>I</button>
@@ -179,7 +178,7 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 140 }
         <button type="button" title="Bulleted list" style={sty(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>•</button>
         <button type="button" title="Numbered list" style={sty(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</button>
         <div style={{ width: 1, background: "#334155", margin: "0 2px" }} />
-        <button type="button" title="Insert link" style={btnBase} onClick={async () => { const url = await promptDialog("Link URL:", { title: "Insert link", icon: "🔗", placeholder: "https://…", inputType: "text" }); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>🔗</button>
+        <button type="button" title="Insert link" style={btnBase} onClick={async () => { const url = await promptDialog("Link URL:", { title: "Insert link", icon: "", placeholder: "https://…", inputType: "text" }); if (url) editor.chain().focus().setLink({ href: url }).run(); }}>Link</button>
       </div>
       <EditorContent editor={editor} />
       <style>{`

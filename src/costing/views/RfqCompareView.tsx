@@ -517,7 +517,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                       >
                         {c && typeof c.unit === "number" ? (
                           <>
-                            <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}</div>
+                            <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>best</span>}</div>
                             {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {money(ext)}</div>}
                             <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
                               mgn {pctMargin(mgn)}
@@ -525,7 +525,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                             {pctAbove > 0 && (
                               <div style={{ fontSize: 11, color: C.pctAbove }}>+{fmtPct.format(pctAbove)}%</div>
                             )}
-                            {c.notes && <div style={{ fontSize: 10, color: C.subtle, fontStyle: "italic" }} title={c.notes}>📝</div>}
+                            {c.notes && <div style={{ fontSize: 10, color: C.subtle, fontStyle: "italic" }} title={c.notes}>note</div>}
                           </>
                         ) : (
                           <span style={{ color: C.subtle }}>—</span>
@@ -576,7 +576,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                     }}
                   >
                     {pctMargin(m)}
-                    {isBest && <span style={{ fontSize: 10, marginLeft: 4 }}>★</span>}
+                    {isBest && <span style={{ fontSize: 10, marginLeft: 4 }}>best</span>}
                   </td>
                 );
               })}

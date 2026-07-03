@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeHeader } from "./index.js";
 import { notifyVendor } from "../../../_lib/phase-notifications.js";
+import { seedProvisionalForPo } from "../../../_lib/pricing/provisionalPrices.js";
 
 export const config = { maxDuration: 20 };
 
@@ -206,6 +207,7 @@ export default async function handler(req, res, params) {
           qty_ordered: qty, unit_cost_cents: unit, line_total_cents: Math.round(qty * unit),
           requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
           vendor_confirmed_ship_date: dre.test(l.vendor_confirmed_ship_date || "") ? l.vendor_confirmed_ship_date : null,
+          lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
       await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
@@ -222,8 +224,19 @@ export default async function handler(req, res, params) {
     const { data, error } = await admin.from("purchase_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
 
+    // Scenario 1 — at issue, stamp the PO number as the lot on every line that
+    // doesn't already carry an operator-set lot. Runs after any line replacement
+    // above so freshly-inserted lines are covered. Never overwrites a manual lot.
+    if (body.status === "issued" && data.po_number) {
+      await admin.from("purchase_order_lines")
+        .update({ lot_number: data.po_number })
+        .eq("purchase_order_id", id)
+        .is("lot_number", null);
+    }
+
     // P13/C0 — open-PO commitment tracking (off-balance-sheet, D3).
-    // On first issue, record one po_commitments row per line; on cancel, close them.
+    // On first issue, record one po_commitments row per line; on cancel, close them;
+    // on reinstate (cancelled → issued), re-open the ones this PO's cancel closed.
     if ("status" in body) {
       if (body.status === "issued" && po.status !== "issued") {
         const { count } = await admin.from("po_commitments")
@@ -239,12 +252,26 @@ export default async function handler(req, res, params) {
               status: "open", expected_in_dc_date: data.expected_date || null,
             }));
           if (rows.length) await admin.from("po_commitments").insert(rows);
+        } else if (po.status === "cancelled") {
+          // Reinstating a cancelled PO — restore the commitments its cancel closed
+          // so the open-PO commitment (D3) reflects the live PO again. (A partially-
+          // received PO reopened here returns to 'open', not 'partial' — rare edge.)
+          await admin.from("po_commitments")
+            .update({ status: "open", closed_at: null })
+            .eq("purchase_order_id", id).eq("status", "cancelled");
         }
       } else if (body.status === "cancelled") {
         await admin.from("po_commitments")
           .update({ status: "cancelled", closed_at: new Date().toISOString() })
           .eq("purchase_order_id", id).in("status", ["open", "partial"]);
       }
+    }
+
+    // Seed provisional selling prices for this PO's never-sold styles (21% margin
+    // off the PO line cost) so the PO/SO grids show a Sell/Margin for them until a
+    // real sale lands. Best-effort — never fails the issue.
+    if (body.status === "issued" && po.status !== "issued") {
+      try { await seedProvisionalForPo(admin, id); } catch { /* non-blocking */ }
     }
 
     // Revision of a saved PO → notify the vendor's portal users (bell + email).

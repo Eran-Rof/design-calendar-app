@@ -345,7 +345,6 @@ function App() {
   if (!dbxLoaded)
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", background: "#0F172A", gap: 16 }}>
-        <div style={{ fontSize: 32 }}>🔄</div>
         <div style={{ color: "#fff", fontSize: 16, fontWeight: 600 }}>Loading from Supabase…</div>
         <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Syncing your data</div>
       </div>
@@ -534,7 +533,7 @@ function App() {
             )}
             <button onClick={() => setShowActivity(!showActivity)} title="Activity Log"
               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: showActivity ? "rgba(59,130,246,0.18)" : "transparent", border: "none", color: showActivity ? "#fff" : "#94a3b8", cursor: "pointer", borderRadius: 5, padding: "7px 10px", fontSize: 13, fontFamily: "inherit", fontWeight: 600 }}>
-              <span style={{ fontSize: 14 }}>📋</span> Activity
+              Activity
             </button>
             <SettingsDropdown
               openUp
@@ -557,7 +556,7 @@ function App() {
         ) : undefined}
       />
       {confirmState && <ConfirmModal title="Are you sure?" message={confirmState.message} confirmLabel={confirmState.action} danger onConfirm={() => { confirmState.onConfirm(); setConfirmState(null); }} onCancel={() => setConfirmState(null)} />}
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}select option{background:#FFFFFF;color:#1A202C;}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');*{box-sizing:border-box;}::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-track{background:#E2E8EE;border-radius:5px;}::-webkit-scrollbar-thumb{background:#CBD5E0;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#A0AEC0;}/* App-colored native <select> option popups everywhere (was a light override that leaked into the dark apps). */select option{background:#0b1220;color:#F1F5F9;}`}</style>
 
       {/* ── SAVE ERROR TOAST ── */}
       {saveErr && (
@@ -569,7 +568,6 @@ function App() {
           fontSize: 14, maxWidth: 360,
           display: "flex", alignItems: "center", gap: 10,
         }}>
-          <span>⚠</span>
           <span>{saveErr}</span>
           <button onClick={() => setSaveErr("")} style={{ marginLeft: "auto", background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
@@ -596,7 +594,6 @@ function App() {
           letterSpacing: "0.01em",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 18 }}>⏱</span>
             <span>You've been inactive for 55 minutes. You'll be automatically logged out in 5 minutes.</span>
           </div>
           <button
@@ -679,7 +676,7 @@ function App() {
                 display: "inline-flex", alignItems: "center", gap: 6,
               }}
             >
-              ✨ Ask AI
+              Ask AI
             </button>
           )}
           {currentUser && (
@@ -698,7 +695,7 @@ function App() {
                 display: "inline-flex", alignItems: "center", gap: 6,
               }}
             >
-              🔔 Notifications
+              Notifications
               {unreadDesignNotifs > 0 && (
                 <span style={{
                   minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999,
@@ -939,7 +936,7 @@ function App() {
             ...(isAdmin
               ? [
                   {
-                    icon: "✏️",
+                    icon: "",
                     label: "Edit Collection",
                     onClick: () => setEditCollKey(ctxMenu.collKey),
                   },
@@ -947,7 +944,7 @@ function App() {
                 ]
               : []),
             {
-              icon: "📊",
+              icon: "",
               label: "Open Timeline",
               onClick: () => {
                 setFocusCollKey(ctxMenu.collKey);
@@ -955,7 +952,7 @@ function App() {
               },
             },
             {
-              icon: "📅",
+              icon: "",
               label: "Open Calendar",
               onClick: () => {
                 setFocusCollKey(ctxMenu.collKey);
@@ -966,7 +963,7 @@ function App() {
               ? [
                   "---",
                   {
-                    icon: "🗑️",
+                    icon: "",
                     label: "Delete Collection",
                     danger: true,
                     onClick: () => {
@@ -1251,7 +1248,6 @@ function App() {
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>💬</span>
             Teams
           </button>
           <button
@@ -1273,7 +1269,6 @@ function App() {
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>📧</span>
             Email
           </button>
         </div>

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuthUser";
 import SearchableSelect from "./components/SearchableSelect";
 import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { notificationTarget, notificationTargetUrl } from "./notificationTarget";
 
 type NotificationEvent = {
   id: string;
@@ -121,6 +122,18 @@ export default function InternalNotificationCenter() {
     void load();
   }
 
+  // Mark read, then deep-link to the actual record the event refers to. The
+  // shared notificationTarget resolver maps every known context_table (sales
+  // orders, POs, AR/AP invoices, customers/vendors, GL periods, inventory, CRM,
+  // RFQs, …) to its Tangerine module + drill params, falling back to opening
+  // the relevant module when an exact record can't be addressed. System/run
+  // events with no UI home (e.g. xoro mirror runs) just mark-read.
+  async function onNotifClick(d: NotificationDispatch) {
+    if (d.status === "sent") await markRead(d);
+    const url = notificationTargetUrl(d.event);
+    if (url) window.location.href = url;
+  }
+
   const unreadCount = rows.filter((d) => d.status === "sent").length;
 
   return (
@@ -183,14 +196,15 @@ export default function InternalNotificationCenter() {
         )}
         {rows.map((d) => {
           const unread = d.status === "sent";
+          const navigable = !!notificationTarget(d.event);
           return (
             <div
               key={d.id}
-              onClick={() => void markRead(d)}
+              onClick={() => void onNotifClick(d)}
               style={{
                 padding: "12px 16px",
                 borderBottom: `1px solid ${C.cardBdr}`,
-                cursor: unread ? "pointer" : "default",
+                cursor: (unread || navigable) ? "pointer" : "default",
                 background: unread ? "#0b1220" : "transparent",
                 display: "flex",
                 alignItems: "flex-start",
@@ -209,8 +223,8 @@ export default function InternalNotificationCenter() {
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: C.textMuted }}>
                   {new Date(d.event.created_at).toLocaleString()}
-                  {d.event.context_table && (
-                    <> · {d.event.context_table}</>
+                  {navigable && (
+                    <span style={{ color: C.primary }}> · Open →</span>
                   )}
                 </div>
               </div>

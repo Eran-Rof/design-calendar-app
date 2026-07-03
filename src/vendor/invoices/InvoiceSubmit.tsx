@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney, fmtMoney2, todayLocalIso } from "../utils";
@@ -40,6 +41,8 @@ interface POOption {
   uuid_id: string;
   po_number: string;
   data: { BuyerName?: string; TotalAmount?: number } | null;
+  /** "xoro" = tanda_pos; "tangerine" = purchase_orders (new ERP). */
+  source?: "xoro" | "tangerine";
 }
 
 interface LineItem {
@@ -111,13 +114,37 @@ export default function InvoiceSubmit() {
           if (v?.default_payment_terms) setPaymentTerms(v.default_payment_terms);
         }
 
+        const vendorIdLocal = (vu as { vendor_id?: string } | null)?.vendor_id || null;
         const { data, error } = await supabaseVendor
           .from("tanda_pos")
           .select("uuid_id, po_number, data")
           .order("date_order", { ascending: false });
         if (error) throw error;
-        const active = (data ?? []).filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived);
-        setPOs(active as POOption[]);
+        const xoro = (data ?? [])
+          .filter((r: { data: { _archived?: boolean } | null }) => !r.data?._archived)
+          .map((r) => ({ ...(r as POOption), source: "xoro" as const }));
+
+        // Tangerine-native POs (purchase_orders) — union them so the vendor can
+        // invoice against either source. Additive + fail-safe.
+        let tangerine: POOption[] = [];
+        try {
+          if (vendorIdLocal) {
+            const { data: tpos } = await supabaseVendor
+              .from("purchase_orders")
+              .select("id, po_number, total_cents")
+              .eq("vendor_id", vendorIdLocal)
+              .in("status", ["issued", "in_transit", "received"])
+              .order("order_date", { ascending: false });
+            tangerine = (tpos ?? []).map((p: { id: string; po_number: string; total_cents: number | null }) => ({
+              uuid_id: p.id,
+              po_number: p.po_number,
+              data: { TotalAmount: typeof p.total_cents === "number" ? p.total_cents / 100 : undefined },
+              source: "tangerine" as const,
+            }));
+          }
+        } catch { /* additive — ignore so the Xoro list still works */ }
+
+        setPOs([...xoro, ...tangerine]);
 
         // Pull the linked shipment's ship_date so we can flag invoice-before-ship.
         if (fromAsnId) {
@@ -135,14 +162,34 @@ export default function InvoiceSubmit() {
   // When PO changes, load its line items
   useEffect(() => {
     if (!selectedPoId) { setPoLines([]); setLineInputs([]); return; }
+    const isTangerine = pos.find((p) => p.uuid_id === selectedPoId)?.source === "tangerine";
     (async () => {
-      const { data, error } = await supabaseVendor
-        .from("po_line_items")
-        .select("id, line_index, item_number, description, qty_ordered, unit_price")
-        .eq("po_id", selectedPoId)
-        .order("line_index");
-      if (error) { setErr(error.message); return; }
-      const lines = (data ?? []) as LineItem[];
+      let lines: LineItem[] = [];
+      if (isTangerine) {
+        // Tangerine PO lines live in purchase_order_lines (cents → dollars).
+        const { data, error } = await supabaseVendor
+          .from("purchase_order_lines")
+          .select("id, line_number, description, qty_ordered, unit_cost_cents")
+          .eq("purchase_order_id", selectedPoId)
+          .order("line_number");
+        if (error) { setErr(error.message); return; }
+        lines = ((data ?? []) as Array<Record<string, unknown>>).map((l) => ({
+          id: l.id as string,
+          line_index: (l.line_number as number) ?? 0,
+          item_number: null,
+          description: (l.description as string | null) ?? null,
+          qty_ordered: (l.qty_ordered as number | null) ?? null,
+          unit_price: typeof l.unit_cost_cents === "number" ? (l.unit_cost_cents as number) / 100 : null,
+        }));
+      } else {
+        const { data, error } = await supabaseVendor
+          .from("po_line_items")
+          .select("id, line_index, item_number, description, qty_ordered, unit_price")
+          .eq("po_id", selectedPoId)
+          .order("line_index");
+        if (error) { setErr(error.message); return; }
+        lines = (data ?? []) as LineItem[];
+      }
       setPoLines(lines);
 
       // Match AI-extracted lines against PO lines. Prefer exact item_number
@@ -176,7 +223,7 @@ export default function InvoiceSubmit() {
       );
       if (extracted.length > 0) setLinesPrefilledFromExtract(true);
     })();
-  }, [selectedPoId, prefill]);
+  }, [selectedPoId, prefill, pos]);
 
   const subtotal = useMemo(() => {
     return lineInputs.reduce((acc, l) => {
@@ -360,19 +407,17 @@ export default function InvoiceSubmit() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>Purchase Order</label>
-            <select
-              value={selectedPoId}
-              onChange={(e) => setSelectedPoId(e.target.value)}
-              style={inputStyle}
+            <SearchableSelect
+              value={selectedPoId || null}
+              onChange={(v) => setSelectedPoId(v)}
+              placeholder="— Select PO —"
               required
-            >
-              <option value="">— Select PO —</option>
-              {pos.map((p) => (
-                <option key={p.uuid_id} value={p.uuid_id}>
-                  {p.po_number} {p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""} {p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}
-                </option>
-              ))}
-            </select>
+              options={pos.map((p) => ({
+                value: p.uuid_id,
+                label: `${p.po_number} ${p.data?.BuyerName ? ` · ${p.data.BuyerName}` : ""} ${p.data?.TotalAmount ? ` · ${fmtMoney(p.data.TotalAmount)}` : ""}`,
+              }))}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Invoice number</label>
@@ -397,33 +442,41 @@ export default function InvoiceSubmit() {
           </div>
           <div>
             <label style={labelStyle}>Currency</label>
-            <select value={currency} onChange={(e) => setCurrency(e.target.value)} style={inputStyle}>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="CNY">CNY</option>
-              <option value="HKD">HKD</option>
-              <option value="INR">INR</option>
-            </select>
+            <SearchableSelect
+              value={currency}
+              onChange={(v) => setCurrency(v)}
+              options={[
+                { value: "USD", label: "USD" },
+                { value: "EUR", label: "EUR" },
+                { value: "GBP", label: "GBP" },
+                { value: "CNY", label: "CNY" },
+                { value: "HKD", label: "HKD" },
+                { value: "INR", label: "INR" },
+              ]}
+              inputStyle={inputStyle}
+            />
           </div>
           <div>
             <label style={labelStyle}>Payment terms</label>
-            <select value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} style={inputStyle}>
-              <option value="">— Select —</option>
-              {PAYMENT_TERMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <SearchableSelect
+              value={paymentTerms || null}
+              onChange={(v) => setPaymentTerms(v)}
+              placeholder="— Select —"
+              options={PAYMENT_TERMS.map((t) => ({ value: t, label: t }))}
+              inputStyle={inputStyle}
+            />
           </div>
         </div>
 
         {linesPrefilledFromExtract && (
           <div style={{ padding: "10px 12px", background: "#064E3B33", border: "1px solid #10B981", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#34D399" }}>
-            ✨ Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
+            Draft pre-filled from the packing list by AI. <strong>Review every line before submitting.</strong>
           </div>
         )}
 
         {totalWarnings > 0 && (
           <div style={{ padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, marginBottom: 14, fontSize: 13, color: "#FBBF24" }}>
-            <strong>⚠ {totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
+            <strong>{totalWarnings} discrepanc{totalWarnings === 1 ? "y" : "ies"}</strong>
             {" "}vs the PO / packing list / shipment. You can still submit — a message will be sent to the reviewer listing them.
             {headerWarnings.length > 0 && (
               <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
@@ -468,7 +521,7 @@ export default function InvoiceSubmit() {
                       </div>
                       {l.include && warnings.length > 0 && (
                         <div style={{ padding: "4px 12px 8px 44px", fontSize: 11, color: "#FBBF24" }}>
-                          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                          {warnings.map((w, i) => <div key={i}>{w}</div>)}
                         </div>
                       )}
                     </div>

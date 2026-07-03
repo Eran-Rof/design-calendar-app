@@ -180,7 +180,7 @@ function Section({ title, tone, rows, sectionKey, onDownload, onUpload, emptyTex
                       <span style={{ color: TH.textMuted, fontSize: 12 }}>Not uploaded</span>
                     )}
                     {d?.rejection_reason && (
-                      <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>⚠ {d.rejection_reason}</div>
+                      <div style={{ fontSize: 11, color: TH.primary, marginTop: 2 }}>{d.rejection_reason}</div>
                     )}
                   </div>
                   <div style={{ textAlign: "right" }}>

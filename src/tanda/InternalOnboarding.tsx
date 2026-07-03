@@ -79,13 +79,18 @@ export default function InternalOnboarding() {
             ] as ExportColumn<Record<string, unknown>>[]}
           />
           <button onClick={() => setShowInvite(true)} style={btnPrimary}>+ Invite vendor to portal</button>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}>
-            <option value="pending_review">Pending review</option>
-            <option value="in_progress">In progress</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="all">All</option>
-          </select>
+          <SearchableSelect
+            value={filter || null}
+            onChange={(v) => setFilter(v)}
+            options={[
+              { value: "pending_review", label: "Pending review" },
+              { value: "in_progress", label: "In progress" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "all", label: "All" },
+            ]}
+            inputStyle={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6 }}
+          />
         </div>
       </div>
 

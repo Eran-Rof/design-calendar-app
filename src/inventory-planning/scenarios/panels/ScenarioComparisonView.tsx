@@ -5,6 +5,9 @@ import type { ScenarioComparisonRow, ScenarioComparisonTotals } from "../types/s
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.scenario_comparison";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -66,6 +69,34 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
     });
   }, [rows, search, filterCategory, onlyChanged]);
 
+  // Additive per-column sort over the filtered comparison rows. Keys map to the
+  // scalar each cell renders (delta/base/scenario fields, looked-up names).
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "ip:scenario_comparison:sort",
+    accessors: {
+      sku: (r) => r.sku_code,
+      category: (r) => r.category_name ?? "",
+      period: (r) => r.period_code,
+      base_dmd: (r) => r.base_demand,
+      scn_dmd: (r) => r.scenario_demand,
+      delta_dmd: (r) => r.demand_delta,
+      base_sup: (r) => r.base_supply,
+      scn_sup: (r) => r.scenario_supply,
+      delta_sup: (r) => r.supply_delta,
+      base_end: (r) => r.base_ending,
+      scn_end: (r) => r.scenario_ending,
+      delta_short: (r) => r.shortage_delta,
+      delta_excess: (r) => r.excess_delta,
+      base_buy: (r) => r.base_planned_buy_qty,
+      scn_buy: (r) => r.scenario_planned_buy_qty,
+      delta_buy: (r) => r.buy_delta,
+      delta_margin: (r) => r.margin_dollars_delta,
+      base_rec: (r) => r.base_top_rec ?? "",
+      scn_rec: (r) => r.scenario_top_rec ?? "",
+      risk: (r) => (r.scenario_service_risk ? 1 : 0),
+    },
+  });
+
   return (
     <div>
       <div style={S.statsRow}>
@@ -89,11 +120,14 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
 
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 240 }} placeholder="Search SKU"
-               value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+               value={search} onChange={(e) => setSearch(e.target.value)}
+               onFocus={(e) => e.currentTarget.select()} />
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterCategory}
+          onChange={(v) => setFilterCategory(v)}
+          options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+        />
         <label style={{ display: "flex", alignItems: "center", gap: 6, color: PAL.textDim, fontSize: 13 }}>
           <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
           Changed only
@@ -117,30 +151,30 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th} hidden={!visibleColumns.has("sku")}>SKU</th>
-              <th style={S.th} hidden={!visibleColumns.has("category")}>Category</th>
-              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("base_dmd")}>Base dmd</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("scn_dmd")}>Scn dmd</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("delta_dmd")}>Δ dmd</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("base_sup")}>Base sup</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("scn_sup")}>Scn sup</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("delta_sup")}>Δ sup</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("base_end")}>Base end</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("scn_end")}>Scn end</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("delta_short")}>Δ short</th>
-              <th style={{ ...S.th, textAlign: "right" }} hidden={!visibleColumns.has("delta_excess")}>Δ excess</th>
-              <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (base)" hidden={!visibleColumns.has("base_buy")}>Base buy</th>
-              <th style={{ ...S.th, textAlign: "right" }} title="Planner-typed planned_buy_qty (scenario)" hidden={!visibleColumns.has("scn_buy")}>Scn buy</th>
-              <th style={{ ...S.th, textAlign: "right" }} title="Scenario buy − Base buy" hidden={!visibleColumns.has("delta_buy")}>Δ buy</th>
-              <th style={{ ...S.th, textAlign: "right" }} title="Estimated gross margin $ impact = Δ demand × (unit_cost × margin% / (1 − margin%)). Null when no usable margin data for this (sku, period)." hidden={!visibleColumns.has("delta_margin")}>Δ margin $</th>
-              <th style={S.th} hidden={!visibleColumns.has("base_rec")}>Base rec</th>
-              <th style={S.th} hidden={!visibleColumns.has("scn_rec")}>Scn rec</th>
-              <th style={S.th} title="Service risk flag from the top recommendation" hidden={!visibleColumns.has("risk")}>Risk</th>
+              <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("sku")} />
+              <SortableTh label="Category" sortKey="category" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("category")} />
+              <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("period")} />
+              <SortableTh label="Base dmd" sortKey="base_dmd" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("base_dmd")} />
+              <SortableTh label="Scn dmd" sortKey="scn_dmd" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("scn_dmd")} />
+              <SortableTh label="Δ dmd" sortKey="delta_dmd" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("delta_dmd")} />
+              <SortableTh label="Base sup" sortKey="base_sup" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("base_sup")} />
+              <SortableTh label="Scn sup" sortKey="scn_sup" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("scn_sup")} />
+              <SortableTh label="Δ sup" sortKey="delta_sup" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("delta_sup")} />
+              <SortableTh label="Base end" sortKey="base_end" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("base_end")} />
+              <SortableTh label="Scn end" sortKey="scn_end" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("scn_end")} />
+              <SortableTh label="Δ short" sortKey="delta_short" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("delta_short")} />
+              <SortableTh label="Δ excess" sortKey="delta_excess" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("delta_excess")} />
+              <SortableTh label="Base buy" sortKey="base_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Planner-typed planned_buy_qty (base)" hidden={!visibleColumns.has("base_buy")} />
+              <SortableTh label="Scn buy" sortKey="scn_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Planner-typed planned_buy_qty (scenario)" hidden={!visibleColumns.has("scn_buy")} />
+              <SortableTh label="Δ buy" sortKey="delta_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Scenario buy − Base buy" hidden={!visibleColumns.has("delta_buy")} />
+              <SortableTh label="Δ margin $" sortKey="delta_margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Estimated gross margin $ impact = Δ demand × (unit_cost × margin% / (1 − margin%)). Null when no usable margin data for this (sku, period)." hidden={!visibleColumns.has("delta_margin")} />
+              <SortableTh label="Base rec" sortKey="base_rec" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("base_rec")} />
+              <SortableTh label="Scn rec" sortKey="scn_rec" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("scn_rec")} />
+              <SortableTh label="Risk" sortKey="risk" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} title="Service risk flag from the top recommendation" hidden={!visibleColumns.has("risk")} />
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {sorted.map((r) => (
               <tr key={`${r.sku_id}:${r.period_start}`}>
                 <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }} hidden={!visibleColumns.has("sku")}>{r.sku_code}</td>
                 <td style={{ ...S.td, color: PAL.textDim }} hidden={!visibleColumns.has("category")}>{r.category_name ?? "–"}</td>

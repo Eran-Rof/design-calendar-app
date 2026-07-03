@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Rule {
   id: string;
@@ -85,9 +86,14 @@ export default function InternalWorkflowRules() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Scoped to a single entity; switch above.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <div style={{ width: 200 }}>
+            <SearchableSelect
+              value={entityId || null}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))}
+              inputStyle={selectSt}
+              onChange={(v) => setEntityId(v)}
+            />
+          </div>
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="workflow-rules"
@@ -198,9 +204,12 @@ function RuleEditor({ rule, entityId, onClose, onSaved }: { rule: Rule | null; e
 
         <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Invoice >$50k needs finance approval" style={inp} /></Row>
         <Row label="Trigger event">
-          <select value={trigger} onChange={(e) => setTrigger(e.target.value)} style={inp}>
-            {TRIGGER_EVENTS.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={trigger}
+            options={TRIGGER_EVENTS.map((t) => ({ value: t, label: t }))}
+            inputStyle={inp}
+            onChange={(v) => setTrigger(v)}
+          />
         </Row>
 
         <div style={{ marginBottom: 14 }}>
@@ -208,9 +217,12 @@ function RuleEditor({ rule, entityId, onClose, onSaved }: { rule: Rule | null; e
           {conditions.map((c, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr 30px", gap: 6, marginBottom: 6 }}>
               <input placeholder="field (e.g. amount)" value={c.field} onChange={(e) => setConditions(conditions.map((x, j) => j === i ? { ...x, field: e.target.value } : x))} style={inp} />
-              <select value={c.op} onChange={(e) => setConditions(conditions.map((x, j) => j === i ? { ...x, op: e.target.value } : x))} style={inp}>
-                {COND_OPS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
+              <SearchableSelect
+                value={c.op}
+                options={COND_OPS.map((o) => ({ value: o, label: o }))}
+                inputStyle={inp}
+                onChange={(v) => setConditions(conditions.map((x, j) => j === i ? { ...x, op: v } : x))}
+              />
               <input placeholder="value" value={c.value} onChange={(e) => setConditions(conditions.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} style={inp} />
               <button onClick={() => setConditions(conditions.filter((_, j) => j !== i))} style={{ ...btnSecondary, padding: "4px 8px" }}>×</button>
             </div>
@@ -222,9 +234,12 @@ function RuleEditor({ rule, entityId, onClose, onSaved }: { rule: Rule | null; e
           <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Actions</div>
           {actions.map((a, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "180px 1fr 30px", gap: 6, marginBottom: 6 }}>
-              <select value={a.type} onChange={(e) => setActions(actions.map((x, j) => j === i ? { ...x, type: e.target.value } : x))} style={inp}>
-                {ACTION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <SearchableSelect
+                value={a.type}
+                options={ACTION_TYPES.map((t) => ({ value: t, label: t }))}
+                inputStyle={inp}
+                onChange={(v) => setActions(actions.map((x, j) => j === i ? { ...x, type: v } : x))}
+              />
               <input placeholder={actionPlaceholder(a.type)} value={a.params} onChange={(e) => setActions(actions.map((x, j) => j === i ? { ...x, params: e.target.value } : x))} style={{ ...inp, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 11 }} />
               <button onClick={() => setActions(actions.filter((_, j) => j !== i))} style={{ ...btnSecondary, padding: "4px 8px" }}>×</button>
             </div>
@@ -263,8 +278,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 16px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };

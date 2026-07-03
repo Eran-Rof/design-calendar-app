@@ -159,6 +159,7 @@ export default function POMessages() {
               placeholder="Search PO # or buyer…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
               style={{ margin: "8px 12px", padding: "7px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13, fontFamily: "inherit" }}
             />
             <div style={{ flex: 1, overflowY: "auto" }}>
@@ -215,6 +216,7 @@ export default function POMessages() {
               placeholder="Search RFQ…"
               value={rfqSearch}
               onChange={(e) => setRfqSearch(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
               style={{ margin: "8px 12px", padding: "7px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13, fontFamily: "inherit" }}
             />
             <div style={{ flex: 1, overflowY: "auto" }}>

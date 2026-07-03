@@ -18,6 +18,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const SIZE_SCALES_TABLE_KEY = "tangerine:sizescales:columns";
 const SIZE_SCALE_COLUMNS: ColumnDef[] = [
@@ -75,6 +77,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -112,6 +115,16 @@ export default function InternalSizeScales() {
     SIZE_SCALE_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+
+  // #5 sortable columns — sizes/inseams are arrays, so sort on the joined text;
+  // is_active sorts on the boolean.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:sizescales:sort",
+    accessors: {
+      sizes: (r) => (Array.isArray(r.sizes) ? r.sizes.join(" · ") : ""),
+      inseams: (r) => (Array.isArray(r.inseams) ? r.inseams.join(" · ") : ""),
+    },
+  });
 
   const { getRowProps } = useRowClickEdit<SizeScale>({
     onRowClick: (r) => setEditing(r),
@@ -216,6 +229,7 @@ export default function InternalSizeScales() {
           placeholder="Search code or name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           style={{ ...inputStyle, maxWidth: 280 }}
         />
         <button onClick={() => void load()} style={btnSecondary}>Search</button>
@@ -262,7 +276,7 @@ export default function InternalSizeScales() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -274,16 +288,16 @@ export default function InternalSizeScales() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("code")}>Code</th>
-                <th style={th} hidden={!isVisible("name")}>Name</th>
-                <th style={th} hidden={!isVisible("sizes")}>Sizes</th>
-                <th style={th} hidden={!isVisible("inseams")}>Inseams</th>
-                <th style={th} hidden={!isVisible("is_active")}>Active</th>
+                <SortableTh label="Code" sortKey="code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("code")} />
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("name")} />
+                <SortableTh label="Sizes" sortKey="sizes" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("sizes")} />
+                <SortableTh label="Inseams" sortKey="inseams" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("inseams")} />
+                <SortableTh label="Active" sortKey="is_active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_active")} />
                 <th style={{ ...th, width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((ss) => (
+              {sorted.map((ss) => (
                 <ScrollHighlightRow
                   key={ss.id}
                   rowId={ss.id}
@@ -329,10 +343,10 @@ export default function InternalSizeScales() {
           }}
         >
           <button style={ctxMenuItem} onClick={() => startAddBelow(menu.row)}>
-            ➕ Add size scale below
+            Add size scale below
           </button>
           <button style={ctxMenuItem} onClick={() => { const r = menu.row; setMenu(null); setEditing(r); }}>
-            ✏️ Edit
+            Edit
           </button>
         </div>
       )}

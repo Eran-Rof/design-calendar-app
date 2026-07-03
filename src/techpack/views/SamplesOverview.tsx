@@ -21,7 +21,6 @@ export function SamplesOverview({ allSamples }: SamplesOverviewProps) {
       <h2 style={{ margin: "0 0 16px", color: "#F1F5F9", fontSize: 22 }}>All Samples</h2>
       {allSamples.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={{ fontSize: 40 }}>🧪</div>
           <p>No samples tracked across any tech packs</p>
         </div>
       ) : (

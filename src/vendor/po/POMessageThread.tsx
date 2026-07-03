@@ -162,7 +162,7 @@ export default function POMessageThread({ poId, poNumber, sender, client, height
                   {atts.length > 0 && (
                     <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
                       {atts.map((a) => (
-                        <div key={a.id} style={{ fontSize: 11, opacity: 0.9 }}>📎 {a.file_name}</div>
+                        <div key={a.id} style={{ fontSize: 11, opacity: 0.9 }}>{a.file_name}</div>
                       ))}
                     </div>
                   )}

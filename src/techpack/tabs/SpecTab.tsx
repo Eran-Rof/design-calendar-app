@@ -15,6 +15,7 @@ import {
   addSizeToMeasurements,
   removeSizeFromMeasurements,
 } from "../specOps";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 export interface SpecTabProps {
@@ -78,10 +79,13 @@ export function SpecTab({
           </div>
           <div>
             <label style={S.label}>Season</label>
-            <select style={{ ...S.select, width: "100%" }} value={tp.season || ""} onChange={e => updateSelected({ season: e.target.value })}>
-              <option value="">Select...</option>
-              {SEASONS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              value={tp.season || null}
+              onChange={v => updateSelected({ season: v })}
+              options={SEASONS.map(s => ({ value: s, label: s }))}
+              placeholder="Select..."
+              inputStyle={{ ...S.select, width: "100%" }}
+            />
           </div>
           <div>
             <label style={S.label}>Active</label>
@@ -188,7 +192,7 @@ export function SpecTab({
                     <button
                       style={S.iconBtnTiny}
                       onClick={() => updateSelected({ measurements: tp.measurements.filter(x => x.id !== m.id) })}
-                    >🗑️</button>
+                    >Delete</button>
                   </td>
                 </tr>
               ))}

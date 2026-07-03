@@ -16,6 +16,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
+import SearchableSelect from "./components/SearchableSelect";
 
 type Row = {
   entity_id: string;
@@ -60,6 +61,7 @@ const btnPrimary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const selectStyle: React.CSSProperties = { ...inputStyle, width: 140 };
 const th: React.CSSProperties = {
@@ -195,10 +197,12 @@ export default function InternalTrialBalance() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           Basis
-          <select value={basis} onChange={(e) => setBasis(e.target.value as Basis)} style={selectStyle}>
-            <option value="ACCRUAL">ACCRUAL</option>
-            <option value="CASH">CASH</option>
-          </select>
+          <SearchableSelect value={basis} onChange={(v) => setBasis(v as Basis)} inputStyle={selectStyle}
+            options={[
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+          />
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
           From
@@ -217,7 +221,21 @@ export default function InternalTrialBalance() {
           {loading ? "Loading…" : "Refresh"}
         </button>
         <ExportButton
-          rows={rows as unknown as Array<Record<string, unknown>>}
+          // #23 Export totals — append a GRAND TOTAL row mirroring the on-screen
+          // tfoot (Debits / Credits / Net) so the spreadsheet ties out.
+          rows={[
+            ...rows,
+            {
+              code: "",
+              name: "GRAND TOTAL",
+              account_type: "",
+              normal_balance: "",
+              debit_cents: grandDebit,
+              credit_cents: grandCredit,
+              net_debit_cents: grandVariance > 0 ? grandVariance : 0,
+              net_credit_cents: grandVariance < 0 ? -grandVariance : 0,
+            },
+          ] as unknown as Array<Record<string, unknown>>}
           filename={`trial-balance-${basis}-${fromDate}-to-${toDate}`}
           sheetName="Trial Balance"
           columns={[

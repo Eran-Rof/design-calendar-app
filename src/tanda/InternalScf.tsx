@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtMoney } from "../shared/money";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Program {
   id: string;
@@ -76,6 +78,19 @@ export default function InternalScf() {
   }
   useEffect(() => { void load(); }, [entityId, statusFilter]);
 
+  // #5 Sortable columns — div-grid "table" for the Requests list.
+  const { sorted: sortedRequests, sortKey, sortDir, onHeaderClick } = useSort(requests, {
+    persistKey: "tangerine:scf:requests:sort",
+    accessors: {
+      vendor: (r) => r.vendor?.name || "",
+      program: (r) => r.program?.name || "",
+      requested: (r) => Number(r.requested_amount),
+      fee: (r) => (r.fee_amount != null ? Number(r.fee_amount) : null),
+      net: (r) => (r.net_disbursement != null ? Number(r.net_disbursement) : null),
+      status: (r) => r.status,
+    },
+  });
+
   async function act(r: Request, action: "approve" | "fund") {
     if (action === "approve") {
       const approved = prompt("Approved amount:", String(r.requested_amount));
@@ -111,9 +126,12 @@ export default function InternalScf() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Programs, utilization, and vendor finance requests.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            inputStyle={selectSt}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+          />
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New program</button>
         </div>
       </div>
@@ -150,14 +168,19 @@ export default function InternalScf() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <h3 style={{ fontSize: 15, margin: 0, color: C.textSub }}>Requests</h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="requested">Pending approval</option>
-            <option value="approved">Approved (needs funding)</option>
-            <option value="funded">Funded</option>
-            <option value="repaid">Repaid</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v)}
+            inputStyle={selectSt}
+            options={[
+              { value: "requested", label: "Pending approval" },
+              { value: "approved", label: "Approved (needs funding)" },
+              { value: "funded", label: "Funded" },
+              { value: "repaid", label: "Repaid" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+          />
           <ExportButton
             rows={requests as unknown as Array<Record<string, unknown>>}
             filename="scf-requests"
@@ -187,9 +210,15 @@ export default function InternalScf() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Program</div><div>Requested</div><div>Fee</div><div>Net</div><div>Status</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Program" k="program" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Requested" k="requested" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Fee" k="fee" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Net" k="net" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {requests.map((r) => (
+          {sortedRequests.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 100px 120px 150px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{r.vendor?.name || "—"}</div>
@@ -254,6 +283,20 @@ function ProgramModal({ entityId, onClose, onCreated }: { entityId: string; onCl
   );
 }
 
+// Clickable sortable header cell for the div-grid "table".
+function SortHeader({ label, k, activeKey, dir, onSort }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir; onSort: (key: string) => void;
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div onClick={() => onSort(k)} title={`Sort by ${label}`} style={{ cursor: "pointer", userSelect: "none", ...(active ? { color: C.text } : null) }}>
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
+    </div>
+  );
+}
+
 function StatusChip({ status }: { status: string }) {
   const color = status === "funded" || status === "repaid" ? C.success
     : status === "rejected" ? C.danger
@@ -272,7 +315,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

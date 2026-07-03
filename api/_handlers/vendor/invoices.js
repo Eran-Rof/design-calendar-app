@@ -97,20 +97,39 @@ export default async function handler(req, res) {
   // submit an invoice against a PO that is not in 'acknowledged'
   // status." Status lives inside `data` (Xoro JSON) on tanda_pos plus
   // a denormalized `status` column.
-  const { data: po } = await admin
-    .from("tanda_pos").select("uuid_id, po_number, vendor_id, status, data")
-    .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+  // Resolve the PO across BOTH sources: legacy Xoro (tanda_pos.uuid_id) and
+  // Tangerine-native (purchase_orders.id). The po_id FK was dropped (migration
+  // 20260904130000) so either id can be stored; ownership is verified here.
+  let po = null;
+  let poSource = null;
+  {
+    const { data: xpo } = await admin
+      .from("tanda_pos").select("uuid_id, po_number, vendor_id, status, data")
+      .eq("uuid_id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+    if (xpo) {
+      po = { po_number: xpo.po_number, status: xpo.status ?? xpo.data?.StatusName ?? "" };
+      poSource = "xoro";
+    } else {
+      const { data: tpo } = await admin
+        .from("purchase_orders").select("id, po_number, vendor_id, status")
+        .eq("id", po_id).eq("vendor_id", caller.vendor_id).maybeSingle();
+      if (tpo) { po = { po_number: tpo.po_number, status: tpo.status || "" }; poSource = "tangerine"; }
+    }
+  }
   if (!po) return send(403, { error: "PO not found or not yours" });
-  // Accept either the denormalized status column or the StatusName
-  // inside the JSON payload — TandA writes both. Normalize to lower-case
-  // and treat any "acknowledged" / "partially received" / "received"
-  // (the lifecycle that's permitted to be invoiced) as valid.
-  const rawStatus = (po.status ?? po.data?.StatusName ?? "").toString().trim().toLowerCase();
-  const INVOICEABLE = new Set(["acknowledged", "partially received", "partial received", "received"]);
+
+  // Invoiceable gate. CLAUDE.md: a vendor can't invoice a PO that isn't
+  // acknowledged. Xoro encodes that in the PO status; for Tangerine POs the gate
+  // is the issued/in_transit/received lifecycle (acknowledgment is tracked
+  // separately in po_acknowledgments, po_number-keyed, and prompted in the portal).
+  const rawStatus = String(po.status).trim().toLowerCase();
+  const INVOICEABLE = poSource === "tangerine"
+    ? new Set(["issued", "in_transit", "received"])
+    : new Set(["acknowledged", "partially received", "partial received", "received"]);
   if (!INVOICEABLE.has(rawStatus)) {
     return send(409, {
       error: "PO_NOT_INVOICEABLE",
-      message: `PO status is "${rawStatus || "unknown"}" — must be acknowledged before invoice submission`,
+      message: `PO status is "${rawStatus || "unknown"}" — must be ${poSource === "tangerine" ? "issued" : "acknowledged"} before invoice submission`,
     });
   }
 

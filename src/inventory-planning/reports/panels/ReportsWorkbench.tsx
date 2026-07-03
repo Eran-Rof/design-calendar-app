@@ -21,6 +21,7 @@ import { buildSalesPerformance, type SalesGroupBy } from "../reports/salesPerfor
 import { buildInventoryHealth, type InvGroupBy } from "../reports/inventoryHealth";
 import { buildForecastAccuracy, type AccGroupBy } from "../reports/forecastAccuracy";
 import { buildBuyPlanSupply, type BuyGroupBy } from "../reports/buyPlanSupply";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 type TabKey = "sales" | "inventory" | "accuracy" | "buy";
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -110,14 +111,13 @@ function SalesPanel({ ctx }: { ctx: LookupCtx }) {
     <div style={{ ...S.card }}>
       <div style={{ ...S.toolbar, marginBottom: 12 }}>
         <span style={labelStyle}>Group by</span>
-        <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value as SalesGroupBy)}>
-          <option value="month">Month</option><option value="category">Category</option>
-          <option value="customer">Customer</option><option value="channel">Channel</option><option value="sku">SKU</option>
-        </select>
+        <SearchableSelect value={groupBy} onChange={(v) => setGroupBy(v as SalesGroupBy)} inputStyle={sel} options={[
+          { value: "month", label: "Month" }, { value: "category", label: "Category" },
+          { value: "customer", label: "Customer" }, { value: "channel", label: "Channel" }, { value: "sku", label: "SKU" },
+        ]} />
         <span style={labelStyle}>Txn type</span>
-        <select style={sel} value={txnType} onChange={(e) => setTxnType(e.target.value)}>
-          {txnTypes.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <SearchableSelect value={txnType} onChange={(v) => setTxnType(v)} inputStyle={sel}
+          options={txnTypes.map((t) => ({ value: t, label: t }))} />
         <span style={labelStyle}>TY from</span>
         <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={tyStart} onCommit={setTyStart} />
         <span style={labelStyle}>to</span>
@@ -164,9 +164,9 @@ function InventoryPanel({ ctx }: { ctx: LookupCtx }) {
     <div style={S.card}>
       <div style={{ ...S.toolbar, marginBottom: 12 }}>
         <span style={labelStyle}>Group by</span>
-        <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value as InvGroupBy)}>
-          <option value="category">Category</option><option value="sku">SKU</option><option value="warehouse">Warehouse</option>
-        </select>
+        <SearchableSelect value={groupBy} onChange={(v) => setGroupBy(v as InvGroupBy)} inputStyle={sel} options={[
+          { value: "category", label: "Category" }, { value: "sku", label: "SKU" }, { value: "warehouse", label: "Warehouse" },
+        ]} />
       </div>
       <ReportTable result={result} busy={busy} filename="planning-inventory-health" sheetName="Inventory Health" />
     </div>
@@ -193,14 +193,13 @@ function AccuracyPanel({ ctx, runs }: { ctx: LookupCtx; runs: RepRun[] }) {
     <div style={S.card}>
       <div style={{ ...S.toolbar, marginBottom: 12 }}>
         <span style={labelStyle}>Planning run</span>
-        <select style={sel} value={runId} onChange={(e) => setRunId(e.target.value)}>
-          {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
-        </select>
+        <SearchableSelect value={runId} onChange={(v) => setRunId(v)} inputStyle={sel}
+          options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))} />
         <span style={labelStyle}>Group by</span>
-        <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value as AccGroupBy)}>
-          <option value="method">Method</option><option value="category">Category</option>
-          <option value="period">Period</option><option value="sku">SKU</option>
-        </select>
+        <SearchableSelect value={groupBy} onChange={(v) => setGroupBy(v as AccGroupBy)} inputStyle={sel} options={[
+          { value: "method", label: "Method" }, { value: "category", label: "Category" },
+          { value: "period", label: "Period" }, { value: "sku", label: "SKU" },
+        ]} />
       </div>
       <ReportTable result={result} busy={busy} filename="planning-forecast-accuracy" sheetName="Forecast Accuracy" />
     </div>
@@ -231,17 +230,16 @@ function BuyPanel({ ctx, runs }: { ctx: LookupCtx; runs: RepRun[] }) {
     <div style={S.card}>
       <div style={{ ...S.toolbar, marginBottom: 12 }}>
         <span style={labelStyle}>Group by</span>
-        <select style={sel} value={groupBy} onChange={(e) => setGroupBy(e.target.value as BuyGroupBy)}>
-          <option value="category">Category (buy)</option><option value="sku">SKU (buy)</option>
-          <option value="priority">Priority (buy)</option>
-          <option value="vendor">Vendor (open PO)</option><option value="receipt_month">Receipt month (open PO)</option>
-        </select>
+        <SearchableSelect value={groupBy} onChange={(v) => setGroupBy(v as BuyGroupBy)} inputStyle={sel} options={[
+          { value: "category", label: "Category (buy)" }, { value: "sku", label: "SKU (buy)" },
+          { value: "priority", label: "Priority (buy)" },
+          { value: "vendor", label: "Vendor (open PO)" }, { value: "receipt_month", label: "Receipt month (open PO)" },
+        ]} />
         {!supplyMode && (
           <>
             <span style={labelStyle}>Planning run</span>
-            <select style={sel} value={runId} onChange={(e) => setRunId(e.target.value)}>
-              {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
-            </select>
+            <SearchableSelect value={runId} onChange={(v) => setRunId(v)} inputStyle={sel}
+              options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))} />
           </>
         )}
       </div>

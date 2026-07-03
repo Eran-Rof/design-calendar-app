@@ -21,6 +21,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope } from "../../../_lib/brandContext.js";
+import { resolveUserLabels } from "../../../_lib/resolveUserNames.js";
 
 // GL account lookup for inventory adjustments. Queries by account_type=expense
 // and name matching "inventory adjust" (primary), falling back to "adjust" only.
@@ -231,7 +232,12 @@ export default async function handler(req, res) {
 
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json(data || []);
+
+    // Enrich with a "created by" display label (items 3/4 — show + filter by user).
+    const adjRows = data || [];
+    const labels = await resolveUserLabels(admin, adjRows.map((r) => r.created_by_user_id));
+    for (const r of adjRows) r.created_by_name = r.created_by_user_id ? (labels[r.created_by_user_id] || null) : null;
+    return res.status(200).json(adjRows);
   }
 
   if (req.method === "POST") {

@@ -19,6 +19,8 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { readDrillParam } from "./scorecardDrill";
 
@@ -112,6 +114,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -176,6 +179,20 @@ export default function InternalJournalEntry() {
     );
   }, [rows, searchDebounced]);
 
+  // #5 Sortable columns — sort the (already search-filtered) rows.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(filteredRows, {
+    persistKey: "tangerine:journalentries:sort",
+    accessors: {
+      je_number: (je) => je.je_number || "",
+      posting_date: (je) => je.posting_date,
+      type: (je) => je.journal_type,
+      basis: (je) => je.basis,
+      description: (je) => je.description || "",
+      source: (je) => je.source || "",
+      status: (je) => je.status,
+    },
+  });
+
   async function reverse(je: JE) {
     if (je.status !== "posted") {
       notify(`Cannot reverse JE in status '${je.status}'.`, "error");
@@ -208,23 +225,35 @@ export default function InternalJournalEntry() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <select value={basisFilter} onChange={(e) => setBasisFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All bases</option>
-          <option value="ACCRUAL">ACCRUAL</option>
-          <option value="CASH">CASH</option>
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 180 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={basisFilter || null}
+            onChange={(v) => setBasisFilter(v)}
+            options={[
+              { value: "", label: "All bases" },
+              { value: "ACCRUAL", label: "ACCRUAL" },
+              { value: "CASH", label: "CASH" },
+            ]}
+            placeholder="All bases"
+            inputStyle={inputStyle}
+          />
+        </div>
+        <div style={{ width: 180 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           placeholder="Search JE # / description / source…"
           style={{ ...inputStyle, width: 220 }}
         />
@@ -270,7 +299,7 @@ export default function InternalJournalEntry() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : filteredRows.length === 0 ? (
@@ -281,18 +310,18 @@ export default function InternalJournalEntry() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("je_number")}>JE #</th>
-                <th style={th} hidden={!visibleColumns.has("posting_date")}>Posting Date</th>
-                <th style={th} hidden={!visibleColumns.has("type")}>Type</th>
-                <th style={th} hidden={!visibleColumns.has("basis")}>Basis</th>
-                <th style={th} hidden={!visibleColumns.has("description")}>Description</th>
-                <th style={th} hidden={!visibleColumns.has("source")}>Source</th>
-                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+                <SortableTh label="JE #" sortKey="je_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("je_number")} />
+                <SortableTh label="Posting Date" sortKey="posting_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("posting_date")} />
+                <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("type")} />
+                <SortableTh label="Basis" sortKey="basis" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("basis")} />
+                <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("description")} />
+                <SortableTh label="Source" sortKey="source" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("source")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("status")} />
                 <th style={{ ...th, width: 120 }}></th>
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((je) => (
+              {sortedRows.map((je) => (
                 <ScrollHighlightRow
                   key={je.id}
                   rowId={je.id}
@@ -464,7 +493,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
   // unless the caller passes force=true (used after a successful post).
   async function requestClose(force = false) {
     if (!force && dirty) {
-      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "⚠️", confirmText: "Discard", confirmColor: "#EF4444" });
+      const ok = await confirmDialog("You have unsaved changes. Discard?", { title: "Discard changes?", icon: "", confirmText: "Discard", confirmColor: "#EF4444" });
       if (!ok) return;
     }
     onClose();
@@ -506,7 +535,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
       const diffStr = totals.diff.toFixed(2);
       const proceed = await confirmDialog(
         `Journal entry is out of balance by $${diffStr}. Posting will fail server-side validation. Continue anyway?`,
-        { title: "Out of balance", icon: "⚠️", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
+        { title: "Out of balance", icon: "", confirmText: "Continue anyway", confirmColor: "#F59E0B" },
       );
       if (!proceed) return;
     }
@@ -577,17 +606,27 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 16, marginBottom: 12 }}>
           <Field label="Basis">
-            <select value={basis} onChange={(e) => { setDirty(true); setBasis(e.target.value as "ACCRUAL" | "CASH" | "BOTH"); }} style={inputStyle as React.CSSProperties}>
-              <option value="ACCRUAL">ACCRUAL</option>
-              <option value="CASH">CASH</option>
-              <option value="BOTH">BOTH (sibling pair)</option>
-            </select>
+            <SearchableSelect
+              value={basis}
+              onChange={(v) => { setDirty(true); setBasis(v as "ACCRUAL" | "CASH" | "BOTH"); }}
+              options={[
+                { value: "ACCRUAL", label: "ACCRUAL" },
+                { value: "CASH", label: "CASH" },
+                { value: "BOTH", label: "BOTH (sibling pair)" },
+              ]}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Journal type">
-            <select value={journalType} onChange={(e) => { setDirty(true); setJournalType(e.target.value as "manual" | "adjustment"); }} style={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}>
-              <option value="manual">MANUAL</option>
-              <option value="adjustment">ADJUSTMENT</option>
-            </select>
+            <SearchableSelect
+              value={journalType}
+              onChange={(v) => { setDirty(true); setJournalType(v as "manual" | "adjustment"); }}
+              options={[
+                { value: "manual", label: "MANUAL" },
+                { value: "adjustment", label: "ADJUSTMENT" },
+              ]}
+              inputStyle={{ ...(inputStyle as React.CSSProperties), textTransform: "uppercase" }}
+            />
           </Field>
           <Field label="Posting date">
             <input type="date" value={postingDate} onChange={(e) => { setDirty(true); setPostingDate(e.target.value); }} style={inputStyle} />
@@ -686,16 +725,18 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
                     />
                   </td>
                   <td style={td}>
-                    <select
-                      value={l.subledger_type}
-                      onChange={(e) => updateLine(idx, { subledger_type: e.target.value, subledger_id: "" })}
-                      style={inputStyle as React.CSSProperties}
-                    >
-                      <option value="">(select)</option>
-                      <option value="vendor">vendor</option>
-                      <option value="customer">customer</option>
-                      <option value="item">item</option>
-                    </select>
+                    <SearchableSelect
+                      value={l.subledger_type || null}
+                      onChange={(v) => updateLine(idx, { subledger_type: v, subledger_id: "" })}
+                      options={[
+                        { value: "", label: "(select)" },
+                        { value: "vendor", label: "vendor" },
+                        { value: "customer", label: "customer" },
+                        { value: "item", label: "item" },
+                      ]}
+                      placeholder="(select)"
+                      inputStyle={inputStyle as React.CSSProperties}
+                    />
                   </td>
                   <td style={td}>
                     {l.subledger_type === "vendor" || l.subledger_type === "customer" ? (
@@ -754,7 +795,7 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stagedDocs.length ? 8 : 0 }}>
             <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              📎 Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
+              Supporting documents {stagedDocs.length > 0 && <span>({stagedDocs.length})</span>}
             </span>
             <label style={{ ...btnSecondary, cursor: "pointer", display: "inline-block" }}>
               + Add files

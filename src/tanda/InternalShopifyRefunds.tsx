@@ -19,12 +19,15 @@
 //   - <ExportButton> (T3/T8) — xlsx-only export of the visible rows
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SHOPIFY_REFUNDS_TABLE_KEY = "tangerine:shopifyrefunds:columns";
@@ -73,6 +76,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -165,7 +169,7 @@ export default function InternalShopifyRefunds() {
   useEffect(() => { void load(); }, [typeFilter, fromDate, toDate, limit]);
 
   const exportRows = useMemo(() => {
-    return rows.map((r) => ({
+    const body = rows.map((r) => ({
       processed_at:           r.processed_at,
       order_number:           orderMap[r.shopify_order_id] || "—",
       refund_type:            r.refund_type,
@@ -174,8 +178,40 @@ export default function InternalShopifyRefunds() {
       ar_credit_memo_id:      r.ar_credit_memo_id || "",
       je_id:                  r.je_id || "",
       shopify_refund_id:      r.shopify_refund_id,
-    })) as unknown as Array<Record<string, unknown>>;
+    })) as Array<Record<string, unknown>>;
+    // #23 — append a TOTAL row summing the currency_cents columns (guard empty).
+    // processed_at left blank so the date column doesn't get a non-date value;
+    // "TOTAL" lands in the Order # text column.
+    if (body.length > 0) {
+      const sumCents = (k: "refund_amount_cents" | "restocking_fee_cents") =>
+        rows.reduce((s, r) => s + Number(BigInt(String(r[k] || "0").replace(/[^-0-9]/g, "") || "0")), 0);
+      body.push({
+        processed_at:         "",
+        order_number:         "TOTAL",
+        refund_type:          "",
+        refund_amount_cents:  String(sumCents("refund_amount_cents")),
+        restocking_fee_cents: String(sumCents("restocking_fee_cents")),
+        ar_credit_memo_id:    "",
+        je_id:                "",
+        shopify_refund_id:    "",
+      });
+    }
+    return body;
   }, [rows, orderMap]);
+
+  // #5 — tri-state column sort. Derived columns get accessors: refund date by
+  // timestamp, order # via orderMap, amounts numerically from the cents strings.
+  // AR Credit Memo is a JSX-only link column → stays a plain <th> (inert).
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:shopifyrefunds:sort",
+    accessors: {
+      refund_date: (r) => new Date(r.processed_at).getTime(),
+      order: (r) => orderMap[r.shopify_order_id] || "",
+      type: (r) => r.refund_type,
+      refund_amount: (r) => Number(BigInt(String(r.refund_amount_cents || "0").replace(/[^-0-9]/g, "") || "0")),
+      restocking_fee: (r) => Number(BigInt(String(r.restocking_fee_cents || "0").replace(/[^-0-9]/g, "") || "0")),
+    },
+  });
 
   return (
     <div style={{ color: C.text }}>
@@ -187,15 +223,16 @@ export default function InternalShopifyRefunds() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <select
+        <SearchableSelect
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as RefundType | "")}
-          style={{ ...inputStyle, width: 150 }}
-        >
-          <option value="">All types</option>
-          <option value="full">Full</option>
-          <option value="partial">Partial</option>
-        </select>
+          onChange={(v) => setTypeFilter(v as RefundType | "")}
+          inputStyle={{ ...inputStyle, width: 150 }}
+          options={[
+            { value: "", label: "All types" },
+            { value: "full", label: "Full" },
+            { value: "partial", label: "Partial" },
+          ]}
+        />
         <input
           type="date" placeholder="From" value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
@@ -211,12 +248,17 @@ export default function InternalShopifyRefunds() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
-          <option value={50}>Limit 50</option>
-          <option value={100}>Limit 100</option>
-          <option value={200}>Limit 200</option>
-          <option value={500}>Limit 500</option>
-        </select>
+        <SearchableSelect
+          value={String(limit)}
+          onChange={(v) => setLimit(Number(v))}
+          inputStyle={{ ...inputStyle, width: 110 }}
+          options={[
+            { value: "50", label: "Limit 50" },
+            { value: "100", label: "Limit 100" },
+            { value: "200", label: "Limit 200" },
+            { value: "500", label: "Limit 500" },
+          ]}
+        />
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <TablePrefsButton
           tableKey={SHOPIFY_REFUNDS_TABLE_KEY}
@@ -248,7 +290,7 @@ export default function InternalShopifyRefunds() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -257,16 +299,16 @@ export default function InternalShopifyRefunds() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 130 }} hidden={!isVisible("refund_date")}>Refund Date</th>
-                <th style={{ ...th, width: 130 }} hidden={!isVisible("order")}>Order #</th>
-                <th style={{ ...th, width: 100 }} hidden={!isVisible("type")}>Type</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("refund_amount")}>Refund Amount</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("restocking_fee")}>Restocking Fee</th>
+                <SortableTh label="Refund Date" sortKey="refund_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 130 }} hidden={!isVisible("refund_date")} />
+                <SortableTh label="Order #" sortKey="order" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 130 }} hidden={!isVisible("order")} />
+                <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 100 }} hidden={!isVisible("type")} />
+                <SortableTh label="Refund Amount" sortKey="refund_amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("refund_amount")} />
+                <SortableTh label="Restocking Fee" sortKey="restocking_fee" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("restocking_fee")} />
                 <th style={th} hidden={!isVisible("credit_memo")}>AR Credit Memo</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {sorted.map((r) => {
                 const hasRestock = BigInt(r.restocking_fee_cents || "0") > 0n;
                 return (
                   <tr key={r.id}>

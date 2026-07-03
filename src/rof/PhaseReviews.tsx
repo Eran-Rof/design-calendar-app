@@ -411,7 +411,6 @@ export default function PhaseReviews() {
                 <div key={r.id} style={{ background: C.surface, border: `1px solid ${isResubmission ? C.warn : C.border}`, borderRadius: 10, padding: 16 }}>
                   {isResubmission && (
                     <div style={{ marginBottom: 12, padding: "8px 12px", background: `${C.warn}22`, border: `1px solid ${C.warn}66`, borderRadius: 6, fontSize: 12, color: "#FCD34D", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14 }}>⚠️</span>
                       <div>
                         <strong>Resubmission</strong> — this phase was reviewed {r.prior_reviews_count} time{r.prior_reviews_count === 1 ? "" : "s"} before.
                         {r.last_rejected_at && (
@@ -436,7 +435,6 @@ export default function PhaseReviews() {
                             title={r.line_description || "Line-item level change"}
                             style={{ fontSize: 10, background: C.accent, color: "#EDE9FE", padding: "2px 10px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, display: "inline-flex", alignItems: "center", gap: 4 }}
                           >
-                            <span>🔀</span>
                             <span>Line {r.line_label ? `· ${r.line_label}` : ""}</span>
                           </span>
                         ) : (
@@ -492,7 +490,7 @@ export default function PhaseReviews() {
                   {notes.length > 0 && (
                     <div style={{ marginTop: 12, padding: 10, background: C.bg, border: `1px solid ${C.warn}55`, borderRadius: 8 }}>
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: C.warn, fontWeight: 700, letterSpacing: 0.4, marginBottom: 8 }}>
-                        💬 Vendor notes on this phase ({notes.length})
+                        Vendor notes on this phase ({notes.length})
                       </div>
                       <div style={{ display: "grid", gap: 6 }}>
                         {notes.slice(0, 5).map((n) => (

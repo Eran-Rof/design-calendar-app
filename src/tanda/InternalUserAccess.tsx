@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 const ACTIONS = ["read", "write", "post", "void", "export"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -69,6 +70,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13,
@@ -249,7 +251,7 @@ export default function InternalUserAccess() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", padding: 24, color: C.text }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>🔐 User Access</h1>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>User Access</h1>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Per-module × per-action permissions. Pick a user, set their role, tick cells to override.
         </span>
@@ -282,7 +284,7 @@ export default function InternalUserAccess() {
       {!loading && data && (
         <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 16, alignItems: "start" }}>
           {/* ── Left: user list ─────────────────────────────────────────── */}
-          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
             <div style={{ ...th, padding: "10px 12px" }}>Users ({data.users.length})</div>
             {data.users.length === 0 && (
               <div style={{ padding: 12, color: C.textMuted, fontSize: 13 }}>No members in this entity.</div>
@@ -321,16 +323,15 @@ export default function InternalUserAccess() {
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{selected.email || selected.user_id}</div>
                   <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
                     Role
-                    <select
-                      style={{ ...inputStyle, padding: "5px 8px" }}
+                    <SearchableSelect
+                      inputStyle={{ ...inputStyle, padding: "5px 8px" }}
                       value={selected.role_id || ""}
-                      onChange={(e) => void changeRole(e.target.value)}
-                    >
-                      {!selected.role_id && <option value="">(select)</option>}
-                      {data.roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
+                      onChange={(v) => void changeRole(v)}
+                      options={[
+                        ...(!selected.role_id ? [{ value: "", label: "(select)" }] : []),
+                        ...data.roles.map((r) => ({ value: r.id, label: r.name })),
+                      ]}
+                    />
                   </label>
                   <Legend />
                 </div>

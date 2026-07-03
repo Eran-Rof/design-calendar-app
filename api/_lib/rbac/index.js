@@ -97,6 +97,16 @@ export async function rbacObserve(req, pathname, method) {
         `[RBAC log-only] would-deny ${method} ${pathname} — user=${auth.authId} ` +
         `entity=${ent.entity_id} needs ${required.module}:${required.action}`,
       );
+      // P27 Phase 5 — persist an aggregated counter so warm-up is actionable
+      // (a coverage report, not just ephemeral logs). Fire-and-forget.
+      await sb.rpc("rbac_record_observation", {
+        p_entity: ent.entity_id,
+        p_auth: auth.authId,
+        p_module: required.module,
+        p_action: required.action,
+        p_method: method,
+        p_path: pathname,
+      }).then(() => {}, () => {}); // never let recording affect the request
     }
   } catch {
     // Observability must never affect a real request. Swallow everything.

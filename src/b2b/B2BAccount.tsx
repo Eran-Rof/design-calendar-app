@@ -3,6 +3,7 @@ import { B } from "./theme";
 import { apiB2B } from "./apiB2B";
 import { formatMoney } from "./useCart";
 import type { AccountView, AccountInvoice } from "./types";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // P18-E — Account: open AR balance + invoices (status-filterable). All data is
 // scoped server-side to the logged-in buyer's customer.
@@ -55,10 +56,16 @@ export default function B2BAccount() {
       <section style={panel}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <h2 style={h2}>Invoices</h2>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={input}>
-            <option value="">All statuses</option>
-            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            theme="light"
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              ...statuses.map((s) => ({ value: s, label: s })),
+            ]}
+            inputStyle={input}
+          />
         </div>
 
         {rows.length === 0 ? (

@@ -5,6 +5,7 @@ import { STATUS_CONFIG } from "../utils/constants";
 import { uid, getBrand, formatDate, addDays, diffDays } from "../utils/dates";
 import { Modal } from "./Modal";
 import DateInput from "./DateInput";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }: { tasks: any[]; vendors: any[]; team: any[]; collections: any; onSave: any; onClose: any }) {
   const collOptions: string[] = [...new Set(tasks.map((t) => `${t.brand}||${t.collection}`))];
@@ -138,16 +139,20 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }: { 
       <div>
         {/* Collection — full width */}
         <label style={S.lbl}>Collection</label>
-        <select style={S.inp} value={form.collKey} onChange={e => {
-          setF("collKey", e.target.value);
-          setF("insertAfter", "__end__");
-        }}>
-          <option value="">-- Select Collection --</option>
-          {collOptions.map(k => {
+        <SearchableSelect
+          theme="light"
+          inputStyle={S.inp}
+          placeholder="-- Select Collection --"
+          value={form.collKey || null}
+          onChange={v => {
+            setF("collKey", v);
+            setF("insertAfter", "__end__");
+          }}
+          options={collOptions.map(k => {
             const [brand, coll] = k.split("||");
-            return <option key={k} value={k}>{getBrand(brand)?.short} — {coll}</option>;
+            return { value: k, label: `${getBrand(brand)?.short} — ${coll}` };
           })}
-        </select>
+        />
 
         {/* Row 1: Phase Name | Position */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
@@ -162,16 +167,20 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }: { 
           </div>
           <div>
             <label style={S.lbl}>Position — Place After</label>
-            <select style={S.inp} value={form.insertAfter} onChange={e => handlePositionChange(e.target.value)}>
-              {collTasks.length === 0
-                ? <option value="__end__">— (no tasks yet) —</option>
-                : <>
-                    <option value="__start__">— Before all tasks —</option>
-                    {collTasks.map(t => <option key={t.id} value={t.id}>{t.phase} ({formatDate(t.due)})</option>)}
-                    <option value="__end__">— After all tasks —</option>
-                  </>
+            <SearchableSelect
+              theme="light"
+              inputStyle={S.inp}
+              value={form.insertAfter}
+              onChange={v => handlePositionChange(v)}
+              options={collTasks.length === 0
+                ? [{ value: "__end__", label: "— (no tasks yet) —" }]
+                : [
+                    { value: "__start__", label: "— Before all tasks —" },
+                    ...collTasks.map(t => ({ value: t.id, label: `${t.phase} (${formatDate(t.due)})` })),
+                    { value: "__end__", label: "— After all tasks —" },
+                  ]
               }
-            </select>
+            />
           </div>
         </div>
 
@@ -224,18 +233,26 @@ function AddTaskModal({ tasks, vendors, team, collections, onSave, onClose }: { 
           </div>
           <div>
             <label style={S.lbl}>Status</label>
-            <select style={{ ...S.inp, marginBottom: 0 }} value={form.status} onChange={e => setF("status", e.target.value)}>
-              {Object.keys(STATUS_CONFIG).map(s => <option key={s}>{s}</option>)}
-            </select>
+            <SearchableSelect
+              theme="light"
+              inputStyle={{ ...S.inp, marginBottom: 0 }}
+              value={form.status || null}
+              onChange={v => setF("status", v)}
+              options={Object.keys(STATUS_CONFIG).map(s => ({ value: s, label: s }))}
+            />
           </div>
         </div>
 
         {/* Row 4: Assignee */}
         <label style={S.lbl}>Assignee</label>
-        <select style={S.inp} value={form.assigneeId} onChange={e => setF("assigneeId", e.target.value)}>
-          <option value="">-- None --</option>
-          {team.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
-        </select>
+        <SearchableSelect
+          theme="light"
+          inputStyle={S.inp}
+          placeholder="-- None --"
+          value={form.assigneeId || null}
+          onChange={v => setF("assigneeId", v)}
+          options={team.map(m => ({ value: m.id, label: `${m.name} (${m.role})` }))}
+        />
 
         <label style={S.lbl}>Notes</label>
         <textarea style={{ ...S.inp, height: 72, resize: "vertical" } as any} value={form.notes} onChange={e => setF("notes", e.target.value)} placeholder="Optional notes…" />

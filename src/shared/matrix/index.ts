@@ -5,6 +5,8 @@
 export { MatrixGrid } from "./MatrixGrid";
 export { EditableSizeMatrix, matrixCellKey } from "./EditableSizeMatrix";
 export type { EditableSizeMatrixProps, EditableMatrixRow } from "./EditableSizeMatrix";
+export { computeSizeCollapse } from "./sizeCollapse";
+export type { SizeCollapseModel } from "./sizeCollapse";
 export { MatrixCell } from "./MatrixCell";
 export { MatrixHeader } from "./MatrixHeader";
 export { MatrixPivotControl } from "./MatrixPivotControl";

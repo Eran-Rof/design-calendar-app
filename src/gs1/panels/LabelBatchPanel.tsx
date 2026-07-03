@@ -12,6 +12,7 @@ import {
 } from "../services/labelGeneratorService";
 import type { LabelMode, LabelTemplate } from "../types";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -186,7 +187,7 @@ export default function LabelBatchPanel() {
       {/* Invalid batch line warning */}
       {batchLines.filter(l => l.label_qty <= 0).length > 0 && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#92400E", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontWeight: 700 }}>⚠ {batchLines.filter(l => l.label_qty <= 0).length} batch line{batchLines.filter(l => l.label_qty <= 0).length > 1 ? "s" : ""} with label_qty ≤ 0</span>
+          <span style={{ fontWeight: 700 }}>{batchLines.filter(l => l.label_qty <= 0).length} batch line{batchLines.filter(l => l.label_qty <= 0).length > 1 ? "s" : ""} with label_qty ≤ 0</span>
           — These lines will be skipped during export. Fix the source packing list and regenerate the batch.
         </div>
       )}
@@ -320,27 +321,33 @@ export default function LabelBatchPanel() {
                   {batchMode !== "sscc" && (
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", marginBottom: 4 }}>GTIN Label Template</div>
-                      <select value={gtinTemplateId}
-                        onChange={e => setGtinTemplateId(e.target.value)}
-                        style={{ padding: "5px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 12, minWidth: 200 }}>
-                        <option value="">— Built-in default —</option>
-                        {gtinTemplateOptions.map(t => (
-                          <option key={t.id} value={t.id}>{t.template_name} ({t.printer_type})</option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        theme="light"
+                        value={gtinTemplateId || null}
+                        onChange={v => setGtinTemplateId(v)}
+                        inputStyle={{ padding: "5px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 12, minWidth: 200 }}
+                        placeholder="— Built-in default —"
+                        options={[
+                          { value: "", label: "— Built-in default —" },
+                          ...gtinTemplateOptions.map(t => ({ value: t.id, label: `${t.template_name} (${t.printer_type})` })),
+                        ]}
+                      />
                     </div>
                   )}
                   {hasSSCC && (
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", marginBottom: 4 }}>SSCC Label Template</div>
-                      <select value={ssccTemplateId}
-                        onChange={e => setSsccTemplateId(e.target.value)}
-                        style={{ padding: "5px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 12, minWidth: 200 }}>
-                        <option value="">— Built-in default —</option>
-                        {ssccTemplateOptions.map(t => (
-                          <option key={t.id} value={t.id}>{t.template_name} ({t.printer_type})</option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        theme="light"
+                        value={ssccTemplateId || null}
+                        onChange={v => setSsccTemplateId(v)}
+                        inputStyle={{ padding: "5px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 12, minWidth: 200 }}
+                        placeholder="— Built-in default —"
+                        options={[
+                          { value: "", label: "— Built-in default —" },
+                          ...ssccTemplateOptions.map(t => ({ value: t.id, label: `${t.template_name} (${t.printer_type})` })),
+                        ]}
+                      />
                     </div>
                   )}
                   {gtinTemplateOptions.length === 0 && ssccTemplateOptions.length === 0 && (
@@ -397,12 +404,17 @@ export default function LabelBatchPanel() {
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", marginBottom: 4 }}>Output Method</div>
-                      <select value={reprintMethod} onChange={e => setReprintMethod(e.target.value as "pdf"|"zpl"|"csv")}
-                        style={{ padding: "6px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-                        <option value="pdf">PDF (browser print)</option>
-                        <option value="zpl">ZPL file (Zebra)</option>
-                        <option value="csv">CSV file</option>
-                      </select>
+                      <SearchableSelect
+                        theme="light"
+                        value={reprintMethod}
+                        onChange={v => setReprintMethod(v as "pdf"|"zpl"|"csv")}
+                        inputStyle={{ padding: "6px 8px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+                        options={[
+                          { value: "pdf", label: "PDF (browser print)" },
+                          { value: "zpl", label: "ZPL file (Zebra)" },
+                          { value: "csv", label: "CSV file" },
+                        ]}
+                      />
                     </div>
                     <div style={{ flexGrow: 1, minWidth: 200 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase", marginBottom: 4 }}>Reason (optional)</div>

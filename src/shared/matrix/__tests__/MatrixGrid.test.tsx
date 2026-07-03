@@ -3,7 +3,7 @@
 // controls + filter chips + cell click + layered tabs.
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MatrixGrid } from "../MatrixGrid";
 import type { MatrixItem } from "../types";
 
@@ -62,8 +62,10 @@ describe("MatrixGrid", () => {
 
   it("pivoting axes via the row select swaps the layout", () => {
     render(<MatrixGrid items={items} />);
-    const rowSelect = screen.getByTestId("matrix-pivot-row-select");
-    fireEvent.change(rowSelect, { target: { value: "inseam" } });
+    // Row axis is the first themed SearchableSelect (combobox); open + pick.
+    const rowCombo = screen.getAllByRole("combobox")[0];
+    fireEvent.focus(rowCombo.querySelector("input")!);
+    fireEvent.mouseDown(within(screen.getByRole("listbox")).getByRole("option", { name: "inseam" }));
     expect(screen.getByTestId("matrix-row-header-30")).toBeInTheDocument();
     expect(screen.getByTestId("matrix-row-header-32")).toBeInTheDocument();
   });

@@ -12,6 +12,7 @@ import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 // Cross-cutter T4-5 — Personalization: favorites drawer + click telemetry.
 // Shared left navigation drawer (de-iconed, collapsible) — mirrors GS1.
 import { NavDrawer, DRAWER_W_OPEN, DRAWER_W_CLOSED } from "./tanda/NavDrawer";
+import SearchableSelect from "./tanda/components/SearchableSelect";
 import { TECHPACK_MODULES, TECHPACK_SECTIONS } from "./techpackModules";
 // Tangerine P10-5 — Top-bar entity switcher.
 import EntitySwitcher from "./components/EntitySwitcher";
@@ -531,7 +532,6 @@ export default function TechPackApp() {
     return (
       <div style={S.app}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", flexDirection: "column", gap: 16 }}>
-          <div style={{ fontSize: 48 }}>📐</div>
           <p style={{ color: "#F1F5F9", fontSize: 18 }}>Please log in from the PLM launcher</p>
           <a href="/" style={{ color: "#3B82F6", fontSize: 14, textDecoration: "underline" }}>Go to PLM Launcher</a>
         </div>
@@ -708,7 +708,7 @@ export default function TechPackApp() {
               <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#6B7280" }}>Tech Packs ({techPacks.length})</span>
             </div>
             <div style={{ padding: "8px 16px", borderBottom: "1px solid #334155" }}>
-              <input value={teamsSearch} onChange={e => setTeamsSearch(e.target.value)} placeholder="🔍 Search…" style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "7px 10px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+              <input value={teamsSearch} onChange={e => setTeamsSearch(e.target.value)} placeholder="Search…" style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "7px 10px", color: "#F1F5F9", fontSize: 12, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
             </div>
             <div style={{ padding: "10px 16px", borderBottom: "1px solid #334155", background: teamsToken ? "#064E3B44" : "#78350F44" }}>
               {teamsToken ? (
@@ -760,7 +760,6 @@ export default function TechPackApp() {
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!teamsToken ? (
                 <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                  <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
                   <div style={{ fontSize: 13, color: "#94A3B8", marginBottom: 12 }}>Sign in with Microsoft</div>
                   <button onClick={tpAuthTeams} disabled={teamsAuthStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
                 </div>
@@ -797,7 +796,6 @@ export default function TechPackApp() {
             {teamsTab === "direct" ? (
               !teamsToken ? (
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
                   <div style={{ fontSize: 14, color: "#94A3B8", marginBottom: 12 }}>Sign in to use Direct Message</div>
                   <button onClick={tpAuthTeams} disabled={teamsAuthStatus === "loading"} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{teamsAuthStatus === "loading" ? "Signing in…" : "Sign in with Microsoft"}</button>
                 </div>
@@ -822,7 +820,7 @@ export default function TechPackApp() {
                         style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 7, padding: "9px 12px", color: "#F1F5F9", fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical" as const, boxSizing: "border-box" as const }} />
                     </div>
                     {teamsDirectErr && (
-                      <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 12 }}>⚠ {teamsDirectErr}</div>
+                      <div style={{ background: "#1E293B", border: "1px solid #EF444444", borderRadius: 8, padding: "10px 14px", color: "#EF4444", fontSize: 12, marginBottom: 12 }}>{teamsDirectErr}</div>
                     )}
                     <button onClick={tpSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
                       style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: teamsDirectSending ? "wait" : "pointer", fontFamily: "inherit", opacity: (teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()) ? 0.6 : 1 }}>
@@ -842,7 +840,7 @@ export default function TechPackApp() {
                   </div>
                   {dmError && (
                     <div style={{ background: "#1E293B", borderBottom: "1px solid #EF444444", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                      <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>⚠ {dmError}</span>
+                      <span style={{ fontSize: 12, color: "#EF4444", flex: 1 }}>{dmError}</span>
                       <button onClick={() => setDmError(null)} style={{ border: "none", background: "none", color: "#EF4444", cursor: "pointer", fontFamily: "inherit", fontSize: 14 }}>✕</button>
                     </div>
                   )}
@@ -886,7 +884,6 @@ export default function TechPackApp() {
               )
             ) : !teamsSelTP ? (
               <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#6B7280" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>💬</div>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>Select a tech pack to open its chat</div>
                 <div style={{ fontSize: 13 }}>Each tech pack gets its own Teams channel in RING OF FIRE</div>
               </div>
@@ -902,24 +899,22 @@ export default function TechPackApp() {
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                   {!teamsToken ? (
                     <div style={{ textAlign: "center", paddingTop: 60 }}>
-                      <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 8 }}>Sign in to use Teams chat</div>
                       <button onClick={tpAuthTeams} style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Sign in with Microsoft</button>
                     </div>
                   ) : !mp ? (
                     <div style={{ textAlign: "center", paddingTop: 60 }}>
-                      <div style={{ fontSize: 36, marginBottom: 12 }}>💬</div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#94A3B8", marginBottom: 6 }}>No Teams channel yet</div>
                       <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 20 }}>A channel will be created in RING OF FIRE</div>
                       <button onClick={() => selTP && tpStartChat(selTP.id, selTP.styleName || selTP.styleNumber || selTP.id)} disabled={teamsCreating === teamsSelTP}
                         style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: teamsCreating ? "wait" : "pointer", opacity: teamsCreating ? 0.7 : 1 }}>
-                        {teamsCreating === teamsSelTP ? "Creating channel…" : "💬 Start Teams Chat"}
+                        {teamsCreating === teamsSelTP ? "Creating channel…" : "Start Teams Chat"}
                       </button>
                     </div>
                   ) : isLoadingMsgs ? (
                     <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40, fontSize: 13 }}>Loading messages…</div>
                   ) : msgs.length === 0 ? (
-                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}><div style={{ fontSize: 28, marginBottom: 8 }}>💬</div><div style={{ fontSize: 13 }}>No messages yet — start the conversation!</div></div>
+                    <div style={{ textAlign: "center", color: "#6B7280", paddingTop: 40 }}><div style={{ fontSize: 13 }}>No messages yet — start the conversation!</div></div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       {msgs.map((msg: any) => {
@@ -1121,7 +1116,7 @@ export default function TechPackApp() {
               Tech Packs ({tpList.length})
             </div>
             <div style={{ padding: "4px 8px 6px" }}>
-              <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} placeholder="🔍 Search…"
+              <input value={emailSearch} onChange={e => setEmailSearch(e.target.value)} placeholder="Search…"
                 style={{ width: "100%", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", color: C.text1, fontSize: 11, outline: "none", fontFamily: "inherit", boxSizing: "border-box" as const }} />
             </div>
 
@@ -1261,7 +1256,7 @@ export default function TechPackApp() {
                         </div>
                         <div style={{ fontSize: 12, fontWeight: 500, color: C.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{em.subject}</div>
                         <div style={{ fontSize: 11, color: C.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {em.hasAttachments && <span style={{ marginRight: 4 }}>📎</span>}
+                          {em.hasAttachments && <span style={{ marginRight: 4 }}>Attachment</span>}
                           {em.bodyPreview || ""}
                         </div>
                       </div>
@@ -1282,7 +1277,6 @@ export default function TechPackApp() {
           <div style={{ flex: 1, background: C.bg0, display: "flex", flexDirection: "column", minWidth: 0 }}>
             {!tpSelectedEmailId ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, color: C.text3 }}>
-                <span style={{ fontSize: 48, opacity: 0.25 }}>✉</span>
                 <span style={{ fontSize: 14 }}>{emailSelTP ? "Select a message to read" : "Select a tech pack from the left"}</span>
               </div>
             ) : (
@@ -1297,7 +1291,7 @@ export default function TechPackApp() {
                       onClick={() => setTpFlaggedSet(prev => { const s = new Set(prev); if (s.has(tpSelectedEmailId)) s.delete(tpSelectedEmailId); else s.add(tpSelectedEmailId); return s; })}>
                       <span style={{ color: tpFlaggedSet.has(tpSelectedEmailId) ? C.warning : C.text3 }}>{tpFlaggedSet.has(tpSelectedEmailId) ? "★" : "☆"}</span>
                     </button>
-                    <button style={{ ...iconBtn, color: C.error }} title="Delete" onClick={() => setTpDeleteConfirm(tpSelectedEmailId)}>🗑️</button>
+                    <button style={{ ...iconBtn, color: C.error }} title="Delete" onClick={() => setTpDeleteConfirm(tpSelectedEmailId)}>Delete</button>
                   </div>
                 </div>
 
@@ -1316,7 +1310,7 @@ export default function TechPackApp() {
                 {/* Error bar */}
                 {emailSendErr && (
                   <div style={{ background: C.bg1, borderBottom: `1px solid ${C.error}44`, padding: "8px 18px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 13, color: C.error, flex: 1 }}>⚠ {emailSendErr}</span>
+                    <span style={{ fontSize: 13, color: C.error, flex: 1 }}>{emailSendErr}</span>
                     <button style={{ ...iconBtn, color: C.text2 }} onClick={() => setEmailSendErr(null)}>✕</button>
                   </div>
                 )}
@@ -1372,13 +1366,13 @@ export default function TechPackApp() {
                 {/* Attachments */}
                 {tpSelectedEmailId && (tpEmailAttachments[tpSelectedEmailId] || []).length > 0 && (
                   <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.bg1, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                    <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>📎 Attachments:</span>
+                    <span style={{ fontSize: 11, color: C.text3, marginRight: 4 }}>Attachments:</span>
                     {tpEmailAttachments[tpSelectedEmailId].map((att: any) => {
                       const href = att.contentBytes ? `data:${att.contentType || "application/octet-stream"};base64,${att.contentBytes}` : "#";
                       return (
                         <a key={att.id} href={href} download={att.name}
                           style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 11, color: C.info, textDecoration: "none", cursor: "pointer", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          📄 {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
+                          {att.name}{att.size ? ` (${(att.size / 1024).toFixed(0)}KB)` : ""}
                         </a>
                       );
                     })}
@@ -1421,7 +1415,7 @@ export default function TechPackApp() {
                 <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
                   {emailSendErr && (
                     <div style={{ background: C.bg0, border: `1px solid ${C.error}44`, borderRadius: 7, padding: "8px 12px", color: C.error, fontSize: 12 }}>
-                      ⚠ {emailSendErr}
+                      {emailSendErr}
                       <button onClick={() => setEmailSendErr(null)} style={{ marginLeft: 8, border: "none", background: "none", color: C.error, cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>✕</button>
                     </div>
                   )}
@@ -1469,7 +1463,7 @@ export default function TechPackApp() {
               <div style={{ height: 1, background: C.border, margin: "3px 0" }} />
               <div style={{ padding: "8px 16px", fontSize: 12, color: C.error, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                 onClick={() => { setTpDeleteConfirm(tpCtxMenu.em.id); setTpSelectedEmailId(tpCtxMenu.em.id); setTpCtxMenu(null); }}>
-                🗑️ Delete
+                Delete
               </div>
             </div>
           )}
@@ -1520,7 +1514,7 @@ export default function TechPackApp() {
             display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px",
           }}
         >
-          🔔 Notifications
+          Notifications
           {unreadTechpackNotifs > 0 && (
             <span style={{
               minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -1559,10 +1553,10 @@ export default function TechPackApp() {
 
                 {/* Stat Cards */}
                 <div style={S.statsRow}>
-                  {renderStatCard("Total Packs", statTotal, "#3B82F6", "📦")}
-                  {renderStatCard("Draft", statDraft, "#6B7280", "📝")}
-                  {renderStatCard("In Review", statReview, "#F59E0B", "🔍")}
-                  {renderStatCard("Approved", statApproved, "#10B981", "✅")}
+                  {renderStatCard("Total Packs", statTotal, "#3B82F6", "")}
+                  {renderStatCard("Draft", statDraft, "#6B7280", "")}
+                  {renderStatCard("In Review", statReview, "#F59E0B", "")}
+                  {renderStatCard("Approved", statApproved, "#10B981", "")}
                 </div>
 
                 {/* Recent Tech Packs */}
@@ -1570,7 +1564,6 @@ export default function TechPackApp() {
                   <h3 style={S.cardTitle}>Recent Tech Packs</h3>
                   {techPacks.length === 0 ? (
                     <div style={S.emptyState}>
-                      <div style={{ fontSize: 40 }}>📐</div>
                       <p>No tech packs yet. Create your first one!</p>
                     </div>
                   ) : (
@@ -1642,25 +1635,33 @@ export default function TechPackApp() {
                 {/* Filters */}
                 <div style={S.filters}>
                   <input style={{ ...S.input, maxWidth: 260 }} placeholder="Search style name, number, brand..." value={search} onChange={e => setSearch(e.target.value)} />
-                  <select style={S.select} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="">All Statuses</option>
-                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <select style={S.select} value={filterBrand} onChange={e => setFilterBrand(e.target.value)}>
-                    <option value="">All Brands</option>
-                    {brands.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                  <select style={S.select} value={filterSeason} onChange={e => setFilterSeason(e.target.value)}>
-                    <option value="">All Seasons</option>
-                    {seasons.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={filterStatus || null}
+                    onChange={v => setFilterStatus(v)}
+                    options={[{ value: "", label: "All Statuses" }, ...STATUSES.map(s => ({ value: s, label: s }))]}
+                    placeholder="All Statuses"
+                    inputStyle={S.select}
+                  />
+                  <SearchableSelect
+                    value={filterBrand || null}
+                    onChange={v => setFilterBrand(v)}
+                    options={[{ value: "", label: "All Brands" }, ...brands.map(b => ({ value: b, label: b }))]}
+                    placeholder="All Brands"
+                    inputStyle={S.select}
+                  />
+                  <SearchableSelect
+                    value={filterSeason || null}
+                    onChange={v => setFilterSeason(v)}
+                    options={[{ value: "", label: "All Seasons" }, ...seasons.map(s => ({ value: s, label: s }))]}
+                    placeholder="All Seasons"
+                    inputStyle={S.select}
+                  />
                   <span style={{ color: "#6B7280", fontSize: 13 }}>{filtered.length} packs</span>
                 </div>
 
                 {/* Grid of cards */}
                 {filtered.length === 0 ? (
                   <div style={S.emptyState}>
-                    <div style={{ fontSize: 40 }}>📐</div>
                     <p>No tech packs match your filters</p>
                   </div>
                 ) : (
@@ -1737,7 +1738,6 @@ export default function TechPackApp() {
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setConfirmDialog(null)}>
           <div style={{ background: "#1E293B", borderRadius: 16, width: 420, padding: 0, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.5)", border: "1px solid #334155" }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: "24px 24px 0", display: "flex", alignItems: "flex-start", gap: 16 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: "#EF444422", border: "1px solid #EF444444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>🗑️</div>
               <div>
                 <div style={{ color: "#F1F5F9", fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{confirmDialog.title}</div>
                 <div style={{ color: "#94A3B8", fontSize: 14, lineHeight: 1.5 }}>{confirmDialog.message}</div>
@@ -1959,10 +1959,13 @@ export default function TechPackApp() {
               <div style={{ color: "#6B7280", fontSize: 13, marginTop: 4 }}>{tp.brand}{tp.season ? ` · ${tp.season}` : ""}{tp.category ? ` · ${tp.category}` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-              <select style={{ ...S.select, fontSize: 12 }} value={tp.status} onChange={e => updateSelected({ status: e.target.value as TechPack["status"] })}>
-                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button style={{ ...S.iconBtn, color: "#EF4444", fontSize: 14 }} onClick={() => setConfirmDialog({ title: "Delete Tech Pack", message: `Delete "${tp.styleName || tp.styleNumber}"? All specs, BOM, samples, and approvals will be permanently removed.`, onConfirm: () => deleteTechPack(tp.id) })}>🗑️</button>
+              <SearchableSelect
+                value={tp.status}
+                onChange={v => updateSelected({ status: v as TechPack["status"] })}
+                options={STATUSES.map(s => ({ value: s, label: s }))}
+                inputStyle={{ ...S.select, fontSize: 12 }}
+              />
+              <button style={{ ...S.iconBtn, color: "#EF4444", fontSize: 14 }} onClick={() => setConfirmDialog({ title: "Delete Tech Pack", message: `Delete "${tp.styleName || tp.styleNumber}"? All specs, BOM, samples, and approvals will be permanently removed.`, onConfirm: () => deleteTechPack(tp.id) })}>Delete</button>
               <button style={S.closeBtn} onClick={() => { setSelected(null); setView("list"); }}>✕</button>
             </div>
           </div>

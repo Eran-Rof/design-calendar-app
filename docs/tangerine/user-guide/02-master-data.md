@@ -35,7 +35,7 @@ Click **+ Add style** to open. Fields:
 | Design year | no | 1990–2100 |
 | Lifecycle | required, defaults `active` | `active` / `phased_out` / `discontinued` / `core` |
 | Planning class | no | `core` / `seasonal` / `fashion` |
-| Base fabric | no | Free text |
+| Base fabric | no | Searchable dropdown from the Fabric Codes master; shows the fabric **name only** (the code is dropped from the label but still searchable). |
 | Apparel? | checkbox, defaults true | When true, linked item-master rows must carry all 5 matrix dims (CHECK enforces). |
 | Generate UPCs (GS1) | checkbox, defaults off | Opt-in. When ticked, the backend mints **one unique UPC-A barcode per color/size** for the new style from the company GS1 prefix, in the background on save. See below. |
 
@@ -79,6 +79,8 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 
 **Styles with inseams** (see *Inseams* below) get a **pack matrix**: the same horizontal size columns, but **one row per inseam**, so each inseam can carry its own size curve — e.g. a 30″ inseam can skew to smaller waists and a 34″ to larger. Each inseam row has its own **Total** at the end, and a column-totals row appears at the bottom. If you'd already entered a single (flat) pack before adding inseams, each inseam row is **pre-seeded from that flat pack** when you open the window, so you adjust rather than start from zero.
 
+**Auto-assign scales from sales history.** A **🎯 From sales history** button (on the Style Master toolbar) backfills the size scale for any **unscaled** style by reading the sizes the style has **actually sold** (from sales orders and AR invoices), most-sold first, and matching them to a scale. It only fills styles with no scale yet — it never overwrites a scale you've set — so it's safe to run any time.
+
 How it's used downstream: in a Sales Order or Purchase Order size matrix, every row (color, or color × inseam) gains a **Qty** column (between the lead columns and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in that **row's** stored proportion (the matching inseam's curve when the style has inseams), then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
 
 ### Pack / logistics (PO roll-ups)
@@ -93,9 +95,23 @@ The **Pack / logistics** row holds three per-style shipping attributes:
 
 These feed the **Purchase Order** header roll-ups (shown read-only there): total weight = units × unit weight; total cartons = units ÷ units-per-carton (rounded up); total CBM = cartons × carton CBM. All optional — a PO shows `—` for any style that hasn't set them.
 
+#### 🤖 Estimate carton (AI CBM estimator)
+
+You don't have to fill the carton dimensions by hand. The logistics block has an **🤖 Estimate carton** button that asks AI to size the master carton for you:
+
+1. Set the **Product type** (defaults from the style's category, picked from your category list), the **Fold type** (one of the five standard apparel folds — flat-fold, roll, bagged, hanging, etc.), the **Unit weight (lb)** (this stays in sync with the kg field above), and **Units / carton** (reused from the row above).
+2. Click **🤖 Estimate carton**. AI returns the **carton length × width × height (in)**, the **carton CBM (m³)**, the **gross weight (lb)**, a **confidence** level, and a short note. The confidence is colour-coded so a low/medium result (e.g. a hanging pack) is flagged for you to double-check.
+3. The result is a **suggestion** — review it and **Save** the style to keep it. The estimate is cached on the inputs, so it only re-runs when you change product type, fold, units/carton, or unit weight.
+
+**Manual override wins.** If you edit any carton dimension by hand, or tick **Measured carton**, Tangerine marks the carton as operator-set and recomputes the CBM from your measurements (L × W × H ÷ 61023.6). The 🤖 button **will not overwrite** a measured/overridden carton — clear the override first if you want a fresh AI estimate. Either way, the single **Carton CBM (m³)** is what feeds the PO roll-ups above.
+
+> The 🤖 button needs the AI key configured on the deployment; without it the button is inert.
+
 ### Colors (which colors the style runs)
 
-The **Colors** section declares the colors a style is offered in. Each color you add appears as a **chip**; the **✕** removes it. Use the **"Search colors to add…"** dropdown to attach an existing color from the **Color Master** (see below) — type to filter the full color list.
+The **Colors** section declares the colors a style is offered in. Each color you add appears with its **swatch + name (+ code)** and a **✕** to remove it. Use the **"Search colors to add…"** dropdown to attach an existing color from the **Color Master** (see below) — type to filter the full color list.
+
+A **Show / Hide toggle** (with the color count beside it) lets you collapse the list — handy on a style carrying many colors so the modal stays compact. When shown, colors are **sorted alphabetically by name** and flow top-to-bottom into auto-fit columns, so a long list is easy to scan.
 
 These declared colors become the **color rows in the Sales Order and Purchase Order size matrix** — including a brand-new style that has no SKUs yet, and the AI **"Upload customer PO"** prefill on a new Sales Order. (Previously a style's colors were inferred only from SKUs that already existed, so a new style had no rows to fill.)
 
@@ -114,11 +130,31 @@ Private-label / customer-customized goods are **one base style sold to many cust
 
 In the Style edit modal, the **Customer style numbers** section maps `customer → their style number` (plus optional notes). Click **+ Add customer #**, pick the customer (searchable), type their number, **Add**. A customer PO that cites their own number then resolves back to this base style — feeding the AI **Upload customer PO** flow and the manufacturing module. Stored in `style_customer_numbers` (one row per customer per style); managed in place, independent of the main Save.
 
+### Renumbering a style + aliases (#1453)
+
+You can now **edit the Style Number on an existing style** (e.g. drop a legacy Xoro inseam baked into the code — `RYB147730` → `RYB1477PPK` — and move the inseam to the **Inseams** field). The **Style Number** field is editable in the edit modal; change it and a note confirms the renumber.
+
+**Your history stays wired** — this is safe because all transactional history is keyed by the row's internal id, not the text code: inventory layers (on-hand/FIFO), purchase-order lines, sales-order lines, and wholesale sales history all stay attached automatically. On save, Tangerine:
+
+1. **Captures the old code as an alias** (shown in the **Aliases (old style codes)** field). Aliases keep *string-grain* lookups resolving the renamed style — the **Xoro order importer** and the **Prepack Matrix** both match through them, so an order or matrix that still carries the legacy code lands on the right (renamed) style.
+2. **Cascades the new code to the catalog** — updates the style code on the style's SKUs (`ip_item_master`) but **keeps each SKU code unchanged**, so anything keyed by SKU (costing, ATS, Xoro item numbers) keeps matching with zero disruption.
+3. **Re-keys the prepack matrix** to the new code.
+
+You can also **add or remove aliases by hand** in that field (e.g. to fold in a second legacy code). Old codes are stored uppercase in `style_master.aliases`, mirroring the alias mechanism already used for Vendors and Customers.
+
 ## 🎨 Color Master
 
 Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). The Color Master is the curated list of colors styles can be offered in. It is **prepopulated from every distinct colour already present in the catalog** (the existing item/SKU colours), so the picker starts full of your real colours — then **normalized** to a clean canonical set (1,106 raw spellings → 857: case, spacing, size-leaked-into-colour, and common abbreviations like `Lt`/`Dk`/`Hthr`/`Chrcl` are folded into one proper-cased name). The matching cleanup of the live SKU colours themselves is a separate, larger data-repair (tracked in OPERATOR-TODO); meanwhile the size matrix lines a declared colour up with existing SKU colours case-insensitively. Standard panel features apply: search, **Show inactive**, `<ExportButton>` (xlsx), column show/hide, and row-click-to-edit. Each row shows a colour **swatch** square — derived from the colour name (CSS named colours + an apparel/denim/camo palette) or the stored hex.
 
 **Two-tone colourways.** Name a colour `A/B` — e.g. `Grey/Black` — and the swatch renders a **diagonal half-and-half split** (left half Grey, right half Black), each half resolved from its name. This works in the Color Master grid, the add/edit preview, and the Style Master colour chips. No special data entry — just the `/` in the name.
+
+For full control over a two-tone swatch you can also **compose it explicitly**. The add/edit modal's hex picker is labelled **Color A**, and a second clearable **Color B** picker sits beside it. Set both and the swatch renders that exact half-and-half split (Color A left, Color B right) — this **takes precedence** over the name-based split, so you can match a real fabric exactly even when the name doesn't read `A/B`. Leave Color B blank for a single colour. A live preview swatch next to the **Name** field shows what you'll get as you type. When the **NRF** match runs (below) on a two-tone colour, it uses **Color A only** (the first `/`-token of the name and the Color A hex).
+
+**NRF color code (AI-matched).** Each colour also carries the **NRF code** — the National Retail Federation standard 3-digit colour-family code (e.g. `001` White, `110` Black, `220` Brown, `600` Blue, `700` Green, `900` Grey, `970` Multi) plus its standard family name. It shows in the **NRF** grid column and the xlsx export. You populate it three ways, all AI-assisted (Claude):
+
+- **Auto-match all existing** — the header **🎨 Auto-match NRF (AI)** button assigns an NRF code to *every* colour that doesn't have one yet, in the background (it batches and loops; a colour that already has a code is left alone). Run it once after import; re-run any time after adding colours.
+- **Per colour on add/edit** — the colour modal has an **NRF code** field (code + family name) with a **🤖 Suggest** button. Whenever you add a colour or change its name/swatch, click **🤖 Suggest** to have AI fill the matching NRF code from the name (and hex, if set). You can always type/override the code by hand.
+- **By hand** — both the code and family-name fields are free-text, so you can correct any AI match.
 
 ### What a color row is
 
@@ -126,7 +162,10 @@ Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). Th
 |---|---|
 | **Name** | The colour label that appears as a matrix row, e.g. `Black`, `Charcoal Hthr`. Required; unique per entity (case-insensitive). |
 | **Code** | An optional short colour code. |
-| **Hex** | An optional `#RRGGBB` swatch shown next to the colour chip. |
+| **Color A (Hex)** | An optional `#RRGGBB` swatch shown next to the colour chip. The primary/left colour. |
+| **Color B (Hex)** | An optional second `#RRGGBB` for an explicit two-tone swatch (right half). Clearable; leave blank for a solid colour. |
+| **NRF code** | The NRF standard 3-digit colour-family code (e.g. `110`), optional. AI-matched via 🎨 Auto-match / 🤖 Suggest, or hand-entered. |
+| **NRF name** | The NRF standard family name for that code (e.g. `Black`), optional. |
 
 ### How it relates to Style Master
 
@@ -185,6 +224,7 @@ Find it under **Master Data → Adjustment Types** (`/tangerine?m=adjustment_typ
 |---|---|
 | **Code** | Server-generated, read-only `ADJT-NNNNN`. Allocated on save; you never type it. |
 | **Name** | The label that appears in the Inventory Adjustments type picker, e.g. `Shrinkage`. Required. |
+| **Description** | Optional free-text note describing when to use this type. Shows in the add/edit modal only; leave blank if not needed. |
 | **Sort order** | Optional integer that orders the picker (low to high), then code as a tie-breaker. |
 | **Active** | Inactive types drop out of the adjustments picker but stay in the table (toggle **Show inactive** to see them). |
 
@@ -252,9 +292,10 @@ Find it under **Master Data → Fabric Mills** (`/tangerine?m=fabric_mill_master
 |---|---|
 | **Code** | Server-generated, read-only `MILL-NNNNN`. Allocated on save; you never type it. |
 | **Name** | The mill's display name, e.g. `Hengfeng Textile`. Required. |
-| **Country code** | Optional ISO country code, e.g. `CN`, `TW`, `IN`. |
-| **Contact name** | Optional name of the primary contact at the mill. |
-| **Contact email** | Optional contact email address. |
+| **Country** | Optional — a **searchable dropdown** sourced from the Countries master (stored as the ISO-2 code, e.g. `CN`, `TW`, `IN`; shows the country name). A legacy free-text value that isn't an ISO-2 code is preserved as a one-off option until you re-pick. |
+| **Contact name** | Optional name of the **primary** contact at the mill. |
+| **Contact email** | Optional primary-contact email address. |
+| **Contacts** | Optional list of **up to 5 additional contacts** (name · email · phone · title each), edited inline below the primary contact fields. Use **+ Add** to add a row, ✕ to remove. |
 | **Website** | Optional URL (renders as a clickable link in the list). |
 | **Notes** | Any additional free-text notes about the mill. |
 | **Sort order** | Optional integer ordering (low to high), then code as a tie-breaker. |
@@ -368,6 +409,12 @@ Standard panel features apply: server-side search, xlsx export, and row-click-to
 ![Vendor Master list view](screenshots/02-vendor-master-list.png)
 <!-- screenshot needed: Vendor Master list with several rows -->
 
+### Country, picker labels & phone dial code
+
+- **Country** is a **searchable dropdown** sourced from the Countries master — it stores the ISO-2 code and **shows the country name only**. Legacy free-text country values are preserved (shown as a one-off option) until you re-pick.
+- **Payment-terms and GL-account pickers show the name only.** The code is dropped from the label to keep the dropdown clean, but it's still part of the search text — so you can type the code to find the row.
+- **Phone has a dial-code dropdown + a national-number box.** Pick the country calling code (`+1`, `+86`, `+880`, …) from the dropdown, then type the national number. For dial code **1** (US/Canada) the number masks to **(NNN) NNN-NNNN**; for every other country it's stored as **E.164** (`+<code><digits>`) with a live hint showing the composed number. The editor re-splits the dial code and national number when you re-open a vendor, so it round-trips cleanly.
+
 ### PII handling
 
 The schema stores `tax_id` (EIN/VAT) and `bank_account_encrypted` (AES-256 ciphertext) on the `vendors` row, but the admin handler explicitly excludes them from every SELECT. The Add and PATCH endpoints reject any attempt to set them.
@@ -432,7 +479,21 @@ These apply to the **Customer**, **Vendor**, and **Factor** masters (and custome
 
 - **Country + State dropdowns.** Every structured address (billing / shipping / vendor / factor / location) now edits **Country** and **State / province** as **searchable dropdowns** — Country from `country_master`, State from the new `state_master` (all US states + DC + territories, and Canadian provinces), filtered to the chosen country. A country with no seeded states (e.g. China) falls back to a free-text State box. Legacy free-text values are preserved (shown as a one-off option) until you re-pick.
 - **Click-to-email.** Email fields show a **✉ mailto** affordance (and email cells in lists are clickable) so you can start an email in one click. Inert until the address is valid.
+- **AI postal-code fill (🤖).** The postal / ZIP field carries a **🤖** button. Fill in the rest of the address (line 1, city, state, country) and click it — AI suggests the postal code from that address (US ZIP or ZIP+4 when the street makes it determinable, else a 5-digit ZIP; standard postal for other countries). It's a **suggestion you confirm** — review and edit before saving. Works on customer billing **and** shipping, customer ship-to locations, and vendor addresses (they all share the same editor).
 - **US phone mask.** Phone inputs auto-format to **(XXX) XXX-XXXX** as you type — everywhere **except the Vendor master** (vendors are often overseas, so their phone stays free-form). A value beginning with `+` is treated as international and left as typed.
+
+## 📅 Date Presets Master
+
+**Master Data → Date Presets.** Date-range filters across the suite (reports, lists, dashboards) offer a **Presets** picker with built-in quick ranges — MTD, YTD, Last 30 / 60 / 90 days, This / Last month, This / Last quarter, This / Last year, "This year → last month", and more. This panel lets you manage those and add **your own** on top.
+
+The built-in presets are **pre-loaded here as editable rows** (each one shown once), so you can **relabel, reorder, or disable** any of them — or add brand-new ones — and the change flows straight through to every picker.
+
+Each preset is a **relative rule**, not a fixed date range — it recomputes every time you use it, so "Last 14 days" always means the 14 days ending today. (None of these presets ever stores a fixed start/end date.)
+
+- **Add a preset:** click **+ Add preset**, give it a **Label** (what shows in the picker, e.g. "Last 14 days"), choose a **Kind**, and — for the "Last N days" / "Last N months" kinds — enter **N**. The modal shows the **range as of today** so you can confirm it.
+- **Kinds:** Today, Yesterday, Last N days, Last N months, Month-to-date, Year-to-date, This/Last month, This/Last quarter, This/Last year, and "This year → last month".
+- **Sort order** controls where your preset appears in the picker; **Active** hides it without deleting.
+- Your presets appear automatically in **every** date-range filter across all apps — no per-screen setup.
 
 ## Common patterns
 

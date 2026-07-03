@@ -75,7 +75,7 @@ export function exportIncompleteSkus(
     { label: "Category",    fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Sub Cat",     fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Color",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
-    { label: "Store",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
+    { label: "Warehouse",       fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "On Hand",     fill: PALETTE.HEADER_ONHAND, align: "center" as const },
     { label: "On Order",    fill: PALETTE.HEADER_DARK,   align: "center" as const },
     { label: "On PO",       fill: PALETTE.HEADER_DARK,   align: "center" as const },

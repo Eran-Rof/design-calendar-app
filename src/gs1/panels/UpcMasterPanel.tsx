@@ -6,6 +6,7 @@ import type { UpcItemInput } from "../types";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "gs1.upc_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -265,7 +266,7 @@ export default function UpcMasterPanel() {
         if (dupes === 0) return null;
         return (
           <div style={{ background: "#FFF5F5", border: "1px solid #FEB2B2", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#C53030", display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontWeight: 700 }}>⚠ {dupes} duplicate UPC conflict{dupes > 1 ? "s" : ""}</span>
+            <span style={{ fontWeight: 700 }}>{dupes} duplicate UPC conflict{dupes > 1 ? "s" : ""}</span>
             — Multiple UPCs exist for the same style/color/size combination. BOMs will be unreliable until resolved.
           </div>
         );
@@ -290,10 +291,13 @@ export default function UpcMasterPanel() {
               {(["upc", "style_no", "color", "size", "description"] as (keyof ColMap)[]).map(field => (
                 <div key={field} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <label style={{ fontSize: 11, color: TH.textMuted, textTransform: "uppercase" }}>{field}</label>
-                  <select value={colMap[field]} onChange={e => setColMap(m => ({ ...m, [field]: parseInt(e.target.value) }))}
-                    style={{ padding: "4px 8px", border: `1px solid ${TH.border}`, borderRadius: 4, fontSize: 12 }}>
-                    {headers.map((h, i) => <option key={i} value={i}>{h || `Col ${i}`}</option>)}
-                  </select>
+                  <SearchableSelect
+                    theme="light"
+                    value={String(colMap[field])}
+                    onChange={v => setColMap(m => ({ ...m, [field]: parseInt(v) }))}
+                    inputStyle={{ padding: "4px 8px", border: `1px solid ${TH.border}`, borderRadius: 4, fontSize: 12 }}
+                    options={headers.map((h, i) => ({ value: String(i), label: h || `Col ${i}` }))}
+                  />
                 </div>
               ))}
             </div>

@@ -10,8 +10,33 @@ Notifications fan out events to recipients on two channels: **in-app** (a notifi
 
 | Panel | Who uses it | What it does |
 |---|---|---|
-| **Notifications** | Anyone | Inbox of in-app dispatches; click to mark as read. |
+| **Notifications** | Anyone | Inbox of in-app dispatches; click a row to **mark it read AND jump to the actual record it refers to** (the SO, PO, invoice, customer, …). |
 | **Notif. Preferences** | Anyone | Per-(kind, channel) opt-in / opt-out matrix. |
+
+## Click a notification → open its task (deep-link)
+
+Every notification is clickable and navigates to the specific task or record it
+is about — never a dead/inert item:
+
+- A **Sales Order confirmation / production order** → opens that SO (Sales Orders filtered to its number).
+- A **PO revision / message** → opens that purchase order.
+- An **AR / AP invoice** event → opens AR/AP Invoices filtered to the invoice number.
+- A **customer / vendor** nudge → opens that party's master record (and the specific contact/note when present).
+- **GL period, inventory adjustment, cycle count, CRM task, RFQ** events → open the owning module.
+
+How it resolves (single shared resolver, so every type routes through one place):
+
+1. If the notification already carries a specific link/reference, use it.
+2. Otherwise the resolver derives a deep link from the notification's stored
+   reference (order number, invoice number, record id, …) plus its event type.
+3. If an exact record can't be addressed, it **falls back gracefully** to opening
+   the relevant module/list rather than going nowhere.
+
+Records are always addressed by a human reference (order/invoice number) for the
+filter — no raw UUIDs are shown. The same resolver powers the **vendor portal
+bell** (opens the PO / RFQ / invoice / dispute / contract), the **cross-app
+notifications page** (PO WIP, Design Calendar, GS1, Tech Packs), and the
+**Tangerine Notification Center**.
 
 ## Architecture (short version)
 

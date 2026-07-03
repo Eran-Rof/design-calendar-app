@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -27,12 +28,12 @@ const C = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
-  cost_saving: "💸 Cost saving",
-  risk_alert: "🚨 Risk alert",
-  consolidation: "🔗 Consolidation",
-  contract_renewal: "📝 Contract renewal",
-  performance_trend: "📈 Performance trend",
-  market_benchmark: "📊 Market benchmark",
+  cost_saving: "Cost saving",
+  risk_alert: "Risk alert",
+  consolidation: "Consolidation",
+  contract_renewal: "Contract renewal",
+  performance_trend: "Performance trend",
+  market_benchmark: "Market benchmark",
 };
 
 const TYPES = Object.keys(TYPE_LABEL);
@@ -105,20 +106,24 @@ export default function InternalInsights() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Generated weekly. Expire 30 days after creation if not actioned.</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selectSt}>
-            <option value="">All types</option>
-            {TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="new">New</option>
-            <option value="read">Read</option>
-            <option value="actioned">Actioned</option>
-            <option value="dismissed">Dismissed</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[{ value: "", label: "All types" }, ...TYPES.map((t) => ({ value: t, label: TYPE_LABEL[t] }))]}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "new", label: "New" }, { value: "read", label: "Read" }, { value: "actioned", label: "Actioned" }, { value: "dismissed", label: "Dismissed" }, { value: "", label: "All" }]}
+            inputStyle={selectSt}
+          />
           <button onClick={() => void regenerate()} style={btnSecondary}>Regenerate now</button>
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
@@ -181,6 +186,6 @@ export default function InternalInsights() {
   );
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "6px 12px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;

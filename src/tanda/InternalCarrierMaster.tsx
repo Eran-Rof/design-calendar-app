@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
@@ -66,6 +67,7 @@ const btnDanger: React.CSSProperties = { ...btnSecondary, color: C.danger, borde
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 // Greyed, read-only display for locked codes.
 const readonlyCodeStyle: React.CSSProperties = {
@@ -79,6 +81,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -201,7 +204,7 @@ export default function InternalCarrierMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -351,17 +354,18 @@ function CarrierFormModal({ mode, carrier, onClose, onSaved }: ModalProps) {
           </Field>
 
           <Field label="Carrier type">
-            <select
-              value={form.carrier_type}
-              onChange={(e) => setForm({ ...form, carrier_type: e.target.value })}
-              style={{ ...inputStyle, cursor: "pointer" }}
-            >
-              <option value="parcel">Parcel</option>
-              <option value="ltl">LTL</option>
-              <option value="ocean">Ocean</option>
-              <option value="air">Air</option>
-              <option value="other">Other</option>
-            </select>
+            <SearchableSelect
+              value={form.carrier_type || null}
+              onChange={(v) => setForm({ ...form, carrier_type: v })}
+              options={[
+                { value: "parcel", label: "Parcel" },
+                { value: "ltl", label: "LTL" },
+                { value: "ocean", label: "Ocean" },
+                { value: "air", label: "Air" },
+                { value: "other", label: "Other" },
+              ]}
+              inputStyle={{ ...inputStyle, cursor: "pointer" }}
+            />
           </Field>
 
           <Field label="Sort order">

@@ -98,6 +98,9 @@ const STYLE_MASTER_COLUMNS: ColumnDef[] = [
 type Style = {
   id: string;
   style_code: string;
+  /** Old style codes captured when the style was renumbered — keep string-grain
+   *  lookups (Xoro importer, prepack matrix) resolving the renamed style. */
+  aliases: string[] | null;
   style_name: string | null;
   description: string;
   category_id: string | null;
@@ -123,6 +126,14 @@ type Style = {
   unit_weight_kg: number | null;
   units_per_carton: number | null;
   carton_cbm_m3: number | null;
+  carton_length_in: number | null;
+  carton_width_in: number | null;
+  carton_height_in: number | null;
+  gross_weight_lb: number | null;
+  cbm_confidence: string | null;
+  cbm_note: string | null;
+  cbm_inputs: Record<string, unknown> | null;
+  carton_cbm_override: boolean | null;
   attributes: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -154,6 +165,10 @@ type ColorLite = { id: string; name: string; code?: string | null; hex?: string 
 
 // gender_master row (Chunk J item 13) — replaces the hardcoded GENDER_OPTIONS.
 type GenderMaster = { id: string; code: string; label: string; sort_order: number };
+
+// Operator: weight (kg) and carton CBM (m³) show WITHOUT the leading zero
+// (e.g. 0.0807 → .0807, 0.36 → .36). Number(".0807") still parses on save.
+const noLead = (v: string): string => v.replace(/^(-?)0(?=\.\d)/, "$1");
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -195,6 +210,7 @@ const btnDanger: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -236,6 +252,9 @@ export default function InternalStyleMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
   const [assigningScales, setAssigningScales] = useState(false);
+  const [htsBackfill, setHtsBackfill] = useState<{ running: boolean; updated: number; processed: number }>(
+    { running: false, updated: 0, processed: 0 },
+  );
   // Universal row-click primitive (operator ask #4) — click anywhere on a
   // row (except Edit/Delete buttons) to open the edit modal. Soft-deleted
   // rows are non-interactive.
@@ -394,10 +413,12 @@ export default function InternalStyleMaster() {
   // per-scale breakdown, then applies on confirm. Only styles WITHOUT a scale
   // are touched (nothing is overwritten). Per-style manual override stays in the
   // edit modal's "Size Scale" field.
-  async function autoAssignScales() {
+  async function autoAssignScales(source: "skus" | "sales" = "skus") {
+    const qs = source === "sales" ? "?source=sales" : "";
+    const basis = source === "sales" ? "sizes actually sold (orders + invoices)" : "their SKU size variants";
     setAssigningScales(true);
     try {
-      const pr = await fetch("/api/internal/style-master/auto-assign-scales");
+      const pr = await fetch(`/api/internal/style-master/auto-assign-scales${qs}`);
       const prev = await pr.json();
       if (!pr.ok) throw new Error(prev.error || `HTTP ${pr.status}`);
       if (!prev.matched) { notify(prev.error || "No unscaled styles could be matched to a size scale.", "info"); return; }
@@ -405,12 +426,12 @@ export default function InternalStyleMaster() {
         .sort((a, b) => Number(b[1]) - Number(a[1]))
         .map(([k, v]) => `${k}: ${v}`).join(" · ");
       const ok = await confirmDialog(
-        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on their size variants)?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
-        { title: "Auto-assign size scales", icon: "🎯", confirmText: `Assign ${prev.matched}` },
+        `Assign size scales to ${prev.matched} of ${prev.considered} unscaled styles (best match on ${basis})?\n\n${breakdown}\n\nSkipped ${prev.skipped} (ambiguous or no good match). Only styles without a scale are changed — nothing is overwritten, and you can still fine-tune any style in its edit modal.`,
+        { title: source === "sales" ? "Assign size scales from sales" : "Auto-assign size scales", icon: "", confirmText: `Assign ${prev.matched}` },
       );
       if (!ok) return;
-      const ar = await fetch("/api/internal/style-master/auto-assign-scales", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      const ar = await fetch(`/api/internal/style-master/auto-assign-scales${qs}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }),
       });
       const applied = await ar.json();
       if (!ar.ok) throw new Error(applied.error || `HTTP ${ar.status}`);
@@ -463,6 +484,43 @@ export default function InternalStyleMaster() {
     }
   }
 
+  // Bulk AI HTS backfill for Bangladesh / China / Madagascar across every apparel
+  // style (operator #4). Loops the keyset-cursor endpoint until done, classifying
+  // each style for its OWN gender and stamping the flat +10% additional tariff.
+  async function backfillHts() {
+    const ok = await confirmDialog(
+      "Auto-fill HTS codes for Bangladesh, China & Madagascar on every apparel style?\n\nUses AI (per style, gender-aware) to classify a single HS code and the duty rate for each country, and applies the flat +10% additional tariff. Styles that already have all 3 countries are skipped. This runs in the background and may take a few minutes.",
+      { title: "Auto-fill HTS (BD / CN / MG)", icon: "", confirmText: "Start" },
+    );
+    if (!ok) return;
+    setHtsBackfill({ running: true, updated: 0, processed: 0 });
+    let after = "";
+    let totalUpdated = 0;
+    let totalProcessed = 0;
+    try {
+      for (let guard = 0; guard < 1000; guard++) {
+        const r = await fetch("/api/internal/hts/backfill", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ after, limit: 8 }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        if (j.note) { notify(j.note, "info"); break; }
+        totalUpdated += j.updated || 0;
+        totalProcessed += j.processed || 0;
+        after = j.lastId || after;
+        setHtsBackfill({ running: true, updated: totalUpdated, processed: totalProcessed });
+        if (j.done) break;
+      }
+      notify(`HTS backfill complete — classified ${totalUpdated} styles across BD/CN/MG (${totalProcessed} scanned).`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`HTS backfill failed: ${e instanceof Error ? e.message : String(e)} (updated ${totalUpdated} so far)`, "error");
+    } finally {
+      setHtsBackfill({ running: false, updated: totalUpdated, processed: totalProcessed });
+    }
+  }
+
   // Refresh hook handed to the modal so a successful save can repaint both
   // the row list AND the dim-value cache (in case a brand-new classifier
   // was added).
@@ -482,7 +540,15 @@ export default function InternalStyleMaster() {
             disabled={assigningScales}
             title="Match each unscaled style to the best-fitting size scale by its size variants (preview before applying)"
           >
-            {assigningScales ? "Assigning…" : "🎯 Auto-assign size scales"}
+            {assigningScales ? "Assigning…" : "Auto-assign size scales"}
+          </button>
+          <button
+            onClick={() => void autoAssignScales("sales")}
+            style={btnSecondary}
+            disabled={assigningScales}
+            title="Assign each unscaled style the best-fitting size scale based on the sizes ACTUALLY SOLD (sales orders + invoices), not the full SKU catalog"
+          >
+            {assigningScales ? "Assigning…" : "From sales history"}
           </button>
           <button
             onClick={() => void downloadSkippedScales()}
@@ -490,7 +556,15 @@ export default function InternalStyleMaster() {
             disabled={assigningScales}
             title="Download the styles the auto-assign skips (single/pair sizes or no good match), with the reason, to assign a scale by hand"
           >
-            ⬇ Skipped styles
+            Skipped styles
+          </button>
+          <button
+            onClick={() => void backfillHts()}
+            style={btnSecondary}
+            disabled={htsBackfill.running}
+            title="Use AI to fill HTS codes + duty rates for Bangladesh, China & Madagascar on every apparel style (gender-aware), with the flat +10% additional tariff"
+          >
+            {htsBackfill.running ? `HTS… ${htsBackfill.updated}` : "Auto-fill HTS (BD/CN/MG)"}
           </button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add style</button>
         </div>
@@ -521,7 +595,7 @@ export default function InternalStyleMaster() {
             checked={reviewOnly}
             onChange={(e) => setReviewOnly(e.target.checked)}
           />
-          ⚠ Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
+          Needs review{reviewCount > 0 ? ` (${reviewCount})` : ""}
         </label>
         <TablePrefsButton
           tableKey={STYLE_MASTER_TABLE_KEY}
@@ -741,10 +815,107 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     rise:                 style?.rise                  ?? "",
     hts_code:             style?.hts_code              ?? "",
     duty_rate_pct:        style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "",
-    unit_weight_kg:       style?.unit_weight_kg != null ? String(style.unit_weight_kg) : "",
+    unit_weight_kg:       style?.unit_weight_kg != null ? noLead(String(style.unit_weight_kg)) : "",
     units_per_carton:     style?.units_per_carton != null ? String(style.units_per_carton) : "",
-    carton_cbm_m3:        style?.carton_cbm_m3 != null ? String(style.carton_cbm_m3) : "",
+    carton_cbm_m3:        style?.carton_cbm_m3 != null ? noLead(String(style.carton_cbm_m3)) : "",
+    // AI master-carton estimator (CBM). Inputs persist inside cbm_inputs; the
+    // unit-weight estimator field is in LB (the rollup column unit_weight_kg
+    // stays the source of truth and is kept in sync from it).
+    carton_length_in:     style?.carton_length_in != null ? String(style.carton_length_in) : "",
+    carton_width_in:      style?.carton_width_in != null ? String(style.carton_width_in) : "",
+    carton_height_in:     style?.carton_height_in != null ? String(style.carton_height_in) : "",
+    gross_weight_lb:      style?.gross_weight_lb != null ? String(style.gross_weight_lb) : "",
+    cbm_confidence:       style?.cbm_confidence ?? "",
+    cbm_note:             style?.cbm_note ?? "",
+    carton_cbm_override:  style?.carton_cbm_override === true,
+    cbm_fold_type:        (style?.cbm_inputs?.fold_type as string) ?? "",
+    cbm_product_type:     (style?.cbm_inputs?.product_type as string) ?? style?.category_name ?? "",
+    cbm_unit_weight_lb:   (style?.cbm_inputs?.unit_weight_lb != null
+                            ? String(style.cbm_inputs.unit_weight_lb)
+                            : (style?.unit_weight_kg != null ? (style.unit_weight_kg * 2.20462).toFixed(3) : "")),
+    aliases:              style?.aliases ?? [],
   });
+  // The style code at modal open — used to detect a renumber so the UI can warn
+  // that the old code will be captured as an alias.
+  const originalStyleCode = style?.style_code ?? "";
+  // The inputs the persisted estimate was generated from (cache key).
+  const [cbmInputs, setCbmInputs] = useState<Record<string, unknown> | null>(style?.cbm_inputs ?? null);
+  const [cbmLoading, setCbmLoading] = useState(false);
+
+  const cbmKey = () => ({
+    product_type: form.cbm_product_type.trim(),
+    fold_type: form.cbm_fold_type.trim(),
+    pack_qty: form.units_per_carton.trim(),
+    unit_weight_lb: form.cbm_unit_weight_lb.trim(),
+  });
+  // Recompute the canonical carton_cbm_m3 from inch dims (L*W*H / 61023.6).
+  const cbmFromInches = (l: string, w: string, h: string): string => {
+    const L = Number(l), W = Number(w), H = Number(h);
+    if (!Number.isFinite(L) || !Number.isFinite(W) || !Number.isFinite(H) || L <= 0 || W <= 0 || H <= 0) return "";
+    return noLead(((L * W * H) / 61023.6).toFixed(4));
+  };
+  // A hand-edited dimension (or ticking the override box) means a forwarder-
+  // measured carton — flag override and recompute the effective CBM from it.
+  const setOverrideDim = (key: "carton_length_in" | "carton_width_in" | "carton_height_in", val: string) => {
+    setForm((f) => {
+      const next = { ...f, [key]: val, carton_cbm_override: true };
+      next.carton_cbm_m3 = cbmFromInches(next.carton_length_in, next.carton_width_in, next.carton_height_in);
+      return next;
+    });
+  };
+
+  async function estimateCarton() {
+    if (cbmLoading) return;
+    if (form.carton_cbm_override) {
+      notify("A measured-carton override is set — untick it to re-estimate.", "info");
+      return;
+    }
+    const key = cbmKey();
+    if (!key.product_type && !key.fold_type) {
+      notify("Pick a product type and fold type first.", "info");
+      return;
+    }
+    // Cache: skip the API call when nothing changed and an estimate exists.
+    if (cbmInputs && form.carton_cbm_m3.trim() &&
+        JSON.stringify(cbmInputs) === JSON.stringify(key)) {
+      notify("Inputs unchanged — using the cached estimate.", "info");
+      return;
+    }
+    setCbmLoading(true);
+    try {
+      const r = await fetch("/api/internal/style-master/cbm-estimate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_type: key.product_type,
+          fold_type: key.fold_type,
+          unit_weight_lb: key.unit_weight_lb,
+          pack_qty: key.pack_qty,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      // Graceful no-op (e.g. ANTHROPIC_API_KEY not configured) returns ONLY a
+      // note with no estimate. A successful estimate also carries `note` (the
+      // one-line assumption), so only bail when there are no dims/cbm to apply.
+      if (data.note && data.cbm == null && data.carton_length_in == null) { notify(data.note, "info"); return; }
+      setForm((f) => ({
+        ...f,
+        carton_length_in: data.carton_length_in != null ? String(data.carton_length_in) : "",
+        carton_width_in:  data.carton_width_in != null ? String(data.carton_width_in) : "",
+        carton_height_in: data.carton_height_in != null ? String(data.carton_height_in) : "",
+        gross_weight_lb:  data.gross_weight_lb != null ? String(data.gross_weight_lb) : "",
+        carton_cbm_m3:    data.cbm != null ? noLead(String(data.cbm)) : f.carton_cbm_m3,
+        cbm_confidence:   data.confidence || "",
+        cbm_note:         data.note || "",
+        carton_cbm_override: false,
+      }));
+      setCbmInputs(key);
+    } catch (e: unknown) {
+      notify(`Carton estimate failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setCbmLoading(false);
+    }
+  }
   // AI HTS classification state (Claude Haiku via /api/internal/hts/suggest).
   type HtsSuggestion = { code: string; description: string; duty_rate_pct?: number; confidence: string; reasoning: string };
   const [htsSuggestions, setHtsSuggestions] = useState<HtsSuggestion[]>([]);
@@ -765,7 +936,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   // duty rate. Persisted in style attributes.coo_hts; row 0 stays synced to the
   // legacy hts_code / duty_rate_pct columns (which costing / customs / PO read).
   const [countries, setCountries] = useState<{ iso2: string; name: string }[]>([]);
-  const [coo, setCoo] = useState<{ country: string; hts_code: string; duty_rate_pct: string }[]>(() => {
+  const [coo, setCoo] = useState<{ country: string; hts_code: string; duty_rate_pct: string; additional_tariff_pct: string }[]>(() => {
     const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.coo_hts;
     if (Array.isArray(fromAttr) && fromAttr.length > 0) {
       return fromAttr.slice(0, 3).map((c) => {
@@ -774,11 +945,14 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
           country: o.country != null ? String(o.country) : "",
           hts_code: o.hts_code != null ? String(o.hts_code) : "",
           duty_rate_pct: o.duty_rate_pct != null ? String(o.duty_rate_pct) : "",
+          // Trump-administration additional tariff (flat +10%, all countries) —
+          // default 10 for legacy rows that predate the field (operator #4).
+          additional_tariff_pct: o.additional_tariff_pct != null ? String(o.additional_tariff_pct) : "10",
         };
       });
     }
     // Seed one primary row from the legacy single hts_code / duty_rate.
-    return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "" }];
+    return [{ country: "", hts_code: style?.hts_code ?? "", duty_rate_pct: style?.duty_rate_pct != null ? String(style.duty_rate_pct) : "", additional_tariff_pct: "10" }];
   });
   // Per-style size-scale PACK ratio (size → representative qty), e.g. { S:2, M:3,
   // L:3, XL:2 }. Defines how a single total typed into the SO / PO matrix Qty
@@ -801,6 +975,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     const fromAttr = (style?.attributes as Record<string, unknown> | undefined)?.color_ids;
     return Array.isArray(fromAttr) ? fromAttr.filter((x): x is string => typeof x === "string" && !!x) : [];
   });
+  // Show/hide toggle for the declared-colors editor (a style can carry many
+  // colors — collapsing keeps the modal compact).
+  const [colorsShown, setColorsShown] = useState(true);
   // Declared INSEAMS — the inseam lengths this (bottoms) style is offered in,
   // stored as a string array in attributes.inseams. Drive the matrix inseam rows
   // the same way colors do. Optional — only bottoms set these.
@@ -809,12 +986,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     return Array.isArray(fromAttr) ? fromAttr.map((x) => String(x).trim()).filter(Boolean) : [];
   });
   const [inseamDraft, setInseamDraft] = useState("");
+  const [aliasDraft, setAliasDraft] = useState("");
+  const addAlias = (raw: string) => {
+    const v = raw.trim().toUpperCase();
+    if (!v) return;
+    setForm((f) => (f.aliases.includes(v) ? f : { ...f, aliases: [...f.aliases, v] }));
+    setAliasDraft("");
+  };
+  const removeAlias = (v: string) => setForm((f) => ({ ...f, aliases: f.aliases.filter((x) => x !== v) }));
 
   // Which COO row's AI "Suggest HTS" list is currently open / loading (null = none).
   const [htsRowIdx, setHtsRowIdx] = useState<number | null>(null);
-  const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct", val: string) =>
+  const setCooField = (idx: number, key: "country" | "hts_code" | "duty_rate_pct" | "additional_tariff_pct", val: string) =>
     setCoo((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "" }]));
+  const addCoo = () => setCoo((rows) => (rows.length >= 3 ? rows : [...rows, { country: "", hts_code: "", duty_rate_pct: "", additional_tariff_pct: "10" }]));
   const removeCoo = (idx: number) => setCoo((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)));
   const countryOptions = useMemo(() => countries.map((c) => ({ value: c.name, label: c.name, searchHaystack: `${c.name} ${c.iso2}` })), [countries]);
 
@@ -1034,6 +1219,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const removeColorFromStyle = useCallback((id: string) => {
     setColorIds((prev) => prev.filter((x) => x !== id));
   }, []);
+  // Declared colors sorted alphabetically by name for the columnar display.
+  const sortedColorIds = useMemo(() => {
+    return [...colorIds].sort((a, b) =>
+      (colorNameById.get(a)?.name || a).toLowerCase().localeCompare((colorNameById.get(b)?.name || b).toLowerCase()),
+    );
+  }, [colorIds, colorNameById]);
   // Admin "+ Add new color" — POST to the color master, then select the new
   // (or pre-existing, case-insensitive) color. The endpoint is idempotent and
   // returns the row's id either way so we can attach it to this style.
@@ -1095,8 +1286,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       { value: "", label: "(select)" },
       ...fabrics.map((f) => ({
         value: f.id,
-        label: `${f.code} — ${f.name}`,
-        searchHaystack: `${f.code} ${f.name} ${f.composition_text}`,
+        label: f.name,                                       // name only (operator: hide the code)
+        searchHaystack: `${f.code} ${f.name} ${f.composition_text}`, // still searchable by code
       })),
     ];
     // Defensive: if the style's current FK points at a fabric that didn't
@@ -1109,7 +1300,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     ) {
       opts.push({
         value: style.base_fabric_code_id,
-        label: `${style.base_fabric.code} — ${style.base_fabric.name}`,
+        label: style.base_fabric.name,
       });
     }
     return opts;
@@ -1148,7 +1339,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       // COO × HTS rows → persisted array (attributes.coo_hts) + the primary (row 0)
       // mirrored onto the legacy hts_code / duty_rate_pct columns. Drop blank rows.
       const cooRows = coo
-        .map((r) => ({ country: r.country.trim(), hts_code: r.hts_code.trim(), duty_rate_pct: r.duty_rate_pct.trim() === "" ? null : Number(r.duty_rate_pct) }))
+        .map((r) => ({
+          country: r.country.trim(),
+          hts_code: r.hts_code.trim(),
+          duty_rate_pct: r.duty_rate_pct.trim() === "" ? null : Number(r.duty_rate_pct),
+          additional_tariff_pct: r.additional_tariff_pct.trim() === "" ? null : Number(r.additional_tariff_pct),
+        }))
         .filter((r) => r.country || r.hts_code || r.duty_rate_pct != null);
       const body: Record<string, unknown> = {
         style_name:           form.style_name.trim() || null,
@@ -1168,10 +1364,21 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         rise:                 form.rise.trim() || null,
         hts_code:             cooRows[0]?.hts_code || null,
         duty_rate_pct:        cooRows[0]?.duty_rate_pct ?? null,
+        additional_tariff_pct: cooRows[0]?.additional_tariff_pct ?? null,
         unit_weight_kg:       form.unit_weight_kg.trim() === "" ? null : Number(form.unit_weight_kg),
         units_per_carton:     form.units_per_carton.trim() === "" ? null : Math.floor(Number(form.units_per_carton)),
         carton_cbm_m3:        form.carton_cbm_m3.trim() === "" ? null : Number(form.carton_cbm_m3),
+        // AI master-carton estimate (+ manual override) — operator CBM estimator.
+        carton_length_in:     form.carton_length_in.trim() === "" ? null : Number(form.carton_length_in),
+        carton_width_in:      form.carton_width_in.trim() === "" ? null : Number(form.carton_width_in),
+        carton_height_in:     form.carton_height_in.trim() === "" ? null : Number(form.carton_height_in),
+        gross_weight_lb:      form.gross_weight_lb.trim() === "" ? null : Number(form.gross_weight_lb),
+        cbm_confidence:       form.cbm_confidence.trim() || null,
+        cbm_note:             form.cbm_note.trim() || null,
+        cbm_inputs:           cbmInputs,
+        carton_cbm_override:  form.carton_cbm_override,
         attributes:           { ...(style?.attributes ?? {}), coo_hts: cooRows, size_scale_pack: serializeScalePack(), color_ids: colorIds, inseams },
+        aliases:              (form.aliases || []).map((a) => a.trim().toUpperCase()).filter(Boolean),
       };
       let url: string;
       let method: string;
@@ -1183,6 +1390,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         url = "/api/internal/style-master";
         method = "POST";
       } else {
+        // Renumber: send style_code only when it changed. The server captures the
+        // old code as an alias and cascades the new code to the catalog.
+        if (form.style_code.trim().toUpperCase() !== originalStyleCode.trim().toUpperCase() && form.style_code.trim() !== "") {
+          body.style_code = form.style_code.trim().toUpperCase();
+        }
         url = `/api/internal/style-master/${style!.id}`;
         method = "PATCH";
       }
@@ -1307,7 +1519,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 autoFocus
               />
             ) : (
-              <input type="text" value={form.style_code} disabled style={{ ...inputStyle, opacity: 0.6 }} />
+              <>
+                <input
+                  type="text"
+                  value={form.style_code}
+                  onChange={(e) => setForm({ ...form, style_code: e.target.value })}
+                  style={inputStyle}
+                  title="Renumber the style. The old code is kept as an alias so history and lookups still resolve it."
+                />
+                {form.style_code.trim().toUpperCase() !== originalStyleCode.trim().toUpperCase() && form.style_code.trim() !== "" && (
+                  <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>
+                    Renumbering <b>{originalStyleCode}</b> → <b>{form.style_code.trim().toUpperCase()}</b>. The old code is kept as an alias; the new code cascades to the catalog (SKUs keep their codes, so all history stays linked).
+                  </div>
+                )}
+              </>
             )}
           </Field>
           <Field label="Style Name">
@@ -1329,13 +1554,12 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             />
           </Field>
           <Field label="Gender">
-            <select
-              value={form.gender_code}
-              onChange={(e) => setForm({ ...form, gender_code: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              {genderSelectOptions.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.gender_code || null}
+              onChange={(v) => setForm({ ...form, gender_code: v })}
+              options={genderSelectOptions.map((g) => ({ value: g.value, label: g.label }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
 
           {/* Polish ask B — classifier dropdowns. Options sourced from the
@@ -1424,20 +1648,19 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                   ? "Define a pack ratio per size — typing one total in the SO/PO matrix auto-fills every size from this"
                   : "Pick a size scale first"}
               >
-                📐 Scale{scaleTotal > 0 ? ` (${scaleTotal})` : ""}
+                Scale{scaleTotal > 0 ? ` (${scaleTotal})` : ""}
               </button>
             </div>
           </Field>
 
           {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
           <Field label="Rise">
-            <select
-              value={form.rise}
-              onChange={(e) => setForm({ ...form, rise: e.target.value })}
-              style={inputStyle as React.CSSProperties}
-            >
-              {RISE_OPTIONS.map((r) => <option key={r} value={r}>{r || "(select)"}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.rise || null}
+              onChange={(v) => setForm({ ...form, rise: v })}
+              options={RISE_OPTIONS.map((r) => ({ value: r, label: r || "(select)" }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
 
           <Field label="Season">
@@ -1457,14 +1680,20 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             <input type="number" value={form.design_year} onChange={(e) => setForm({ ...form, design_year: e.target.value })} style={inputStyle} placeholder="2026" />
           </Field>
           <Field label="Lifecycle">
-            <select value={form.lifecycle_status} onChange={(e) => setForm({ ...form, lifecycle_status: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {LIFECYCLE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.lifecycle_status || null}
+              onChange={(v) => setForm({ ...form, lifecycle_status: v })}
+              options={LIFECYCLE_OPTIONS.map((g) => ({ value: g, label: g }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Planning class">
-            <select value={form.planning_class} onChange={(e) => setForm({ ...form, planning_class: e.target.value })} style={inputStyle as React.CSSProperties}>
-              {PLANNING_OPTIONS.map((g) => <option key={g} value={g}>{g || "(select)"}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.planning_class || null}
+              onChange={(v) => setForm({ ...form, planning_class: v })}
+              options={PLANNING_OPTIONS.map((g) => ({ value: g, label: g || "(select)" }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Base fabric">
             <SearchableSelect
@@ -1479,7 +1708,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code · Duty rate · COO">
+          <Field label="HTS code · Duty % · +Tariff % · COO">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {coo.map((row, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1497,11 +1726,21 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       min="0"
                       value={row.duty_rate_pct}
                       onChange={(e) => setCooField(idx, "duty_rate_pct", e.target.value)}
-                      style={{ ...inputStyle, flex: "0 0 11ch", minWidth: 0 }}
+                      style={{ ...inputStyle, flex: "0 0 9ch", minWidth: 0 }}
                       placeholder="Duty %"
                       title="HTS duty rate % for this country of origin"
                     />
-                    <div style={{ flex: "0 0 24ch", minWidth: 0 }}>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={row.additional_tariff_pct}
+                      onChange={(e) => setCooField(idx, "additional_tariff_pct", e.target.value)}
+                      style={{ ...inputStyle, flex: "0 0 9ch", minWidth: 0, color: C.warn }}
+                      placeholder="+Tariff %"
+                      title="Additional tariff % (Trump-administration flat +10%, all countries) — on top of the duty rate"
+                    />
+                    <div style={{ flex: "0 0 22ch", minWidth: 0 }}>
                       <SearchableSelect
                         value={row.country || null}
                         onChange={(v) => setCooField(idx, "country", v || "")}
@@ -1516,7 +1755,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                       style={{ ...btnSecondary, whiteSpace: "nowrap", flex: "0 1 auto", minWidth: 0, padding: "6px 10px", overflow: "hidden", textOverflow: "ellipsis" }}
                       title="Use Claude AI to suggest an HTS code + this country's duty rate from the style's Group + base fabric composition"
                     >
-                      {htsLoading && htsRowIdx === idx ? "…" : "🤖 Suggest HTS"}
+                      {htsLoading && htsRowIdx === idx ? "…" : "Suggest HTS"}
                     </button>
                     {coo.length > 1 && (
                       <button type="button" onClick={() => removeCoo(idx)} style={{ ...btnSecondary, flexShrink: 0, color: "#F87171", borderColor: "#7f1d1d" }} title="Remove this country of origin">✕</button>
@@ -1551,7 +1790,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               )}
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition; the COO drives the country-specific duty rate (AGOA / USMCA / GSP, etc.). Row 1 is the primary HTS used across costing &amp; customs.
+              AI uses Group (top/bottom/accessory) + Gender + the base fabric's composition; the COO drives the country-specific duty rate (AGOA / USMCA / GSP, etc.). The <span style={{ color: C.warn }}>+Tariff %</span> is the Trump-administration additional tariff (flat +10%, all countries) charged on top of the duty rate. Row 1 is the primary HTS used across costing &amp; customs.
             </div>
           </Field>
           <Field label="Apparel?">
@@ -1566,35 +1805,56 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               add a brand-new color inline (everyone can pick existing ones). */}
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="Colors">
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                {colorIds.length === 0 && (
-                  <span style={{ fontSize: 12, color: C.textMuted }}>No colors yet — add the colors this style comes in.</span>
+              {/* Show/hide toggle — colors can be numerous; collapse to keep the modal compact. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: C.textMuted }}>
+                  {colorIds.length} color{colorIds.length === 1 ? "" : "s"}
+                </span>
+                {colorIds.length > 0 && (
+                  <button type="button" onClick={() => setColorsShown((s) => !s)}
+                    style={{ ...btnSecondary, padding: "2px 10px", fontSize: 12 }}>
+                    {colorsShown ? "Hide" : "Show"}
+                  </button>
                 )}
-                {colorIds.map((id) => {
-                  const c = colorNameById.get(id);
-                  return (
-                    <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px 3px 8px" }}>
-                      {c && <ColorSwatch name={c.name} hex={c.hex} size={13} />}
-                      {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
-                      <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
-                    </span>
-                  );
-                })}
               </div>
-              <div style={{ maxWidth: 360 }}>
-                <SearchableSelect
-                  value={null}
-                  onChange={(v) => { if (v) addColorToStyle(v); }}
-                  options={colorPickOptions}
-                  placeholder="Search colors to add…"
-                  onAddNew={isAdmin ? addNewColor : undefined}
-                  addNewLabel={isAdmin ? (q) => `+ Add new color “${q.trim()}” to master` : undefined}
-                />
-              </div>
-              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                These become the color rows in the Sales Order / Purchase Order size matrix.
-                {isAdmin ? " You can add a new color to the master." : " Only admins can add a brand-new color to the master."}
-              </div>
+              {colorsShown && (
+                <>
+                  {colorIds.length === 0 && (
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>No colors yet — add the colors this style comes in.</div>
+                  )}
+                  {/* Alphabetical, flowed top-to-bottom into auto-fit columns. */}
+                  {colorIds.length > 0 && (
+                    <div style={{ columnWidth: 180, columnGap: 16, marginBottom: 8 }}>
+                      {sortedColorIds.map((id) => {
+                        const c = colorNameById.get(id);
+                        return (
+                          <div key={id} style={{ breakInside: "avoid", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, padding: "2px 0" }}>
+                            {c && <ColorSwatch name={c.name} hex={c.hex} size={13} />}
+                            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {c ? (c.code ? `${c.name} (${c.code})` : c.name) : <em style={{ color: C.textMuted }}>color {id.slice(0, 8)}…</em>}
+                            </span>
+                            <button type="button" onClick={() => removeColorFromStyle(id)} title="Remove color" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ maxWidth: 360 }}>
+                    <SearchableSelect
+                      value={null}
+                      onChange={(v) => { if (v) addColorToStyle(v); }}
+                      options={colorPickOptions}
+                      placeholder="Search colors to add…"
+                      onAddNew={isAdmin ? addNewColor : undefined}
+                      addNewLabel={isAdmin ? (q) => `+ Add new color “${q.trim()}” to master` : undefined}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                    These become the color rows in the Sales Order / Purchase Order size matrix.
+                    {isAdmin ? " You can add a new color to the master." : " Only admins can add a brand-new color to the master."}
+                  </div>
+                </>
+              )}
             </Field>
           </div>
 
@@ -1631,12 +1891,43 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             </Field>
           </div>
 
+          {/* Aliases — old style codes (auto-captured on renumber; also editable).
+              Keep string-grain lookups (Xoro importer, prepack matrix) resolving a
+              renamed style. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Aliases (old style codes)">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {form.aliases.length === 0 && (
+                  <span style={{ fontSize: 12, color: C.textMuted }}>No aliases. Renumbering this style auto-captures its old code here.</span>
+                )}
+                {form.aliases.map((v) => (
+                  <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "3px 8px", fontFamily: "monospace" }}>
+                    {v}
+                    <button type="button" onClick={() => removeAlias(v)} title="Remove alias" style={{ background: "none", border: 0, color: "#F87171", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={aliasDraft}
+                  onChange={(e) => setAliasDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAlias(aliasDraft); } }}
+                  placeholder="e.g. RYB147730"
+                  style={{ ...inputStyle, width: "16ch" }}
+                />
+                <button type="button" onClick={() => addAlias(aliasDraft)} style={btnSecondary} disabled={!aliasDraft.trim()}>+ Add alias</button>
+                <span style={{ fontSize: 11, color: C.textMuted }}>old Xoro/legacy codes resolve to this style on import &amp; lookup.</span>
+              </div>
+            </Field>
+          </div>
+
           {/* Pack / logistics — roll up to PO total weight / cartons / CBM. */}
           <Field label="Pack / logistics">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               <div>
                 <input type="text" inputMode="decimal" value={form.unit_weight_kg}
-                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, unit_weight_kg: e.target.value }); }}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, unit_weight_kg: noLead(e.target.value) }); }}
                   style={inputStyle} placeholder="0.00" />
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Unit weight (kg)</div>
               </div>
@@ -1648,12 +1939,109 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
               <div>
                 <input type="text" inputMode="decimal" value={form.carton_cbm_m3}
-                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, carton_cbm_m3: e.target.value }); }}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, carton_cbm_m3: noLead(e.target.value) }); }}
                   style={inputStyle} placeholder="0.000" />
                 <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Carton CBM (m³)</div>
               </div>
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Used on Purchase Orders to roll up total weight, cartons, and CBM.</div>
+          </Field>
+
+          {/* AI master-carton estimator. Estimates carton dims + CBM + gross
+              weight from product type / fold / unit weight / pack qty. A
+              hand-entered (forwarder-measured) carton overrides the estimate. */}
+          <Field label="Master carton — AI estimate">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <SearchableSelect
+                  value={form.cbm_product_type || null}
+                  onChange={(v) => setForm({ ...form, cbm_product_type: v || "" })}
+                  options={[{ value: "", label: "(select)" }, ...dimValues.categories.map((c) => ({ value: c, label: c }))]}
+                  placeholder="Product type…"
+                />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Product type (category)</div>
+              </div>
+              <div>
+                <SearchableSelect
+                  value={form.cbm_fold_type || null}
+                  onChange={(v) => setForm({ ...form, cbm_fold_type: v })}
+                  options={[
+                    { value: "", label: "Fold type…" },
+                    ...[
+                      "Flat / Boxed — folded flat in layers",
+                      "Half-fold — folded once, stacked",
+                      "Rolled — knits, loungewear",
+                      "Hanging / GOH — on hangers, garment-on-hanger carton",
+                      "Bulk / Loose — poly-bagged, loose-packed",
+                    ].map((f) => ({ value: f, label: f })),
+                  ]}
+                  inputStyle={inputStyle as React.CSSProperties}
+                />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Fold type</div>
+              </div>
+              <div>
+                <input type="text" inputMode="decimal" value={form.cbm_unit_weight_lb}
+                  onChange={(e) => {
+                    if (!/^\d*\.?\d*$/.test(e.target.value)) return;
+                    const lb = e.target.value;
+                    const kg = lb.trim() === "" ? "" : noLead((Number(lb) / 2.20462).toFixed(4));
+                    setForm({ ...form, cbm_unit_weight_lb: lb, unit_weight_kg: kg });
+                  }}
+                  style={inputStyle} placeholder="0.00" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Unit weight (lb) — syncs kg above</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-start" }}>
+                <button type="button" onClick={() => void estimateCarton()} disabled={cbmLoading}
+                  style={{ ...btnSecondary, width: "100%" }}
+                  title="Estimate the master carton dimensions, CBM and gross weight with AI (Claude). Uses units/carton from the Pack/logistics row above.">
+                  {cbmLoading ? "Estimating…" : "Estimate carton"}
+                </button>
+              </div>
+            </div>
+
+            {/* Carton dimensions — editable; editing flags a measured override. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+              {([
+                ["carton_length_in", "L (in)"],
+                ["carton_width_in", "W (in)"],
+                ["carton_height_in", "H (in)"],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <input type="text" inputMode="decimal" value={form[key]}
+                    onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setOverrideDim(key, e.target.value); }}
+                    style={inputStyle} placeholder="0.0" />
+                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+              <div>
+                <input type="text" inputMode="decimal" value={form.gross_weight_lb}
+                  onChange={(e) => { if (/^\d*\.?\d*$/.test(e.target.value)) setForm({ ...form, gross_weight_lb: e.target.value }); }}
+                  style={inputStyle} placeholder="0.0" />
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>Gross wt (lb)</div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 12 }}>
+                <input type="checkbox" checked={form.carton_cbm_override}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    carton_cbm_override: e.target.checked,
+                    carton_cbm_m3: e.target.checked
+                      ? (cbmFromInches(f.carton_length_in, f.carton_width_in, f.carton_height_in) || f.carton_cbm_m3)
+                      : f.carton_cbm_m3,
+                  }))} />
+                Measured carton (overrides AI estimate)
+              </label>
+              {form.cbm_confidence && (
+                <span style={{ fontSize: 11, fontWeight: 600,
+                  color: form.cbm_confidence === "high" ? C.success : form.cbm_confidence === "medium" ? C.warn : C.danger }}>
+                  Confidence: {form.cbm_confidence}{form.cbm_confidence !== "high" ? " — verify by hand" : ""}
+                </span>
+              )}
+            </div>
+            {form.cbm_note && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4, fontStyle: "italic" }}>{form.cbm_note}</div>}
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Estimate only — for freight planning. The carton CBM (m³) above is what Purchase Orders roll up; a measured carton overrides it everywhere.</div>
           </Field>
 
           {/* Opt-in GS1 UPC minting — add mode only. Disabled (with tooltip)
@@ -1692,6 +2080,33 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               )}
             </div>
           )}
+
+          {/* GS1 → EDI reference. The barcodes minted for this style are what every
+              downstream EDI document references; this collapsible note explains the
+              standard supplier ⇄ retailer flow so the codes stay consistent. */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <details style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px" }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: C.textSub, listStyle: "revert" }}>
+                GS1 → EDI: the standard workflow
+              </summary>
+              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.55, marginTop: 8 }}>
+                The UPC / GTIN barcodes for this style flow through the retail integration
+                in this order. Keep the codes consistent end to end — the retailer can only
+                order what was published in the catalog.
+                <ol style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                  <li><strong style={{ color: C.textSub }}>Catalog</strong> — supplier publishes the style catalog via GDSN or a retail portal.</li>
+                  <li><strong style={{ color: C.textSub }}>Download</strong> — retailer imports the catalog to update their system with the correct barcodes (UPC / EAN / GTIN).</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 850</strong> — retailer sends a Purchase Order using the exact downloaded barcodes.</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 856</strong> — supplier ships and sends an Advance Shipping Notice (ASN) matching those codes.</li>
+                  <li><strong style={{ color: C.textSub }}>EDI 810</strong> — supplier sends the Invoice for final payment.</li>
+                </ol>
+                <div style={{ marginTop: 8 }}>
+                  Generate and manage these codes in the <strong style={{ color: C.textSub }}>GS1 app</strong> →
+                  UPC Master, Pack GTINs, and the Workflow Guide.
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
 
         {mode === "edit" && style && (
@@ -1736,7 +2151,7 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             onClick={(e) => e.stopPropagation()}
             style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(880px, 95vw)", maxHeight: "90vh", overflow: "auto" }}
           >
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>📐 Size Scale — pack ratio</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>Size Scale — pack ratio</div>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
               Enter a representative quantity per size (the ratio is what matters)
               {inseams.length > 0 ? <> — one <strong>row per inseam</strong>, so each inseam can have its own size curve</> : null}.
@@ -2070,9 +2485,12 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
               keeps everything inside the modal width. */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "end", minWidth: 0 }}>
             <Field label="Role">
-              <select value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value })} style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}>
-                {FABRIC_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <SearchableSelect
+                value={draft.role || null}
+                onChange={(v) => setDraft({ ...draft, role: v })}
+                options={FABRIC_ROLES.map((r) => ({ value: r, label: r }))}
+                inputStyle={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
+              />
             </Field>
             <Field label="Yards/unit">
               <input
@@ -2086,16 +2504,15 @@ function StyleFabricsSection({ styleId }: { styleId: string }) {
           </div>
           <div style={{ marginTop: 8, minWidth: 0 }}>
             <Field label="Fabric">
-              <select
-                value={draft.fabric_code_id}
-                onChange={(e) => setDraft({ ...draft, fabric_code_id: e.target.value })}
-                style={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
-              >
-                <option value="">— select —</option>
-                {fabrics.map((f) => (
-                  <option key={f.id} value={f.id}>{f.code} — {f.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={draft.fabric_code_id || null}
+                onChange={(v) => setDraft({ ...draft, fabric_code_id: v })}
+                options={[
+                  { value: "", label: "— select —" },
+                  ...fabrics.map((f) => ({ value: f.id, label: `${f.code} — ${f.name}` })),
+                ]}
+                inputStyle={{ ...(inputStyle as React.CSSProperties), minWidth: 0 }}
+              />
             </Field>
           </div>
           <div style={{ marginTop: 8, minWidth: 0 }}>

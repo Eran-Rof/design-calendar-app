@@ -137,6 +137,7 @@ function buildPostingEventData(invoice, lines, accounts) {
       inventory_item_id: l.inventory_item_id || null,
       quantity: l.quantity,
       revenue_account_id: l.revenue_account_id || null,
+      cogs_account_id: l.cogs_account_id || null,
       unit_price_cents: l.unit_price_cents,
       line_total_cents: String(l.line_total_cents),
     })),
@@ -407,6 +408,7 @@ export async function postInvoice(admin, opts) {
       kind: "ar_invoice_sent",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: `Post AR invoice ${invoice.invoice_number ?? invoice.id}`,
       data: eventData,
     });
   } catch (e) {

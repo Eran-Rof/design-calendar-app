@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { confirmDialog } from "../ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 type DocVersion = {
   id: string;
@@ -170,7 +171,7 @@ export default function DocumentAttachmentList({
       {!compact && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
-            📎 Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
+            Documents <span style={{ color: C.textMuted, fontSize: 11 }}>({docs.length})</span>
           </div>
           <button style={btnPrimary} onClick={() => setUploadOpen(true)}>+ Upload</button>
         </div>
@@ -201,7 +202,7 @@ export default function DocumentAttachmentList({
               </div>
             )}
           </div>
-          <button style={btnSecondary} onClick={() => void download(d.id)}>⬇ Download</button>
+          <button style={btnSecondary} onClick={() => void download(d.id)}>Download</button>
           <button style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} onClick={() => void archive(d.id)}>Archive</button>
         </div>
       ))}
@@ -255,9 +256,12 @@ function UploadModal({ kinds, onCancel, onUpload, uploading }: {
         <div style={{ marginBottom: 10 }}>
           <label style={{ display: "block", color: C.textSub, fontSize: 11, marginBottom: 4 }}>Kind</label>
           {kinds && kinds.length > 0 ? (
-            <select style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)}>
-              {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+            <SearchableSelect
+              value={kind || null}
+              onChange={(v) => setKind(v)}
+              inputStyle={inputStyle}
+              options={kinds.map((k) => ({ value: k, label: k }))}
+            />
           ) : (
             <input style={inputStyle} value={kind} onChange={(e) => setKind(e.target.value)} placeholder="contract, w9, packing_list, ..." />
           )}

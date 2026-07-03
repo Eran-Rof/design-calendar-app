@@ -72,7 +72,7 @@ describe("<SketchTab />", () => {
     expect(arg.flatSketch.callouts[0].description).toBe("Hem stitch");
   });
 
-  it("clicking a callout's 🗑️ removes it from the list", () => {
+  it("clicking a callout's Delete removes it from the list", () => {
     const updateSelected = vi.fn();
     render(<SketchTab
       tp={makeTp({
@@ -86,7 +86,7 @@ describe("<SketchTab />", () => {
       setLightboxImg={vi.fn()}
       showToast={vi.fn()}
     />);
-    const removes = screen.getAllByText("🗑️");
+    const removes = screen.getAllByText("Delete");
     fireEvent.click(removes[0]);
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.flatSketch.callouts.map((c: SketchCallout) => c.id)).toEqual(["c2"]);

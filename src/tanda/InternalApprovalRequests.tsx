@@ -80,6 +80,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -165,17 +166,20 @@ export default function InternalApprovalRequests() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
-        <select
-          style={{ ...inputStyle, width: 160 }}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as Request["status"])}
-        >
-          <option value="pending">🟡 Pending</option>
-          <option value="approved">🟢 Approved</option>
-          <option value="rejected">🔴 Rejected</option>
-          <option value="cancelled">⚪ Cancelled</option>
-          <option value="expired">⚪ Expired</option>
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as Request["status"])}
+            options={[
+              { value: "pending", label: "Pending" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "cancelled", label: "Cancelled" },
+              { value: "expired", label: "Expired" },
+            ]}
+            inputStyle={inputStyle}
+          />
+        </div>
         <input
           style={{ ...inputStyle, width: 200 }}
           placeholder="Filter by kind"
@@ -211,7 +215,7 @@ export default function InternalApprovalRequests() {
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -342,11 +346,16 @@ function DecideModal({ request, onCancel, onSaved }: {
         </div>
 
         <Field label="Decision">
-          <select style={inputStyle} value={decision} onChange={(e) => setDecision(e.target.value as typeof decision)}>
-            <option value="approve">✓ Approve</option>
-            <option value="reject">✗ Reject (terminal)</option>
-            <option value="request_changes">↻ Request changes (logged, no status change)</option>
-          </select>
+          <SearchableSelect
+            value={decision}
+            onChange={(v) => setDecision(v as typeof decision)}
+            options={[
+              { value: "approve", label: "✓ Approve" },
+              { value: "reject", label: "✗ Reject (terminal)" },
+              { value: "request_changes", label: "↻ Request changes (logged, no status change)" },
+            ]}
+            inputStyle={inputStyle}
+          />
         </Field>
 
         <Field label="Notes (optional)">

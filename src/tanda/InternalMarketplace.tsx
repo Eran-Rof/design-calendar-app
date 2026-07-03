@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify } from "../shared/ui/warn";
 
 interface Listing {
@@ -120,9 +121,9 @@ export default function InternalMarketplace() {
               )}
 
               <div style={{ display: "flex", gap: 10, fontSize: 10, color: C.textMuted, marginTop: 10 }}>
-                <span>👁 {l.views} views</span>
+                <span>{l.views} views</span>
                 {l.esg_overall_score !== null && <span style={{ color: C.success }}>ESG {Number(l.esg_overall_score).toFixed(0)}</span>}
-                {l.lead_time_range && <span>⏱ {l.lead_time_range}</span>}
+                {l.lead_time_range && <span>{l.lead_time_range}</span>}
                 {l.min_order_value != null && <span>MOV ${Number(l.min_order_value).toLocaleString()}</span>}
               </div>
 
@@ -176,9 +177,12 @@ function InquireModal({ listing, onClose, onSent }: { listing: Listing; onClose:
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: "min(520px, 95vw)" }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Inquire about "{listing.title}"</h3>
         <Row label="On behalf of entity">
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={inp}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Your name (for audit)"><input value={inquirer} onChange={(e) => setInquirer(e.target.value)} style={inp} /></Row>
         <Row label="Message"><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>
@@ -200,7 +204,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const overlay = { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };

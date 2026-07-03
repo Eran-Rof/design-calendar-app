@@ -251,9 +251,17 @@ The **Job runs** and **Audit explorer** tables support per-column click-to-sort:
 
 > Treat results as indicative: when planning data is large, some cross-table checks (orphans, duplicates) may be sampled rather than exhaustive.
 
+## Working with the tables
+
+Every planning table behaves consistently:
+
+- **Sort any column** — click a column header to sort ascending (▲); click again for descending (▼); a third click clears the sort and returns to the screen's natural order. The active sort is remembered per screen. Computed/action columns (badges, inline editors, buttons) stay un-sortable by design.
+- **Search boxes select-all on focus** — clicking into a search/filter box highlights the current text so you can type a new term straight over it.
+- **Cascading filters** — where a screen has a search box plus more than one category filter (for example the Ecom grid's **Channel** and **Category**), each filter only offers values that still have rows under the other active filters, so you never pick a combination that shows nothing.
+
 ## Exports
 
-Every table-bearing screen carries the suite-standard Excel export. The biggest workbook is the **consolidated scenario export** (Scenarios → Exports) covering the whole plan. Execution batches export with vendor/customer/channel names resolved — never raw IDs — and all dates render in US format (MM/DD/YYYY).
+Every table-bearing screen carries the suite-standard Excel export. **Reports** downloads include a **TOTAL** row that sums the numeric columns (quantities and dollars; percentages are left blank since averaging them would mislead). The biggest workbook is the **consolidated scenario export** (Scenarios → Exports) covering the whole plan. Execution batches export with vendor/customer/channel names resolved — never raw IDs — and all dates render in US format (MM/DD/YYYY).
 
 ## A typical planning cycle
 

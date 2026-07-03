@@ -7,6 +7,7 @@ import type { BomCheckResult } from "../services/bomBuilderService";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "gs1.scale_master";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -166,11 +167,19 @@ export default function ScaleMasterPanel() {
       <div style={{ background: TH.surface, borderRadius: 10, padding: "16px 20px", boxShadow: `0 1px 4px ${TH.shadow}`, marginBottom: 20 }}>
         <h3 style={{ margin: "0 0 12px", fontSize: 15, color: TH.textSub }}>Add Scale Code</h3>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <select value={newCode} onChange={e => setNewCode(e.target.value)}
-            style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-            <option value="">— select code —</option>
-            {knownCodes.filter(c => !scales.find(s => s.scale_code === c)).map(c => <option key={c}>{c}</option>)}
-          </select>
+          <div style={{ width: 160 }}>
+            <SearchableSelect
+              theme="light"
+              value={newCode || null}
+              onChange={v => setNewCode(v)}
+              inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+              placeholder="— select code —"
+              options={[
+                { value: "", label: "— select code —" },
+                ...knownCodes.filter(c => !scales.find(s => s.scale_code === c)).map(c => ({ value: c, label: c })),
+              ]}
+            />
+          </div>
           <input value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase().slice(0, 4))}
             placeholder="or type custom" maxLength={4}
             style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13, width: 120 }} />
@@ -264,11 +273,17 @@ export default function ScaleMasterPanel() {
           ))}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: TH.textSub2, textTransform: "uppercase" }}>Scale Code</label>
-            <select value={coverageScale} onChange={e => setCoverageScale(e.target.value)}
-              style={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}>
-              <option value="">— select —</option>
-              {scales.map(s => <option key={s.scale_code}>{s.scale_code}</option>)}
-            </select>
+            <SearchableSelect
+              theme="light"
+              value={coverageScale || null}
+              onChange={v => setCoverageScale(v)}
+              inputStyle={{ padding: "7px 10px", border: `1px solid ${TH.border}`, borderRadius: 6, fontSize: 13 }}
+              placeholder="— select —"
+              options={[
+                { value: "", label: "— select —" },
+                ...scales.map(s => ({ value: s.scale_code, label: s.scale_code })),
+              ]}
+            />
           </div>
           <button type="submit" disabled={coverageLoading || !coverageStyle.trim() || !coverageColor.trim() || !coverageScale.trim()}
             style={{ background: TH.primary, color: "#fff", border: "none", borderRadius: 7, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -288,7 +303,7 @@ export default function ScaleMasterPanel() {
               <span style={{ fontSize: 14, fontWeight: 600, color: TH.textSub }}>
                 {coverageResult.complete
                   ? "✓ Complete — all sizes have matching UPCs"
-                  : `⚠ Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
+                  : `Incomplete — ${coverageResult.missing_sizes.length} size(s) missing UPCs`}
               </span>
               <span style={{ fontSize: 12, color: TH.textMuted }}>Scale {coverageResult.scale_code}</span>
             </div>

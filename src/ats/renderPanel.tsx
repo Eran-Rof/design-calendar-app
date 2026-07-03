@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import S from "./styles";
+import { filterRows } from "./filter";
 import { StatCard } from "./StatCard";
 import { fmtDate, fmtDateDisplay, isToday, isWeekend, getQtyColor, getQtyBg } from "./helpers";
 import { StatsRow } from "./panels/StatsRow";
@@ -179,6 +180,76 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView, masterReady } = ctx;
+
+  // ── Reciprocal filter cascade for the grid toolbar (#9) ────────────────
+  // Each toolbar dropdown's options reflect the rows that pass EVERY OTHER
+  // active filter (search + the other dropdowns + store + status), so
+  // selecting a Category / Sub Cat / Style / Gender narrows the others to
+  // what actually exists, and clearing one re-widens them. Built on the same
+  // `filterRows` predicate the grid itself uses, so options never diverge
+  // from results. These grid* lists feed ONLY the toolbar — the broader
+  // `categories/subCategories/styles` (passed to NavBar) stay full so Sales
+  // Comps can still broaden a report past the grid's current filter.
+  // customerSkuSet is intentionally null: the customer overlay is an
+  // orthogonal scope and must not hide otherwise-valid filter values.
+  const cascadeMatched = useMemo(() => rows.filter(r => r.master_match_source != null), [rows]);
+  const cascadeToday = useMemo(() => new Date(), []);
+  const cascadeBase = useMemo(() => ({
+    search,
+    filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand,
+    filterStatus, minATS, storeFilter,
+    customerSkuSet: null as Set<string> | null,
+    today: cascadeToday,
+    displayPeriods: displayPeriods.map(p => ({ endDate: p.endDate })),
+  }), [search, filterCategory, filterSubCategory, filterStyle, filterGender, filterBrand, filterStatus, minATS, storeFilter, cascadeToday, displayPeriods]);
+
+  // Category keeps its "active rows only" declutter AND narrows by the others.
+  const gridCategories = useMemo(() => ["All", ...Array.from(new Set(
+    filterRows(cascadeMatched, { ...cascadeBase, filterCategory: [] })
+      .filter(r => r.onHand > 0 || r.onPO > 0 || r.onOrder > 0)
+      .map(r => r.master_category).filter(Boolean) as string[],
+  )).sort()], [cascadeMatched, cascadeBase]);
+  const gridSubCategories = useMemo(() => ["All", ...Array.from(new Set(
+    filterRows(cascadeMatched, { ...cascadeBase, filterSubCategory: [] })
+      .map(r => r.master_sub_category).filter(Boolean) as string[],
+  )).sort()], [cascadeMatched, cascadeBase]);
+  const gridStyles = useMemo(() => Array.from(new Set(
+    filterRows(cascadeMatched, { ...cascadeBase, filterStyle: [] })
+      .map(r => r.master_style).filter(Boolean) as string[],
+  )).sort(), [cascadeMatched, cascadeBase]);
+  // Gender: the canonical short codes (preserves the toolbar's M/B/C/Wms/G
+  // order + labels) that actually appear in the cross-filtered pool.
+  const gridGenders = useMemo(() => {
+    const present = new Set(
+      filterRows(cascadeMatched, { ...cascadeBase, filterGender: [] })
+        .map(r => (r.master_gender ?? r.gender ?? "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    return ["M", "B", "C", "Wms", "G"].filter(c => present.has(c.toUpperCase()));
+  }, [cascadeMatched, cascadeBase]);
+
+  // Drop selections that fall out of scope as other filters change, so a
+  // stale pick doesn't silently narrow the grid to nothing. Each list is
+  // computed with its OWN dimension omitted, so these prunes only remove and
+  // can't oscillate.
+  useEffect(() => {
+    if (filterSubCategory.length === 0) return;
+    const valid = new Set(gridSubCategories);
+    const next = filterSubCategory.filter(v => valid.has(v));
+    if (next.length !== filterSubCategory.length) setFilterSubCategory(next);
+  }, [gridSubCategories, filterSubCategory, setFilterSubCategory]);
+  useEffect(() => {
+    if (filterStyle.length === 0) return;
+    const valid = new Set(gridStyles);
+    const next = filterStyle.filter(v => valid.has(v));
+    if (next.length !== filterStyle.length) setFilterStyle(next);
+  }, [gridStyles, filterStyle, setFilterStyle]);
+  useEffect(() => {
+    if (filterGender.length === 0) return;
+    const valid = new Set(gridGenders);
+    const next = filterGender.filter(v => valid.has(v));
+    if (next.length !== filterGender.length) setFilterGender(next);
+  }, [gridGenders, filterGender, setFilterGender]);
 
   // SO line-items modal — opened by clicking an SO order number in
   // the On Order right-click menu. Holds the selected orderNumber;
@@ -458,10 +529,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         {/* TOOLBAR */}
         <Toolbar
           search={search} setSearch={setSearch}
-          filterCategory={filterCategory} setFilterCategory={setFilterCategory} categories={categories}
-          filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={subCategories}
-          filterStyle={filterStyle ?? []} setFilterStyle={setFilterStyle!} styles={styles ?? []}
-          filterGender={filterGender} setFilterGender={setFilterGender}
+          filterCategory={filterCategory} setFilterCategory={setFilterCategory} categories={gridCategories}
+          filterSubCategory={filterSubCategory} setFilterSubCategory={setFilterSubCategory} subCategories={gridSubCategories}
+          filterStyle={filterStyle ?? []} setFilterStyle={setFilterStyle!} styles={gridStyles}
+          filterGender={filterGender} setFilterGender={setFilterGender} genderOptions={gridGenders}
           filterBrand={filterBrand ?? []} setFilterBrand={setFilterBrand!} brandOptions={brandOptions ?? []}
           setFilterStatus={setFilterStatus}
           STORES={STORES} storeFilter={storeFilter} setStoreFilter={setStoreFilter}

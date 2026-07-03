@@ -27,6 +27,7 @@ import { TabButton } from "../../components/TabButton";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import ReconciliationGrid from "./ReconciliationGrid";
 import SupplyExceptionPanel from "./SupplyExceptionPanel";
 import AllocationDetailPanel from "../components/AllocationDetailPanel";
@@ -201,14 +202,8 @@ export default function ReconciliationWorkbench() {
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Reconciliation run</strong>
-            <select style={S.select} value={selectedRunId ?? ""} onChange={(e) => setSelectedRunId(e.target.value)}>
-              <option value="">— pick —</option>
-              {runs.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} · {r.status} · {formatDate(r.horizon_start)}–{formatDate(r.horizon_end)}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect value={selectedRunId || null} onChange={(v) => setSelectedRunId(v)} inputStyle={S.select}
+              options={[{ value: "", label: "— pick —" }, ...runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.status} · ${formatDate(r.horizon_start)}–${formatDate(r.horizon_end)}` }))]} />
             <button style={S.btnSecondary} onClick={() => setShowNewRun((v) => !v)}>
               {showNewRun ? "Cancel new run" : "+ New reconciliation run"}
             </button>
@@ -218,7 +213,7 @@ export default function ReconciliationWorkbench() {
             <button style={{ ...S.btnSecondary, background: "#EA580C22", color: "#EA580C", borderColor: "#EA580C" }}
                     onClick={syncTangerine} disabled={syncing || !canSync}
                     title={canSync ? "Pull native Tangerine on-hand + open POs into the planning supply tables (for 'Tangerine ERP' runs)" : "Missing permission: manage_integrations"}>
-              {syncing ? "Syncing…" : "🍊 Sync Tangerine supply"}
+              {syncing ? "Syncing…" : "Sync Tangerine supply"}
             </button>
           </div>
           {/* Inline create-run form. Same place the request panel
@@ -249,7 +244,7 @@ export default function ReconciliationWorkbench() {
                   supply: {selectedRun.supply_source === "tangerine" ? "Tangerine ERP" : "Xoro / ATS mirror"}
                 </span>
                 {selectedRun.supply_source === "tangerine" && (
-                  <span style={{ color: PAL.textMuted, fontSize: 11 }}>(run 🍊 Sync Tangerine supply, then reconcile)</span>
+                  <span style={{ color: PAL.textMuted, fontSize: 11 }}>(run Sync Tangerine supply, then reconcile)</span>
                 )}
               </div>
               {/* Inline toggle: count Phase 1 planned_buy_qty as
@@ -388,22 +383,12 @@ function NewReconciliationRunForm({
              value={name} onChange={(e) => setName(e.target.value)} />
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Wholesale source:</span>
-      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-              value={wholesaleId} onChange={(e) => setWholesaleId(e.target.value)}>
-        <option value="">— none —</option>
-        {wholesaleRuns.map((r) => (
-          <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
-        ))}
-      </select>
+      <SearchableSelect value={wholesaleId || null} onChange={(v) => setWholesaleId(v)} inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+        options={[{ value: "", label: "— none —" }, ...wholesaleRuns.map((r) => ({ value: r.id, label: `${r.name} · ${r.status}` }))]} />
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Ecom source:</span>
-      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-              value={ecomId} onChange={(e) => setEcomId(e.target.value)}>
-        <option value="">— none —</option>
-        {ecomRuns.map((r) => (
-          <option key={r.id} value={r.id}>{r.name} · {r.status}</option>
-        ))}
-      </select>
+      <SearchableSelect value={ecomId || null} onChange={(v) => setEcomId(v)} inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+        options={[{ value: "", label: "— none —" }, ...ecomRuns.map((r) => ({ value: r.id, label: `${r.name} · ${r.status}` }))]} />
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Horizon:</span>
       <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={horizonStart} onCommit={setHorizonStart} />
@@ -414,12 +399,12 @@ function NewReconciliationRunForm({
       <AppDatePicker style={{ ...S.input, width: 130, fontSize: 12, padding: "4px 8px" }} value={snapshot} onCommit={setSnapshot} />
 
       <span style={{ color: PAL.textMuted, fontSize: 11 }}>Supply source:</span>
-      <select style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-              value={supplySource} onChange={(e) => setSupplySource(e.target.value as IpSupplySource)}
-              title="Where on-hand + open POs come from: the Xoro/ATS mirror (default) or native Tangerine ERP">
-        <option value="xoro">Xoro / ATS mirror</option>
-        <option value="tangerine">Tangerine ERP</option>
-      </select>
+      <div title="Where on-hand + open POs come from: the Xoro/ATS mirror (default) or native Tangerine ERP">
+        <SearchableSelect value={supplySource} onChange={(v) => setSupplySource(v as IpSupplySource)} inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }} options={[
+          { value: "xoro", label: "Xoro / ATS mirror" },
+          { value: "tangerine", label: "Tangerine ERP" },
+        ]} />
+      </div>
 
       <input style={{ ...S.input, minWidth: 160, fontSize: 12, padding: "4px 8px" }}
              value={note} placeholder="Note (optional)"

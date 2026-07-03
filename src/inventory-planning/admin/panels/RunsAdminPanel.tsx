@@ -10,6 +10,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { IpPlanningRun } from "../../types/wholesale";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import { S, PAL, formatDate } from "../../components/styles";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 import { confirmDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 
@@ -30,6 +32,15 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
   }, [onToast]);
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // Per-column sort over the planning runs. Created maps to the raw timestamp
+  // the cell formats; Horizon is a composite range and stays inert.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(runs, {
+    persistKey: "ip:runs_admin:sort",
+    accessors: {
+      created: (r) => r.created_at ?? "",
+    },
+  });
+
   async function del(run: IpPlanningRun) {
     const orphan = /^\[Scenario\]|^\[Saved\]/.test(run.name);
     const ok = await confirmDialog(
@@ -38,7 +49,7 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
       `scenarios, approvals and exports. It cannot be undone.` +
       (orphan ? `\n\nThis looks like a leftover scenario/saved-build run — safe to remove.` : "") +
       `\n\n(A run that has execution batches can't be deleted — remove those in the Execution screen first.)`,
-      { title: "Delete planning run", confirmText: "Delete run", icon: "🗑" },
+      { title: "Delete planning run", confirmText: "Delete run" },
     );
     if (!ok) return;
     setBusyId(run.id);
@@ -72,16 +83,16 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>Name</th>
-              <th style={S.th}>Scope</th>
-              <th style={S.th}>Status</th>
+              <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+              <SortableTh label="Scope" sortKey="planning_scope" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
               <th style={S.th}>Horizon</th>
-              <th style={S.th}>Created</th>
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
               <th style={S.th}></th>
             </tr>
           </thead>
           <tbody>
-            {runs.map((r) => (
+            {sorted.map((r) => (
               <tr key={r.id}>
                 <td style={S.td}>{r.name}</td>
                 <td style={S.td}>{r.planning_scope}</td>
@@ -92,7 +103,7 @@ export default function RunsAdminPanel({ onToast }: { onToast: (t: ToastMessage)
                 <td style={{ ...S.td, fontSize: 11, color: PAL.textDim }}>{formatDate(r.created_at.slice(0, 10))}</td>
                 <td style={S.td}>
                   <button style={{ ...S.btnGhost, color: PAL.red }} disabled={busyId === r.id} onClick={() => del(r)}>
-                    {busyId === r.id ? "Deleting…" : "🗑 Delete"}
+                    {busyId === r.id ? "Deleting…" : "Delete"}
                   </button>
                 </td>
               </tr>

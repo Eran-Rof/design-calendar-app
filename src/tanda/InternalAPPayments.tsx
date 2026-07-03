@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
@@ -59,6 +60,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -150,14 +152,22 @@ export default function InternalAPPayments() {
       <h2 style={{ margin: "0 0 16px", fontSize: 22 }}>AP Payments (ledger)</h2>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ ...inputStyle, width: 160 }}>
-          <option value="">All methods</option>
-          <option value="ach">ACH</option>
-          <option value="wire">Wire</option>
-          <option value="check">Check</option>
-          <option value="credit_card">Credit card</option>
-          <option value="cash">Cash</option>
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={method || null}
+            onChange={(v) => setMethod(v)}
+            options={[
+              { value: "", label: "All methods" },
+              { value: "ach", label: "ACH" },
+              { value: "wire", label: "Wire" },
+              { value: "check", label: "Check" },
+              { value: "credit_card", label: "Credit card" },
+              { value: "cash", label: "Cash" },
+            ]}
+            placeholder="All methods"
+            inputStyle={inputStyle}
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           From&nbsp;
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
@@ -222,7 +232,7 @@ export default function InternalAPPayments() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (

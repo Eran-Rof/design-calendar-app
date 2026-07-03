@@ -10,6 +10,7 @@
 import type { Material } from "../types";
 import type { MaterialFormValues } from "../factories";
 import { MATERIAL_TYPES } from "../constants";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 export interface MaterialModalProps {
@@ -44,9 +45,12 @@ export function MaterialModal({
             </div>
             <div>
               <label style={S.label}>Type</label>
-              <select style={{ ...S.select, width: "100%" }} value={matForm.type} onChange={e => setMatForm(f => ({ ...f, type: e.target.value }))}>
-                {MATERIAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <SearchableSelect
+                value={matForm.type || null}
+                onChange={v => setMatForm(f => ({ ...f, type: v }))}
+                options={MATERIAL_TYPES.map(t => ({ value: t, label: t }))}
+                inputStyle={{ ...S.select, width: "100%" }}
+              />
             </div>
           </div>
 

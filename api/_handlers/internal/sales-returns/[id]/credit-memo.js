@@ -82,10 +82,33 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Restock lines present but COGS (5000) / Inventory (1300) account not configured" });
   }
 
+  // Per-style returns routing (#6 follow-up): resolve each returned line's
+  // Sales Returns account from its STYLE (style.returns_account_id) → customer
+  // default → entity 4100. So returns post to the brand's returns account.
+  const rmaItemIds = [...new Set(rmaLines.map((l) => l.inventory_item_id).filter(Boolean))];
+  const returnsByItem = new Map();
+  if (rmaItemIds.length) {
+    const { data: items } = await admin.from("ip_item_master").select("id, style_code").in("id", rmaItemIds);
+    const codeByItem = new Map((items || []).map((i) => [i.id, i.style_code]));
+    const codes = [...new Set((items || []).map((i) => i.style_code).filter(Boolean))];
+    const retByCode = new Map();
+    if (codes.length) {
+      const { data: styles } = await admin.from("style_master").select("style_code, returns_account_id").in("style_code", codes);
+      for (const s of styles || []) retByCode.set(String(s.style_code).toLowerCase(), s.returns_account_id || null);
+    }
+    const { data: cust } = await admin.from("customers").select("default_returns_account_id").eq("id", rma.customer_id).maybeSingle();
+    const custReturns = cust?.default_returns_account_id || null;
+    for (const [itemId, code] of codeByItem) {
+      const styleRet = code ? retByCode.get(String(code).toLowerCase()) : null;
+      const resolved = styleRet || custReturns || returnsId;
+      if (resolved) returnsByItem.set(itemId, resolved);
+    }
+  }
+
   let cmLines;
   try {
     const costByItem = hasRestock ? await resolveReturnCosts(admin, restockItemIds) : new Map();
-    cmLines = buildCreditMemoLines({ rmaLines, returnsAccountId: returnsId, costByItem });
+    cmLines = buildCreditMemoLines({ rmaLines, returnsAccountId: returnsId, costByItem, returnsByItem });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : String(e) });
   }
@@ -108,7 +131,7 @@ export default async function handler(req, res) {
 
   const lineRows = cmLines.map((l) => ({
     ar_invoice_id: cm.id, line_number: l.line_index, description: l.description,
-    revenue_account_id: returnsId, inventory_item_id: l.inventory_item_id || null,
+    revenue_account_id: l.revenue_account_id || returnsId, inventory_item_id: l.inventory_item_id || null,
     quantity: l.quantity != null ? l.quantity : null,
     unit_price_cents: l.unit_price_cents, line_total_cents: Number(l.line_total_cents),
     source: "sales_return",
@@ -125,6 +148,7 @@ export default async function handler(req, res) {
   try {
     result = await postEvent(admin, {
       kind: "ar_credit_memo", entity_id: entityId, created_by_user_id,
+      reason: `Post credit memo ${cmNumber}`,
       data: {
         credit_memo_id: cm.id, customer_id: rma.customer_id, credit_memo_number: cmNumber,
         posting_date: today, original_invoice_id: rma.original_ar_invoice_id || undefined,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
@@ -27,6 +27,13 @@ export default function VendorContracts() {
   const [rows, setRows] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +56,34 @@ export default function VendorContracts() {
     return () => { cancelled = true; };
   }, []);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const scalar = (c: Contract): string | number | null => {
+      switch (sortKey) {
+        case "title": return c.title || null;
+        case "start": return c.start_date || null;
+        case "end": return c.end_date || null;
+        case "value": return typeof c.value === "number" ? c.value : null;
+        case "status": return statusLabel(c.status) || null;
+        default: return null;
+      }
+    };
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+
   if (loading) return <div style={{ color: TH.textMuted }}>Loading…</div>;
   if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
@@ -61,16 +96,16 @@ export default function VendorContracts() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "1.7fr 140px 140px 160px 160px 130px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
-          <div>Title / Type</div>
-          <div>Start</div>
-          <div>End</div>
-          <div>Value</div>
-          <div>Status</div>
+          <div onClick={() => toggleSort("title")} style={{ cursor: "pointer", userSelect: "none" }}>Title / Type{sortKey === "title" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("start")} style={{ cursor: "pointer", userSelect: "none" }}>Start{sortKey === "start" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("end")} style={{ cursor: "pointer", userSelect: "none" }}>End{sortKey === "end" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("value")} style={{ cursor: "pointer", userSelect: "none" }}>Value{sortKey === "value" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
           <div style={{ textAlign: "right" }}>Action</div>
         </div>
-        {rows.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No contracts yet.</div>
-        ) : rows.map((c) => (
+        ) : sorted.map((c) => (
           <Link key={c.id} to={`/vendor/contracts/${c.id}`} style={{ display: "grid", gridTemplateColumns: "1.7fr 140px 140px 160px 160px 130px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}>
             <div>
               <div style={{ fontWeight: 600, color: TH.text }}>{c.title}</div>

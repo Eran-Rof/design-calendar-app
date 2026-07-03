@@ -80,7 +80,11 @@ export function bodyNumStyle(fill: string): any {
   return {
     font:      { sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    // Numbers right-align (operator standard) so the total / qty / cost columns
+    // read consistently across every report that shares this theme (aged inven,
+    // neg inven, stock-vs-SO, incomplete, sales comps). The main ATS report
+    // uses its own local styles.
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -89,7 +93,7 @@ export function bodyTotalStyle(fill: string): any {
   return {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -128,7 +132,7 @@ export function subtotalNumStyle(fill: string = PALETTE.QTY_BAND): any {
   return {
     font:      { bold: true, sz: 12.1, color: { rgb: PALETTE.STYLE_TEXT }, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_BODY,
   };
 }
@@ -148,7 +152,7 @@ export function totalNumStyle(fill: string = PALETTE.ZEBRA_EVEN): any {
   return {
     font:      { bold: true, sz: 11, name: "Calibri" },
     fill:      { fgColor: { rgb: fill }, patternType: "solid" },
-    alignment: { horizontal: "center", vertical: "center" },
+    alignment: { horizontal: "right", vertical: "center" },
     border:    BORDER_TOTAL,
   };
 }

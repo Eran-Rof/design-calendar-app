@@ -57,6 +57,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 40. [Inventory Planning — Reports (P17)](40-planning-reports.md) — the **📊 Reports** hub at `/planning/reports`: four analytical reports (Sales Performance with YoY + ABC, Inventory Health with weeks-of-supply + stockout/excess, Forecast Accuracy MAPE/bias, Buy Plan & Supply), each viewable on screen and one-click **Excel** export.
 41. [External / Partner API (M15)](41-external-partner-api.md) — a read-only REST API at `/api/external/v1` for authorized integrations, authenticated with a Bearer **API key**. Covers the key admin panel (**Admin → 🔑 API Keys**), the auth model, and every endpoint with example `curl`.
 42. [Costing Module](42-costing-module.md) — the `/costing` price/cost workbook: project-header gating, the costing grid (FOB/Landed vs **DDP** cost modes, editable **Sell Tgt** margin that back-solves cost), PPK-exploded PO history + LY/T3 comp, the incomplete-row guard, and the RFQ → compare → award flow.
+45. [Lot Numbers](45-lot-numbers.md) — per style+color **lot** on PO / SO lines + inventory layers (not on Style Master): auto-stamped to the PO# at issue, inherited from the SO's customer PO on a PO-from-SO, editable via the 🏷 lot column, and carried onto the FIFO layer at receiving.
 
 ## 30-second quickstart
 

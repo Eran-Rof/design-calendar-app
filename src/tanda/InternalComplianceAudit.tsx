@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
@@ -58,10 +59,13 @@ export default function InternalComplianceAudit() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Every upload, review, expiry, and automation action. Newest first.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={action} onChange={(e) => setAction(e.target.value)} style={selectSt}>
-            <option value="">All actions</option>
-            {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
+          <SearchableSelect
+            value={action || null}
+            onChange={(v) => setAction(v)}
+            options={[{ value: "", label: "All actions" }, ...ACTIONS.map((a) => ({ value: a, label: a }))]}
+            placeholder="All actions"
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="compliance-audit-trail"
@@ -106,4 +110,4 @@ export default function InternalComplianceAudit() {
   );
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;

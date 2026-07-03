@@ -130,6 +130,17 @@ After the last step, click **Submit for review**. You'll see an **"Under review"
 
 After approval, the top navigation tabs are: **🔔 Notifications · Dashboard · Purchase Orders · RFQs · Shipments · Invoices · Payments · Messages · Compliance**, plus a **More ▾** menu (Contracts, Catalog, Finance options, ESG, Disputes, Scorecard, Settings, and more). Your email and a **Sign out** button sit in the top-right.
 
+### Language (🌐) — read the portal in your language
+
+Next to your email in the top-right is a **🌐 language picker**. Choose your language and the **entire portal is translated automatically** by AI — labels, buttons, tables, form fields, and messages — across every screen. Switch back to **English** any time to see the original.
+
+- **It defaults to your country.** On your first visit the portal looks at where you're connecting from and pre-selects a matching language (for example, Chinese in China, Vietnamese in Vietnam, Spanish in Mexico). If it can't tell, it uses your browser's language, otherwise English. Once you pick a language yourself, that choice sticks on this device.
+- **Supported languages:** English, Chinese (Simplified & Traditional), Spanish, Vietnamese, Hindi, Bengali, Urdu, Indonesian, Thai, Korean, Japanese, Portuguese, French, German, Italian, Turkish, and Arabic. The picker always shows each language in its own script, and right-to-left languages (Arabic, Urdu) flip the layout automatically.
+- **What is *not* translated:** order/PO numbers, SKUs, money, dates, email addresses, and company/brand names are deliberately left as-is so nothing important changes meaning.
+- The first time you open a screen in a new language there may be a brief pause while it translates; after that it's cached and instant. A faint 🌐 flicker means a translation is in progress.
+
+> Translation is a reading aid. When you **type** into the portal (messages, invoice fields, notes), Ring of Fire staff see what you typed in your own words — your input is not auto-translated.
+
 ### Purchase Orders
 
 **Purchase Orders** is your home tab. The top shows four summary cards — **Open POs**, **Pending acknowledgment**, **Acknowledged**, and **Next shipment ETA** — and you can filter the list with **All / Action needed / Acknowledged**.
@@ -140,8 +151,7 @@ After approval, the top navigation tabs are: **🔔 Notifications · Dashboard �
 > transition: legacy synced POs and newer POs created in the current ERP (the
 > latter carry a small **TGR** tag next to the PO number). Going forward all POs
 > will come from the new system. You can **acknowledge** TGR POs and **submit
-> shipments (ASNs)** against them just like any other; **invoicing** for TGR POs
-> follows shortly.
+> shipments (ASNs) and invoices** against them just like any other.
 
 For each PO the list shows the PO number, issue date, required-by date (with a "(Nd)" countdown or "overdue" flag), amount, date received, quantity received vs. ordered, quantity and amount remaining, status, and your acknowledgment date.
 
@@ -217,6 +227,13 @@ The **Compliance** tab is a grouped checklist of the document types Ring of Fire
 Throughout the portal you can attach files — invoice PDFs, packing lists, tax documents, compliance certificates, and more. Uploaded files keep their original filename and can be previewed in-app (Excel/CSV/PDF/Office formats) or downloaded. Attachments are limited to **15 MB** each.
 
 ---
+
+## Working with the lists
+
+The portal's list screens — Purchase Orders, Invoices, Shipments, RFQs, Contracts, and Disputes — share the same conveniences:
+
+- **Sort any column** — click a column header to sort ascending (▲); click again for descending (▼); a third click clears it and restores the default order. Action and status-only columns stay un-sortable.
+- **Search boxes select-all on focus** — clicking into a search box highlights the existing text so you can replace it in one keystroke.
 
 ## How your data is kept separate
 

@@ -35,6 +35,15 @@ fields), `collapse.ts` (group by category/sub-category/style), `filter.ts`
 
 **Grain:** ATS is **color-grain** on-hand. The grid is one row per (style, color).
 
+**Toolbar filter cascade:** the Category / Sub Cat / Style / Gender dropdowns are
+**reciprocal** — each one's options are derived (in `renderPanel.tsx`) from
+`filterRows` with that one dimension omitted, so the options always reflect the
+rows passing every *other* active filter (search + the other dropdowns + store +
+status). Selecting any one narrows the rest; clearing it re-widens them; stale
+selections are auto-pruned. These cascaded lists drive the **toolbar only** — the
+full Category/Sub Cat/Style lists handed to **Sales Comps** stay unfiltered so a
+report can be broadened past the grid's current scope.
+
 ## Exports (`src/ats/export*.ts`)
 
 - **Full grid** (`exportExcel.ts`) — identity + on-hand/PO/SO + period projections + totals; optional avg-cost, margin %, trailing-3-months / same-period-LY blocks, customer-facing redaction, PPK explode/merge.
@@ -115,6 +124,21 @@ master-data and master-list panels in the 2026-06 sort waves) is **intentionally
 not** wired here — a naive row reorder would fight the frozen columns and the
 per-period cumulative/delta math. Sort/ordering in ATS stays driven by its own
 filter and grouping controls.
+
+## Wording: Warehouse (not Store)
+The toolbar location filter and the related labels (SO-line-items modal column, Sales-Comps location multi-select, and the Aged/Incomplete/Negative/Stock-vs-SO export headers) read **Warehouse**, not "Store" — Tangerine has warehouses + brands, no ROF sales stores. The underlying data field/values (`store` = `ROF / ROF ECOM / PT / PT ECOM`) and the **Excel input** column names (`Store` / `Sale Store`) are unchanged — only the on-screen + export-report wording.
+
+## Sales Comps results sort + filter UX (2026-06)
+
+The **Sales Comps** modal's comparison tables (per-customer / category / style /
+SKU breakdowns) now have **click-to-sort column headers** with a functional ▲▼
+indicator — sort by any of TY/LY Qty, Rev, Mrgn%, Δ Rev, or Δ Mrgn pp, or the
+leftmost dimension label. The default (unsorted) order stays the upstream
+TY-rev-descending order; the TOTAL row(s) stay pinned at the bottom regardless of
+sort. Every search/filter text box in the ATS toolbar (SKU search, the
+Category/Sub-Cat/Style/Brand/Cust-Vend dropdown search fields) and in the Sales
+Comps + Export-Options modals now **selects all text on focus**, so tabbing in and
+typing replaces the prior value in one keystroke.
 
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in

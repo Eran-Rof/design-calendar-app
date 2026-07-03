@@ -70,7 +70,7 @@ describe("<ConstructionTab />", () => {
     expect(arg.construction[0].notes).toBe("Hidden seam");
   });
 
-  it("clicking the row's 🗑️ removes that detail from construction", () => {
+  it("clicking the row's Delete removes that detail from construction", () => {
     const updateSelected = vi.fn();
     render(<ConstructionTab
       tp={makeTp([detail({ id: "a" }), detail({ id: "b", area: "Sleeve" })])}
@@ -78,7 +78,7 @@ describe("<ConstructionTab />", () => {
       uploadImage={vi.fn()}
       setLightboxImg={vi.fn()}
     />);
-    const removes = screen.getAllByText("🗑️");
+    const removes = screen.getAllByText("Delete");
     fireEvent.click(removes[0]);
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.construction.map((d: ConstructionDetail) => d.id)).toEqual(["b"]);

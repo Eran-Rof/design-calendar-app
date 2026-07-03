@@ -137,7 +137,7 @@ export function exportNegInven(
     { label: "SKU",           fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Description",   fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
     { label: "Category",      fill: PALETTE.HEADER_TEXT,   align: "left"   as const },
-    { label: "Store",         fill: PALETTE.HEADER_TEXT,   align: "center" as const },
+    { label: "Warehouse",         fill: PALETTE.HEADER_TEXT,   align: "center" as const },
     { label: "On Hand",       fill: PALETTE.HEADER_ONHAND, align: "center" as const },
     { label: "On Order (SO)", fill: PALETTE.HEADER_ONHAND, align: "center" as const },
     { label: "On PO",         fill: PALETTE.HEADER_ONHAND, align: "center" as const },

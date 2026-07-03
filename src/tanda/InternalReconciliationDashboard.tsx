@@ -41,6 +41,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge from "./components/SourceBadge";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const CUTOVER_TABLE_KEY = "tanda.recon_cutover_history";
 const CUTOVER_COLUMNS: ColumnDef[] = [
@@ -85,11 +87,11 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
 };
 
 export const DOMAIN_EMOJI: Record<Domain, string> = {
-  ap:        "🧾",
-  ar:        "🧮",
-  cash:      "💵",
-  gl:        "📓",
-  inventory: "📦",
+  ap:        "",
+  ar:        "",
+  cash:      "",
+  gl:        "",
+  inventory: "",
 };
 
 // Which manual-trigger endpoints exist today (built in P9-2..P9-6 —
@@ -321,6 +323,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -373,6 +376,22 @@ export default function InternalReconciliationDashboard() {
   // Column visibility for the cutover-history table (operator ask #1).
   const cutoverPrefs = useTablePrefs(CUTOVER_TABLE_KEY, CUTOVER_COLUMNS);
   const cutoverVisible = cutoverPrefs.visibleColumns;
+
+  // Tri-state column sort for the cutover-history LIST table (#5). Derived
+  // keys: clean_window sorts by window start; signoff_emp by signed/blank.
+  const {
+    sorted: sortedCutovers,
+    sortKey: cutoverSortKey,
+    sortDir: cutoverSortDir,
+    onHeaderClick: onCutoverSort,
+  } = useSort(cutovers, {
+    persistKey: "tangerine:recon-cutover:sort",
+    accessors: {
+      clean_window: (c) => c.clean_window_start,
+      signoff_emp: (c) => (c.signoff_employee_id ? 1 : 0),
+      signoff_at: (c) => c.signoff_at,
+    },
+  });
 
   async function loadRuns() {
     setLoading(true); setErr(null);
@@ -487,7 +506,7 @@ export default function InternalReconciliationDashboard() {
     <div style={{ color: C.text }} data-testid="recon-dashboard">
       {/* ───── Header ───── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Parallel-Run Reconciliation</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Parallel-Run Reconciliation</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             5-domain recon · Xoro vs Tangerine · soft-block close until cleared (D4)
@@ -525,7 +544,6 @@ export default function InternalReconciliationDashboard() {
               data-testid={`recon-card-${d}`}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{DOMAIN_EMOJI[d]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{DOMAIN_LABEL[d]}</span>
               </div>
               {run ? (
@@ -602,7 +620,7 @@ export default function InternalReconciliationDashboard() {
           </div>
         )}
       </div>
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", marginBottom: 24 }} data-testid="recon-grid-wrap">
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", marginBottom: 24 }} data-testid="recon-grid-wrap">
         {loading ? (
           <div style={{ padding: 20, color: C.textMuted, textAlign: "center" }}>Loading…</div>
         ) : dates.length === 0 ? (
@@ -623,7 +641,7 @@ export default function InternalReconciliationDashboard() {
               {DOMAINS.map((dom) => (
                 <tr key={dom}>
                   <td style={{ ...td, fontWeight: 600, position: "sticky", left: 0, background: C.card, zIndex: 1 }}>
-                    {DOMAIN_EMOJI[dom]} {DOMAIN_LABEL[dom]}
+                    {DOMAIN_LABEL[dom]}
                   </td>
                   {dates.map((date) => {
                     const cell = byDomainDate[dom][date];
@@ -686,16 +704,16 @@ export default function InternalReconciliationDashboard() {
             <table style={{ width: "100%", borderCollapse: "collapse" }} data-testid="recon-cutover-table">
               <thead>
                 <tr>
-                  <th style={th} hidden={!cutoverVisible.has("domain")}>Domain</th>
-                  <th style={th} hidden={!cutoverVisible.has("source_tag")}>Source tag</th>
-                  <th style={th} hidden={!cutoverVisible.has("clean_window")}>Clean window</th>
-                  <th style={th} hidden={!cutoverVisible.has("total_recons")}>Total recons</th>
-                  <th style={th} hidden={!cutoverVisible.has("signoff_emp")}>Signoff employee</th>
-                  <th style={th} hidden={!cutoverVisible.has("signoff_at")}>Signed off at</th>
+                  <SortableTh label="Domain" sortKey="domain" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("domain")} />
+                  <SortableTh label="Source tag" sortKey="source_tag" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("source_tag")} />
+                  <SortableTh label="Clean window" sortKey="clean_window" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("clean_window")} />
+                  <SortableTh label="Total recons" sortKey="total_recons" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("total_recons")} />
+                  <SortableTh label="Signoff employee" sortKey="signoff_emp" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("signoff_emp")} />
+                  <SortableTh label="Signed off at" sortKey="signoff_at" activeKey={cutoverSortKey} dir={cutoverSortDir} onSort={onCutoverSort} style={th} hidden={!cutoverVisible.has("signoff_at")} />
                 </tr>
               </thead>
               <tbody>
-                {cutovers.map((c) => (
+                {sortedCutovers.map((c) => (
                   <tr key={c.id} data-testid={`recon-cutover-row-${c.id}`}>
                     <td style={td} hidden={!cutoverVisible.has("domain")}><strong>{c.domain}</strong></td>
                     <td style={td} hidden={!cutoverVisible.has("source_tag")}>
@@ -760,10 +778,28 @@ function VarianceSidePanel({
   onClose: () => void;
   onClear: (v: ReconVariance) => void;
 }) {
-  const exportRows = useMemo(
-    () => variances.map(flattenVarianceForExport),
-    [variances],
-  );
+  const exportRows = useMemo(() => {
+    const flat = variances.map(flattenVarianceForExport);
+    if (flat.length === 0) return flat;
+    // #23 — append a TOTAL row summing the numeric dollar / percent columns;
+    // all non-numeric columns stay blank except the leading TOTAL marker.
+    const sum = (k: string) =>
+      flat.reduce((acc, r) => acc + (typeof r[k] === "number" ? (r[k] as number) : 0), 0);
+    const totalRow: Record<string, unknown> = {
+      id: "TOTAL",
+      source_table: "",
+      source_id: "",
+      source_tag: "",
+      tangerine_dollars: sum("tangerine_dollars"),
+      xoro_dollars: sum("xoro_dollars"),
+      variance_dollars: sum("variance_dollars"),
+      variance_percent: sum("variance_percent"),
+      status: "",
+      notes: "",
+      created_at: "",
+    };
+    return [...flat, totalRow];
+  }, [variances]);
 
   return (
     <div
@@ -780,7 +816,7 @@ function VarianceSidePanel({
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 18 }}>
-            {DOMAIN_EMOJI[run.domain]} {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
+            {DOMAIN_LABEL[run.domain]} variances — {run.run_date}
           </h3>
           <button onClick={onClose} style={btnSecondary} data-testid="recon-side-panel-close">Close</button>
         </div>

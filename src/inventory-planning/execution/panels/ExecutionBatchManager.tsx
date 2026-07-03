@@ -21,6 +21,9 @@ import type { IpScenario } from "../../scenarios/types/scenarios";
 import { confirmDialog } from "../../../shared/ui/warn";
 import { S, PAL, formatDate } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import Toast, { type ToastMessage } from "../../components/Toast";
 import ExecutionBatchDetail from "./ExecutionBatchDetail";
 import ExecutionAuditPanel from "./ExecutionAuditPanel";
@@ -73,6 +76,20 @@ export default function ExecutionBatchManager() {
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
 
+  // Additive per-column sort over the batch list (selection is keyed on id, so
+  // re-ordering never disturbs the selected row).
+  const { sorted: sortedBatches, sortKey, sortDir, onHeaderClick } = useSort(batches, {
+    persistKey: "ip:execution_batches:sort",
+    accessors: {
+      name: (b) => b.batch_name,
+      type: (b) => b.batch_type,
+      status: (b) => b.status,
+      created: (b) => b.created_at ?? "",
+      approved: (b) => b.approved_at ?? "",
+      note: (b) => b.note ?? "",
+    },
+  });
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -115,7 +132,7 @@ export default function ExecutionBatchManager() {
       `Permanently DELETE execution batch "${selected.batch_name}" (${selected.status})?\n\n` +
       `This removes the batch and all its actions. It cannot be undone. ` +
       `Any Tangerine POs already created from it are NOT affected.`,
-      { title: "Delete batch", confirmText: "Delete", icon: "🗑" },
+      { title: "Delete batch", confirmText: "Delete" },
     );
     if (!ok) return;
     try {
@@ -139,14 +156,8 @@ export default function ExecutionBatchManager() {
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Execution batch</strong>
-            <select style={S.select} value={selectedId ?? ""} onChange={(e) => { setSelectedId(e.target.value); setTab("detail"); }}>
-              <option value="">— pick —</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.batch_name} · {b.batch_type} · {b.status}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect value={selectedId || null} onChange={(v) => { setSelectedId(v); setTab("detail"); }} inputStyle={S.select}
+              options={[{ value: "", label: "— pick —" }, ...batches.map((b) => ({ value: b.id, label: `${b.batch_name} · ${b.batch_type} · ${b.status}` }))]} />
             <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New batch</button>
             {selected && (
               <button style={S.btnSecondary} onClick={() => setShowAudit(true)}>
@@ -158,7 +169,7 @@ export default function ExecutionBatchManager() {
                 style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
                 onClick={deleteSelectedBatch}
                 title="Permanently delete this batch and its actions"
-              >🗑 Delete</button>
+              >Delete</button>
             )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -187,16 +198,16 @@ export default function ExecutionBatchManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th hidden={!visibleColumns.has("name")} style={S.th}>Name</th>
-                    <th hidden={!visibleColumns.has("type")} style={S.th}>Type</th>
-                    <th hidden={!visibleColumns.has("status")} style={S.th}>Status</th>
-                    <th hidden={!visibleColumns.has("created")} style={S.th}>Created</th>
-                    <th hidden={!visibleColumns.has("approved")} style={S.th}>Approved</th>
-                    <th hidden={!visibleColumns.has("note")} style={S.th}>Note</th>
+                    <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("name")} />
+                    <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+                    <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("status")} />
+                    <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("created")} />
+                    <SortableTh label="Approved" sortKey="approved" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("approved")} />
+                    <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("note")} />
                   </tr>
                 </thead>
                 <tbody>
-                  {batches.map((b) => (
+                  {sortedBatches.map((b) => (
                     <tr key={b.id} style={{ cursor: "pointer", background: b.id === selectedId ? PAL.panelAlt : undefined }}
                         onClick={() => { setSelectedId(b.id); setTab("detail"); }}>
                       <td hidden={!visibleColumns.has("name")} style={{ ...S.td, fontWeight: b.id === selectedId ? 700 : 400 }}>{b.batch_name}</td>
@@ -395,22 +406,18 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
           <div style={{ display: "grid", gap: 10 }}>
             <div>
               <label style={S.label}>Build from</label>
-              <select style={{ ...S.select, width: "100%" }} value={source} onChange={(e) => setSource(e.target.value as BuildSource)}>
-                <option value="scenario">Approved scenario{scenariosLoaded ? ` (${approvedScenarios.length})` : "…"}</option>
-                <option value="run">Planning run (direct)</option>
-              </select>
+              <SearchableSelect value={source} onChange={(v) => setSource(v as BuildSource)} inputStyle={{ ...S.select, width: "100%" }} options={[
+                { value: "scenario", label: `Approved scenario${scenariosLoaded ? ` (${approvedScenarios.length})` : "…"}` },
+                { value: "run", label: "Planning run (direct)" },
+              ]} />
             </div>
 
             {source === "scenario" ? (
               <div>
                 <label style={S.label}>Approved scenario</label>
                 {approvedScenarios.length > 0 ? (
-                  <select style={{ ...S.select, width: "100%" }} value={scenarioId} onChange={(e) => setScenarioId(e.target.value)}>
-                    <option value="">— pick —</option>
-                    {approvedScenarios.map((s) => (
-                      <option key={s.id} value={s.id}>{s.scenario_name} · {s.scenario_type} · approved</option>
-                    ))}
-                  </select>
+                  <SearchableSelect value={scenarioId || null} onChange={(v) => setScenarioId(v)} inputStyle={{ ...S.select, width: "100%" }}
+                    options={[{ value: "", label: "— pick —" }, ...approvedScenarios.map((s) => ({ value: s.id, label: `${s.scenario_name} · ${s.scenario_type} · approved` }))]} />
                 ) : (
                   <div style={{ color: PAL.textMuted, fontSize: 12 }}>
                     {scenariosLoaded
@@ -427,9 +434,8 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
             ) : (
               <div>
                 <label style={S.label}>Planning run</label>
-                <select style={{ ...S.select, width: "100%" }} value={runId} onChange={(e) => setRunId(e.target.value)}>
-                  {runs.map((r) => <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>)}
-                </select>
+                <SearchableSelect value={runId || null} onChange={(v) => setRunId(v)} inputStyle={{ ...S.select, width: "100%" }}
+                  options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))} />
                 <div style={{ color: PAL.textMuted, fontSize: 11, marginTop: 4 }}>
                   Requires a run-level approval (or the override below).
                 </div>
@@ -438,9 +444,8 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
 
             <div>
               <label style={S.label}>Batch type</label>
-              <select style={{ ...S.select, width: "100%" }} value={batchType} onChange={(e) => setBatchType(e.target.value as IpExecutionBatchType)}>
-                {BATCH_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
-              </select>
+              <SearchableSelect value={batchType} onChange={(v) => setBatchType(v as IpExecutionBatchType)} inputStyle={{ ...S.select, width: "100%" }}
+                options={BATCH_TYPES.map((t) => ({ value: t, label: t.replace(/_/g, " ") }))} />
             </div>
             <div>
               <label style={S.label}>Batch name</label>

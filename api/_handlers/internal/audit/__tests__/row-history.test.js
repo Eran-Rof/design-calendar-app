@@ -201,20 +201,34 @@ describe("row-history GET handler", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "fake";
     mockState.admin = buildAdmin();
   });
-  afterEach(() => { mockState.admin = null; });
+  afterEach(() => { mockState.admin = null; delete process.env.INTERNAL_API_TOKEN; });
 
-  it("401 when no Authorization header", async () => {
+  // Auth is now the standard internal-token gate (authenticateInternalCaller),
+  // not the per-user authenticateCaller — accepts the static deploy token via
+  // Bearer OR X-Internal-Token, and fail-opens when INTERNAL_API_TOKEN is unset.
+  it("401 when the internal token is required but missing", async () => {
+    process.env.INTERNAL_API_TOKEN = "test-secret";
     const req = makeReq({ auth: null });
     const res = makeRes();
     await handler(req, res);
     expect(res.statusCode).toBe(401);
   });
 
-  it("401 when JWT is invalid", async () => {
-    const req = makeReq({ auth: "Bearer bad-token" });
+  it("401 when the presented internal token is wrong", async () => {
+    process.env.INTERNAL_API_TOKEN = "test-secret";
+    const req = makeReq({ auth: "Bearer wrong-token" });
     const res = makeRes();
     await handler(req, res);
     expect(res.statusCode).toBe(401);
+  });
+
+  it("200 when the matching internal token is presented", async () => {
+    process.env.INTERNAL_API_TOKEN = "test-secret";
+    mockState.admin = buildAdmin({ changes: [] });
+    const req = makeReq({ auth: "Bearer test-secret" });
+    const res = makeRes();
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
   });
 
   it("405 on non-GET", async () => {

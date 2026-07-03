@@ -21,6 +21,8 @@ export type ParsedPoLine = {
   description: string | null;
   unit_price: number | null;
   total_qty: number | null;
+  /** True when total_qty counts PACKS/PREPACKS/CARTONS, not individual units. */
+  qty_is_packs?: boolean;
   size_breakdown: { size: string; qty: number }[] | null;
 };
 export type ParsedPo = {
@@ -30,6 +32,10 @@ export type ParsedPo = {
   start_ship_date: string | null;
   cancel_date: string | null;
   currency: string;
+  /** "ats" | "production" | null — how the order is fulfilled, if stated. */
+  fulfillment_source?: string | null;
+  /** True when the sender asked for a placeholder/temporary PO (app generates one). */
+  use_placeholder_po?: boolean;
   lines: ParsedPoLine[];
 };
 
@@ -121,7 +127,7 @@ export function resolveLine(line: ParsedPoLine, styles: StyleLite[]): LineResolu
 }
 
 // ── Resolved lines → matrix seed + warnings ──────────────────────────────────
-type Cell = { color: string | null; size: string; qty: number; unit?: string };
+type Cell = { color: string | null; size: string; qty: number; unit?: string; inseam?: string | null };
 
 /**
  * Match the PO's colour text to one of the style's ACTUAL colours so the
@@ -151,13 +157,22 @@ export function matchColor(poColor: string | null, actualColors: string[]): stri
   return bestScore > 0 ? best : actualColors[0];
 }
 
+/** Key for a per-line colour override: style code + the PO's colour text (lower). */
+export function colorPickKey(styleCode: string, lineColor: string | null): string {
+  return `${styleCode}|${(lineColor || "").toLowerCase().trim()}`;
+}
+
 /**
  * Build the matrix seed from lines that have a chosen style. `fetchMatrix`
  * returns the style's matrix size columns + colours (from /api/internal/style-matrix).
  */
 export async function buildSeedFromResolved(
   resolved: { line: ParsedPoLine; chosen: StyleLite }[],
-  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[] }>,
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[]; inseams?: string[] }>,
+  // Operator-confirmed colour rows (from the "confirm choices" step), keyed by
+  // colorPickKey(styleCode, lineColor). A confirmed pick is used as-is and never
+  // raises a "mapped to" warning.
+  colorPicks: Record<string, string> = {},
 ): Promise<{ sections: SeedSection[]; warnings: PrefillWarning[] }> {
   const byStyle = new Map<string, Cell[]>();
   // Per style+colour total to show in the matrix Qty quick-fill box (assorted /
@@ -168,12 +183,22 @@ export async function buildSeedFromResolved(
   for (const { line, chosen } of resolved) {
     let sizes: string[] = [];
     let colors: string[] = [];
-    try { ({ sizes, colors } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
-    const color = matchColor(line.color, colors);
+    let inseams: string[] | undefined;
+    try { ({ sizes, colors, inseams } = await fetchMatrix(chosen.id)); } catch { /* leave empty → warn below */ }
+    // The matrix body keys every row by the SKU's real inseam when the style HAS
+    // inseams. A PO upload carries no inseam context, so seed onto the style's
+    // representative (first) inseam — otherwise the cell (qty + price) lands on a
+    // rowKey the body never renders and silently disappears.
+    const seedInseam: string | null = inseams && inseams.length ? inseams[0] : null;
+    // An operator-confirmed colour row (from the confirm-choices step) wins and
+    // is never re-warned; otherwise fall back to the fuzzy match.
+    const picked = colorPicks[colorPickKey(chosen.style_code, line.color)];
+    const colorConfirmed = !!picked && colors.includes(picked);
+    const color = colorConfirmed ? picked : matchColor(line.color, colors);
     // Warn when the PO's colour text was mapped onto a different style colour
     // (token-overlap or the first-colour fallback) so the operator verifies the
-    // placement — single-colour styles and exact matches don't warn.
-    if (line.color && colors.length > 1 && color && color.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
+    // placement — single-colour styles, exact matches, and confirmed picks don't warn.
+    if (!colorConfirmed && line.color && colors.length > 1 && color && color.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
       warnings.push({ style: chosen.style_code, detail: `PO colour "${line.color}" mapped to "${color}" — verify it's the right colour row.` });
     }
     const unit = line.unit_price != null ? String(line.unit_price) : undefined;
@@ -185,17 +210,29 @@ export async function buildSeedFromResolved(
     const cells: Cell[] = [];
 
     if (isPpkStyle(chosen.style_code)) {
-      // PPK: a single PPK<N> size column; the cell value is a CARTON count.
+      // PPK: a single PPK<N> size column; the cell value is a CARTON (pack) count.
+      // `sizes` carries the pack token (e.g. "PPK24") from the matrix even when the
+      // style_code has no digits (RYB0594PPK); fall back to the style code.
       const ppkSize = sizes.find((s) => /PPK/i.test(s)) || sizes[0] || "";
       const per = extractPpk(ppkSize) || extractPpk(chosen.style_code) || 0;
-      if (ppkSize && per > 0 && effectiveTotal > 0) {
-        const cartons = Math.ceil(effectiveTotal / per);
-        cells.push({ color, size: ppkSize, qty: cartons, unit });
-        if (effectiveTotal % per !== 0) {
-          warnings.push({ style: chosen.style_code, detail: `${color || ""} ${effectiveTotal} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(effectiveTotal / per).toFixed(2)}).` });
+      if (effectiveTotal > 0 && ppkSize) {
+        if (line.qty_is_packs) {
+          // The PO already states a PACK count — seed it directly, no division.
+          cells.push({ color, size: ppkSize, qty: effectiveTotal, unit });
+        } else if (per > 0) {
+          // The PO states UNITS — convert to cartons via the pack size.
+          const cartons = Math.ceil(effectiveTotal / per);
+          cells.push({ color, size: ppkSize, qty: cartons, unit });
+          if (effectiveTotal % per !== 0) {
+            warnings.push({ style: chosen.style_code, detail: `${color || ""} ${effectiveTotal} units ÷ ${per}/carton → ${cartons} cartons (rounded up from ${(effectiveTotal / per).toFixed(2)}).` });
+          }
+        } else {
+          // Units, but no pack size known — drop the count on the pack column and warn.
+          cells.push({ color, size: ppkSize, qty: effectiveTotal, unit });
+          warnings.push({ style: chosen.style_code, detail: `Couldn't read the pack size for this prepack — entered ${effectiveTotal} as the pack count; verify it's packs not units.` });
         }
       } else if (effectiveTotal > 0) {
-        warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton size — left blank, enter cartons manually.` });
+        warnings.push({ style: chosen.style_code, detail: `Couldn't determine the PPK carton column — left blank, enter cartons manually.` });
       }
     } else {
       // Keep only size-breakdown rows that map to a REAL size column. Rows like
@@ -237,6 +274,9 @@ export async function buildSeedFromResolved(
     }
 
     if (cells.length) {
+      // Stamp the representative inseam so the cells key onto the body's rendered
+      // rows (the body keys by inseam whenever the style has one).
+      for (const cell of cells) cell.inseam = seedInseam;
       if (!byStyle.has(chosen.style_code)) byStyle.set(chosen.style_code, []);
       byStyle.get(chosen.style_code)!.push(...cells);
     }
@@ -244,13 +284,87 @@ export async function buildSeedFromResolved(
 
   const sections: SeedSection[] = [...byStyle.entries()].map(([styleCode, cells]) => ({
     styleCode,
-    cells: cells.map((c) => ({ color: c.color, size: c.size, qty: c.qty, unit: c.unit })),
+    cells: cells.map((c) => ({ color: c.color, size: c.size, inseam: c.inseam ?? null, qty: c.qty, unit: c.unit })),
     quickFill: quickFillByStyle.get(styleCode),
   }));
   return { sections, warnings };
 }
 
+// ── Colour disambiguation (for the "confirm choices" step) ───────────────────
+export type ColorQuestion = {
+  styleCode: string;
+  styleId: string;
+  lineColor: string;   // the PO's colour text
+  suggested: string;   // the fuzzy-matched colour row (default pick)
+  options: string[];   // the style's actual colour rows to choose from
+};
+
+/**
+ * Find the lines whose PO colour text did NOT map cleanly onto one of the
+ * style's actual colour rows — these are the ones the operator should confirm
+ * before the seed is built. Single-colour styles and exact matches are skipped
+ * (no question). Uses the same `matchColor` rule as the seed builder so the
+ * default pick matches what would have been auto-chosen. fetchMatrix is cached
+ * by the caller, so this does not double-fetch when the seed is later built.
+ */
+export async function computeColorQuestions(
+  resolved: { line: ParsedPoLine; chosen: StyleLite }[],
+  fetchMatrix: (styleId: string) => Promise<{ sizes: string[]; colors: string[]; inseams?: string[] }>,
+): Promise<ColorQuestion[]> {
+  const out: ColorQuestion[] = [];
+  const seen = new Set<string>();
+  for (const { line, chosen } of resolved) {
+    if (!line.color) continue;
+    const key = colorPickKey(chosen.style_code, line.color);
+    if (seen.has(key)) continue;      // same style+colour on >1 line → ask once
+    let colors: string[] = [];
+    try { ({ colors } = await fetchMatrix(chosen.id)); } catch { continue; }
+    if (colors.length <= 1) continue;
+    const mapped = matchColor(line.color, colors);
+    if (mapped && mapped.toLowerCase().trim() !== line.color.toLowerCase().trim()) {
+      seen.add(key);
+      out.push({ styleCode: chosen.style_code, styleId: chosen.id, lineColor: line.color, suggested: mapped, options: colors });
+    }
+  }
+  return out;
+}
+
 // ── Header matching ──────────────────────────────────────────────────────────
+type CustomerLite = { id: string; name: string; customer_code?: string | null };
+
+/** Exact (case-insensitive) customer-name match only — no fuzzy fallback. */
+export function matchCustomerExact(name: string | null, customers: CustomerLite[]): string | null {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  const exact = customers.find((c) => c.name.trim().toLowerCase() === n);
+  return exact?.id || null;
+}
+
+/**
+ * Ranked customer candidates for the "confirm choices" step when the parsed name
+ * isn't an exact match: exact > prefix > substring > token-overlap. Returns up to
+ * `limit` so the operator can pick the right one (the full searchable list is the
+ * ultimate fallback in the UI).
+ */
+export function customerCandidates(name: string | null, customers: CustomerLite[], limit = 6): { id: string; name: string }[] {
+  if (!name) return [];
+  const n = name.trim().toLowerCase();
+  if (!n) return [];
+  const toks = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1));
+  const nToks = toks(n);
+  const scored = customers.map((c) => {
+    const cn = c.name.trim().toLowerCase();
+    let score = 0;
+    if (cn === n) score = 100;
+    else if (cn.startsWith(n) || n.startsWith(cn)) score = 80;
+    else if (cn.includes(n) || n.includes(cn)) score = 60;
+    else { let ov = 0; for (const t of toks(cn)) if (nToks.has(t)) ov++; score = ov > 0 ? 20 + ov : 0; }
+    return { c, score };
+  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+  return scored.map((x) => ({ id: x.c.id, name: x.c.name }));
+}
+
 export function matchCustomer(name: string | null, customers: { id: string; name: string; customer_code?: string | null }[]): string | null {
   if (!name) return null;
   const n = name.trim().toLowerCase();

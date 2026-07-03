@@ -1,6 +1,6 @@
 // Costing Module — AI size-curve modal.
 //
-// Opened from a grid row's right-click menu ("📐 AI size curve"). Shows the
+// Opened from a grid row's right-click menu ("AI size curve"). Shows the
 // predicted per-size unit split for the line's style, learned from the style's
 // own 24-month sales history and applied to the line's order qty. Informational
 // only (costing lines are color-grain) — a horizontal bar per size with % and
@@ -75,7 +75,6 @@ export default function SizeCurveModal({ line, onClose }: Props) {
       >
         {/* Header */}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16 }}>📐</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>AI size curve</div>
             <div style={{ fontSize: 12, color: C.subtle }}>
@@ -124,7 +123,7 @@ export default function SizeCurveModal({ line, onClose }: Props) {
                         {(s.suggested_qty ?? 0).toLocaleString()}
                       </div>
                     )}
-                    {s.flag && <span title={s.flag} style={{ fontSize: 12, flexShrink: 0 }}>⚠️</span>}
+                    {s.flag && <span title={s.flag} style={{ fontSize: 12, flexShrink: 0, color: "#F59E0B", fontWeight: 700 }}>flag</span>}
                   </div>
                 ))}
               </div>

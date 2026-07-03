@@ -130,6 +130,7 @@ export default async function handler(req, res) {
         kind: "ap_invoice_received",
         entity_id: entity.id,
         created_by_user_id: v.data.actor_user_id,
+        reason: `Part purchase bill ${invoiceNumber}`,
         data: {
           invoice_id: header.id, vendor_id: v.data.vendor_id, invoice_number: invoiceNumber,
           invoice_date: postingDate, ap_account_id: apAccountId,

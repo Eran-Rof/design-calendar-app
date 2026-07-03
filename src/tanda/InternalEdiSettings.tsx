@@ -145,7 +145,7 @@ export default function InternalEdiSettings() {
             </Field>
             <Field label="VAN password">
               <input style={inputStyle} type="password" value={form.van_password_enc} onChange={(e) => set("van_password_enc", e.target.value)} autoComplete="new-password" />
-              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>⚠ Stored as plain text for now — encryption at rest is a follow-up.</div>
+              <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Stored as plain text for now — encryption at rest is a follow-up.</div>
             </Field>
           </div>
 

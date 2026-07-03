@@ -17,6 +17,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import { reopenSalesOrderFromInvoice } from "../../../_lib/sales-orders/reopenFromInvoice.js";
+import { restoreInvoiceConsumption } from "../../../_lib/inventory/restoreInvoiceConsumption.js";
 import {
   extractActorFromRequest,
   callWithAudit,
@@ -104,6 +106,7 @@ export default async function handler(req, res) {
       kind: "ar_invoice_voided",
       entity_id: invoice.entity_id,
       created_by_user_id,
+      reason: reason || `Void AR invoice ${invoice.invoice_number ?? invoice.id}`,
       data: {
         invoice_id: invoice.id,
         accrual_je_id: invoice.accrual_je_id,
@@ -168,9 +171,26 @@ export default async function handler(req, res) {
     });
   } catch { /* non-fatal */ }
 
+  // Restore the FIFO inventory this invoice consumed back to on-hand — the GL
+  // reversal above only put the inventory ASSET dollars back; the units stay
+  // drawn down until we reverse the layer consumption. No-op for a never-posted
+  // draft (nothing was consumed).
+  let inventory = { restored_qty: 0, rows_reversed: 0 };
+  try { inventory = await restoreInvoiceConsumption(admin, invoice.id, created_by_user_id); }
+  catch (e) { console.warn("[ar-invoice-void] inventory restore failed:", e instanceof Error ? e.message : String(e)); }
+
+  // Re-open the originating sales order so a voided invoice doesn't strand the SO
+  // in 'invoiced'. The GL reversal above already unwound posting; this returns the
+  // SO to allocated/confirmed with its (untouched) allocations intact.
+  let reopened = { reopened: false, so_number: null };
+  try { reopened = await reopenSalesOrderFromInvoice(admin, invoice.id); } catch { /* best-effort */ }
+
   return res.status(200).json({
     gl_status: "void",
     reversed_je_ids: reversedJeIds,
+    reopened_sales_order: reopened.reopened,
+    so_number: reopened.so_number,
+    inventory_restored_qty: inventory.restored_qty,
   });
 }
 

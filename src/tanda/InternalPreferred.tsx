@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -116,7 +117,7 @@ export default function InternalPreferred() {
               { key: "notes",                header: "Notes" },
             ] as ExportColumn<Record<string, unknown>>[]}
           />
-          <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>🔎 Suggest</button>
+          <button onClick={() => setSuggestOpen(true)} style={btnSecondary}>Suggest</button>
           <button onClick={() => setAddOpen(true)} style={btnPrimary}>+ Add</button>
         </div>
       </div>
@@ -140,9 +141,12 @@ export default function InternalPreferred() {
             {group.vendors.map((p) => (
               <div key={p.pref_id} style={{ display: "grid", gridTemplateColumns: "60px 1.5fr 140px 1fr 140px 130px", padding: "8px 0", fontSize: 13, alignItems: "center", borderBottom: `1px solid ${C.cardBdr}` }}>
                 <div>
-                  <select value={p.rank} onChange={(e) => void changeRank(p.vendor.id, group.category, Number(e.target.value))} style={rankSelect}>
-                    {[1, 2, 3, 4, 5].map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={String(p.rank)}
+                    onChange={(v) => void changeRank(p.vendor.id, group.category, Number(v))}
+                    options={[1, 2, 3, 4, 5].map((r) => ({ value: String(r), label: String(r) }))}
+                    inputStyle={rankSelect}
+                  />
                 </div>
                 <div style={{ fontWeight: 600 }}>{p.vendor.name}</div>
                 <div style={{ textAlign: "right", color: scoreColor(p.health.overall), fontWeight: 700 }}>{p.health.overall} / 100</div>
@@ -196,18 +200,23 @@ function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   return (
     <Modal title="Add preferred vendor" onClose={onClose}>
       <Row label="Vendor">
-        <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-          <option value="">Select…</option>
-          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={vendorId || null}
+          onChange={(v) => setVendorId(v)}
+          options={[{ value: "", label: "Select…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+          inputStyle={inp}
+        />
       </Row>
       <Row label="Category">
         <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Apparel" style={inp} />
       </Row>
       <Row label="Rank">
-        <select value={rank} onChange={(e) => setRank(e.target.value)} style={inp}>
-          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} {n === 1 ? "(primary)" : ""}</option>)}
-        </select>
+        <SearchableSelect
+          value={rank || null}
+          onChange={(v) => setRank(v)}
+          options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} ${n === 1 ? "(primary)" : ""}` }))}
+          inputStyle={inp}
+        />
       </Row>
       <Row label="Notes (optional)"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} /></Row>
       <Row label="Set by"><input value={setBy} onChange={(e) => setSetBy(e.target.value)} placeholder="your name" style={inp} /></Row>

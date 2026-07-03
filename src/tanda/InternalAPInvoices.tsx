@@ -33,6 +33,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import RowHistory from "./components/RowHistory";
 // Wave 5 primitives.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -129,6 +131,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -260,6 +263,20 @@ export default function InternalAPInvoices() {
     return m;
   }, [vendors]);
 
+  // #5 Sortable columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:apinvoices:sort",
+    accessors: {
+      posting_date: (inv) => inv.posting_date,
+      due_date: (inv) => inv.due_date,
+      vendor: (inv) => vendorMap[inv.vendor_id]?.name || inv.vendor_id,
+      invoice_number: (inv) => inv.invoice_number,
+      gl_status: (inv) => inv.gl_status,
+      total: (inv) => Number(inv.total_amount_cents || "0"),
+      paid: (inv) => Number(inv.paid_amount_cents || "0"),
+    },
+  });
+
   async function doPost(inv: APInvoice) {
     if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This will create the accrual JE.`))) return;
     setBusy(inv.id);
@@ -308,14 +325,21 @@ export default function InternalAPInvoices() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as GlStatus | "")} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="pending_approval">Pending approval</option>
-          <option value="posted">Posted</option>
-          <option value="paid">Paid</option>
-          <option value="void">Void</option>
-        </select>
+        <div style={{ width: 180 }}>
+          <SearchableSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as GlStatus | "")}
+            options={[
+              { value: "", label: "All statuses" },
+              { value: "draft", label: "Draft" },
+              { value: "pending_approval", label: "Pending approval" },
+              { value: "posted", label: "Posted" },
+              { value: "paid", label: "Paid" },
+              { value: "void", label: "Void" },
+            ]}
+            placeholder="All statuses"
+          />
+        </div>
         <div style={{ width: 240 }}>
           <SearchableSelect
             value={vendorFilter || null}
@@ -394,7 +418,7 @@ export default function InternalAPInvoices() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -403,18 +427,18 @@ export default function InternalAPInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!isVisible("posting_date")}>Posting</th>
-                <th style={th} hidden={!isVisible("due_date")}>Due</th>
-                <th style={th} hidden={!isVisible("vendor")}>Vendor</th>
-                <th style={th} hidden={!isVisible("invoice_number")}>Invoice #</th>
-                <th style={th} hidden={!isVisible("gl_status")}>Status</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
+                <SortableTh label="Posting" sortKey="posting_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("posting_date")} />
+                <SortableTh label="Due" sortKey="due_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("due_date")} />
+                <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("vendor")} />
+                <SortableTh label="Invoice #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("invoice_number")} />
+                <SortableTh label="Status" sortKey="gl_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("gl_status")} />
+                <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+                <SortableTh label="Paid" sortKey="paid" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("paid")} />
                 <th style={{ ...th, width: 260 }}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((inv) => {
+              {sortedRows.map((inv) => {
                 const isDraft = inv.gl_status === "draft" || inv.gl_status === "unposted";
                 const isPosted = inv.gl_status === "posted";
                 const isPaid = inv.gl_status === "paid";
@@ -850,11 +874,16 @@ function APInvoiceModal({
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="Type">
-                <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="vendor_bill">Invoice</option>
-                  <option value="vendor_credit_memo">Credit</option>
-                  <option value="expense_report">Expense report</option>
-                </select>
+                <SearchableSelect
+                  value={kind || null}
+                  onChange={(v) => setKind(v)}
+                  options={[
+                    { value: "vendor_bill", label: "Invoice" },
+                    { value: "vendor_credit_memo", label: "Credit" },
+                    { value: "expense_report", label: "Expense report" },
+                  ]}
+                  disabled={!editable}
+                />
               </Field>
             </div>
 
@@ -910,15 +939,15 @@ function APInvoiceModal({
             {lines.some((l) => l.kind === "inventory") && (
               <div style={{ marginTop: 12 }}>
                 <Field label="Receive inventory into (brand pool)">
-                  <select
+                  <SearchableSelect
                     value={receivingChannel}
-                    onChange={(e) => setReceivingChannel(e.target.value as "WS" | "EC")}
+                    onChange={(v) => setReceivingChannel(v as "WS" | "EC")}
+                    options={[
+                      { value: "WS", label: "Wholesale pool" },
+                      { value: "EC", label: "Ecom pool" },
+                    ]}
                     disabled={!editable}
-                    style={inputStyle as React.CSSProperties}
-                  >
-                    <option value="WS">Wholesale pool</option>
-                    <option value="EC">Ecom pool</option>
-                  </select>
+                  />
                   <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
                     Received units land in the brand's {receivingChannel === "EC" ? "Ecom" : "Wholesale"} pool when posted (single-pool brands ignore this).
                   </div>
@@ -975,10 +1004,15 @@ function APInvoiceModal({
                     <tr key={l.key}>
                       <td style={td}>{idx + 1}</td>
                       <td style={td}>
-                        <select value={l.kind} onChange={(e) => updateLine(idx, { kind: e.target.value as "expense" | "inventory" })} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                          <option value="expense">expense</option>
-                          <option value="inventory">inventory</option>
-                        </select>
+                        <SearchableSelect
+                          value={l.kind}
+                          onChange={(v) => updateLine(idx, { kind: v as "expense" | "inventory" })}
+                          options={[
+                            { value: "expense", label: "expense" },
+                            { value: "inventory", label: "inventory" },
+                          ]}
+                          disabled={!editable}
+                        />
                       </td>
                       <td style={td}>
                         {l.kind === "expense" ? (
@@ -1183,13 +1217,17 @@ function APPaymentModal({
             <input type="text" value={amountDollars} onChange={(e) => setAmountDollars(e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Method">
-            <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle as React.CSSProperties}>
-              <option value="ach">ACH</option>
-              <option value="wire">Wire</option>
-              <option value="check">Check</option>
-              <option value="credit_card">Credit card</option>
-              <option value="cash">Cash</option>
-            </select>
+            <SearchableSelect
+              value={method || null}
+              onChange={(v) => setMethod(v)}
+              options={[
+                { value: "ach", label: "ACH" },
+                { value: "wire", label: "Wire" },
+                { value: "check", label: "Check" },
+                { value: "credit_card", label: "Credit card" },
+                { value: "cash", label: "Cash" },
+              ]}
+            />
           </Field>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>

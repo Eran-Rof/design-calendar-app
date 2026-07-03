@@ -18,8 +18,8 @@ export interface LibrariesViewProps {
 }
 
 const TABS: Array<[LibrariesTab, string]> = [
-  ["materials", "🧵 Materials"],
-  ["specsheets", "📏 Spec Sheets"],
+  ["materials", "Materials"],
+  ["specsheets", "Spec Sheets"],
 ];
 
 export function LibrariesView({ libTab, setLibTab, materialsView, specSheetsView }: LibrariesViewProps) {

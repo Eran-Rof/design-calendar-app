@@ -53,13 +53,13 @@ function bumpCount(key: string, prev: Record<string, number>): Record<string, nu
 
 // ── suite apps ────────────────────────────────────────────────────────────
 const SUITE_APPS = [
-  { href: "/",         emoji: "📅", label: "Design Calendar",  description: "Style cards and milestones" },
-  { href: "/ats",      emoji: "📦", label: "ATS",              description: "Available-to-ship planning" },
-  { href: "/tanda",    emoji: "📋", label: "PO WIP",           description: "Purchase order tracking" },
-  { href: "/costing",  emoji: "💰", label: "Costing",          description: "Costing projects and margins" },
-  { href: "/planning", emoji: "📈", label: "Planning",         description: "Inventory forecasting" },
-  { href: "/gs1",      emoji: "🏷️", label: "GS1",             description: "Prepack labels and SSCC" },
-  { href: "/vendor",   emoji: "🌐", label: "Vendor Portal",    description: "External vendor view" },
+  { href: "/",         label: "Design Calendar",  description: "Style cards and milestones" },
+  { href: "/ats",      label: "ATS",              description: "Available-to-ship planning" },
+  { href: "/tanda",    label: "PO WIP",           description: "Purchase order tracking" },
+  { href: "/costing",  label: "Costing",          description: "Costing projects and margins" },
+  { href: "/planning", label: "Planning",         description: "Inventory forecasting" },
+  { href: "/gs1",      label: "GS1",             description: "Prepack labels and SSCC" },
+  { href: "/vendor",   label: "Vendor Portal",    description: "External vendor view" },
 ];
 
 // ── types ─────────────────────────────────────────────────────────────────
@@ -236,6 +236,18 @@ export function NavDrawer({
     setFavSelected(false); // a real menu pick → menu highlight is back on
     navigate(key);
   }, [navigate]);
+
+  // Right-click a nav row → open that same view in a NEW browser tab and focus
+  // it. Left-click behavior is untouched. The app deep-links from ?m=<key> on
+  // mount (see Tangerine.tsx), so the opened tab lands directly on that view.
+  const RIGHT_CLICK_HINT = "Right-click: open in new tab";
+  const onNavContext = useCallback((e: React.MouseEvent, key: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = new URL(moduleHref(key), window.location.href).toString();
+    const win = window.open(url, "_blank");
+    if (win) win.focus();
+  }, []);
 
   // Favorites click — navigate, suppress the menu-section auto-open below, and
   // mark the selection favorites-driven so the menu copy isn't highlighted.
@@ -423,7 +435,7 @@ export function NavDrawer({
             title="Search (expand to use)"
             onClick={e => { e.stopPropagation(); onToggleCollapsed(); setTimeout(() => searchRef.current?.focus(), 220); }}
             style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:15, width:"100%", textAlign:"center", lineHeight:1, padding:"3px 0" }}
-          >🔍</button>
+          >Search</button>
         ) : (
           <input
             ref={searchRef}
@@ -448,8 +460,9 @@ export function NavDrawer({
             {searchHits.length === 0
               ? <div style={{ color:C.textMuted, fontSize:12, padding:"8px 12px" }}>No matches</div>
               : searchHits.map(m => (
-                <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }}
+                <a key={m.key} href={moduleHref(m.key)} title={RIGHT_CLICK_HINT} style={{ ...rowStyle(m.key), textDecoration:"none" }}
                   onClick={e => onNavClick(e, m.key)}
+                  onContextMenu={e => onNavContext(e, m.key)}
                   onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
                 >
                   <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>
@@ -463,7 +476,7 @@ export function NavDrawer({
         {!search && (
           <div style={{ padding:"0 4px" }}>
             {collapsed
-              ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>⭐</div>
+              ? <div title="Favorites" style={{ textAlign:"center", padding:"9px 0 4px", color:C.star, fontSize:14 }}>★</div>
               : (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 10px 4px" }}>
                   <span style={{ fontSize:11, fontWeight:700, color:C.section, letterSpacing:0.9, textTransform:"uppercase" }}>Favorites</span>
@@ -481,11 +494,11 @@ export function NavDrawer({
               <div style={{ color:C.textMuted, fontSize:9.6, padding:"2px 10px 7px", fontStyle:"italic", opacity:0.6 }}>Use ☆ to star the current view</div>
             )}
             {favMods.map(m => (
-              <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? m.label : undefined}
+              <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key), textDecoration:"none" }} title={collapsed ? `${m.label} — ${RIGHT_CLICK_HINT}` : RIGHT_CLICK_HINT}
                 onClick={e => onFavClick(e, m.key)}
+                onContextMenu={e => onNavContext(e, m.key)}
                 onMouseEnter={e => hoverOn(e, m.key)} onMouseLeave={e => hoverOff(e, m.key)}
               >
-                {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
                 {!collapsed && <span style={{ overflow:"hidden", textOverflow:"ellipsis" }}>{m.label}</span>}
               </a>
             ))}
@@ -505,11 +518,11 @@ export function NavDrawer({
           const showGroupHeaders = groups.length > 1;
 
           const renderRow = (m: NavModule) => (
-            <a key={m.key} href={moduleHref(m.key)} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
+            <a key={m.key} href={moduleHref(m.key)} title={RIGHT_CLICK_HINT} style={{ ...rowStyle(m.key, menuActive(m.key)), textDecoration:"none" }}
               onClick={e => onNavClick(e, m.key)}
+              onContextMenu={e => onNavContext(e, m.key)}
               onMouseEnter={e => hoverOn(e, m.key, menuActive(m.key))} onMouseLeave={e => hoverOff(e, m.key, menuActive(m.key))}
             >
-              {collapsed && <span style={{ fontSize:14, flexShrink:0 }}>{m.emoji}</span>}
               <span style={{ overflow:"hidden", textOverflow:"ellipsis", flex:1 }}>{m.label}</span>
               {(counts[m.key] ?? 0) > 0 && (
                 <span style={{ fontSize:10, color:C.textMuted, flexShrink:0 }}>{counts[m.key]}</span>
@@ -535,7 +548,6 @@ export function NavDrawer({
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = hasActive && !isOpen ? "rgba(29,78,216,0.15)" : "transparent"; }}
               >
                 <div style={{ display:"flex", alignItems:"center", gap:7 }}>
-                  {collapsed && <span style={{ fontSize:14 }}>{sec.emoji}</span>}
                   {!collapsed && (
                     <span style={{ fontSize:13, fontWeight:600, color: hasActive ? C.text : C.textMuted, letterSpacing:0.5, textTransform:"uppercase", whiteSpace:"nowrap" }}>
                       {sec.section}
@@ -574,7 +586,7 @@ export function NavDrawer({
               {/* In collapsed mode show active item's icon always */}
               {collapsed && hasActive && (
                 <div style={rowStyle(activeModule!)} title={modules.find(m => m.key === activeModule)?.label ?? ""}>
-                  <span style={{ fontSize:14 }}>{modules.find(m => m.key === activeModule)?.emoji}</span>
+                  <span style={{ fontSize:14 }}>{modules.find(m => m.key === activeModule)?.label?.slice(0, 2)}</span>
                 </div>
               )}
             </div>
@@ -592,8 +604,8 @@ export function NavDrawer({
               onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = C.bgRow; }}
               onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
             >
-              <span style={{ fontSize:14 }}>📈</span>
               {!collapsed && <><span>Planning</span><span style={{ fontSize:10, opacity:0.5 }}>↗</span></>}
+              {collapsed && <span style={{ fontSize:11 }}>↗</span>}
             </a>
           </div>
         )}
@@ -617,8 +629,7 @@ export function NavDrawer({
           onMouseEnter={e => { e.currentTarget.style.background = C.bgRow; e.currentTarget.style.color = C.text; }}
           onMouseLeave={e => { if (!appsOpen) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; } }}
         >
-          <span style={{ fontSize:14 }}>🧩</span>
-          {!collapsed && <span>All Apps</span>}
+          {collapsed ? <span style={{ fontSize:13, fontWeight:700 }}>···</span> : <span>All Apps</span>}
         </button>
 
         {appsOpen && (
@@ -637,7 +648,6 @@ export function NavDrawer({
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                     title={a.description}
                   >
-                    <span style={{ fontSize:17 }}>{a.emoji}</span>
                     <div style={{ display:"flex", flexDirection:"column", lineHeight:1.2, minWidth:0 }}>
                       <span style={{ fontSize:12, fontWeight:600 }}>{a.label}</span>
                       <span style={{ fontSize:10, color:C.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.description}</span>

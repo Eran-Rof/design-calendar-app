@@ -6,29 +6,57 @@
 // /api/internal/style-matrix → editable MatrixGrid → resolve-sku per cell).
 // PO number is system-assigned on Issue.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import SearchableSelect from "./components/SearchableSelect";
+import QuickAddPartyModal from "./components/QuickAddPartyModal";
+import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
-import { openOrderDocument } from "./orderDocument";
+import { openOrderDocument, downloadOrderExcel, type OrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
-import { readDrillParam } from "./scorecardDrill";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
+import DateRangePresets from "./components/DateRangePresets";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
+import { extractPpk } from "../shared/prepack";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
+
+// EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
+// scope so the grid-level toggle and the row expanders read/write one value.
+const EXPLODE_PPK_KEY = "tanda_matrix_explode_ppk";
+function readExplodePpk(): boolean { try { return localStorage.getItem(EXPLODE_PPK_KEY) !== "false"; } catch { return true; } }
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const PO_TABLE_KEY = "tangerine:purchaseorders:columns";
+// Server-side page size for the list (the endpoint caps at 500). Search / filters
+// reach older orders beyond this window (server-side).
+const PO_LIST_LIMIT = 500;
+// Mirrors the Sales Orders grid's cost/sell/margin strip: Avg cost is the item's
+// STANDARD (catalog) cost, Avg PO Price is what THIS PO actually pays the vendor,
+// so the two read side-by-side as PO variance. Plus the SO-style Cancel date.
 const PO_COLUMNS: ColumnDef[] = [
   { key: "po_number",     label: "PO #" },
   { key: "vendor",        label: "Vendor" },
   { key: "order_date",    label: "Order date" },
   { key: "expected_date", label: "Expected" },
+  { key: "cancel_date",   label: "Cancel date" },
   { key: "status",        label: "Status" },
+  { key: "avg_cost",      label: "Avg cost" },
+  { key: "avg_po_price",  label: "Avg PO Price" },
+  { key: "sell_price",    label: "Sell price" },
+  { key: "margin_pct",    label: "Margin %" },
+  { key: "margin_amt",    label: "Margin $" },
   { key: "total",         label: "Total" },
 ];
+// colSpan for full-width rows = every column + the leading expander cell.
+const PO_COL_TOTAL = PO_COLUMNS.length + 1;
+// Per-column sort persistence (mirrors useTablePrefs key scheme).
+const PO_SORT_KEY = "tangerine:purchaseorders:sort";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -36,15 +64,30 @@ const C = {
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
 const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+// Frozen header cell — th + sticky to the scroll container's top. Opaque bg so
+// rows scroll underneath cleanly (mirrors InventoryMatrix SnapshotView thStick).
+const thStick: React.CSSProperties = { ...th, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
+const dateInput: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "5px 8px", fontSize: 13, colorScheme: "dark" };
+const dl: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
+// Dropdown item for the View → PDF / Excel menu (app dark palette).
+const viewMenuItem: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: "transparent", color: "#F1F5F9", border: 0, borderBottom: "1px solid #334155", padding: "9px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
 
 type PO = {
   id: string; po_number: string | null; vendor_id: string; brand_id: string | null;
-  order_date: string; expected_date: string | null; status: string; currency: string;
+  order_date: string; expected_date: string | null; cancel_date?: string | null; status: string; currency: string;
   payment_terms_id: string | null; notes: string | null; subtotal_cents: number | string; total_cents: number | string;
+  // List-endpoint enrichment (see enrichPricing() in the list handler):
+  //   avg_cost_cents     — qty-weighted STANDARD/catalog cost (ip_item_avg_cost).
+  //   avg_po_price_cents — qty-weighted unit cost on THIS PO's own lines.
+  //   sell_cents         — qty-weighted resolved sell price.
+  //   margin_cents/_pct  — Sell − Avg PO Price (server-computed; recomputed
+  //                        client-side too for the sort/totals accessors).
+  avg_cost_cents?: number | null; avg_po_price_cents?: number | null; sell_cents?: number | null;
+  margin_cents?: number | null; margin_pct?: number | null;
 };
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
@@ -53,6 +96,28 @@ type Lookup = { id: string; code?: string; name: string };
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0); const neg = n < 0; const abs = Math.abs(n);
   return `${neg ? "-" : ""}$${Math.trunc(abs / 100).toLocaleString()}.${String(Math.round(abs % 100)).padStart(2, "0")}`;
+}
+// Margin % to one decimal, "—" when null (mirrors the Sales Orders grid).
+function fmtPct(p: number | null | undefined): string {
+  if (p == null) return "—";
+  return `${p.toFixed(1)}%`;
+}
+// Per-PO margin $ = resolved sell − the price THIS PO actually pays the vendor
+// (avg_po_price_cents), both qty-weighted. Priced against the PO's own cost (not
+// standard cost) so the margin reflects the real buy, mirroring the Sales Orders
+// grid's Sell − Cost convention. Null when either side is missing.
+function poMarginCents(po: Pick<PO, "avg_po_price_cents" | "sell_cents">): number | null {
+  const sell = po.sell_cents;
+  const price = po.avg_po_price_cents;
+  if (sell == null || price == null) return null;
+  return sell - price;
+}
+// Per-PO margin % = margin $ / sell. Null when sell is missing or ≤ 0.
+function poMarginPct(po: Pick<PO, "avg_po_price_cents" | "sell_cents">): number | null {
+  const sell = po.sell_cents;
+  const m = poMarginCents(po);
+  if (m == null || sell == null || sell <= 0) return null;
+  return (m / sell) * 100;
 }
 
 // PO "Requested in DC" date derived from a Sales Order cancel date: the 1st of
@@ -73,16 +138,30 @@ const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
 const STATUS_COLORS: Record<string, string> = {
   draft: C.textMuted, issued: C.primary, in_transit: C.warn, received: C.success, cancelled: C.danger,
 };
+// Human-readable status label — drops the underscore ("in_transit" → "in transit")
+// for every place the raw status is shown (filter options, grid chip, modal).
+const statusLabel = (s: string) => s.replace(/_/g, " ");
+// Default status filter — the live/actionable set the buyer works from.
+const DEFAULT_PO_STATUSES = ["draft", "issued", "in_transit"];
 
 export default function InternalPurchaseOrders() {
   const [rows, setRows] = useState<PO[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  // Multi-select status filter (model after the SO grid). Defaults to the live
+  // set (draft / issued / in-transit); empty = all statuses.
+  const [statusFilters, setStatusFilters] = useState<string[]>(DEFAULT_PO_STATUSES);
+  // Grid-level EXPLODE PPK toggle — one control drives every row expander
+  // (moved out of the individual detail rows). Persisted, shared with the tab.
+  const [explodePpk, setExplodePpk] = useState<boolean>(readExplodePpk);
+  useEffect(() => { try { localStorage.setItem(EXPLODE_PPK_KEY, explodePpk ? "true" : "false"); } catch { /* ignore */ } }, [explodePpk]);
   // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
   // click from the Vendor Scorecard lands here pre-filtered to that vendor.
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
+  // Optional style scope (deep-link ?style=<style_code>): when set, the Avg cost
+  // + Sell price columns count only that style's lines (whole-PO otherwise).
+  const [styleScope] = useState(() => readDrillParam("style"));
   // Scorecard per-line drill: ?q=<po_number> seeds the search on mount so a
   // new-tab deep-link lands here filtered to that single PO. Server-side q is
   // all-field (search_purchase_orders RPC): matches PO #, notes, vendor
@@ -90,10 +169,19 @@ export default function InternalPurchaseOrders() {
   const { value: search, debouncedValue: searchDebounced, setValue: setSearch } = useDebouncedSearch(readDrillParam("q"), 200);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
+  // Date-range filter (client-side): pick WHICH date to filter on, then a
+  // [from,to] window (preset dropdown + manual pickers). Empty = no bound.
+  const [dateField, setDateField] = useState<"order_date" | "expected_date">("order_date");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(PO_TABLE_KEY, PO_COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+  // Totals strip scope: sum only the currently-filtered rows, or the whole
+  // loaded dataset (ignores the client-side date window). Server search/status/
+  // vendor filters always bound `rows`, so "All" = everything currently loaded.
+  const [totalsScope, setTotalsScope] = useState<"filtered" | "all">("filtered");
 
   const vendorName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -101,46 +189,143 @@ export default function InternalPurchaseOrders() {
     return m;
   }, [vendors]);
 
+  // Apply the date-range window client-side on the selected date field. A row
+  // with no value on that field is dropped while a bound is set (can't place it).
+  const filteredRows = useMemo(() => {
+    if (!dateFrom && !dateTo) return rows;
+    return rows.filter((po) => {
+      const v = (po[dateField] || "") as string;
+      if (!v) return false;
+      const d = v.slice(0, 10);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [rows, dateField, dateFrom, dateTo]);
+
+  // Universal per-column sort (tri-state asc → desc → off, persisted). Computed
+  // columns (vendor name, margin) read through accessors; the rest map 1:1.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(filteredRows, {
+    persistKey: PO_SORT_KEY,
+    accessors: {
+      vendor: (po: PO) => vendorName[po.vendor_id] || "",
+      avg_cost: (po: PO) => po.avg_cost_cents,
+      avg_po_price: (po: PO) => po.avg_po_price_cents,
+      sell_price: (po: PO) => po.sell_cents,
+      margin_pct: (po: PO) => poMarginPct(po),
+      margin_amt: (po: PO) => poMarginCents(po),
+      total: (po: PO) => Number(po.total_cents ?? 0),
+    },
+  });
+
+  // Row expander (▸ carrot): which PO's line detail is open. One at a time.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Totals strip — sum across either the filtered subset or the full loaded
+  // dataset. Qty-weighted avg cost/sell so the weighted Margin % is meaningful
+  // (mirrors the server's enrichPricing weighting). Total = Σ total_cents.
+  const totals = useMemo(() => {
+    const src = totalsScope === "all" ? rows : filteredRows;
+    let totalCents = 0;
+    let costNum = 0, costDen = 0, priceNum = 0, priceDen = 0, sellNum = 0, sellDen = 0;
+    for (const po of src) {
+      totalCents += Number(po.total_cents ?? 0);
+      // Weight the avg-cost / PO-price / sell by the PO total $ as a proxy for
+      // line volume (the per-unit averages are all we have at the grid grain).
+      const w = Math.abs(Number(po.total_cents ?? 0)) || 1;
+      if (po.avg_cost_cents != null) { costNum += po.avg_cost_cents * w; costDen += w; }
+      if (po.avg_po_price_cents != null) { priceNum += po.avg_po_price_cents * w; priceDen += w; }
+      if (po.sell_cents != null) { sellNum += po.sell_cents * w; sellDen += w; }
+    }
+    const avgCost = costDen > 0 ? Math.round(costNum / costDen) : null;
+    const avgPoPrice = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
+    const sell = sellDen > 0 ? Math.round(sellNum / sellDen) : null;
+    // Margin follows the row convention: Sell − Avg PO Price.
+    const marginCents = sell != null && avgPoPrice != null ? sell - avgPoPrice : null;
+    const marginPct = sell != null && marginCents != null && sell > 0 ? (marginCents / sell) * 100 : null;
+    return { count: src.length, totalCents, avgCost, avgPoPrice, sell, marginCents, marginPct };
+  }, [totalsScope, rows, filteredRows]);
+
   async function load() {
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
+      if (statusFilters.length) params.set("status", statusFilters.join(","));
       if (vendorFilter) params.set("vendor_id", vendorFilter);
       if (searchDebounced.trim()) params.set("q", searchDebounced.trim());
+      if (styleScope) params.set("style", styleScope);
+      params.set("limit", String(PO_LIST_LIMIT));
       const r = await fetch(`/api/internal/purchase-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setRows(await r.json() as PO[]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilter, vendorFilter, searchDebounced]);
+  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo);
+  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
+  // initializers above seeded from them, so leaving and returning to this panel
+  // starts unfiltered instead of silently re-applying a stale search that can
+  // hide the whole PO list. Runs once on mount.
+  useEffect(() => { consumeDrillParams(["q", "vendor", "style"]); }, []);
+  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
       .then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {});
   }, []);
 
-  const exportRows = useMemo(() => rows.map((po) => ({
-    po_number: po.po_number || "(draft)",
-    vendor: vendorName[po.vendor_id] || "",
-    order_date: po.order_date,
-    expected_date: po.expected_date || "",
-    status: po.status,
-    total: Number(po.total_cents ?? 0) / 100,
-  })), [rows, vendorName]);
+  const exportRows = useMemo(() => {
+    const body = sortedRows.map((po) => ({
+      po_number: po.po_number || "(draft)",
+      vendor: vendorName[po.vendor_id] || "",
+      order_date: po.order_date,
+      expected_date: po.expected_date || "",
+      cancel_date: po.cancel_date || "",
+      status: po.status,
+      avg_cost: po.avg_cost_cents != null ? po.avg_cost_cents / 100 : "",
+      avg_po_price: po.avg_po_price_cents != null ? po.avg_po_price_cents / 100 : "",
+      sell_price: po.sell_cents != null ? po.sell_cents / 100 : "",
+      margin_pct: poMarginPct(po),
+      margin_amt: (() => { const m = poMarginCents(po); return m != null ? m / 100 : ""; })(),
+      total: Number(po.total_cents ?? 0) / 100,
+    }));
+    // #23 — append the on-screen Totals row to the export so the spreadsheet
+    // carries the same footer the grid shows (honours the Filtered/All scope).
+    body.push({
+      po_number: totalsScope === "all" ? "TOTAL (all loaded)" : "TOTAL (filtered)",
+      vendor: "",
+      order_date: "",
+      expected_date: "",
+      cancel_date: "",
+      status: `${totals.count} PO${totals.count === 1 ? "" : "s"}`,
+      avg_cost: totals.avgCost != null ? totals.avgCost / 100 : "",
+      avg_po_price: totals.avgPoPrice != null ? totals.avgPoPrice / 100 : "",
+      sell_price: totals.sell != null ? totals.sell / 100 : "",
+      margin_pct: totals.marginPct,
+      margin_amt: totals.marginCents != null ? totals.marginCents / 100 : "",
+      total: totals.totalCents / 100,
+    });
+    return body;
+  }, [sortedRows, vendorName, totals, totalsScope]);
   const exportColumns: ExportColumn<Record<string, unknown>>[] = [
     { key: "po_number", header: "PO #" },
     { key: "vendor", header: "Vendor" },
     { key: "order_date", header: "Order Date" },
     { key: "expected_date", header: "Expected" },
+    { key: "cancel_date", header: "Cancel Date" },
     { key: "status", header: "Status" },
+    { key: "avg_cost", header: "Avg Cost", format: "number" },
+    { key: "avg_po_price", header: "Avg PO Price", format: "number" },
+    { key: "sell_price", header: "Sell Price", format: "number" },
+    { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
+    { key: "margin_amt", header: "Margin $", format: "number" },
     { key: "total", header: "Total", format: "number" },
   ];
 
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📦 Purchase Orders</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Purchase Orders</h2>
         <div style={{ display: "flex", gap: 8 }}>
           <ExportButton rows={exportRows} filename="purchase-orders" sheetName="Purchase Orders" columns={exportColumns} />
           <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New purchase order</button>
@@ -148,16 +333,35 @@ export default function InternalPurchaseOrders() {
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 180 }}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        {/* Multi-select status filter (pick any combination) — mirrors the SO grid. */}
+        <MultiSelectDropdown
+          selected={statusFilters}
+          onChange={setStatusFilters}
+          options={STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
+          allLabel="All statuses"
+          placeholder="Search status…"
+          title="Filter by one or more statuses"
+          minWidth={180}
+        />
         <div style={{ width: 240 }}>
           <SearchableSelect value={vendorFilter || null} onChange={(v) => setVendorFilter(v)}
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
             placeholder="All vendors" inputStyle={inputStyle} />
         </div>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search PO #, vendor, style…" style={{ ...inputStyle, width: 240 }} />
+        {/* Date-range filter: which date + [from,to] window (presets + manual). */}
+        <div style={{ width: 150 }} title="Which date the range filters on">
+          <SearchableSelect value={dateField} onChange={(v) => setDateField(v as "order_date" | "expected_date")}
+            options={[
+              { value: "order_date", label: "PO date" },
+              { value: "expected_date", label: "Expected date" },
+            ]} inputStyle={inputStyle} />
+        </div>
+        <DateRangePresets variant="dropdown" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+        <label style={dl}>From <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+        <label style={dl}>To <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
+        {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Clear dates</button>}
+        {anyFilter && <button onClick={clearFilters} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, color: C.warn, borderColor: C.warn }} title="Clear status, vendor, search and date filters">Clear filters</button>}
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
@@ -166,30 +370,123 @@ export default function InternalPurchaseOrders() {
           onToggle={toggleColumn}
           onReset={resetToDefault}
         />
+        {/* Grid-level EXPLODE PPK toggle — controls every row's ▸ line detail
+            (moved here from inside each expander). Shared, persisted preference. */}
+        <label
+          title={explodePpk ? "Row detail shows prepack totals as units (packs × units-per-pack) with per-each cost. Click to switch to packs." : "Row detail shows prepack totals as packs. Click to explode to units + per-each cost."}
+          style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "5px 10px", borderRadius: 6, border: `1px solid ${explodePpk ? "#A855F7" : C.cardBdr}`, background: explodePpk ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={explodePpk} onChange={(e) => setExplodePpk(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 12, height: 12 }} />
+          <span style={{ color: explodePpk ? "#C4B5FD" : C.textMuted, fontSize: 11, fontWeight: explodePpk ? 700 : 400 }}>EXPLODE PPK</span>
+        </label>
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      {/* Result count + cap notice — prevents mistaking the page cap for the total. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: C.textMuted }}>
+          {loading ? "Loading…" : (
+            <>
+              Showing <b style={{ color: C.text }}>{filteredRows.length.toLocaleString()}</b> purchase order{filteredRows.length === 1 ? "" : "s"}
+              {rows.length >= PO_LIST_LIMIT && <> — most recent {PO_LIST_LIMIT}; use search or filters to find older orders</>}
+              {anyFilter && <> · <span style={{ color: C.warn }}>filters active</span></>}
+            </>
+          )}
+        </div>
+        {/* #1 — Totals strip scope: sum the filtered rows or the whole loaded set. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMuted }} title="Switch the Totals row between the currently-filtered rows and the whole loaded dataset">
+          <span>Totals:</span>
+          {(["filtered", "all"] as const).map((s) => (
+            <button key={s} type="button" onClick={() => setTotalsScope(s)}
+              style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12,
+                ...(totalsScope === s ? { color: C.text, borderColor: C.primary, background: "#0b1220" } : null) }}>
+              {s === "filtered" ? "Filtered rows" : "All rows"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {styleScope && <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Cost, PO price, sell &amp; margin scoped to style <b style={{ color: C.text }}>{styleScope}</b></div>}
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th} hidden={!isVisible("po_number")}>PO #</th><th style={th} hidden={!isVisible("vendor")}>Vendor</th><th style={th} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={th} hidden={!isVisible("expected_date")}>Expected</th><th style={th} hidden={!isVisible("status")}>Status</th><th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            {/* Leading expander column (▸ carrot → per-style line detail). */}
+            <th style={{ ...thStick, width: 28, padding: "8px 6px" }} aria-label="Expand" />
+            <SortableTh label="PO #" sortKey="po_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("po_number")} />
+            <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("vendor")} />
+            <SortableTh label="Order date" sortKey="order_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("order_date")} />
+            <SortableTh label="Expected" sortKey="expected_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("expected_date")} />
+            <SortableTh label="Cancel date" sortKey="cancel_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("cancel_date")} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("status")} />
+            <SortableTh label="Avg cost" sortKey="avg_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost (ip_item_avg_cost)" />
+            <SortableTh label="Avg PO Price" sortKey="avg_po_price" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_po_price")} title="What this PO actually pays the vendor (qty-weighted)" />
+            <SortableTh label="Sell price" sortKey="sell_price" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sell_price")} />
+            <SortableTh label="Margin %" sortKey="margin_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_pct")} title="Sort by margin % — (sell − avg PO price) / sell" />
+            <SortableTh label="Margin $" sortKey="margin_amt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_amt")} title="Sell − avg PO price" />
+            <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
           </tr></thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No purchase orders.</td></tr>}
-            {rows.map((po) => (
-              <tr key={po.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(po); setModalOpen(true); }}>
+            {loading && <tr><td style={td} colSpan={PO_COL_TOTAL}>Loading…</td></tr>}
+            {!loading && sortedRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={PO_COL_TOTAL}>No purchase orders.</td></tr>}
+            {sortedRows.map((po) => {
+              const mPct = poMarginPct(po);
+              const mCents = poMarginCents(po);
+              const marginColor = mCents == null ? C.text : mCents >= 0 ? C.success : C.danger;
+              const isOpen = expandedId === po.id;
+              return (
+              <Fragment key={po.id}>
+              <tr style={{ cursor: "pointer" }} onClick={() => { setEditing(po); setModalOpen(true); }}>
+                {/* Carrot — toggles the detail row; stops propagation so it doesn't open the modal. */}
+                <td style={{ ...td, width: 28, padding: "8px 6px", textAlign: "center", color: C.textMuted, userSelect: "none" }}
+                  onClick={(e) => { e.stopPropagation(); setExpandedId(isOpen ? null : po.id); }}
+                  title={isOpen ? "Hide line detail" : "Show line detail"}>{isOpen ? "▾" : "▸"}</td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("po_number")}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
                 <td style={td} hidden={!isVisible("vendor")}>{vendorName[po.vendor_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(po.order_date)}</td>
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
-                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {po.status}</span></td>
+                <td style={td} hidden={!isVisible("cancel_date")}>{po.cancel_date ? fmtDateDisplay(po.cancel_date) : "—"}</td>
+                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span></td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost">{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_po_price")} title="This PO's actual unit price">{po.avg_po_price_cents != null ? fmtCents(po.avg_po_price_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")} title="(sell − avg PO price) / sell">{fmtPct(mPct)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")} title="sell − avg PO price">{mCents != null ? fmtCents(mCents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(po.total_cents)}</td>
               </tr>
-            ))}
+              {isOpen && (
+                <tr>
+                  <td style={{ padding: 0, background: "#0b1220", borderBottom: `1px solid ${C.cardBdr}` }} colSpan={PO_COL_TOTAL}>
+                    <PoRowDetail poId={po.id} explode={explodePpk} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
+          {/* #1 / #23 — Totals strip (also exported). Scope follows the toggle. */}
+          {!loading && totals.count > 0 && (
+            <tfoot>
+              <tr style={{ position: "sticky", bottom: 0, zIndex: 1 }}>
+                {/* Expander column — no total. */}
+                <td style={{ ...td, width: 28, padding: "8px 6px", background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} />
+                <td style={{ ...td, background: "#0b1220", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("po_number")}>
+                  {totalsScope === "all" ? "Total · all loaded" : "Total · filtered"}
+                </td>
+                <td style={{ ...td, background: "#0b1220", color: C.textMuted, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("vendor")}>{totals.count.toLocaleString()} PO{totals.count === 1 ? "" : "s"}</td>
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("order_date")} />
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("expected_date")} />
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("cancel_date")} />
+                <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("status")} />
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_cost")} title="Total-weighted average standard cost">{totals.avgCost != null ? fmtCents(totals.avgCost) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_po_price")} title="Total-weighted average PO price">{totals.avgPoPrice != null ? fmtCents(totals.avgPoPrice) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("sell_price")} title="Total-weighted average sell price">{totals.sell != null ? fmtCents(totals.sell) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginPct == null ? C.text : totals.marginPct >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_pct")} title="Weighted margin % across the totalled rows">{fmtPct(totals.marginPct)}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginCents == null ? C.text : totals.marginCents >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_amt")} title="Weighted margin $ (sell − PO price)">{totals.marginCents != null ? fmtCents(totals.marginCents) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("total")}>{fmtCents(totals.totalCents)}</td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
@@ -205,8 +502,150 @@ export default function InternalPurchaseOrders() {
   );
 }
 
-function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
+// ── Row expander: per-style line detail ─────────────────────────────────────
+// Lazy-fetches the PO's lines and renders a per-style color×size matrix. The
+// EXPLODE PPK state is owned by the grid toolbar and passed in via `explode`:
+// OFF → cells/totals are pack counts and the unit column is the per-pack PO cost;
+// ON → cells/totals are units (packs × units-per-pack) and the unit column is the
+// per-EACH cost. Ext $ is grain-safe either way (line unit_cost_cents is per-pack,
+// qty is packs, so Σ qty·unit is the same).
+type PoDetailLine = {
+  style_code: string | null; color: string | null; size: string | null;
+  sku_code: string | null; qty_ordered: number; unit_cost_cents: number; lot_number: string | null;
+};
+// Apparel-ish size rank so grids read XS,S,M,L,XL… then numerics then alpha.
+const SIZE_RANK: Record<string, number> = { XXS: 0, XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, "2XL": 6, XXXL: 7, "3XL": 7, "4XL": 8 };
+function sizeSort(a: string, b: string): number {
+  const ra = SIZE_RANK[a.toUpperCase()], rb = SIZE_RANK[b.toUpperCase()];
+  if (ra != null && rb != null) return ra - rb;
+  if (ra != null) return -1;
+  if (rb != null) return 1;
+  const na = parseFloat(a), nb = parseFloat(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return a.localeCompare(b);
+}
+
+function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
+  const [lines, setLines] = useState<PoDetailLine[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let cancel = false;
+    setLines(null); setErr(null);
+    fetch(`/api/internal/purchase-orders/${poId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((full) => { if (!cancel) setLines(Array.isArray(full?.lines) ? (full.lines as PoDetailLine[]) : []); })
+      .catch((e) => { if (!cancel) setErr(e instanceof Error ? e.message : String(e)); });
+    return () => { cancel = true; };
+  }, [poId]);
+
+  if (err) return <div style={{ padding: "10px 14px", color: C.danger, fontSize: 12 }}>Couldn't load line detail: {err}</div>;
+  if (lines == null) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>Loading line detail…</div>;
+  if (lines.length === 0) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>No lines on this purchase order.</div>;
+
+  // Group by style → color → size (qty + Σ qty·unit for a weighted cost).
+  type Cell = { qty: number; costNum: number };
+  const byStyle = new Map<string, { sizes: Set<string>; colors: Map<string, Map<string, Cell>>; lots: Set<string> }>();
+  for (const l of lines) {
+    const style = l.style_code || l.sku_code || "—";
+    const color = l.color || "—";
+    const size = l.size || "—";
+    let s = byStyle.get(style);
+    if (!s) { s = { sizes: new Set(), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
+    s.sizes.add(size);
+    if (l.lot_number) s.lots.add(l.lot_number);
+    let cm = s.colors.get(color);
+    if (!cm) { cm = new Map(); s.colors.set(color, cm); }
+    const cell = cm.get(size) || { qty: 0, costNum: 0 };
+    const qty = Number(l.qty_ordered) || 0;
+    const unit = Number(l.unit_cost_cents) || 0;
+    cell.qty += qty; cell.costNum += qty * unit;
+    cm.set(size, cell);
+  }
+  // Explode multiplier for a size (1 when off or non-PPK).
+  const mult = (style: string, size: string) => (explode ? (extractPpk(size) ?? extractPpk(style) ?? 1) : 1);
+  const ppkOf = (style: string, size: string) => (extractPpk(size) ?? extractPpk(style) ?? 1);
+  const miniTh: React.CSSProperties = { ...th, position: "static" };
+
+  return (
+    <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
+        <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>
+      </div>
+      {[...byStyle.entries()].map(([style, s]) => {
+        const sizes = [...s.sizes].sort(sizeSort);
+        let styleQty = 0, styleExt = 0;
+        for (const cm of s.colors.values()) for (const [sz, cell] of cm) { styleQty += cell.qty * mult(style, sz); styleExt += cell.costNum; }
+        return (
+          <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
+              <span style={{ color: C.primary, fontFamily: "monospace", fontWeight: 700 }}>{style}</span>
+              {s.lots.size > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>lot {[...s.lots].join(", ")}</span>}
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr>
+                  <th style={miniTh}>Color</th>
+                  {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sz}</th>)}
+                  <th style={{ ...miniTh, textAlign: "center" }}>{explode ? "Units" : "Packs"}</th>
+                  <th style={{ ...miniTh, textAlign: "right" }}>{explode ? "Per-each $" : "PO unit $"}</th>
+                  <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
+                </tr></thead>
+                <tbody>
+                  {[...s.colors.entries()].map(([color, cm]) => {
+                    let rowPacks = 0, rowExt = 0, rowUnits = 0, rowQtyDisp = 0;
+                    for (const [sz, cell] of cm) {
+                      rowPacks += cell.qty;
+                      rowExt += cell.costNum;
+                      rowUnits += cell.qty * ppkOf(style, sz);
+                      rowQtyDisp += cell.qty * mult(style, sz);
+                    }
+                    const avgPackUnit = rowPacks > 0 ? rowExt / rowPacks : 0;
+                    const perEach = rowUnits > 0 ? rowExt / rowUnits : avgPackUnit;
+                    const unitDisp = explode ? perEach : avgPackUnit;
+                    return (
+                      <tr key={color} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                        <td style={{ ...td, borderBottom: "none" }}>{color}</td>
+                        {sizes.map((sz) => {
+                          const cell = cm.get(sz);
+                          return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: cell ? C.text : C.cardBdr }}>{cell ? (cell.qty * mult(style, sz)).toLocaleString() : "—"}</td>;
+                        })}
+                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 700 }}>{rowQtyDisp.toLocaleString()}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{fmtCents(Math.round(unitDisp))}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(rowExt))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                    <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={sizes.length + 1}>Style total</td>
+                    <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 800 }}>{styleQty.toLocaleString()}</td>
+                    <td style={{ ...td, borderBottom: "none" }} />
+                    <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(styleExt))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
   const isNew = po === null;
+  // Item 1 — on-the-fly "+ New vendor / + New customer" rows are merged in front
+  // of the loaded lists so they're immediately selectable without leaving the PO.
+  const [extraVendors, setExtraVendors] = useState<Vendor[]>([]);
+  const [quickAddVendor, setQuickAddVendor] = useState(false);
+  const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const [quickAddInitialName, setQuickAddInitialName] = useState(""); // item 8 — typeahead prefill
+  const vendors = useMemo(
+    () => (extraVendors.length ? [...extraVendors, ...vendorsProp] : vendorsProp),
+    [extraVendors, vendorsProp],
+  );
   // ✎ Edit unlocks a saved (issued/in-transit/received) PO for revision — the
   // operator can change anything; saving fires a "PO revised" notification to
   // the vendor's portal users (if connected). Drafts + new POs are editable as-is.
@@ -223,15 +662,23 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // Collapse the rich document header (boxes) down to just the vendor name once
   // the operator starts adding lines, so the size matrix has room. Toggleable.
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  // View button → PDF / Excel dropdown (mirrors the SO "Confirmation" menu).
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
   const [seedKey, setSeedKey] = useState(0); // bump to remount + re-seed the matrix body
   const [salesOrderId, setSalesOrderId] = useState(""); // originating SO (Create from SO)
+  // Scenario 4 — split this PO's lines across multiple customer POs (lots),
+  // evenly on a full-carton basis. Each entered customer PO becomes a lot.
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [splitLots, setSplitLots] = useState<string[]>([]);
+  const [splitInput, setSplitInput] = useState("");
+  const [splitBusy, setSplitBusy] = useState(false);
   // Create-from-SO dialog.
   const [soPickOpen, setSoPickOpen] = useState(false);
   const [soQuery, setSoQuery] = useState("");
-  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null }[]>([]);
+  const [soList, setSoList] = useState<{ id: string; so_number: string | null; customer_id: string; status: string; requested_ship_date: string | null; cancel_date: string | null; brand_id: string | null; channel_id: string | null; customer_po: string | null; fulfillment_source: string | null }[]>([]);
   const [soBusy, setSoBusy] = useState(false);
   // Get-PO-price (awarded RFQ) flow.
   type AwardQuote = { costing_line_id: string; style_code: string; vendor_id: string; vendor_name: string | null; quoted_cost: number | null; currency: string; awarded_at: string | null; quoted_date: string | null };
@@ -246,7 +693,6 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
   // ── Rich header fields ──────────────────────────────────────────────────────
   const [poType, setPoType] = useState("");
   const [customerId, setCustomerId] = useState("");
-  const [poPrefix, setPoPrefix] = useState("");
   const [vendorContact, setVendorContact] = useState("");
   const [vendorEmail, setVendorEmail] = useState("");
   const [vendorRef, setVendorRef] = useState("");
@@ -293,6 +739,26 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     fetch("/api/internal/countries").then((r) => r.ok ? r.json() : []).then((a) => setCountries(Array.isArray(a) ? a : [])).catch(() => {});
   }, []);
 
+  // Build the matrix seed (per-style sections + flat lines) from decorated PO
+  // lines. Shared by the initial load and the post-split reload.
+  function poSeedFromLines(lines: unknown[]): { sections: SeedSection[]; flat: FlatLine[] } {
+    type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null; lot_number?: string | null };
+    const byStyle = new Map<string, SeedSection>();
+    const flat: FlatLine[] = [];
+    let fk = 1;
+    for (const l of (lines as DLine[])) {
+      const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
+      if (l.style_code && l.size) {
+        let sec = byStyle.get(l.style_code);
+        if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
+        sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, unit: dollars, lot: l.lot_number ?? null });
+      } else {
+        flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
+      }
+    }
+    return { sections: [...byStyle.values()], flat };
+  }
+
   // Load existing PO lines when editing → seed the matrix body. If the detail
   // endpoint decorates lines with style_code/color/size they regroup into
   // per-style matrices; otherwise they seed as flat lines (still editable).
@@ -301,7 +767,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full) return;
       // Populate the rich-header state from the full PO record + the rollup.
-      setPoType(full.po_type || ""); setCustomerId(full.customer_id || ""); setPoPrefix(full.po_prefix || "");
+      setPoType(full.po_type || ""); setCustomerId(full.customer_id || "");
       setVendorContact(full.vendor_contact || ""); setVendorEmail(full.vendor_email || ""); setVendorRef(full.vendor_ref || "");
       setFactoryLocation(full.factory_location || ""); setCoo(full.coo || "");
       setRequestedDeliveryDate(full.requested_delivery_date || ""); setShipWindowStart(full.ship_window_start || ""); setShipWindowEnd(full.ship_window_end || "");
@@ -311,22 +777,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       setSeason(full.season || ""); setChannelId(full.channel_id || ""); setDepartmentCategoryId(full.department_category_id || "");
       setSalesOrderId(full.sales_order_id || "");
       if (full.logistics_rollup) setRollup(full.logistics_rollup);
-      if (!full?.lines) return;
-      type DLine = { inventory_item_id: string | null; description: string | null; qty_ordered: number; unit_cost_cents: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; sku_code?: string | null; requested_ship_date?: string | null; vendor_confirmed_ship_date?: string | null };
-      const byStyle = new Map<string, SeedSection>();
-      const flat: FlatLine[] = [];
-      let fk = 1;
-      for (const l of (full.lines as DLine[])) {
-        const dollars = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
-        if (l.style_code && l.size) {
-          let sec = byStyle.get(l.style_code);
-          if (!sec) { sec = { styleCode: l.style_code, cells: [], requestedShipDate: l.requested_ship_date ?? null, vendorConfirmedShipDate: l.vendor_confirmed_ship_date ?? null }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, unit: dollars });
-        } else {
-          flat.push({ key: fk++, inventory_item_id: l.inventory_item_id || "", qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: dollars, label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
-        }
-      }
-      setSeed({ sections: [...byStyle.values()], flat });
+      if (full?.lines) setSeed(poSeedFromLines(full.lines));
     }).catch(() => {});
   }, [isNew, po]);
 
@@ -362,6 +813,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         return;
       }
       type SLine = { qty_ordered: number; style_code?: string | null; color?: string | null; size?: string | null; inseam?: string | null; inventory_item_id?: string | null; sku_code?: string | null; description?: string | null };
+      // Scenario 3 — a PO created from an SO inherits the customer's PO number as
+      // the lot on every line (the lot column is editable; blank customer PO falls
+      // back to the PO# auto-stamped at issue). Grain = style+color.
+      const soLot = (full.customer_po && String(full.customer_po).trim()) || null;
       const byStyle = new Map<string, SeedSection>();
       const flat: FlatLine[] = [];
       let fk = 1;
@@ -369,7 +824,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         if (l.style_code && l.size) {
           let sec = byStyle.get(l.style_code);
           if (!sec) { sec = { styleCode: l.style_code, cells: [] }; byStyle.set(l.style_code, sec); }
-          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered }); // no unit cost
+          sec.cells.push({ color: l.color ?? null, size: l.size, inseam: l.inseam ?? null, qty: l.qty_ordered, lot: soLot }); // no unit cost; lot = customer PO
         } else if (l.inventory_item_id) {
           flat.push({ key: fk++, inventory_item_id: l.inventory_item_id, qty_ordered: String(l.qty_ordered ?? ""), unit_price_dollars: "", label: l.sku_code ? `${l.sku_code}${l.style_code ? ` — ${l.style_code}` : ""}` : (l.description || undefined) });
         }
@@ -388,7 +843,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       const sections = [...byStyle.values()];
       setSeed({ sections, flat });
       setSoPickOpen(false);
-      notify("PO matrix prefilled from the sales order.", "success");
+      notify(soLot
+        ? `PO matrix prefilled from the sales order. Lots set to customer PO ${soLot} (editable per line).`
+        : "PO matrix prefilled from the sales order. No customer PO on the SO — lots will default to the PO number at issue.", "success");
       // Get-PO-price flow: after the SO fills the matrix, pull awarded RFQ prices.
       if (applyAwardAfterSO.current) {
         applyAwardAfterSO.current = false;
@@ -399,6 +856,29 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     } finally {
       setSoBusy(false);
     }
+  }
+
+  // ── Split this PO across customer POs (lots) — Scenario 4 ───────────────────
+  // Each line is divided evenly across the entered customer POs on a full-carton
+  // basis; every split carries its customer PO as the lot. Persisted server-side,
+  // then the matrix is reloaded to show the per-lot lines.
+  async function applySplitByLot() {
+    if (!po) return;
+    const lots = [...new Set(splitLots.map((s) => s.trim()).filter(Boolean))];
+    if (lots.length < 2) { notify("Add at least two customer PO numbers to split across.", "error"); return; }
+    setSplitBusy(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}/split-by-lot`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lots }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const full = await fetch(`/api/internal/purchase-orders/${po.id}`).then((rr) => rr.ok ? rr.json() : null).catch(() => null);
+      if (full?.lines) { setSeed(poSeedFromLines(full.lines)); setSeedKey((k) => k + 1); }
+      setSplitOpen(false); setSplitLots([]); setSplitInput("");
+      notify(j.message || "PO lines split by customer PO.", "success");
+    } catch (e) { notify(`Split failed: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSplitBusy(false); }
   }
 
   // ── Get PO price (awarded RFQ) ──────────────────────────────────────────────
@@ -470,20 +950,24 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     else notify("Awarded prices + vendor applied — review before saving.", "success");
   }
 
+  // Item 15 — cancel date can't be earlier than the ship (window start) date.
+  const cancelBeforeShip = !!(shipWindowStart && cancelDate && cancelDate < shipWindowStart);
+
   async function save(): Promise<string | null> {
     setErr(null);
     if (!vendorId) { setErr("Pick a vendor."); return null; }
+    if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Ship window start date."); return null; }
     // The matrix body resolves every filled cell + flat line to a SKU. Map its
     // generic unit_price_cents onto the PO's unit_cost_cents.
     const resolved = (await bodyRef.current?.resolve()) || [];
-    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null }));
+    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null, lot_number: r.lot_number ?? null }));
     if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
     const body: Record<string, unknown> = {
       vendor_id: vendorId, brand_id: brandId || null,
       order_date: orderDate, expected_date: expectedDate || null,
       payment_terms_id: paymentTermsId || null, notes: notes.trim() || null, lines,
       // Rich header
-      po_type: poType || null, customer_id: customerId || null, po_prefix: poPrefix.trim() || null,
+      po_type: poType || null, customer_id: customerId || null,
       vendor_contact: vendorContact.trim() || null, vendor_email: vendorEmail.trim() || null, vendor_ref: vendorRef.trim() || null,
       factory_location: factoryLocation.trim() || null, coo: coo || null,
       requested_delivery_date: requestedDeliveryDate || null, ship_window_start: shipWindowStart || null, ship_window_end: shipWindowEnd || null,
@@ -533,6 +1017,48 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     finally { setSubmitting(false); }
   }
 
+  // Cancel a live PO — moves to 'cancelled' (kept for history) and releases its
+  // open-PO commitments (server-side). Reversible via Reinstate below.
+  async function cancelPo() {
+    if (!po) return;
+    const ok = await confirmDialog(
+      "This purchase order will move to cancelled (kept for history). Its open-PO commitments are released; reinstate it later to restore them.",
+      { confirmText: "Cancel PO", title: `Cancel ${po.po_number || "purchase order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "cancelled" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Purchase order ${po.po_number || ""} cancelled.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not cancel: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
+  // Reinstate a cancelled PO — status returns to 'issued' (keeps its PO #); the
+  // server re-opens the commitments the cancel closed (P13 open-PO tracking).
+  async function reinstatePo() {
+    if (!po) return;
+    const ok = await confirmDialog(
+      "This purchase order's status will change back to issued and its open-PO commitments will be restored.",
+      { confirmText: "Reinstate", title: `Reinstate ${po.po_number || "purchase order"}` },
+    );
+    if (!ok) return;
+    setErr(null); setSubmitting(true);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "issued" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Purchase order ${po.po_number || ""} reinstated — status is now issued.`, "success");
+      onSaved();
+    } catch (e) { notify(`Could not reinstate: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
   // Unsaved-changes guard: warn before closing (Close button or click-outside)
   // a NEW PO that carries data that hasn't been saved.
   function hasUnsavedData(): boolean {
@@ -560,8 +1086,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     setNotes((n) => (n && n.trim() ? `${n}\n${entry}` : entry));
   }
 
-  // Open the printable / downloadable PO document (logo + header + line items).
-  function openView() {
+  // Build the shared order-document model (logo + header + line items) that both
+  // the printable PDF view and the .xlsx export render from, so the two never
+  // diverge (same pattern as the Sales Order modal's buildOrderDoc).
+  function buildPoDoc(): OrderDocument {
     const fields: { label: string; value: string }[] = [];
     const add = (label: string, value: string | null | undefined) => { if (value && String(value).trim()) fields.push({ label, value: String(value) }); };
     add("Customer", customers.find((c) => c.id === customerId)?.name);
@@ -580,7 +1108,7 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
     add("Season", season);
     add("Channel", channels.find((c) => c.id === channelId)?.name);
     add("COO", coo);
-    openOrderDocument({
+    return {
       kind: "po",
       title: "Purchase Order",
       number: po?.po_number || "(draft)",
@@ -591,13 +1119,23 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       fields,
       data: bodyRef.current?.getDocumentData() || { styles: [], flats: [] },
       notes,
-    });
+    };
   }
+
+  // Open the printable PO document (View → PDF). autoPrint jumps straight to
+  // the browser print / save-as-PDF dialog.
+  function openView(autoPrint = false) { openOrderDocument({ ...buildPoDoc(), autoPrint }); }
 
   return (
     <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(1180px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{isNew ? "New purchase order" : `Purchase order ${po?.po_number || "(draft)"} — ${po?.status}`}</h3>
+        {/* #6 — the status in the open PO carries the same color coding as the
+            grid status chip (STATUS_COLORS), so the open view matches the list. */}
+        <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>
+          {isNew ? "New purchase order" : (
+            <>Purchase order {po?.po_number || "(draft)"} — <span style={{ color: STATUS_COLORS[po?.status || ""] || C.text, fontWeight: 700 }}>● {statusLabel(po?.status || "")}</span></>
+          )}
+        </h3>
 
         {/* Header collapse bar — when collapsed, only the vendor name shows; the
             full document header is one click away. Auto-collapses when the
@@ -616,18 +1154,28 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <Section title="Identity &amp; status">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="PO type">
-              <select value={poType} onChange={(e) => setPoType(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                <option value="">(select)</option>
-                {[["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <SearchableSelect value={poType || null} onChange={(v) => setPoType(v)} disabled={!editable}
+                options={[{ value: "", label: "(select)" }, ...([["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
+                placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Customer">
+              {/* Item 8 — pick a customer, or type a new name and click the "+ Add …"
+                  typeahead row to create it on the fly (replaces the "+ New" button). */}
               <SearchableSelect value={customerId || null} onChange={(v) => setCustomerId(v || "")}
-                options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable} />
+                options={[{ value: "", label: "(none)" }, ...customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))]} placeholder="(none)" disabled={!editable}
+                onAddNew={editable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
+                addNewLabel={(q) => `+ Add customer "${q.trim()}"`} />
             </Field>
-            <Field label="PO number prefix"><input type="text" value={poPrefix} onChange={(e) => setPoPrefix(e.target.value)} disabled={!editable} style={inputStyle} placeholder="PO (default)" title="Overrides the 'PO-' prefix used when the PO is issued" /></Field>
             <Field label="PO number / status">
-              <input type="text" value={po?.po_number ? `${po.po_number} · ${po.status}` : (po?.status || "(draft — assigned on issue)")} readOnly disabled style={{ ...inputStyle, opacity: 0.6 }} />
+              {/* #6 — read-only chip carrying the grid's status color so the open
+                  PO matches the list. Rendered as a div (not an input) so the
+                  status token can be colored. */}
+              <div style={{ ...inputStyle, display: "flex", alignItems: "center", gap: 8, minHeight: 33 }}>
+                <span>{po?.po_number || "(draft — assigned on issue)"}</span>
+                {po?.status && (
+                  <span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span>
+                )}
+              </div>
             </Field>
           </div>
         </Section>
@@ -636,9 +1184,18 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         <Section title="Vendor / supplier">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Field label="Vendor">
-              <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
-                options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
-                placeholder="(pick vendor…)" disabled={!editable} />
+              {/* Item 1 — pick an existing vendor or add one on the fly (+ New). */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+                    options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))}
+                    placeholder="(pick vendor…)" disabled={!editable} />
+                </div>
+                {editable && (
+                  <button type="button" onClick={() => setQuickAddVendor(true)} title="Add a new vendor without leaving this PO"
+                    style={{ ...btnSecondary, padding: "6px 10px", whiteSpace: "nowrap" }}>+ New</button>
+                )}
+              </div>
             </Field>
             <Field label="Vendor contact"><input type="text" value={vendorContact} onChange={(e) => setVendorContact(e.target.value)} disabled={!editable} style={inputStyle} placeholder="contact name" /></Field>
             <Field label="Vendor email"><input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} disabled={!editable} style={inputStyle} placeholder="name@vendor.com" /></Field>
@@ -662,7 +1219,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
             {/* Row 2 */}
             <Field label="Ship window start"><input type="date" value={shipWindowStart} onChange={(e) => setShipWindowStart(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
             <Field label="Ship window end"><input type="date" value={shipWindowEnd} onChange={(e) => setShipWindowEnd(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
-            <Field label="Cancel date"><input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
+            <Field label="Cancel date">
+              <input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} disabled={!editable} style={{ ...inputStyle, borderColor: cancelBeforeShip ? C.warn : C.cardBdr }} />
+              {cancelBeforeShip && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>Cancel date is before the Ship window start.</div>}
+            </Field>
             <Field label="Vendor-confirmed / ack."><input type="date" value={acknowledgedDate} onChange={(e) => setAcknowledgedDate(e.target.value)} disabled={!editable} style={inputStyle} /></Field>
           </div>
         </Section>
@@ -679,10 +1239,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                 options={[{ value: "", label: "(default entity)" }, ...entities.map((e) => ({ value: e.id, label: e.legal_name || e.name || e.code || e.id.slice(0, 8), searchHaystack: `${e.legal_name || e.name || ""} ${e.code || ""}` }))]} placeholder="(default entity)" disabled={!editable} />
             </Field>
             <Field label="Ship method / mode">
-              <select value={shipMethod} onChange={(e) => setShipMethod(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                <option value="">(select)</option>
-                {[["sea", "Sea"], ["air", "Air"], ["ground", "Ground"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              <SearchableSelect value={shipMethod || null} onChange={(v) => setShipMethod(v)} disabled={!editable}
+                options={[{ value: "", label: "(select)" }, ...([["sea", "Sea"], ["air", "Air"], ["ground", "Ground"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
+                placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Consolidator / forwarder"><input type="text" value={freightForwarder} onChange={(e) => setFreightForwarder(e.target.value)} disabled={!editable} style={inputStyle} placeholder="freight forwarder" /></Field>
           </div>
@@ -731,15 +1290,23 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         {/* Build the matrix from an existing Sales Order (new PO only). */}
         {isNew && editable && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>📋 Create from Sales Order</button>
+            <button type="button" onClick={() => { setSoQuery(""); applyAwardAfterSO.current = false; setSoPickOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Create from Sales Order</button>
             <button type="button" onClick={() => {
               // If the matrix already has styles (from an SO or added manually),
               // price THOSE in place — no "from an SO?" prompt, no qty reset.
               const codes = bodyRef.current?.getStyleCodes() || [];
               if (codes.length) { setAwardInPlace(true); void openAwardDialog(codes); }
               else { setAwardInPlace(false); setPriceAskOpen(true); }
-            }} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>💲 Get PO price</button>
+            }} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }}>Get PO price</button>
             {salesOrderId && <span style={{ fontSize: 11, color: C.success }}>✓ linked to a sales order</span>}
+          </div>
+        )}
+
+        {/* Scenario 4 — split an existing (pre-receiving) PO across customer POs. */}
+        {!isNew && po && !["received", "cancelled"].includes(po.status) && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+            <button type="button" onClick={() => { setSplitLots([]); setSplitInput(""); setSplitOpen(true); }} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}>Split by customer PO</button>
+            <span style={{ fontSize: 11, color: C.textMuted }}>Divide each line evenly (full cartons) across multiple customer POs — each becomes its own lot.</span>
           </div>
         )}
 
@@ -772,7 +1339,21 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
-          <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">🖨 View</button>
+          {/* View → PDF / Excel dropdown. PDF is the existing printable document;
+              Excel downloads the same PO via the shared downloadOrderExcel helper
+              (branded ATS xlsx layout). App dark palette; caret ▾. */}
+          <span style={{ position: "relative", display: "inline-flex" }}>
+            <button type="button" onClick={() => setViewMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={viewMenuOpen} style={btnSecondary} title="View this PO as a printable PDF or download it to Excel">View ▾</button>
+            {viewMenuOpen && (
+              <>
+                <div onClick={() => setViewMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+                <div role="menu" style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 6, zIndex: 91, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", minWidth: 180, overflow: "hidden" }}>
+                  <button type="button" role="menuitem" onClick={() => { setViewMenuOpen(false); openView(true); }} style={viewMenuItem}>PDF</button>
+                  <button type="button" role="menuitem" onClick={() => { setViewMenuOpen(false); void downloadOrderExcel(buildPoDoc()); }} style={{ ...viewMenuItem, borderBottom: 0 }}>Excel</button>
+                </div>
+              </>
+            )}
+          </span>
 
           {/* Draft / new — the original save + issue flow. */}
           {(isNew || po?.status === "draft") && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
@@ -780,24 +1361,66 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
 
           {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
           {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}
-          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>🚚 Mark in-transit</button>}
+          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>Mark in-transit</button>}
           {/* "Received" is no longer a manual flip — it's set when a goods receipt
               is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
-            <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">📥 Receive…</button>
+            <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">Receive…</button>
+          )}
+          {/* Cancel a live (issued / in-transit) PO — kept for history, releases
+              its open-PO commitments; reversible via Reinstate. */}
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && (
+            <button onClick={() => void cancelPo()} style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} disabled={submitting} title="Cancel this purchase order (moves to cancelled, kept for history)">Cancel PO</button>
+          )}
+          {/* Reinstate a cancelled PO — status returns to issued (keeps its PO #). */}
+          {!isNew && po != null && po.status === "cancelled" && !editMode && (
+            <button onClick={() => void reinstatePo()} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Reinstate this cancelled purchase order — its status returns to issued">Reinstate</button>
           )}
 
           {/* Revising a saved PO — save the revision (notifies the vendor) or cancel. */}
           {isRevisable && editMode && <button onClick={() => setEditMode(false)} style={btnSecondary} disabled={submitting}>Cancel edit</button>}
-          {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "💾 Save revision"}</button>}
+          {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save revision"}</button>}
         </div>
       </div>
+
+      {/* Item 1 — on-the-fly "+ New vendor / + New customer" popups. */}
+      {quickAddVendor && (
+        <QuickAddPartyModal
+          kind="vendor"
+          onClose={() => setQuickAddVendor(false)}
+          onCreated={(row) => {
+            const v = row as unknown as Vendor;
+            setExtraVendors((prev) => [v, ...prev]);
+            setVendorId(v.id);
+            if (typeof row.contact === "string" && row.contact && !vendorContact) setVendorContact(row.contact);
+            if (typeof row.email === "string" && row.email && !vendorEmail) setVendorEmail(row.email);
+            setQuickAddVendor(false);
+            notify(`Vendor "${v.name}" added.`, "success");
+          }}
+        />
+      )}
+      {quickAddCustomer && (
+        <QuickAddPartyModal
+          kind="customer"
+          initialName={quickAddInitialName}
+          onClose={() => { setQuickAddCustomer(false); setQuickAddInitialName(""); }}
+          onCreated={(row) => {
+            const c = { id: String(row.id), name: String(row.name), customer_code: typeof row.customer_code === "string" ? row.customer_code : undefined };
+            setCustomers((prev) => [c, ...prev]);
+            setCustomerId(c.id);
+            setQuickAddCustomer(false);
+            setQuickAddInitialName("");
+            notify(`Customer "${c.name}" added — finish its full record from the reminder in your notifications.`, "success");
+            void notifyCompleteParty("customer", c);
+          }}
+        />
+      )}
 
       {/* Create-from-SO picker (dynamic search). */}
       {soPickOpen && (
         <div onClick={(e) => { e.stopPropagation(); if (!soBusy) setSoPickOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(640px, 95vw)", maxHeight: "85vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>📋 Create PO from a Sales Order</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Create PO from a Sales Order</h3>
             <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Pick a sales order — its styles, colors, sizes, and quantities fill the PO matrix. Unit costs stay blank (the SO carries selling prices, not costs).</div>
             <input type="text" value={soQuery} onChange={(e) => setSoQuery(e.target.value)} autoFocus placeholder="Search SO # / customer / style…" style={{ ...inputStyle, marginBottom: 10 }} />
             <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
@@ -810,8 +1433,9 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
                   <span style={{ fontSize: 13 }}>
                     <b>{so.so_number || "(draft)"}</b>
                     <span style={{ color: C.textMuted, marginLeft: 8 }}>{customers.find((c) => c.id === so.customer_id)?.name || ""}</span>
+                    {so.customer_po && <span style={{ color: C.primary, marginLeft: 8 }} title="This customer PO becomes the lot on the new PO's lines">PO {so.customer_po}</span>}
                   </span>
-                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
+                  <span style={{ fontSize: 12, color: C.textMuted }}>{so.status}{so.fulfillment_source ? ` · ${so.fulfillment_source}` : ""}{so.requested_ship_date ? ` · ship ${fmtDateDisplay(so.requested_ship_date)}` : ""}</span>
                 </div>
               ))}
             </div>
@@ -822,11 +1446,44 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
         </div>
       )}
 
+      {/* Scenario 4 — split this PO across customer POs (lots). */}
+      {splitOpen && (
+        <div onClick={(e) => { e.stopPropagation(); if (!splitBusy) setSplitOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(520px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", color: C.text }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Split by customer PO</h3>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
+              Enter the customer PO numbers this PO covers. Each line is divided evenly across them on a full-carton basis, and every split carries its customer PO as the lot. Replaces the PO's current lines.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <input type="text" value={splitInput} onChange={(e) => setSplitInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = splitInput.trim(); if (v && !splitLots.includes(v)) setSplitLots((p) => [...p, v]); setSplitInput(""); } }}
+                placeholder="customer PO number — Enter to add" style={{ ...inputStyle, flex: 1 }} />
+              <button type="button" onClick={() => { const v = splitInput.trim(); if (v && !splitLots.includes(v)) setSplitLots((p) => [...p, v]); setSplitInput(""); }} style={btnSecondary}>Add</button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14, minHeight: 28 }}>
+              {splitLots.length === 0 && <span style={{ fontSize: 12, color: C.textMuted }}>No customer POs added yet (need at least two).</span>}
+              {splitLots.map((lot) => (
+                <span key={lot} style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%", background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 14, padding: "2px 8px", fontSize: 11, lineHeight: 1.3 }}>
+                  {/* #2 — smaller font + word-break so long customer-PO lot
+                      numbers stay inside the bubble instead of overflowing it. */}
+                  <span style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}>{lot}</span>
+                  <button type="button" onClick={() => setSplitLots((p) => p.filter((x) => x !== lot))} style={{ background: "transparent", border: "none", color: C.danger, cursor: "pointer", fontSize: 12, lineHeight: 1, flexShrink: 0 }} title="Remove">✕</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setSplitOpen(false)} style={btnSecondary} disabled={splitBusy}>Cancel</button>
+              <button onClick={() => void applySplitByLot()} style={btnPrimary} disabled={splitBusy || splitLots.length < 2}>{splitBusy ? "Splitting…" : `Split across ${splitLots.length || 0} lot(s)`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Get-PO-price: is this PO from an SO? */}
       {priceAskOpen && (
         <div onClick={(e) => { e.stopPropagation(); setPriceAskOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(440px, 95vw)", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Get PO price</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Get PO price</h3>
             <div style={{ fontSize: 13, color: C.textSub, marginBottom: 16 }}>Is this PO being created from a Sales Order?</div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => { setPriceAskOpen(false); applyAwardAfterSO.current = true; setSoQuery(""); setSoPickOpen(true); }} style={btnPrimary}>Yes — pick the SO first</button>
@@ -840,10 +1497,10 @@ function POModal({ po, vendors, onClose, onSaved }: { po: PO | null; vendors: Ve
       {awardOpen && (
         <div onClick={(e) => { e.stopPropagation(); setAwardOpen(false); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, width: "min(680px, 95vw)", maxHeight: "85vh", overflowY: "auto", color: C.text }}>
-            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>💲 Awarded RFQ prices — review</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16 }}>Awarded RFQ prices — review</h3>
             {awardMissing.length > 0 && (
               <div style={{ padding: "8px 12px", background: "#3b2f0b", border: `1px solid ${C.warn}`, borderRadius: 6, color: C.warn, fontSize: 12, marginBottom: 12 }}>
-                ⚠️ No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
+                No awarded RFQ price for {awardMissing.length === 1 ? "this style" : "these styles"}: <strong>{awardMissing.join(", ")}</strong>. {awardQuotes.length === 0 ? "Nothing was priced from an award — set unit costs manually." : "Those styles are left unpriced; the rest are below."}
               </div>
             )}
             {awardQuotes.length > 0 && (

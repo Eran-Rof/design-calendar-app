@@ -5,6 +5,7 @@ import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate } from "../utils";
 import { showAlert, showConfirm, showFileViewer } from "../ui/AppDialog";
 import AttachmentsManager from "../ui/AttachmentsManager";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const CARRIER_GROUPS: { label: string; carriers: string[] }[] = [
   { label: "Parcel / courier", carriers: ["UPS", "FedEx", "USPS", "DHL"] },
@@ -321,7 +322,7 @@ export default function ShipmentDetail() {
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {shipment.invoice_created_at && (
               <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 999, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46" }}>
-                🧾 Invoiced {fmtDate(shipment.invoice_created_at)}
+                Invoiced {fmtDate(shipment.invoice_created_at)}
               </span>
             )}
             {shipment.packing_list_url && shipment.po_id && !shipment.invoice_created_at && (
@@ -331,7 +332,7 @@ export default function ShipmentDetail() {
                 title="AI reads the packing list and drafts an invoice for review"
                 style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: extractingFromPl ? TH.textMuted : "#047857", color: "#FFFFFF", cursor: extractingFromPl ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" }}
               >
-                {extractingFromPl ? "Reading PL with AI…" : "✨ Create Invoice from PL"}
+                {extractingFromPl ? "Reading PL with AI…" : "Create Invoice from PL"}
               </button>
             )}
             {shipment.workflow_status === "submitted" && !editing && (
@@ -355,28 +356,39 @@ export default function ShipmentDetail() {
                 <input value={editSave.asn_number} onChange={(e) => setEditSave((s) => ({ ...s, asn_number: e.target.value }))} style={editInp} />
               </Labelled>
               <Labelled label="Carrier">
-                <select value={editSave.carrier} onChange={(e) => setEditSave((s) => ({ ...s, carrier: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  {CARRIER_GROUPS.map((g) => (
-                    <optgroup key={g.label} label={g.label}>
-                      {g.carriers.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={editSave.carrier || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, carrier: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    ...CARRIER_GROUPS.flatMap((g) => g.carriers.map((c) => ({ value: c, label: c, group: g.label }))),
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Ship via">
-                <select value={editSave.ship_via} onChange={(e) => setEditSave((s) => ({ ...s, ship_via: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  {SHIP_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <SearchableSelect
+                  value={editSave.ship_via || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, ship_via: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    ...SHIP_VIA_OPTIONS.map((v) => ({ value: v, label: v })),
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Tracking type">
-                <select value={editSave.number_type} onChange={(e) => setEditSave((s) => ({ ...s, number_type: e.target.value }))} style={editInp}>
-                  <option value="">—</option>
-                  <option value="CT">Container</option>
-                  <option value="BL">Bill of Lading</option>
-                  <option value="BK">Booking</option>
-                </select>
+                <SearchableSelect
+                  value={editSave.number_type || null}
+                  onChange={(v) => setEditSave((s) => ({ ...s, number_type: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    { value: "CT", label: "Container" },
+                    { value: "BL", label: "Bill of Lading" },
+                    { value: "BK", label: "Booking" },
+                  ]}
+                  inputStyle={editInp}
+                />
               </Labelled>
               <Labelled label="Tracking number">
                 <input value={editSave.number} onChange={(e) => setEditSave((s) => ({ ...s, number: e.target.value }))} style={{ ...editInp, fontFamily: "Menlo, monospace", textTransform: "uppercase" }} />
@@ -435,18 +447,18 @@ export default function ShipmentDetail() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12 }}>
               {shipment.packing_list_url && (
                 <button onClick={() => void openDoc(shipment.packing_list_url)} style={docBtn}>
-                  📄 Packing list
+                  Packing list
                 </button>
               )}
               {shipment.bl_document_url && (
                 <button onClick={() => void openDoc(shipment.bl_document_url)} style={docBtn}>
-                  📄 Bill of Lading
+                  Bill of Lading
                 </button>
               )}
             </div>
             {shipment.invoice_created_at && shipment.invoice_id && (
               <div style={{ marginTop: 10, fontSize: 13, color: "#065F46" }}>
-                🧾 Invoice created {fmtDate(shipment.invoice_created_at)} — {" "}
+                Invoice created {fmtDate(shipment.invoice_created_at)} — {" "}
                 <Link to={`/vendor/invoices/${shipment.invoice_id}`} style={{ color: TH.primary, textDecoration: "none" }}>
                   View invoice →
                 </Link>
@@ -621,10 +633,10 @@ function DocSlot({
         {awaitingEditedUpload && (
           <div style={{ marginTop: 8, padding: "10px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, fontSize: 12, color: "#FBBF24" }}>
             <div style={{ marginBottom: 6 }}>
-              📥 File downloaded. Open it in your PDF/Excel app, edit, save it locally, then upload the edited copy:
+              File downloaded. Open it in your PDF/Excel app, edit, save it locally, then upload the edited copy:
             </div>
             <label htmlFor={inputId} style={{ ...docBtn, background: TH.primary, color: "#FFFFFF", borderColor: TH.primary }}>
-              📤 Upload edited version
+              Upload edited version
             </label>
           </div>
         )}
@@ -642,7 +654,7 @@ function DocSlot({
   // No file attached (either never was, or user clicked Delete).
   return (
     <Labelled label={label}>
-      <label htmlFor={inputId} style={docAdd}>📎 Add file</label>
+      <label htmlFor={inputId} style={docAdd}>Add file</label>
       <input
         id={inputId}
         type="file"

@@ -130,6 +130,15 @@ export function parseBillRows(csvRows) {
 // COALESCE(current_entity_id(), rof_entity_id()), which resolves to ROF
 // under the service-role client. nowIso is injected so the function stays
 // pure/testable (no Date.now()).
+// The single originating PO number for a bill, or null when its lines span 0
+// or >1 distinct POs. A header-level invoices.po_id only makes sense for a
+// single-PO bill (the anomaly-detection nightly matches one invoice to one PO);
+// multi-PO bills keep po_id null and are checked line-by-line elsewhere.
+export function billSinglePoNumber(bill) {
+  const pos = new Set((bill.lines || []).map((l) => String(l.po_number || "").trim()).filter(Boolean));
+  return pos.size === 1 ? [...pos][0] : null;
+}
+
 export function buildInvoicePayload(bill, vendor_id, nowIso) {
   const pay = mapPaymentStatus(bill.payment_status, bill.total_cents);
   return {

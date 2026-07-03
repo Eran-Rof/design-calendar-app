@@ -120,7 +120,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                 fontFamily: "inherit",
               }}
             >
-              ✨ Ask Claude
+              Ask Claude
             </button>
             <button style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "2px 4px", borderRadius: 4 }} onClick={() => setSummaryCtx(null)}>✕</button>
           </div>

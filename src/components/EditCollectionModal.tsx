@@ -6,6 +6,7 @@ import { getBrand, addDays } from "../utils/dates";
 import { getChannelForCustomer } from "../utils/helpers";
 import { Modal } from "./Modal";
 import DateInput from "./DateInput";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 import { useAppStore } from "../store";
 import { selectCollMap } from "../store/selectors";
 
@@ -155,18 +156,16 @@ function EditCollectionModal({
         </div>
         <div>
           <label style={S.lbl}>Brand</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.brand}
-            onChange={(e) => set("brand", e.target.value)}
-          >
-            {brandList.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.isPrivateLabel ? " (PL)" : ""}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            value={f.brand || null}
+            onChange={(v) => set("brand", v)}
+            options={brandList.map((b) => ({
+              value: b.id,
+              label: `${b.name}${b.isPrivateLabel ? " (PL)" : ""}`,
+            }))}
+          />
         </div>
       </div>
       <div
@@ -179,51 +178,49 @@ function EditCollectionModal({
       >
         <div>
           <label style={S.lbl}>Season</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.season}
-            onChange={(e) => set("season", e.target.value)}
-          >
-            {seasons.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            value={f.season || null}
+            onChange={(v) => set("season", v)}
+            options={seasons.map((s) => ({ value: s, label: s }))}
+          />
         </div>
         <div>
           <label style={S.lbl}>Year</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.year}
-            onChange={(e) => set("year", parseInt(e.target.value))}
-          >
-            {[2024, 2025, 2026, 2027, 2028].map((y) => (
-              <option key={y}>{y}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            value={String(f.year)}
+            onChange={(v) => set("year", parseInt(v))}
+            options={[2024, 2025, 2026, 2027, 2028].map((y) => ({
+              value: String(y),
+              label: String(y),
+            }))}
+          />
         </div>
         <div>
           <label style={S.lbl}>Gender</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.gender}
-            onChange={(e) => set("gender", e.target.value)}
-          >
-            {genderList.map((g) => (
-              <option key={g}>{g}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            value={f.gender || null}
+            onChange={(v) => set("gender", v)}
+            options={genderList.map((g: any) => {
+              const label = typeof g === "string" ? g : g.label;
+              return { value: label, label };
+            })}
+          />
         </div>
         <div>
           <label style={S.lbl}>Category</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.category}
-            onChange={(e) => set("category", e.target.value)}
-          >
-            {categoryList.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            value={f.category || null}
+            onChange={(v) => set("category", v)}
+            options={categoryList.map((c) => ({ value: c, label: c }))}
+          />
         </div>
       </div>
       <div
@@ -236,43 +233,39 @@ function EditCollectionModal({
       >
         <div>
           <label style={S.lbl}>Customer</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.customer}
-            onChange={(e) => set("customer", e.target.value)}
-          >
-            <option value="">-- Select --</option>
-            {(customerList || DEFAULT_CUSTOMERS).map((c) => {
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            placeholder="-- Select --"
+            value={f.customer || null}
+            onChange={(v) => set("customer", v)}
+            options={(customerList || DEFAULT_CUSTOMERS).map((c) => {
               const name = typeof c === "string" ? c : c.name;
-              return <option key={name} value={name}>{name}</option>;
+              return { value: name, label: name };
             })}
-          </select>
+          />
         </div>
         <div>
           <label style={S.lbl}>Order Type</label>
-          <select
-            style={{ ...S.inp, marginBottom: 0 }}
-            value={f.orderType}
-            onChange={(e) => set("orderType", e.target.value)}
-          >
-            <option value="">--</option>
-            {orderTypes.map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={{ ...S.inp, marginBottom: 0 }}
+            placeholder="--"
+            value={f.orderType || null}
+            onChange={(v) => set("orderType", v)}
+            options={orderTypes.map((o) => ({ value: o, label: o }))}
+          />
         </div>
       </div>
       <label style={S.lbl}>Channel Type</label>
-      <select
-        style={S.inp}
-        value={f.channelType}
-        onChange={(e) => set("channelType", e.target.value)}
-      >
-        <option value="">--</option>
-        {CHANNEL_TYPES.map((c) => (
-          <option key={c}>{c}</option>
-        ))}
-      </select>
+      <SearchableSelect
+        theme="light"
+        inputStyle={S.inp}
+        placeholder="--"
+        value={f.channelType || null}
+        onChange={(v) => set("channelType", v)}
+        options={CHANNEL_TYPES.map((c) => ({ value: c, label: c }))}
+      />
       <div
         style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14 }}
       >

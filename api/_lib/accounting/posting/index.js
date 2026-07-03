@@ -108,6 +108,18 @@ export async function postEvent(supabase, event) {
   // 1. Rule → { accrual, cash } candidates  (or { reversals: [je_id, ...] } for voids)
   const ruleOutput = rule(event);
 
+  // T11 D3: posting a JE fires the audit trigger's POST branch, which REQUIRES
+  // a reason (app.audit_reason session var). Callers pass event.reason; we stamp
+  // it onto each candidate so candidateToPayload → gl_post_journal_entry can
+  // set_config('app.audit_reason', ...) in the SAME statement/connection that
+  // flips the JE to 'posted' (the only place the var survives the pool caveat).
+  // Reversals set their own reason via reverse.js and are exempt here.
+  const auditReason = event.reason ? String(event.reason).trim() : "";
+  if (auditReason) {
+    if (ruleOutput.accrual) ruleOutput.accrual.audit_reason = auditReason;
+    if (ruleOutput.cash) ruleOutput.cash.audit_reason = auditReason;
+  }
+
   // Reversal-shape output: { accrual:null, cash:null, reversals:[...] }
   // No new candidates to balance-check — short-circuit through reverseJournalEntry.
   if (Array.isArray(ruleOutput.reversals)) {

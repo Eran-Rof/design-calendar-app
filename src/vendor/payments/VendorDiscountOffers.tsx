@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Offer {
   id: string;
@@ -72,14 +73,20 @@ export default function VendorDiscountOffers() {
           <h2 style={{ margin: 0, fontSize: 22 }}>Early-payment offers</h2>
           <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>Get paid sooner in exchange for a discount. Accept or reject — rejecting means you're paid on the original due date.</div>
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-          <option value="">All</option>
-          <option value="offered">Active offers</option>
-          <option value="accepted">Accepted</option>
-          <option value="rejected">Rejected</option>
-          <option value="expired">Expired</option>
-          <option value="paid">Paid</option>
-        </select>
+        <SearchableSelect
+          value={status || null}
+          onChange={(v) => setStatus(v)}
+          placeholder="All"
+          options={[
+            { value: "", label: "All" },
+            { value: "offered", label: "Active offers" },
+            { value: "accepted", label: "Accepted" },
+            { value: "rejected", label: "Rejected" },
+            { value: "expired", label: "Expired" },
+            { value: "paid", label: "Paid" },
+          ]}
+          inputStyle={selectSt}
+        />
       </div>
 
       {!loading && rows.length > 0 && (

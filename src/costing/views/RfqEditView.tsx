@@ -399,9 +399,12 @@ export default function RfqEditView() {
 
             {/* RFQ-native — editable. */}
             <Field label="Status">
-              <select value={form.status || "draft"} onChange={(e) => setField("status", e.target.value as RfqStatus)} style={inp}>
-                {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchableSelect
+                value={form.status || "draft"}
+                onChange={(v) => setField("status", v as RfqStatus)}
+                options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+                inputStyle={inp}
+              />
             </Field>
             {/* Backfilled — read-only. */}
             <Field label="Brand">

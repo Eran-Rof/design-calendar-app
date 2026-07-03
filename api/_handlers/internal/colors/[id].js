@@ -16,7 +16,7 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MUTABLE_FIELDS = new Set(["name", "code", "hex", "sort_order", "is_active"]);
+const MUTABLE_FIELDS = new Set(["name", "code", "hex", "hex_b", "sort_order", "is_active", "nrf_code", "nrf_name"]);
 const LOCKED_FIELDS = new Set(["entity_id", "id"]);
 
 function corsHeaders(res) {
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await admin
       .from("color_master")
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, hex_b, sort_order, is_active, nrf_code, nrf_name")
       .eq("id", id)
       .maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
       .from("color_master")
       .update(v.data)
       .eq("id", id)
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, hex_b, sort_order, is_active, nrf_code, nrf_name")
       .single();
     if (error) {
       if (error.code === "PGRST116") return res.status(404).json({ error: "Color not found" });
@@ -152,6 +152,15 @@ export function validatePatch(body) {
       const h = String(out.hex).trim().replace(/^#/, "");
       if (!/^[0-9a-fA-F]{6}$/.test(h)) return { error: "hex must be a 6-digit #RRGGBB value" };
       out.hex = `#${h.toLowerCase()}`;
+    }
+  }
+  if ("hex_b" in out) {
+    if (out.hex_b == null || String(out.hex_b).trim() === "") {
+      out.hex_b = null;
+    } else {
+      const h = String(out.hex_b).trim().replace(/^#/, "");
+      if (!/^[0-9a-fA-F]{6}$/.test(h)) return { error: "hex_b must be a 6-digit #RRGGBB value" };
+      out.hex_b = `#${h.toLowerCase()}`;
     }
   }
   if ("sort_order" in out) {

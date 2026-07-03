@@ -12,13 +12,15 @@
 //
 // No new API route — reuses the shared style-matrix endpoint. No migration.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { computeSizeCollapse } from "../shared/matrix";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
@@ -69,6 +71,10 @@ type MatrixPayload = {
   inseams: string[];
   rises: string[];
   warehouses?: string[];
+  // Additive — the full set of lot numbers present on this style's on-hand
+  // (NO_LOT bucket "(no lot)" sorts last). Populates the lot filter dropdown; it
+  // stays the full list even when the fetch scopes on-hand to selected lots.
+  lots?: string[];
   skus: MatrixSku[];
   // Additive — present only when fetched with explode_ppk=true.
   explode?: ExplodeInfo;
@@ -114,6 +120,8 @@ type StyleInvoiceRow = {
 
 
 const ALL_WAREHOUSES = "__all__";
+// Bucket label for unlotted stock — must match NO_LOT in api/_lib/styleMatrix.js.
+const NO_LOT_LABEL = "(no lot)";
 
 // ── MatrixRow type (shared by single-style and brand-level views) ─────────────
 
@@ -360,6 +368,32 @@ function fmtQty(v: number): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+// ── reusable column sort (drill modals) ──────────────────────────────────────
+// A tiny click-to-sort helper for the Sold / Purchased popup tables (#5/#7). Each
+// header toggles asc → desc on the clicked key; the arrow renders the direction.
+type SortDir = "asc" | "desc";
+function useColumnSort<T>(initialKey: keyof T | null = null, initialDir: SortDir = "asc") {
+  const [key, setKey] = useState<keyof T | null>(initialKey);
+  const [dir, setDir] = useState<SortDir>(initialDir);
+  const onSort = (k: keyof T) => {
+    setKey((prev) => { if (prev === k) { setDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setDir("asc"); return k; });
+  };
+  const sort = (rows: T[]): T[] => {
+    if (key == null) return rows;
+    const out = [...rows];
+    out.sort((a, b) => {
+      const av = a[key], bv = b[key];
+      let c: number;
+      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      return dir === "asc" ? c : -c;
+    });
+    return out;
+  };
+  const arrow = (k: keyof T) => (key === k ? (dir === "asc" ? " ▲" : " ▼") : "");
+  return { key, dir, onSort, sort, arrow };
+}
+
 
 const ALL_BRANDS_SENTINEL     = "__ALL_BRANDS__";
 const ALL_GENDER_SENTINEL     = "__ALL_GENDER__";
@@ -379,7 +413,48 @@ type SnapshotRow = {
   on_hand: number; allocated: number; on_so: number;
   on_po: number; in_transit: number; ats: number; ats_incl_po: number;
   sold: number; purchased: number; avg_cost_cents: number | null;
+  sale_price_cents: number | null;
+  // Per-column transaction prices (per-each cents): On SO → open_so_price;
+  // Sold → sold_price; inventory/PO columns → current_price (most-recent SO).
+  open_so_price_cents?: number | null;
+  sold_price_cents?: number | null;
+  current_price_cents?: number | null;
 };
+
+// Which per-each price a given quantity column is valued at (per-column
+// transaction pricing). Returns cents or null (null → excluded from that
+// column's Avg Sale, so unpriced units never dilute it).
+function colPriceCents(r: SnapshotRow, k: string): number | null {
+  const v = k === "on_so" ? r.open_so_price_cents
+    : k === "sold" ? r.sold_price_cents
+    : r.current_price_cents; // on_hand / allocated / ats / ats_incl_po / on_po / purchased / in_transit
+  return (v == null || !Number.isFinite(v)) ? null : v;
+}
+// A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
+// (base + its PPK sibling combined) so the table can style it distinctly.
+// `_components` carries the underlying base-style + PPK-pack rows (already
+// per-unit / exploded) that summed into the merged line, so the row can be
+// expanded (▾) to drill into what it's made of — they reconcile exactly to the
+// merged totals because the merge is a plain sum of these same rows.
+type MergedRow = SnapshotRow & { _merged?: boolean; _components?: SnapshotRow[] };
+
+// Snapshot column key — the real SnapshotRow fields plus the DERIVED "Avg Mrgn %"
+// column (computed from avg sale − avg cost, not a stored field).
+type SnapColKey = keyof SnapshotRow | "avg_margin_pct";
+
+// Gross-margin fraction for a snapshot row: (avg sale − avg cost) / avg sale.
+// Null when the avg sale price is missing or zero (divide-by-zero guard) or the
+// avg cost is missing → the row's Avg Mrgn % renders blank. Cents in, fraction
+// out (e.g. 0.4215 → "42.15%").
+function marginFrac(saleCents: number | null | undefined, costCents: number | null | undefined): number | null {
+  if (saleCents == null || saleCents === 0 || costCents == null) return null;
+  return (saleCents - costCents) / saleCents;
+}
+// Percent display for the Avg Mrgn % cell — two decimals, blank ("—") when null.
+function fmtMarginPct(saleCents: number | null | undefined, costCents: number | null | undefined): string {
+  const m = marginFrac(saleCents, costCents);
+  return m == null ? "—" : `${(m * 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
 
 function openTab(url: string) { window.open(url, "_blank", "noopener"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
@@ -391,7 +466,7 @@ const lnkAlloc  = (code: string)    => `?m=sales_allocations&q=${encodeURICompon
 // ATS is a separate app at /ats; preselect the style via its search filter.
 const lnkATS    = (code: string, inclPo = false) => `/ats?style=${encodeURIComponent(code)}${inclPo ? "&incl_po=1" : ""}`;
 
-const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] = [
+const SNAP_COLS: { key: SnapColKey; label: string; numeric: boolean }[] = [
   { key: "style_code",  label: "Style",                  numeric: false },
   { key: "color",       label: "Color",                  numeric: false },
   { key: "description", label: "Name",                   numeric: false },
@@ -400,52 +475,302 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "on_so",       label: "On SO",                  numeric: true },
   { key: "ats",         label: "ATS Qty",                numeric: true },
   { key: "on_po",       label: "On PO",                  numeric: true },
-  { key: "ats_incl_po", label: "ATS Qty (Including PO)", numeric: true },
+  { key: "ats_incl_po", label: "ATS Qty (Incl POs)",    numeric: true },
   { key: "sold",        label: "Sold",                   numeric: true },
   { key: "purchased",   label: "Purchased",              numeric: true },
   { key: "category",    label: "Item Category",          numeric: false },
   { key: "in_transit",  label: "In Trnst",               numeric: true },
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
+  { key: "sale_price_cents", label: "Avrg Sale",         numeric: true },
+  { key: "avg_margin_pct", label: "Avg Mrgn %",          numeric: true },
 ];
 
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
 
+// Determinate-style progress bar for the snapshot load (app colors). The fetch
+// is a single opaque request, so we ramp toward ~90% while it's in flight and
+// snap to 100% on completion (the NProgress pattern) — it reads as a filling
+// progress bar rather than an indeterminate spinner.
+function SnapshotProgressBar({ active }: { active: boolean }) {
+  const [pct, setPct] = useState(0);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (active) {
+      setVisible(true);
+      setPct(8);
+      const id = setInterval(() => setPct((p) => (p < 90 ? p + Math.max(0.5, (90 - p) * 0.12) : p)), 110);
+      return () => clearInterval(id);
+    }
+    if (visible) {
+      setPct(100);
+      const t = setTimeout(() => { setVisible(false); setPct(0); }, 350);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!visible) return null;
+  return (
+    <div role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}
+         style={{ height: 5, background: C.bg, border: `1px solid ${C.cardBdr}`, borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
+      <div style={{ height: "100%", width: `${pct}%`, background: C.primary, borderRadius: 3, transition: "width 0.2s ease" }} />
+    </div>
+  );
+}
+
+// Quantity columns summed on roll-up AND in the Totals row (avg_cost is a
+// per-unit cost, never summed).
+const SNAP_SUM_COLS = ["on_hand", "allocated", "on_so", "ats", "on_po", "ats_incl_po", "sold", "purchased", "in_transit"] as const;
+
+// Client-side roll-up shared by the table AND the export so both render the
+// exact same rows: (1) Merge PPK (base + its PPK sibling -> one BASE/PPK row
+// per colour), then (2) Collapse ONTO the checked text column(s) (those become
+// the group-by key; every other text column folds away and numerics sum).
+function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Set<string>): MergedRow[] {
+  const DIMS = ["style_code", "color", "description", "category"] as const;
+  const SUMS = SNAP_SUM_COLS;
+  const hasData = (r: SnapshotRow) => SUMS.some((k) => num(r[k] as number) !== 0); // any quantity column non-zero
+  const isPpk = (code: string) => /ppk/i.test(code);
+  const stemOf = (code: string) => code.replace(/ppk.*$/i, "").trim(); // "RYB0594PPK" -> "RYB0594"
+
+  // 1. Merge PPK — combine a base style with its PPK sibling, but ONLY for the
+  //    colours that carry data (any quantity column non-zero) in BOTH the base
+  //    AND the PPK style. Colours present (with data) in only one side stay as
+  //    their own rows; styles with no PPK sibling are untouched.
+  let src: MergedRow[] = rows;
+  if (mergePpk) {
+    const byStem = new Map<string, { rows: SnapshotRow[]; hasPpk: boolean }>();
+    for (const r of rows) {
+      const sl = stemOf(r.style_code).toLowerCase();
+      let e = byStem.get(sl);
+      if (!e) { e = { rows: [], hasPpk: false }; byStem.set(sl, e); }
+      e.rows.push(r);
+      if (isPpk(r.style_code)) e.hasPpk = true;
+    }
+    const out: MergedRow[] = [];
+    for (const e of byStem.values()) {
+      if (!e.hasPpk) { out.push(...e.rows); continue; } // no PPK sibling -> pass through
+      const byColor = new Map<string, { base: SnapshotRow[]; ppk: SnapshotRow[] }>();
+      for (const r of e.rows) {
+        const ck = String(r.color ?? "").toLowerCase().trim();
+        let c = byColor.get(ck);
+        if (!c) { c = { base: [], ppk: [] }; byColor.set(ck, c); }
+        (isPpk(r.style_code) ? c.ppk : c.base).push(r);
+      }
+      for (const c of byColor.values()) {
+        const both = c.base.some(hasData) && c.ppk.some(hasData);
+        if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
+        const all = [...c.base, ...c.ppk];
+        const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
+        const g: MergedRow & { _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] } = {
+          style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
+          on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
+        for (const r of all) {
+          if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
+          if (r.color && !g.color) g.color = r.color;
+          for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
+          if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+          if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+          if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+          if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+          if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
+        }
+        const { _cost, _sale, _openSo, _sold, _cur, ...row } = g;
+        const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
+        // Keep the underlying base + PPK rows (already per-unit) so the merged
+        // line can be expanded (▾) to drill into its components; only those
+        // carrying data are shown. They sum back to the merged totals exactly.
+        const components = all.filter(hasData);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), open_so_price_cents: avgOf(_openSo), sold_price_cents: avgOf(_sold), current_price_cents: avgOf(_cur), _components: components } as MergedRow);
+      }
+    }
+    src = out;
+  }
+
+  // 2. Collapse ONTO the checked column(s): those become the group-by key and
+  //    every other text column folds away (numerics summed, Avg Cost averaged).
+  //    A non-key text column is still SHOWN when it is constant across the group
+  //    (so collapse onto Style keeps the one Style number + its Name/Category;
+  //    collapse onto Item Category shows just the category, the rest blank).
+  if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
+  const keyDims = DIMS.filter((k) => collapseCols.has(k));
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] };
+  const map = new Map<string, G>();
+  for (const r of src) {
+    const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
+    let g = map.get(key);
+    if (!g) {
+      g = { style_id: "", style_code: "", description: "", color: null, category: null,
+        on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
+        sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null,
+        _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
+        _sids: new Set(), _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
+      map.set(key, g);
+    }
+    for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
+    for (const nk of SUMS) (g as unknown as Record<string, number>)[nk] += num(r[nk] as number);
+    if (r.avg_cost_cents != null) g._cost.push(r.avg_cost_cents);
+    if (r.sale_price_cents != null) g._sale.push(r.sale_price_cents);
+    if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
+    if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
+    if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
+    if (r._merged) g._merged = true;
+    g._sids.add(r.style_id);
+  }
+  const avgOf2 = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
+  return [...map.values()].map((g) => {
+    const { _vals, _sids, _cost, _sale, _openSo, _sold, _cur, ...row } = g;
+    const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
+    return { ...row,
+      style_id: _sids.size === 1 ? [..._sids][0] : "",
+      style_code: one("style_code") ?? "",
+      color: one("color"),
+      description: one("description") ?? "",
+      category: one("category"),
+      avg_cost_cents: avgOf2(_cost),
+      sale_price_cents: avgOf2(_sale),
+      open_so_price_cents: avgOf2(_openSo),
+      sold_price_cents: avgOf2(_sold),
+      current_price_cents: avgOf2(_cur),
+    } as MergedRow;
+  });
+}
+
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, showTotals,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
   err: string | null;
-  sortKey: keyof SnapshotRow;
+  sortKey: SnapColKey;
   sortDir: "asc" | "desc";
-  onSort: (k: keyof SnapshotRow) => void;
+  onSort: (k: SnapColKey) => void;
   thumbs: Map<string, StyleThumbInfo>;
   onOpenSold: (r: SnapshotRow) => void;
   onOpenPurchased: (r: SnapshotRow) => void;
+  // Column visibility lifted to the parent (control lives in the header row).
+  show: (k: string) => boolean;
+  explodePpk: boolean; // carries the explode flag into the new-tab drill URLs
+  mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
+  collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
+  showTotals: boolean; // totals strip above the headers (Qty + $ Cost + $ Wholesale + Avg Cost + Avg Sale stacked per column)
 }) {
-  // Column show/hide — persisted per browser. "image" is a pseudo-column.
-  const [hidden, setHidden] = useState<Set<string>>(() => {
-    try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
-  });
-  const [colsOpen, setColsOpen] = useState(false);
-  const toggleCol = (k: string) => setHidden((prev) => {
-    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k);
-    try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
-    return next;
-  });
-  const show = (k: string) => !hidden.has(k);
+  // Zebra striping tint by row index — alternate rows get a clearly visible
+  // background so long lists stay readable; mirrors the drill modals' zebra().
+  const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.16)" : "transparent" });
+  const HOVER_BG = "rgba(59,130,246,0.26)"; // distinct from BOTH zebra tints
+
+  // Expanded Merge-PPK rows — a merged "BASE/PPK" line can be expanded (▾) to
+  // reveal its components: the base-style eaches + the PPK-pack contribution
+  // (exploded to per-unit), which sum back to the merged totals exactly.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (key: string) =>
+    setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  // Sticky bottom horizontal scrollbar. The grid can be far wider than the
+  // viewport; its native h-scrollbar sits at the bottom of the (tall) scroll box,
+  // so you'd have to scroll down to reach it. This proxy bar is pinned to the
+  // bottom of the viewport and scroll-synced both ways with the grid, so
+  // horizontal scrolling is always one reach away.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hbarRef = useRef<HTMLDivElement>(null);
+  const syncing = useRef(false);
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollW: 0, clientW: 0 });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setScrollMetrics({ scrollW: el.scrollWidth, clientW: el.clientWidth });
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [rows, explodePpk, mergePpk, showTotals, collapseCols]);
+  const onGridScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; b.scrollLeft = g.scrollLeft; }
+  };
+  const onBarScroll = () => {
+    if (syncing.current) { syncing.current = false; return; }
+    const g = scrollRef.current, b = hbarRef.current;
+    if (g && b) { syncing.current = true; g.scrollLeft = b.scrollLeft; }
+  };
+  const showHBar = scrollMetrics.scrollW > scrollMetrics.clientW + 1;
+
+  // ── Collapse / roll-up ────────────────────────────────────────────────────
+  // "Collapse onto X" = the CHECKED column(s) become the group-by key; every
+  // other text column is dropped so its rows merge, and numerics are summed
+  // (Avg Cost averaged); a non-key text column is still shown when constant
+  // across the group. Collapse onto Style -> one row per style (all colours
+  // summed) showing the style number + its Name; Collapse onto Item Category ->
+  // one row per category showing just the category name. The control offers
+  // Style + Item Category.
+  const collapseKey = [...collapseCols].sort().join(",");
+  const grouped = useMemo<MergedRow[]>(() => rollupSnapshot(rows, mergePpk, collapseCols), [rows, collapseKey, mergePpk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => {
-    const r = [...rows];
+    const r = [...grouped];
     r.sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
       let c: number;
-      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
-      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      if (sortKey === "avg_margin_pct") {
+        // Derived column — sort by computed margin; rows with no margin sort low.
+        const am = marginFrac(a.sale_price_cents, a.avg_cost_cents);
+        const bm = marginFrac(b.sale_price_cents, b.avg_cost_cents);
+        c = (am ?? -Infinity) - (bm ?? -Infinity);
+      } else {
+        const av = a[sortKey as keyof SnapshotRow], bv = b[sortKey as keyof SnapshotRow];
+        if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+        else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      }
       return sortDir === "asc" ? c : -c;
     });
     return r;
-  }, [rows, sortKey, sortDir]);
+  }, [grouped, sortKey, sortDir]);
+
+  // Totals across the displayed rows, per quantity column. qty = unit counts;
+  // cost = qty × avg unit cost (avg_cost_cents); wholesale = qty × avg wholesale
+  // SO sale price (sale_price_cents — the SO unit_price, i.e. the wholesale
+  // selling price, NOT a retail list price). avgCost / avgWhol are the per-unit
+  // means = $ total ÷ qty for that column (#10). Mirrors the ATS totals view.
+  const totals = useMemo(() => {
+    const qty: Record<string, number> = {};
+    const cost: Record<string, number> = {};
+    const wholesale: Record<string, number> = {};
+    // Qty of rows that ACTUALLY carry a cost / sale price — the correct
+    // denominator for the per-unit averages (see below).
+    const cQty: Record<string, number> = {};
+    const pQty: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; cQty[k] = 0; pQty[k] = 0; }
+    for (const r of sorted) {
+      const hasC = r.avg_cost_cents != null;
+      const c = (r.avg_cost_cents ?? 0) / 100;
+      for (const k of SNAP_SUM_COLS) {
+        const v = num(r[k] as number);
+        qty[k] += v;
+        if (hasC) { cost[k] += v * c; cQty[k] += v; }
+        // Per-column transaction price: On SO uses the open-SO price, Sold the
+        // actual sold price, inventory/PO columns the current price. Unpriced
+        // rows are excluded from that column's average (no dilution).
+        const pc = colPriceCents(r, k);
+        if (pc != null) { wholesale[k] += v * (pc / 100); pQty[k] += v; }
+      }
+    }
+    // Per-unit averages divide by the qty of rows that carry a cost/price — NOT
+    // total qty. Dividing by total qty drags the average DOWN whenever a column
+    // holds units from rows with no known wholesale price (e.g. styles never
+    // sold on an SO): those units count in the denominator but add $0 to the
+    // numerator. That was the bug — On PO / Sold read ~$4.4 while the true
+    // wholesale price is ~$7. ($ Cost / $ Wholesale totals are unchanged since
+    // unpriced rows contribute $0 either way.)
+    const avgCost: Record<string, number> = {};
+    const avgWhol: Record<string, number> = {};
+    for (const k of SNAP_SUM_COLS) {
+      avgCost[k] = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+      avgWhol[k] = pQty[k] > 0 ? wholesale[k] / pQty[k] : 0;
+    }
+    return { qty, cost, wholesale, avgCost, avgWhol };
+  }, [sorted]);
 
   // Quantity cell — opens a URL in a new tab.
   const QtyLink = ({ v, url }: { v: number; url: string }) => (
@@ -458,12 +783,28 @@ function SnapshotView({
     <span role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
        style={{ color: C.base, cursor: "pointer", fontFamily: "monospace", textDecoration: "underline dotted" }}>{fmtQty(v)}</span>
   );
+  // Collapsed rows that span >1 style have no single style to drill into → plain.
+  const NumLink = ({ v, url }: { v: number; url: string | null }) =>
+    url ? <QtyLink v={v} url={url} /> : <span style={{ fontFamily: "monospace", color: C.text }}>{fmtQty(v)}</span>;
+  const NumBtn = ({ v, onClick }: { v: number; onClick: (() => void) | null }) =>
+    onClick ? <QtyBtn v={v} onClick={onClick} /> : <span style={{ fontFamily: "monospace", color: C.text }}>{fmtQty(v)}</span>;
   // Double the row spacing and bump the font to 125% (operator request).
   const tdNum: React.CSSProperties = { padding: "16px 14px", textAlign: "right", fontFamily: "monospace", color: C.text };
   const tdTxt: React.CSSProperties = { padding: "16px 14px", textAlign: "left", color: C.text };
   // Frozen header cell: thBase + sticky to the scroll container's top. Opaque
-  // card background so scrolling rows don't show through the header.
-  const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 2, background: C.card };
+  // card background so scrolling rows don't show through the header. When the
+  // Totals strip is on it occupies the top band, so the column header sticks
+  // just below it (top: TOTALS_H).
+  const TOTALS_H = 108; // six stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Mrgn / Avg Sale)
+  const headerTop = showTotals ? TOTALS_H : 0;
+  const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
+  // Totals strip cells — sticky at the very top, above the column header.
+  const totalsTh: React.CSSProperties = { ...thBase, position: "sticky", top: 0, zIndex: 3, height: TOTALS_H, background: C.card, borderBottom: `2px solid ${C.primary}`, fontFamily: "monospace", padding: "4px 10px" };
+  const fmtUSD = (v: number) => (v ? `$${Math.round(v).toLocaleString()}` : "—");
+  const fmtUSD2 = (v: number) => (v ? `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");
+  // One totals cell stacks all five measures so a single Totals toggle shows
+  // Qty + $ Cost + $ Wholesale + Avg Cost + Avg Sale together (no mode choice).
+  const totStack: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3, fontFamily: "monospace", fontSize: 11 };
 
   if (loading) return <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>Loading snapshot…</div>;
   if (err) return <div style={{ background: "#7f1d1d", color: "white", padding: "10px 14px", borderRadius: 8, fontSize: 13 }}>{err}</div>;
@@ -471,65 +812,170 @@ function SnapshotView({
 
   return (
     <div>
-      {/* Column show/hide */}
-      <div style={{ position: "relative", display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button onClick={() => setColsOpen((o) => !o)} style={{ background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "5px 12px", fontSize: 13, cursor: "pointer" }}>⚙ Columns</button>
-        {colsOpen && (
-          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
-            {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
-              <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
-                <input type="checkbox" checked={show(col.key as string)} onChange={() => toggleCol(col.key as string)} />
-                {col.label}
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
+      <div ref={scrollRef} onScroll={onGridScroll} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", background: C.card, borderRadius: 10, border: `1px solid ${C.cardBdr}` }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16 /* 125% of the 13px base */ }}>
           <thead>
+            {/* Totals strip — above the column headers (ATS-modelled). Each
+                quantity column stacks five measures: Qty (unit counts), $ Cost
+                (qty × avg cost), $ Wholesale (qty × avg wholesale SO sale price),
+                Avg Cost and Avg Sale (per-unit means over the units that carry a
+                cost / price — NOT ÷ total qty, which would dilute them with
+                unpriced units). */}
+            {showTotals && (() => {
+              const visCols = SNAP_COLS.filter((c) => show(c.key as string));
+              let labelled = false;
+              return (
+                <tr>
+                  {show("image") && <th style={totalsTh} />}
+                  {visCols.map((col) => {
+                    const k = col.key as string;
+                    const isSum = (SNAP_SUM_COLS as readonly string[]).includes(k);
+                    if (isSum) {
+                      return (
+                        <th key={k} style={{ ...totalsTh, textAlign: "right" }}>
+                          <div style={totStack}>
+                            <span style={{ color: C.amber, fontWeight: 800 }}>{fmtQty(totals.qty[k])}</span>
+                            <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[k])}</span>
+                            <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
+                            <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
+                            <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
+                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
+                          </div>
+                        </th>
+                      );
+                    }
+                    // First non-summed column carries the row legend.
+                    if (!labelled) {
+                      labelled = true;
+                      return (
+                        <th key={k} style={{ ...totalsTh, textAlign: "right" }}>
+                          <div style={{ ...totStack, fontWeight: 700 }}>
+                            <span style={{ color: C.amber }}>Qty</span>
+                            <span style={{ color: C.textSub }}>$ Cost</span>
+                            <span style={{ color: C.base }}>$ Wholesale</span>
+                            <span style={{ color: C.green }}>Avg Cost</span>
+                            <span style={{ color: "#93C5FD" }}>Avrg Sale</span>
+                            <span style={{ color: "#34D399" }}>Avg Mrgn</span>
+                          </div>
+                        </th>
+                      );
+                    }
+                    return <th key={k} style={totalsTh} />;
+                  })}
+                </tr>
+              );
+            })()}
             <tr>
               {/* Frozen header — sticks to the top while the body scrolls. Opaque
                   background so rows don't bleed through. */}
               {show("image") && <th style={{ ...thStick, textAlign: "center" }}>Image</th>}
-              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => (
-                <th key={col.key as string} onClick={() => onSort(col.key)}
-                    style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
-                  {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
-                </th>
-              ))}
+              {SNAP_COLS.filter((c) => show(c.key as string)).map((col) => {
+                // The widest headers ("ATS Qty (Incl POs)", "Item Category") WRAP
+                // onto multiple lines (constrained width) so the column stays narrow.
+                const wrap = col.key === "ats_incl_po" || col.key === "category";
+                return (
+                  <th key={col.key as string} onClick={() => onSort(col.key)}
+                      style={{ ...thStick, textAlign: col.numeric ? "right" : "left", cursor: "pointer", whiteSpace: wrap ? "normal" : "nowrap", ...(wrap ? { maxWidth: 72, width: 72 } : {}), userSelect: "none" }}>
+                    {col.label}{sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => {
+            {sorted.map((r, i) => {
               const thumbUrl = thumbs.get(r.style_id)?.byColor[(r.color || "").toLowerCase().trim()] ?? thumbs.get(r.style_id)?.default ?? null;
+              const exp = explodePpk ? "&explode_ppk=true" : ""; // carry explode into matrix drill
+              // A collapsed row that rolls up >1 style has no single style to
+              // drill into → render its quantities as plain numbers.
+              const merged = !!r._merged; // Merge-PPK row (base + PPK combined)
+              const linkable = !!r.style_id && !!r.style_code && !merged;
+              const rowBg = merged ? "rgba(139,92,246,0.16)" : (zebra(i).background as string);
+              const rowKey = `${r.style_id}|${r.style_code}|${r.color ?? ""}|${r.category ?? ""}`;
+              // Merged rows with components get a ▾ expander to drill into the
+              // base-style eaches + PPK-pack contribution that summed into them.
+              const comps = merged ? (r._components ?? []) : [];
+              const canExpand = comps.length > 0;
+              const isOpen = expanded.has(rowKey);
               return (
-                <tr key={`${r.style_id}|${r.color ?? ""}`}
-                    style={{ borderBottom: `1px solid ${C.rowBdr}` }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "#243449"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                <Fragment key={rowKey}>
+                <tr style={{ borderBottom: `1px solid ${C.rowBdr}`, background: rowBg }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = HOVER_BG; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
                   {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={r.style_id} label={r.style_code} url={thumbUrl} size={48} /></td>}
-                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600 }}>{r.style_code}</td>}
+                  {show("style_code") && <td style={{ ...tdTxt, fontWeight: 600, color: merged ? "#C4B5FD" : C.text }}>
+                    {canExpand && (
+                      <span role="button" tabIndex={0} aria-expanded={isOpen} title={isOpen ? "Hide components" : "Show base + PPK components"}
+                        onClick={() => toggleExpand(rowKey)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleExpand(rowKey); } }}
+                        style={{ cursor: "pointer", marginRight: 6, color: "#C4B5FD", userSelect: "none", display: "inline-block", width: 12 }}>{isOpen ? "▾" : "▸"}</span>
+                    )}
+                    {r.style_code || "—"}
+                  </td>}
                   {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={r.color} size={18} /> {r.color || "—"}</span></td>}
                   {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.description || "—"}</td>}
-                  {show("on_hand") && <td style={tdNum}><QtyLink v={r.on_hand} url={lnkMatrix(r.style_id)} /></td>}
-                  {show("allocated") && <td style={tdNum}><QtyLink v={r.allocated} url={lnkAlloc(r.style_code)} /></td>}
-                  {show("on_so") && <td style={tdNum}><QtyLink v={r.on_so} url={lnkSO(r.style_code)} /></td>}
-                  {show("ats") && <td style={tdNum}><QtyLink v={r.ats} url={lnkATS(r.style_code)} /></td>}
-                  {show("on_po") && <td style={tdNum}><QtyLink v={r.on_po} url={lnkPO(r.style_code)} /></td>}
-                  {show("ats_incl_po") && <td style={tdNum}><QtyLink v={r.ats_incl_po} url={lnkATS(r.style_code, true)} /></td>}
-                  {show("sold") && <td style={tdNum}><QtyBtn v={r.sold} onClick={() => onOpenSold(r)} /></td>}
-                  {show("purchased") && <td style={tdNum}><QtyBtn v={r.purchased} onClick={() => onOpenPurchased(r)} /></td>}
+                  {show("on_hand") && <td style={tdNum}><NumLink v={r.on_hand} url={linkable ? `${lnkMatrix(r.style_id)}${exp}` : null} /></td>}
+                  {show("allocated") && <td style={tdNum}><NumLink v={r.allocated} url={linkable ? lnkAlloc(r.style_code) : null} /></td>}
+                  {show("on_so") && <td style={tdNum}><NumLink v={r.on_so} url={linkable ? lnkSO(r.style_code) : null} /></td>}
+                  {show("ats") && <td style={tdNum}><NumLink v={r.ats} url={linkable ? lnkATS(r.style_code) : null} /></td>}
+                  {show("on_po") && <td style={tdNum}><NumLink v={r.on_po} url={linkable ? lnkPO(r.style_code) : null} /></td>}
+                  {show("ats_incl_po") && <td style={tdNum}><NumLink v={r.ats_incl_po} url={linkable ? lnkATS(r.style_code, true) : null} /></td>}
+                  {show("sold") && <td style={tdNum}><NumBtn v={r.sold} onClick={linkable ? () => onOpenSold(r) : null} /></td>}
+                  {show("purchased") && <td style={tdNum}><NumBtn v={r.purchased} onClick={linkable ? () => onOpenPurchased(r) : null} /></td>}
                   {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(r.sale_price_cents, r.avg_cost_cents)}</td>}
                 </tr>
+                {/* Component drill — base-style eaches + PPK-pack contribution
+                    (per-unit), each linkable to its own style, summing back to
+                    the merged line above. Tinted + indented to read as children. */}
+                {isOpen && comps.map((cr, ci) => {
+                  const cPpk = /ppk/i.test(cr.style_code); // PPK grain rule (style code, not size)
+                  const cLink = !!cr.style_id && !!cr.style_code;
+                  const cThumb = thumbs.get(cr.style_id)?.byColor[(cr.color || "").toLowerCase().trim()] ?? thumbs.get(cr.style_id)?.default ?? null;
+                  const cBg = "rgba(139,92,246,0.07)";
+                  return (
+                    <tr key={`${rowKey}::comp::${cr.style_id}|${cr.style_code}|${cr.color ?? ""}|${ci}`}
+                        style={{ borderBottom: `1px solid ${C.rowBdr}`, background: cBg }}>
+                      {show("image") && <td style={{ padding: "8px 14px", textAlign: "center" }}><StyleThumb styleId={cr.style_id} label={cr.style_code} url={cThumb} size={36} /></td>}
+                      {show("style_code") && <td style={{ ...tdTxt, paddingLeft: 34, color: C.textSub }}>
+                        <span style={{ color: cPpk ? "#93C5FD" : C.textSub, fontWeight: 600 }}>{cPpk ? "PPK pack" : "Base eaches"}</span>{"  "}
+                        <span style={{ color: C.textMuted, fontSize: 13 }}>{cr.style_code}</span>
+                      </td>}
+                      {show("color") && <td style={tdTxt}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={cr.color} size={16} /> {cr.color || "—"}</span></td>}
+                      {show("description") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.description || "—"}</td>}
+                      {show("on_hand") && <td style={tdNum}><NumLink v={cr.on_hand} url={cLink ? `${lnkMatrix(cr.style_id)}${exp}` : null} /></td>}
+                      {show("allocated") && <td style={tdNum}><NumLink v={cr.allocated} url={cLink ? lnkAlloc(cr.style_code) : null} /></td>}
+                      {show("on_so") && <td style={tdNum}><NumLink v={cr.on_so} url={cLink ? lnkSO(cr.style_code) : null} /></td>}
+                      {show("ats") && <td style={tdNum}><NumLink v={cr.ats} url={cLink ? lnkATS(cr.style_code) : null} /></td>}
+                      {show("on_po") && <td style={tdNum}><NumLink v={cr.on_po} url={cLink ? lnkPO(cr.style_code) : null} /></td>}
+                      {show("ats_incl_po") && <td style={tdNum}><NumLink v={cr.ats_incl_po} url={cLink ? lnkATS(cr.style_code, true) : null} /></td>}
+                      {show("sold") && <td style={tdNum}><NumBtn v={cr.sold} onClick={cLink ? () => onOpenSold(cr) : null} /></td>}
+                      {show("purchased") && <td style={tdNum}><NumBtn v={cr.purchased} onClick={cLink ? () => onOpenPurchased(cr) : null} /></td>}
+                      {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.category || "—"}</td>}
+                      {show("in_transit") && <td style={tdNum}>{fmtQty(cr.in_transit)}</td>}
+                      {show("avg_cost_cents") && <td style={tdNum}>{cr.avg_cost_cents != null ? (cr.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("sale_price_cents") && <td style={tdNum}>{cr.sale_price_cents != null ? (cr.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(cr.sale_price_cents, cr.avg_cost_cents)}</td>}
+                    </tr>
+                  );
+                })}
+                </Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+      {/* Sticky bottom horizontal scrollbar — pinned to the viewport bottom and
+          scroll-synced with the grid above, so wide grids are always scrollable
+          without hunting for the native bar at the end of a tall list. */}
+      {showHBar && (
+        <div ref={hbarRef} onScroll={onBarScroll}
+          style={{ position: "sticky", bottom: 0, zIndex: 5, overflowX: "auto", overflowY: "hidden", height: 14, background: C.card, borderTop: `1px solid ${C.cardBdr}`, borderRadius: "0 0 10px 10px" }}>
+          <div style={{ width: scrollMetrics.scrollW, height: 1 }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -538,7 +984,7 @@ function SnapshotView({
 type SoldDetail = {
   color_totals: { color: string | null; qty: number; avg_unit_price: number | null }[];
   grand_total: number;
-  rows: { color: string | null; store: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
+  rows: { color: string | null; store: string | null; warehouse: string | null; qty: number; invoice_number: string | null; ar_invoice_id: string | null; customer: string | null; unit_price: number | null; date: string | null; kind: string }[];
 };
 type PurchasedDetail = {
   color_totals: { color: string | null; qty: number }[];
@@ -546,8 +992,12 @@ type PurchasedDetail = {
   rows: { color: string | null; vendor: string | null; qty: number; unit_price: number | null; ref: string | null; bill_id: string | null; receipt_type: string; receipt_date: string | null; bill_date: string | null }[];
 };
 
-const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 };
-const modalCard: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(1000px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 20 };
+// Backdrop clears the NavDrawer: its left edge starts at --tng-nav-offset (the
+// live drawer width published by Tangerine) so the centered drill panel sits in
+// the content area and never slides UNDER the menu on a wrapped/narrow view
+// (#24). Falls back to 0 outside Tangerine. The card caps to the remaining width.
+const modalBackdrop: React.CSSProperties = { position: "fixed", top: 0, right: 0, bottom: 0, left: "var(--tng-nav-offset, 0px)", background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 };
+const modalCard: React.CSSProperties = { background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(1000px, calc(100vw - var(--tng-nav-offset, 0px) - 40px))", maxHeight: "90vh", overflow: "auto", padding: 20 };
 const dl/* date-label */: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 };
 const dateInput: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 8px", fontSize: 13, colorScheme: "dark" };
 const money = (n: number | null | undefined) => n == null ? "—" : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -564,8 +1014,8 @@ function DateRange({ from, to, onChange }: { from: string; to: string; onChange:
   );
 }
 
-function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: {
-  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+function SoldDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpenInvoice }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; explodePpk: boolean; onClose: () => void;
   onOpenInvoice: (arId: string, num: string, customer: string | null) => void;
 }) {
   const [from, setFrom] = useState(headerFrom);
@@ -573,18 +1023,44 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
   const [data, setData] = useState<SoldDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [store, setStore] = useState<string>("");      // "" = all stores (#7)
+  const [collapseInv, setCollapseInv] = useState(false); // collapse rows on Invoice # (#18)
+  type SoldRow = SoldDetail["rows"][number];
+  const ctSort = useColumnSort<SoldDetail["color_totals"][number]>("qty", "desc");
+  const rowSort = useColumnSort<SoldRow>("date", "desc");
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    if (explodePpk) qs.set("explode_ppk", "true"); // explode the drilled detail too
     fetch(`/api/internal/inventory-sold-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((j) => { if (!cancelled) setData(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .then((j) => { if (!cancelled) { setData(j); setStore(""); } }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [row.style_id, from, to]);
-  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  }, [row.style_id, from, to, explodePpk]);
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  // Store options across the invoice rows (#7). Wholesale rows carry no store, so
+  // this is mostly Ecom vs blank, but it constrains whatever store data exists.
+  const storeOptions = useMemo(() => [...new Set((data?.rows ?? []).map((r) => r.warehouse).filter((s): s is string => !!s))].sort(), [data]);
+  // Apply store filter → collapse-on-invoice (optional) → sort.
+  const invoiceRows = useMemo<SoldRow[]>(() => {
+    let rows = (data?.rows ?? []).filter((r) => !store || (r.warehouse ?? "") === store);
+    if (collapseInv) {
+      const map = new Map<string, SoldRow & { _amt: number; _pq: number }>();
+      for (const r of rows) {
+        const key = r.invoice_number ?? `__${r.color ?? ""}`;
+        let g = map.get(key);
+        if (!g) { g = { ...r, color: null, qty: 0, _amt: 0, _pq: 0 }; map.set(key, g); }
+        g.qty += num(r.qty);
+        if (r.unit_price != null) { g._amt += num(r.unit_price) * num(r.qty); g._pq += num(r.qty); }
+      }
+      rows = [...map.values()].map(({ _amt, _pq, ...g }) => ({ ...g, unit_price: _pq > 0 ? +(_amt / _pq).toFixed(4) : null }));
+    }
+    return rowSort.sort(rows);
+  }, [data, store, collapseInv, rowSort.key, rowSort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 8px", fontSize: 12, colorScheme: "dark" };
   return (
     <div style={modalBackdrop} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -597,22 +1073,49 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
           <>
             <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals</div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
-              <thead><tr><th style={th}>Color</th><th style={thR}>Qty Sold</th><th style={thR}>Avg Unit Price</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => ctSort.onSort("color")}>Color{ctSort.arrow("color")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("qty")}>Qty Sold{ctSort.arrow("qty")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("avg_unit_price")}>Avg Unit Price{ctSort.arrow("avg_unit_price")}</th>
+              </tr></thead>
               <tbody>
-                {data.color_totals.map((c) => (
+                {ctSort.sort(data.color_totals).map((c) => (
                   <tr key={c.color ?? ""}><td style={td}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><ColorSwatch name={c.color} size={16} /> {c.color || "—"}</span></td><td style={tdR}>{fmtQty(c.qty)}</td><td style={tdR}>{money(c.avg_unit_price)}</td></tr>
                 ))}
                 <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td><td style={tdR} /></tr>
               </tbody>
             </table>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Invoices</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Invoices</span>
+              {storeOptions.length > 0 && (
+                <label style={{ fontSize: 11, color: C.textMuted, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  Warehouse
+                  <select value={store} onChange={(e) => setStore(e.target.value)} style={selStyle}>
+                    <option value="">All</option>
+                    {storeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </label>
+              )}
+              <button type="button" onClick={() => setCollapseInv((v) => !v)} title="Collapse the rows onto Invoice number"
+                style={{ background: collapseInv ? C.primary : "transparent", color: collapseInv ? "#fff" : C.textSub, border: `1px solid ${collapseInv ? C.primary : C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
+                Collapse: Invoice {collapseInv ? "✓" : ""}
+              </button>
+            </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr><th style={th}>Color</th><th style={th}>Store</th><th style={thR}>Sold</th><th style={th}>Invoice #</th><th style={th}>Customer</th><th style={thR}>Unit Price</th><th style={th}>Date</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
+                <th style={th} onClick={() => rowSort.onSort("warehouse")}>Warehouse{rowSort.arrow("warehouse")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("qty")}>Sold{rowSort.arrow("qty")}</th>
+                <th style={th} onClick={() => rowSort.onSort("invoice_number")}>Invoice #{rowSort.arrow("invoice_number")}</th>
+                <th style={th} onClick={() => rowSort.onSort("customer")}>Customer{rowSort.arrow("customer")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("unit_price")}>Unit Price{rowSort.arrow("unit_price")}</th>
+                <th style={th} onClick={() => rowSort.onSort("date")}>Date{rowSort.arrow("date")}</th>
+              </tr></thead>
               <tbody>
-                {data.rows.map((r, i) => (
+                {invoiceRows.map((r, i) => (
                   <tr key={i}>
-                    <td style={td}>{r.color || "—"}</td>
-                    <td style={td}>{r.store || "—"}</td>
+                    <td style={td}>{collapseInv ? "—" : (r.color || "—")}</td>
+                    <td style={td}>{r.warehouse || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={td}>{r.invoice_number ? (r.ar_invoice_id ? <span role="button" tabIndex={0} onClick={() => onOpenInvoice(r.ar_invoice_id!, r.invoice_number!, r.customer)} style={{ color: C.base, cursor: "pointer", textDecoration: "underline" }}>{r.invoice_number}</span> : r.invoice_number) : "—"}</td>
                     <td style={td}>{r.customer || "—"}</td>
@@ -620,7 +1123,7 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
                     <td style={td}>{r.date ? fmtDate(String(r.date).slice(0, 10)) : "—"}</td>
                   </tr>
                 ))}
-                {data.rows.length === 0 && <tr><td style={td} colSpan={7}>No invoices in this range.</td></tr>}
+                {invoiceRows.length === 0 && <tr><td style={td} colSpan={7}>No invoices in this range{store ? ` for store ${store}` : ""}.</td></tr>}
               </tbody>
             </table>
           </>
@@ -630,8 +1133,8 @@ function SoldDetailModal({ row, headerFrom, headerTo, onClose, onOpenInvoice }: 
   );
 }
 
-function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }: {
-  row: SnapshotRow; headerFrom: string; headerTo: string; onClose: () => void;
+function PurchasedDetailModal({ row, headerFrom, headerTo, explodePpk, onClose, onOpenBill }: {
+  row: SnapshotRow; headerFrom: string; headerTo: string; explodePpk: boolean; onClose: () => void;
   onOpenBill: (billId: string, ref: string, vendor: string | null) => void;
 }) {
   const [from, setFrom] = useState(headerFrom);
@@ -642,21 +1145,42 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
   // Click a colour row to filter the receipts/bills list to just that colour.
   // null = show all. Stored as the colour string ("" for the null-colour row).
   const [pickedColor, setPickedColor] = useState<string | null>(null);
+  const [collapseBill, setCollapseBill] = useState(false); // collapse rows on Bill # (#17)
+  type PurchRow = PurchasedDetail["rows"][number];
+  const ctSort = useColumnSort<PurchasedDetail["color_totals"][number]>("qty", "desc");
+  const rowSort = useColumnSort<PurchRow>("bill_date", "desc");
   useEffect(() => {
     let cancelled = false; setLoading(true); setErr(null);
     const qs = new URLSearchParams({ style_id: row.style_id }); if (from) qs.set("from", from); if (to) qs.set("to", to);
+    if (explodePpk) qs.set("explode_ppk", "true"); // explode the drilled detail too
     fetch(`/api/internal/inventory-purchased-detail?${qs}`).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((j) => { if (!cancelled) { setData(j); setPickedColor(null); } }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [row.style_id, from, to]);
-  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
+  }, [row.style_id, from, to, explodePpk]);
+  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" };
   const thR: React.CSSProperties = { ...th, textAlign: "right" };
   const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
   const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
   // Zebra/fade: alternate row tint so long colour lists stay readable on scroll.
   const zebra = (i: number): React.CSSProperties => ({ background: i % 2 ? "rgba(148,163,184,0.06)" : "transparent" });
-  const billRows = (data?.rows ?? []).filter((r) => pickedColor == null || (r.color ?? "") === pickedColor);
+  // Apply colour filter → collapse-on-bill (optional) → sort.
+  const billRows = useMemo<PurchRow[]>(() => {
+    let rows = (data?.rows ?? []).filter((r) => pickedColor == null || (r.color ?? "") === pickedColor);
+    if (collapseBill) {
+      const map = new Map<string, PurchRow & { _amt: number; _pq: number }>();
+      for (const r of rows) {
+        // Key on the bill/ref; rows with no ref (bare receipts) collapse per type.
+        const key = r.ref ?? `__${r.receipt_type}|${r.color ?? ""}`;
+        let g = map.get(key);
+        if (!g) { g = { ...r, color: null, qty: 0, _amt: 0, _pq: 0 }; map.set(key, g); }
+        g.qty += num(r.qty);
+        if (r.unit_price != null) { g._amt += num(r.unit_price) * num(r.qty); g._pq += num(r.qty); }
+      }
+      rows = [...map.values()].map(({ _amt, _pq, ...g }) => ({ ...g, unit_price: _pq > 0 ? +(_amt / _pq).toFixed(4) : null }));
+    }
+    return rowSort.sort(rows);
+  }, [data, pickedColor, collapseBill, rowSort.key, rowSort.dir]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div style={modalBackdrop} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
@@ -669,9 +1193,12 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
           <>
             <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px" }}>Color totals <span style={{ textTransform: "none", letterSpacing: 0, fontStyle: "italic" }}>— click a colour to filter the bills below</span></div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 18 }}>
-              <thead><tr><th style={th}>Color</th><th style={thR}>Purchased</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => ctSort.onSort("color")}>Color{ctSort.arrow("color")}</th>
+                <th style={thR} onClick={() => ctSort.onSort("qty")}>Purchased{ctSort.arrow("qty")}</th>
+              </tr></thead>
               <tbody>
-                {data.color_totals.map((c, i) => {
+                {ctSort.sort(data.color_totals).map((c, i) => {
                   const key = c.color ?? "";
                   const selected = pickedColor === key;
                   return (
@@ -687,8 +1214,12 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
                 <tr style={{ borderTop: `2px solid ${C.sectionBdr}` }}><td style={{ ...td, fontWeight: 700 }}>Total</td><td style={{ ...tdR, fontWeight: 800, color: C.amber }}>{fmtQty(data.grand_total)}</td></tr>
               </tbody>
             </table>
-            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0 6px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span>Receipts &amp; bills</span>
+              <button type="button" onClick={() => setCollapseBill((v) => !v)} title="Collapse the rows onto Bill number"
+                style={{ textTransform: "none", letterSpacing: 0, background: collapseBill ? C.primary : "transparent", color: collapseBill ? "#fff" : C.textSub, border: `1px solid ${collapseBill ? C.primary : C.cardBdr}`, borderRadius: 4, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>
+                Collapse: Bill {collapseBill ? "✓" : ""}
+              </button>
               {pickedColor != null && (
                 <span style={{ textTransform: "none", letterSpacing: 0, color: C.textSub, display: "inline-flex", alignItems: "center", gap: 6 }}>
                   · filtered to <strong style={{ color: C.text }}>{pickedColor || "—"}</strong>
@@ -697,11 +1228,20 @@ function PurchasedDetailModal({ row, headerFrom, headerTo, onClose, onOpenBill }
               )}
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr><th style={th}>Color</th><th style={th}>Vendor</th><th style={thR}>Purchased</th><th style={thR}>Unit Price</th><th style={th}>Ref #</th><th style={th}>Type</th><th style={th}>Receipt Date</th><th style={th}>Bill Date</th></tr></thead>
+              <thead><tr>
+                <th style={th} onClick={() => rowSort.onSort("color")}>Color{rowSort.arrow("color")}</th>
+                <th style={th} onClick={() => rowSort.onSort("vendor")}>Vendor{rowSort.arrow("vendor")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("qty")}>Purchased{rowSort.arrow("qty")}</th>
+                <th style={thR} onClick={() => rowSort.onSort("unit_price")}>Unit Price{rowSort.arrow("unit_price")}</th>
+                <th style={th} onClick={() => rowSort.onSort("ref")}>Ref #{rowSort.arrow("ref")}</th>
+                <th style={th} onClick={() => rowSort.onSort("receipt_type")}>Type{rowSort.arrow("receipt_type")}</th>
+                <th style={th} onClick={() => rowSort.onSort("receipt_date")}>Receipt Date{rowSort.arrow("receipt_date")}</th>
+                <th style={th} onClick={() => rowSort.onSort("bill_date")}>Bill Date{rowSort.arrow("bill_date")}</th>
+              </tr></thead>
               <tbody>
                 {billRows.map((r, i) => (
                   <tr key={i} style={zebra(i)}>
-                    <td style={td}>{r.color || "—"}</td>
+                    <td style={td}>{collapseBill ? "—" : (r.color || "—")}</td>
                     <td style={td}>{r.vendor || "—"}</td>
                     <td style={tdR}>{fmtQty(r.qty)}</td>
                     <td style={tdR}>{money(r.unit_price)}</td>
@@ -746,7 +1286,7 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
   const centsCol = kind === "ar" ? "unit_price_cents" : "unit_cost_cents";
   return (
     <div style={{ ...modalBackdrop, zIndex: 210 }} onClick={onClose}>
-      <div style={{ ...modalCard, width: "min(820px, 96vw)" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...modalCard, width: "min(820px, calc(100vw - var(--tng-nav-offset, 0px) - 40px))" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{kind === "ar" ? "Invoice" : "Bill"} {number}</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -768,10 +1308,18 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
                 {lines.map((l, i) => {
                   const qty = Number(l.quantity) || 0;
                   const unit = l[centsCol] != null ? Number(l[centsCol]) / 100 : null;
-                  const lineTotal = l.line_total_cents != null ? Number(l.line_total_cents) / 100 : (unit != null ? unit * qty : null);
+                  // Line shapes differ by table: AR (ar_invoice_lines) carries
+                  // line_number + line_total_cents; AP (invoice_line_items) carries
+                  // a 0-based line_index + line_total in DOLLARS. Read whichever is
+                  // present so the bill popup doesn't blank out (paired with the
+                  // handler's line_index order fix — the #16 bill 500).
+                  const lineNo = l.line_number ?? (l.line_index != null ? Number(l.line_index) + 1 : i + 1);
+                  const lineTotal = l.line_total_cents != null
+                    ? Number(l.line_total_cents) / 100
+                    : (l.line_total != null ? Number(l.line_total) : (unit != null ? unit * qty : null));
                   return (
                     <tr key={i}>
-                      <td style={td}>{String(l.line_number ?? i + 1)}</td>
+                      <td style={td}>{String(lineNo)}</td>
                       <td style={td}>{String(l.description ?? "—")}</td>
                       <td style={tdR}>{fmtQty(qty)}</td>
                       <td style={tdR}>{money(unit)}</td>
@@ -805,11 +1353,14 @@ export default function InternalInventoryMatrix() {
   // shows the stacked per-style size grids.
   const [noStyleView, setNoStyleView] = useState<"snapshot" | "matrix">("snapshot");
   const [snapRows, setSnapRows] = useState<SnapshotRow[]>([]);
+  // Lots present across the snapshot's fetched styles (full set, filter-independent)
+  // — feeds the lot dropdown in the all-styles snapshot view.
+  const [snapLots, setSnapLots] = useState<string[]>([]);
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapErr, setSnapErr] = useState<string | null>(null);
-  const [snapSortKey, setSnapSortKey] = useState<keyof SnapshotRow>("style_code");
+  const [snapSortKey, setSnapSortKey] = useState<SnapColKey>("style_code");
   const [snapSortDir, setSnapSortDir] = useState<"asc" | "desc">("asc");
-  const onSnapSort = (k: keyof SnapshotRow) => {
+  const onSnapSort = (k: SnapColKey) => {
     setSnapSortKey((prev) => { if (prev === k) { setSnapSortDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setSnapSortDir("asc"); return k; });
   };
   // Header date range — filters the Sold/Purchased columns AND seeds the drills.
@@ -829,13 +1380,58 @@ export default function InternalInventoryMatrix() {
   // On-Hand is the only metric. The old "Available" toggle was replaced by an
   // ATS app link (see the Show/ATS controls below).
   const [warehouse, setWarehouse] = useState<string>(ALL_WAREHOUSES); // ALL_WAREHOUSES = sum everything
+  // Lot filter (single-style view): [] = all lots (whole-style on-hand). When one
+  // or more lots are picked, the fetch re-scopes on-hand to just those lots. The
+  // option list comes from payload.lots (always the full set). Reset on style change.
+  const [lotFilter, setLotFilter] = useState<string[]>([]);
   // Global warehouse names (inventory_locations kind='warehouse') — these match
   // the keys in each SKU's on_hand_by_wh map, so the dropdown works even in the
   // multi-style view where no single-style payload (with its own list) exists.
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
+  // Hide sizes (matrix view): drop ALL per-size columns, leaving the non-size
+  // columns (Color / Total / Avg Cost / Total Cost / Last Received). Off by default.
+  const [hideSizes, setHideSizes] = useState(false);
+  // Empty-size-column collapse (single-style matrix) — mirrors the SO/PO grid:
+  // once any size column has stock, the first VISIBLE size header turns green +
+  // clickable and hides the all-zero leading/trailing size columns.
+  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // Snapshot column show/hide — lifted up from SnapshotView so the control can
+  // live in the filter header row (next to Warehouse). Persisted per browser.
+  const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
+    try { const v = JSON.parse(sessionStorage.getItem(SNAP_HIDE_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
+  });
+  const [snapColsOpen, setSnapColsOpen] = useState(false);
+  const toggleSnapCol = (k: string) => setSnapHidden((prev) => {
+    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k);
+    try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
+    return next;
+  });
+  const snapShow = (k: string) => !snapHidden.has(k);
+  // Collapse: which text column(s) to collapse ONTO — the checked dims become
+  // the group-by key, all other text columns merge away, numerics sum.
+  // Independent of column show/hide.
+  const [snapCollapse, setSnapCollapse] = useState<Set<string>>(new Set());
+  const [snapCollapseOpen, setSnapCollapseOpen] = useState(false);
+  const toggleSnapCollapse = (k: string) => setSnapCollapse((prev) => {
+    const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next;
+  });
   const [riseFilter, setRiseFilter] = useState<string[]>([]); // [] = all
-  const [explodePpk, setExplodePpk] = useState(false); // off by default; folds PPK packs → sized eaches
+  // off by default; folds PPK packs → sized eaches. Honors ?explode_ppk in the
+  // URL so the Snapshot's On-Hand drill (which appends it) opens already exploded.
+  const [explodePpk, setExplodePpk] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("explode_ppk") === "true"; } catch { return false; }
+  });
+  // Merge PPK: collapse each base style + its PPK sibling into one "BASE/PPK"
+  // row (snapshot only). Requires exploded eaches, so selecting it forces Explode on.
+  const [mergePpk, setMergePpk] = useState(false);
+  // Totals strip (snapshot only), modelled on the ATS totals view: a single
+  // toggle that shows a strip above the column headers stacking, for each
+  // quantity column, Qty (unit counts) + $ Cost (qty × avg cost) + $ Wholesale
+  // (qty × avg wholesale SO sale price) + Avg Cost + Avg Sale — all together, no
+  // mode choice. When the page has a PPK style this auto-forces per-unit explode
+  // (see effectiveExplodePpk) so the $ values reconcile.
+  const [snapTotals, setSnapTotals] = useState(false);
   const [inseamMode, setInseamMode] = useState(false); // off by default; split each color into per-inseam rows + subtotals
   const [loading, setLoading]   = useState(false);
   const [err, setErr]           = useState<string | null>(null);
@@ -919,7 +1515,8 @@ export default function InternalInventoryMatrix() {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}`;
+    const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+    const url = `/api/internal/style-matrix?style_id=${encodeURIComponent(styleId)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`;
     fetch(url)
       .then(async (r) => {
         if (!r.ok) {
@@ -934,7 +1531,7 @@ export default function InternalInventoryMatrix() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, explodePpk]);
+  }, [styleId, explodePpk, lotFilter]);
 
 
   // Reset rise + warehouse + inseam-mode filters on a STYLE change only (not on
@@ -944,6 +1541,7 @@ export default function InternalInventoryMatrix() {
     setRiseFilter([]);
     setWarehouse(ALL_WAREHOUSES);
     setInseamMode(false);
+    setLotFilter([]);
   }, [styleId]);
 
   // Fetch per-color thumbnail images for the active style from the PIM endpoint.
@@ -1035,25 +1633,42 @@ export default function InternalInventoryMatrix() {
     () => (brandId ? styles.filter((s) => s.brand_id === brandId) : styles),
     [styles, brandId],
   );
+  // CASCADING filter options (#9): each dropdown only offers values that exist
+  // among the styles matching ALL the OTHER active filters (search text + the
+  // sibling dropdowns), so the filters narrow each other reciprocally. `except`
+  // is the dimension being computed (so it doesn't constrain its own options).
+  const matchesExcept = useMemo(() => {
+    const q = styleSearchDeb.trim().toLowerCase();
+    return (s: StyleListRow, except: "gender" | "group" | "category" | "sub") => {
+      if (except !== "gender" && genderFilter && s.gender_code !== genderFilter) return false;
+      if (except !== "group" && groupFilter && s.group_name !== groupFilter) return false;
+      if (except !== "category" && categoryFilter && s.category_name !== categoryFilter) return false;
+      if (except !== "sub" && subCategoryFilter && s.sub_category_name !== subCategoryFilter) return false;
+      if (q) {
+        const hay = [s.style_code, s.style_name, s.description, s.group_name, s.category_name, s.sub_category_name]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    };
+  }, [styleSearchDeb, genderFilter, groupFilter, categoryFilter, subCategoryFilter]);
+
   const genderOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.gender_code).filter((g): g is string => !!g))]
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "gender")).map((s) => s.gender_code).filter((g): g is string => !!g))]
       .sort((a, b) => (GENDER_LABELS[a] || a).localeCompare(GENDER_LABELS[b] || b)),
-    [brandScopedStyles],
+    [brandScopedStyles, matchesExcept],
   );
   const groupOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
-    [brandScopedStyles],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "group")).map((s) => s.group_name).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
   const categoryOptions = useMemo<string[]>(
-    () => [...new Set(brandScopedStyles.map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
-    [brandScopedStyles],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "category")).map((s) => s.category_name).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
   const subCategoryOptions = useMemo<string[]>(
-    () => {
-      const base = categoryFilter ? brandScopedStyles.filter((s) => s.category_name === categoryFilter) : brandScopedStyles;
-      return [...new Set(base.map((s) => s.sub_category_name).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
-    },
-    [brandScopedStyles, categoryFilter],
+    () => [...new Set(brandScopedStyles.filter((s) => matchesExcept(s, "sub")).map((s) => s.sub_category_name).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b)),
+    [brandScopedStyles, matchesExcept],
   );
 
   // Reset sub-category when category changes.
@@ -1068,22 +1683,56 @@ export default function InternalInventoryMatrix() {
     [brandStyles, multiPage],
   );
 
-  // Snapshot view (default all-styles): fetch the aggregate rows for this page.
+  // Collapse (#13) aggregates across the FULL filtered set, not just the visible
+  // page — exactly like Export. When ANY Collapse column is checked, the snapshot
+  // fetches every filtered style (capped) so the roll-up sums all of them; the
+  // pager is hidden in that mode. A safety cap keeps a giant "all styles" collapse
+  // from posting tens of thousands of ids.
+  const SNAP_ALL_CAP = 4000;
+  const collapseActive = snapCollapse.size > 0;
+  const snapStyleIds = useMemo(
+    () => (collapseActive ? brandStyles.slice(0, SNAP_ALL_CAP).map((s) => s.id) : pageStyleIds),
+    [collapseActive, brandStyles, pageStyleIds],
+  );
+
+  // Does the snapshot's fetched set include ANY PPK (prepack) style? PPK grain
+  // rule is canonical: a style is a pack iff /PPK/i.test(style_code) (NOT
+  // size/pack_size). Used to FORCE per-unit explode when Totals is on — a PPK
+  // row's qty (packs) × pack avg-cost/price is meaningless as a $ total; the
+  // explode converts both to per-each so $ Cost / $ Wholesale reconcile. (#11)
+  const pageHasPpk = useMemo(() => {
+    const set = new Set(snapStyleIds);
+    return brandStyles.some((s) => set.has(s.id) && /ppk/i.test(s.style_code || ""));
+  }, [brandStyles, snapStyleIds]);
+
+  // Effective explode flag for the snapshot: the operator's Explode toggle, OR a
+  // forced explode when Totals is showing AND the page contains a PPK style (so
+  // the Totals strip's $ values are per-unit, not pack × pack-price). Merge PPK
+  // also implies explode (it folds packs into eaches). (#11)
+  const effectiveExplodePpk = explodePpk || mergePpk || (snapTotals && pageHasPpk);
+  // Explode is LOCKED on (can't be unclicked) whenever something else requires
+  // it: Merge PPK (needs eaches) or Totals over a page with a PPK style (the $
+  // totals only reconcile at unit grain). The Explode button reflects this.
+  const explodeLocked = mergePpk || (snapTotals && pageHasPpk);
+
+  // Snapshot view (default all-styles): fetch the aggregate rows for the visible
+  // page — or, when Collapse is active, the full filtered set (#13).
+  const snapFetchKey = snapStyleIds.join(",");
   useEffect(() => {
-    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapErr(null); return; }
-    if (pageStyleIds.length === 0) { setSnapRows([]); setSnapErr(null); return; }
+    if (styleId || noStyleView !== "snapshot") { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
+    if (snapStyleIds.length === 0) { setSnapRows([]); setSnapLots([]); setSnapErr(null); return; }
     let cancelled = false;
     setSnapLoading(true); setSnapErr(null);
     fetch("/api/internal/inventory-snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ style_ids: pageStyleIds, from: snapFrom || undefined, to: snapTo || undefined }),
+      body: JSON.stringify({ style_ids: snapStyleIds, from: snapFrom || undefined, to: snapTo || undefined, explode_ppk: effectiveExplodePpk || undefined, warehouse: warehouse !== ALL_WAREHOUSES ? warehouse : undefined, lots: lotFilter.length ? lotFilter : undefined }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((j) => { if (!cancelled) setSnapRows(Array.isArray(j.rows) ? j.rows : []); })
+      .then((j) => { if (!cancelled) { setSnapRows(Array.isArray(j.rows) ? j.rows : []); setSnapLots(Array.isArray(j.lots) ? j.lots : []); } })
       .catch((e) => { if (!cancelled) setSnapErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setSnapLoading(false); });
     return () => { cancelled = true; };
-  }, [styleId, noStyleView, pageStyleIds, snapFrom, snapTo]);
+  }, [styleId, noStyleView, snapFetchKey, snapFrom, snapTo, effectiveExplodePpk, warehouse, lotFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-style view: fetch one page of matrices (MULTI_PAGE_SIZE styles) on demand.
   // Cancelled via AbortController when page/scope changes before the fetch completes.
@@ -1098,7 +1747,8 @@ export default function InternalInventoryMatrix() {
     Promise.all(
       stylesToLoad.map(async (s) => {
         try {
-          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}`, { signal: controller.signal });
+          const lotQs = lotFilter.length ? `&lots=${lotFilter.map((l) => encodeURIComponent(l)).join(",")}` : "";
+          const r = await fetch(`/api/internal/style-matrix?style_id=${encodeURIComponent(s.id)}${explodePpk ? "&explode_ppk=true" : ""}${lotQs}`, { signal: controller.signal });
           if (!r.ok) return null;
           const p = await r.json() as MatrixPayload;
           return { style: s, payload: p };
@@ -1113,7 +1763,25 @@ export default function InternalInventoryMatrix() {
       setBrandLoading(false);
     });
     return () => controller.abort();
-  }, [styleId, brandStyles, multiPage, explodePpk]);
+  }, [styleId, brandStyles, multiPage, explodePpk, lotFilter]);
+
+  // Lot numbers available for the current view, feeding the Lot # filter:
+  //  • single style → the payload's full lot list
+  //  • all-styles Snapshot → lots across the fetched snapshot styles
+  //  • all-styles Matrix → union of every loaded per-style payload's lots
+  // Always the FULL set (filter-independent) so the dropdown stays selectable.
+  const availableLots = useMemo<string[]>(() => {
+    if (styleId) return payload?.lots ?? [];
+    if (noStyleView === "snapshot") return snapLots;
+    const set = new Set<string>();
+    let hasNoLot = false;
+    for (const { payload: bp } of brandPayloads) {
+      for (const l of (bp.lots ?? [])) { if (l === NO_LOT_LABEL) hasNoLot = true; else set.add(l); }
+    }
+    const out = [...set].sort((a, b) => a.localeCompare(b));
+    if (hasNoLot) out.push(NO_LOT_LABEL);
+    return out;
+  }, [styleId, payload, noStyleView, snapLots, brandPayloads]);
 
   // Brand picker options (blank = all brands). Shows name only.
   const brandOptions = useMemo<SearchableSelectOption[]>(
@@ -1218,10 +1886,10 @@ export default function InternalInventoryMatrix() {
     return [...seen].sort((a, b) => a.localeCompare(b));
   }, [allWarehouses, payload]);
 
-  // Store dropdown options — "All Stores" + every warehouse name.
+  // Warehouse dropdown options — "All Warehouses" + every warehouse name.
   const warehouseDropdownOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: ALL_WAREHOUSES, label: "All Stores", searchHaystack: "all stores warehouses" },
+      { value: ALL_WAREHOUSES, label: "All Warehouses", searchHaystack: "all warehouses stores" },
       ...warehouseList.map((w) => ({ value: w, label: w, searchHaystack: w })),
     ],
     [warehouseList],
@@ -1269,6 +1937,17 @@ export default function InternalInventoryMatrix() {
 
   const grandQty = useMemo(() => visibleRows.reduce((s, r) => s + r.totalQty, 0), [visibleRows]);
   const grandCostCents = useMemo(() => visibleRows.reduce((s, r) => s + r.totalCostCents, 0), [visibleRows]);
+
+  // Empty-size-column collapse for the single-style matrix — the SAME model the
+  // SO/PO grid uses (computeSizeCollapse). Once any size column has stock the
+  // first VISIBLE size header turns green + is clickable to hide the all-zero
+  // leading/trailing size columns. `renderSizes` is the size axis actually drawn:
+  // empty when "Hide sizes" is on, else the collapsed range.
+  const sizeCollapse = useMemo(
+    () => computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed }),
+    [sizeOrder, colTotals, sizesCollapsed],
+  );
+  const renderSizes = hideSizes ? [] : sizeCollapse.visibleSizes;
 
   // By-inseam render model for the single-style table (null when off). Shared
   // logic lives in module-level buildInseamModel (also used per brand block).
@@ -1439,11 +2118,107 @@ export default function InternalInventoryMatrix() {
     { key: "status", header: "Status" },
   ], []);
 
+  // Snapshot rows after the Hide-Zeros toggle (drops on-hand-0 rows, matching the
+  // matrices' behavior). The fetched set is already scoped to the active filters
+  // (brand/search/gender/group/category/sub-category) via pageStyleIds, so this
+  // is the same set shown — both the table AND the export read it.
+  // Hide-Zeros for the Snapshot: a row is hidden ONLY when it is zero across
+  // EVERY quantity column. If any column is populated (e.g. a PPK style with
+  // 0 on-hand but sales/PO/ATS activity — on-hand lives on the BASE style) the
+  // row stays. (Earlier this filtered on on_hand alone, which wrongly dropped
+  // all PPK styles.)
+  const snapVisibleRows = useMemo<SnapshotRow[]>(
+    () => (hideZeros
+      ? snapRows.filter((r) =>
+          num(r.on_hand) !== 0 || num(r.allocated) !== 0 || num(r.on_so) !== 0 ||
+          num(r.ats) !== 0 || num(r.on_po) !== 0 || num(r.ats_incl_po) !== 0 ||
+          num(r.sold) !== 0 || num(r.purchased) !== 0 || num(r.in_transit) !== 0)
+      : snapRows),
+    [snapRows, hideZeros],
+  );
+
+  // Snapshot export — every visible (filtered) row, honoring the column show/hide
+  // selection so the sheet matches the on-screen table.
+  const snapExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(
+    () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
+      key: c.key as string,
+      header: c.label,
+      format: c.key === "avg_margin_pct" ? "percent"
+        : (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents"
+        : (c.numeric ? "number" : undefined),
+      ...(c.key === "avg_margin_pct" ? { digits: 2 } : {}),
+    })),
+    [snapHidden],
+  );
+  // Export mirrors EXACTLY what's on screen: run the same Merge-PPK + Collapse
+  // roll-up the table uses, so a collapsed/merged view exports collapsed/merged.
+  // When the Totals strip is on, append its Totals row(s) to the bottom of the
+  // sheet (#23) — one row per measure (Qty / $ Cost / $ Wholesale / Avg Cost /
+  // Avg Sale), each carrying that measure's value in the summed quantity columns,
+  // matching the on-screen strip. avg_cost_cents/sale_price_cents export as
+  // currency_cents, so the $-measure rows store cents in those two columns.
+  const snapExportRows = useMemo<Array<Record<string, unknown>>>(
+    () => {
+      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => {
+        // Derived Avg Mrgn % column — percent units (e.g. 42.15), blank when no
+        // margin; matches the on-screen column's percent format (2 decimals).
+        const m = marginFrac(r.sale_price_cents, r.avg_cost_cents);
+        return { ...r, avg_margin_pct: m == null ? "" : +(m * 100).toFixed(2) };
+      });
+      if (!snapTotals || data.length === 0) return data;
+      const qty: Record<string, number> = {};
+      const cost: Record<string, number> = {};
+      const whol: Record<string, number> = {};
+      const cQty: Record<string, number> = {}; // qty of rows with a cost
+      const pQty: Record<string, number> = {}; // qty of rows with a price (per column)
+      for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; cQty[k] = 0; pQty[k] = 0; }
+      for (const r of data) {
+        const hasC = (r as MergedRow).avg_cost_cents != null;
+        const c = (num((r as MergedRow).avg_cost_cents) ?? 0) / 100;
+        for (const k of SNAP_SUM_COLS) {
+          const v = num((r as unknown as Record<string, number>)[k]);
+          qty[k] += v;
+          if (hasC) { cost[k] += v * c; cQty[k] += v; }
+          const pc = colPriceCents(r as MergedRow, k);
+          if (pc != null) { whol[k] += v * (pc / 100); pQty[k] += v; }
+        }
+      }
+      const mkRow = (label: string, valOf: (k: string) => number): Record<string, unknown> => {
+        const row: Record<string, unknown> = { style_code: label };
+        for (const k of SNAP_SUM_COLS) row[k] = valOf(k);
+        return row;
+      };
+      return [
+        ...data,
+        mkRow("TOTAL — Qty", (k) => qty[k]),
+        mkRow("TOTAL — $ Cost", (k) => Math.round(cost[k])),
+        mkRow("TOTAL — $ Wholesale", (k) => Math.round(whol[k])),
+        mkRow("AVG — Cost / unit", (k) => (cQty[k] > 0 ? +(cost[k] / cQty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Margin %", (k) => {
+          const s = pQty[k] > 0 ? whol[k] / pQty[k] : 0;
+          const c = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+          return s > 0 ? +(((s - c) / s) * 100).toFixed(2) : 0;
+        }),
+        mkRow("AVG — Sale / unit", (k) => (pQty[k] > 0 ? +(whol[k] / pQty[k]).toFixed(2) : 0)),
+      ];
+    },
+    [snapVisibleRows, mergePpk, snapCollapse, snapTotals],
+  );
+
+  // Multi-style pagination (shared by both no-style views) — computed here so the
+  // single consolidated controls row can render the "Styles X–Y of N" count and
+  // the Prev/Next pager inline (instead of a separate bar above the table).
+  const hdrTotalStyles = brandStyles.length;
+  const hdrTotalPages = Math.max(1, Math.ceil(hdrTotalStyles / MULTI_PAGE_SIZE));
+  const hdrPageStart = hdrTotalStyles === 0 ? 0 : multiPage * MULTI_PAGE_SIZE + 1;
+  const hdrPageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, hdrTotalStyles);
+  const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 12px", fontSize: 13, color: C.text };
+
   return (
-    <div style={{ color: C.text }}>
+    <div style={{ color: C.text, marginTop: 0 }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🧮 Inventory Matrix</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Inventory Matrix</h2>
         {payload && (
           <div style={{ fontSize: 11, color: C.textMuted }}>
             {payload.skus.length} SKU{payload.skus.length === 1 ? "" : "s"}
@@ -1452,11 +2227,12 @@ export default function InternalInventoryMatrix() {
       </div>
 
       {/* Controls */}
-      <div style={{ marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ marginBottom: 54, display: "flex", flexDirection: "column", gap: 10 }}>
 
-        {/* Row 1 — filter dropdowns */}
+        {/* Row 1 — filter dropdowns + the Columns control (right of Warehouse).
+            Fields are kept compact so the whole row fits on one line. */}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 180 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
             Brand
             <SearchableSelect
               value={brandId ? brandId : ALL_BRANDS_SENTINEL}
@@ -1470,19 +2246,19 @@ export default function InternalInventoryMatrix() {
             />
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 280 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 200 }}>
             Search styles
             <input
               type="text"
               value={styleSearch}
               onChange={(e) => { setStyleSearch(e.target.value); if (styleId) setStyleId(""); }}
               placeholder="Type to filter — e.g. PPK, code, name…"
-              style={{ ...inputStyle, minWidth: 280 }}
+              style={{ ...inputStyle, minWidth: 200 }}
             />
           </label>
 
           {genderDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 90 }}>
               Gender
               <SearchableSelect
                 value={genderFilter || ALL_GENDER_SENTINEL}
@@ -1495,7 +2271,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {groupDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 130 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 85 }}>
               Group
               <SearchableSelect
                 value={groupFilter || ALL_GROUP_SENTINEL}
@@ -1508,7 +2284,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {categoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 90 }}>
               Category
               <SearchableSelect
                 value={categoryFilter || ALL_CATEGORY_SENTINEL}
@@ -1521,7 +2297,7 @@ export default function InternalInventoryMatrix() {
           )}
 
           {subCategoryDropdownOptions.length > 1 && (
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 150 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 125 }}>
               Sub-Category
               <SearchableSelect
                 value={subCategoryFilter || ALL_SUBCATEGORY_SENTINEL}
@@ -1533,97 +2309,192 @@ export default function InternalInventoryMatrix() {
             </label>
           )}
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 160 }}>
-            Store
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 100 }}>
+            Warehouse
             <SearchableSelect
               value={warehouse}
               onChange={(v) => setWarehouse(!v ? ALL_WAREHOUSES : v)}
               options={warehouseDropdownOptions}
-              placeholder="Search store…"
+              placeholder="Search warehouse…"
               inputStyle={inputStyle}
             />
           </label>
+
+          {/* Lot filter — single style OR the all-styles views (snapshot / matrix).
+              A style/color received at different times carries multiple lot
+              numbers; pick any combination to scope the On Hand to those lots
+              (empty = all lots). The option list is the full set of lots present
+              on the current styles' on-hand, so it spans base + PPK styles too. */}
+          {availableLots.length > 0 && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, minWidth: 140 }}>
+              Lot #
+              <MultiSelectDropdown
+                selected={lotFilter}
+                onChange={setLotFilter}
+                options={availableLots.map((l) => ({ value: l, label: l }))}
+                allLabel="All lots"
+                placeholder="Search lot…"
+                title="Show on-hand from one or more lots (empty = all lots)"
+                minWidth={180}
+              />
+            </label>
+          )}
+
+          {/* Column show/hide — sits at the end of Row 1, right of Warehouse.
+              Only meaningful on the all-styles Snapshot view. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+                 onMouseLeave={() => setSnapColsOpen(false)}>
+              <button type="button" onClick={() => setSnapColsOpen((o) => !o)}
+                style={{ background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                Columns {snapColsOpen ? "▴" : "▾"}
+              </button>
+              {snapColsOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
+                  {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
+                    <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
+                      {col.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Collapse — choose which text column(s) to collapse ONTO (group by; rest summed). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+                 onMouseLeave={() => setSnapCollapseOpen(false)}>
+              <button type="button" onClick={() => setSnapCollapseOpen((o) => !o)}
+                style={{ background: snapCollapse.size ? C.primary : C.card, color: snapCollapse.size ? "#fff" : C.textSub, border: `1px solid ${snapCollapse.size ? C.primary : C.cardBdr}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                Collapse {snapCollapseOpen ? "▴" : "▾"}
+              </button>
+              {snapCollapseOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 180 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 6 }}>Collapse onto:</div>
+                  {[{ key: "style_code", label: "Style" }, { key: "category", label: "Item Category" }].map((c) => (
+                    <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
+                      <input type="checkbox" checked={snapCollapse.has(c.key)} onChange={() => toggleSnapCollapse(c.key)} />
+                      {c.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Row 2 — display controls */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {/* Hide Zeros toggle — blue = active (zeros hidden) */}
-          <button
-            type="button"
-            title="Toggle zero-qty rows"
-            style={{
-              background: hideZeros ? C.primary : C.card,
-              color: hideZeros ? "#fff" : C.textMuted,
-              border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`,
-              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
-            }}
-            onClick={() => setHideZeros((v) => !v)}
-          >
-            Hide Zeros
-          </button>
-
-          {/* Explode PPK toggle — blue = active */}
-          <button
-            type="button"
-            title="Convert PPK packs on-hand into sized eaches using the Prepack Matrix master"
-            style={{
-              background: explodePpk ? C.primary : C.card,
-              color: explodePpk ? "#fff" : C.textMuted,
-              border: `1px solid ${explodePpk ? C.primary : C.cardBdr}`,
-              padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-              fontSize: 12, fontWeight: 600, transition: "all 0.15s",
-            }}
-            onClick={() => setExplodePpk((v) => !v)}
-          >
-            Explode
-          </button>
-
-          {/* Inseam toggle — shows when the picked style's scale carries inseams
-              (single-style view) OR any loaded style does (brand/all-styles view).
-              ON splits each color into one row per inseam, with a per-color
-              subtotal row. Blue = active. */}
-          {viewMode === "matrix" && ((styleId && styleHasInseams) || anyBrandInseams) && (
-            <button
-              type="button"
-              title="Split each color into one row per inseam, with a per-color subtotal"
-              style={{
-                background: inseamMode ? C.primary : C.card,
-                color: inseamMode ? "#fff" : C.textMuted,
-                border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`,
-                padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                fontSize: 12, fontWeight: 600, transition: "all 0.15s",
-              }}
-              onClick={() => setInseamMode((v) => !v)}
-            >
-              By Inseam
-            </button>
+        {/* Row 2 — ONE control row: view switch · presets+dates · Hide Zeros ·
+            Explode · Export · count + pager. Same left origin + gap as Row 1 so
+            the two rows read as aligned "bubble" rows. */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          {/* All-styles view switch (no single style picked). */}
+          {!styleId && (
+            <div style={{ display: "inline-flex", gap: 6 }}>
+              {([["snapshot", "Inventory Snapshot"], ["matrix", "OH matrices"]] as const).map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setNoStyleView(v)}
+                  style={{ background: noStyleView === v ? C.primary : C.card, color: noStyleView === v ? "#fff" : C.textMuted,
+                    border: `1px solid ${noStyleView === v ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                  {label}
+                </button>
+              ))}
+            </div>
           )}
 
+          {/* Presets + From/To date range — Snapshot view (filters Sold/Purchased + seeds drills). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
+          )}
+
+          {/* Hide Zeros toggle — blue = active (zeros hidden). */}
+          <button type="button" title="Hide rows that are zero across every column"
+            style={{ background: hideZeros ? C.primary : C.card, color: hideZeros ? "#fff" : C.textMuted, border: `1px solid ${hideZeros ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => setHideZeros((v) => !v)}>Hide 0s</button>
+
+          {/* Explode PPK toggle — blue = active. LOCKED on (darker blue + not-allowed
+              cursor + explanatory tooltip + no-op click) whenever it's required:
+              Merge PPK (needs eaches) OR Totals over a PPK page ($ totals reconcile
+              only at unit grain). Unlocks when that driver is switched off. */}
+          <button type="button"
+            aria-disabled={explodeLocked}
+            title={explodeLocked
+              ? (mergePpk
+                  ? "Explode stays on while Merge PPK is selected — merging a base style with its PPK sibling needs unit-grain eaches. Turn off Merge PPK to change this."
+                  : "Explode stays on while Totals is selected — the $ totals reconcile only at unit grain (a pack of 24 must read per-unit). Turn off Totals to change this.")
+              : "Convert PPK packs into sized eaches using the Prepack Matrix master"}
+            style={{ background: explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.card), color: (explodeLocked || explodePpk) ? "#fff" : C.textMuted, border: `1px solid ${explodeLocked ? "#1D4ED8" : (explodePpk ? C.primary : C.cardBdr)}`, padding: "6px 14px", borderRadius: 6, cursor: explodeLocked ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+            onClick={() => { if (explodeLocked) return; setExplodePpk((v) => !v); }}>Explode</button>
+
+          {/* Merge PPK — snapshot only. Collapse each base style + its PPK
+              sibling into one "BASE/PPK" row; forces Explode on (needs eaches). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <button type="button" title="Merge each base style with its PPK sibling into one BASE/PPK row (auto-enables Explode)"
+              style={{ background: mergePpk ? C.primary : C.card, color: mergePpk ? "#fff" : C.textMuted, border: `1px solid ${mergePpk ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setMergePpk((v) => { const next = !v; if (next) setExplodePpk(true); return next; })}>Merge PPK</button>
+          )}
+
+          {/* Totals — snapshot only. Single toggle: a totals strip above the
+              column headers stacks Qty + $ Cost + $ Wholesale + Avg Cost +
+              Avg Sale for every quantity column (no mode choice — all shown). */}
+          {!styleId && noStyleView === "snapshot" && (
+            <button type="button" title="Totals strip above the headers — Qty + $ Cost (qty × avg cost) + $ Wholesale (qty × avg wholesale SO price) + Avg Cost + Avg Sale per unit"
+              style={{ background: snapTotals ? C.primary : C.card, color: snapTotals ? "#fff" : C.textMuted, border: `1px solid ${snapTotals ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setSnapTotals((v) => !v)}>Totals</button>
+          )}
+
+          {/* Hide sizes — matrix views only. Drops every per-size column, leaving
+              the non-size columns (Color / Total / Avg Cost / Total Cost / Last
+              Received). Blue = active. */}
+          {((styleId && viewMode === "matrix") || (!styleId && noStyleView === "matrix")) && (
+            <button type="button" title="Hide all per-size columns; keep totals and the non-size columns"
+              style={{ background: hideSizes ? C.primary : C.card, color: hideSizes ? "#fff" : C.textMuted, border: `1px solid ${hideSizes ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setHideSizes((v) => !v)}>Hide sizes</button>
+          )}
+
+          {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
+              view (NOT the Snapshot view). */}
+          {((styleId && viewMode === "matrix" && styleHasInseams) || (!styleId && noStyleView === "matrix" && anyBrandInseams)) && (
+            <button type="button" title="Split each color into one row per inseam, with a per-color subtotal"
+              style={{ background: inseamMode ? C.primary : C.card, color: inseamMode ? "#fff" : C.textMuted, border: `1px solid ${inseamMode ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
+              onClick={() => setInseamMode((v) => !v)}>By Inseam</button>
+          )}
+
+          {/* Export — Snapshot view. */}
+          {!styleId && noStyleView === "snapshot" && (
+            <ExportButton rows={snapExportRows} filename={`inventory-snapshot-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Snapshot" columns={snapExportColumns} />
+          )}
+          {/* Export — single-style matrix. */}
           {payload && viewMode === "matrix" && (
-            <>
-              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
-              <ExportButton
-                rows={exportRows}
-                filename={`inventory-matrix-${payload.style.style_code}`}
-                sheetName="Inventory Matrix"
-                columns={exportColumns}
-              />
-            </>
+            <ExportButton rows={exportRows} filename={`inventory-matrix-${payload.style.style_code}`} sheetName="Inventory Matrix" columns={exportColumns} />
+          )}
+          {/* Export — all/brand matrix (OH matrices view only, NOT the Snapshot). */}
+          {!styleId && noStyleView === "matrix" && brandPayloads.length > 0 && (
+            <ExportButton rows={brandExportRows} filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`} sheetName="Inventory Matrix" columns={brandExportColumns} />
           )}
 
-          {/* All-styles / brand view (no single style picked) — export every
-              loaded style's matrix in one flat sheet (union of size columns). */}
-          {!styleId && viewMode === "matrix" && brandPayloads.length > 0 && (
-            <>
-              <div style={{ width: 1, height: 22, background: C.cardBdr, flexShrink: 0 }} />
-              <ExportButton
-                rows={brandExportRows}
-                filename={`inventory-matrix-${brandId ? "brand" : "all-styles"}`}
-                sheetName="Inventory Matrix"
-                columns={brandExportColumns}
-              />
-            </>
+          {/* Style count + Prev/Next pager — Snapshot view (matrix view keeps its
+              own bar). When Collapse is active the snapshot aggregates the FULL
+              filtered set (#13), so the pager is replaced by an "all N styles"
+              note. */}
+          {!styleId && noStyleView === "snapshot" && (
+            collapseActive ? (
+              <span style={{ color: C.textMuted, fontSize: 13 }}>
+                Collapsed across all {Math.min(hdrTotalStyles, SNAP_ALL_CAP)} filtered style{hdrTotalStyles === 1 ? "" : "s"}
+                {hdrTotalStyles > SNAP_ALL_CAP ? ` (capped at ${SNAP_ALL_CAP})` : ""}
+              </span>
+            ) : (
+              <>
+                <span style={{ color: C.textMuted, fontSize: 13 }}>Styles {hdrPageStart}–{hdrPageEnd} of {hdrTotalStyles}</span>
+                {hdrTotalPages > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {hdrTotalPages}</span>
+                    <button onClick={() => setMultiPage((p) => Math.min(hdrTotalPages - 1, p + 1))} disabled={multiPage >= hdrTotalPages - 1} style={{ ...pagBtn, opacity: multiPage >= hdrTotalPages - 1 ? 0.4 : 1, cursor: multiPage >= hdrTotalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
+                  </div>
+                )}
+              </>
+            )
           )}
         </div>
       </div>
@@ -1642,10 +2513,10 @@ export default function InternalInventoryMatrix() {
             ← All styles
           </button>
           {([
-            ["matrix", "🧮 Matrix"],
-            ["so", "🛒 SO"],
-            ["po", "📦 PO"],
-            ["invoices", "🧾 Invoices"],
+            ["matrix", "Matrix"],
+            ["so", "SO"],
+            ["po", "PO"],
+            ["invoices", "Invoices"],
           ] as Array<[ViewMode, string]>).map(([mode, label]) => (
             <button key={mode} type="button" style={btnToggle(viewMode === mode)} onClick={() => setViewMode(mode)}>
               {label}
@@ -1684,13 +2555,13 @@ export default function InternalInventoryMatrix() {
           marginBottom: 12, padding: "8px 12px", borderRadius: 6, fontSize: 12,
           background: "rgba(245,158,11,0.12)", border: `1px solid ${C.warn}`, color: "#FCD34D",
         }}>
-          <strong>📦 Exploded packs included.</strong>{" "}
+          <strong>Exploded packs included.</strong>{" "}
           {payload.explode.packs_exploded > 0
             ? `${payload.explode.packs_exploded} prepack SKU${payload.explode.packs_exploded === 1 ? "" : "s"} converted to sized eaches via the Prepack Matrix master.`
             : `No prepack SKUs on-hand were exploded.`}
           {payload.explode.packs_unmatched.length > 0 && (
             <div style={{ marginTop: 6, color: "#FECACA" }}>
-              ⚠ {payload.explode.packs_unmatched.length} pack SKU{payload.explode.packs_unmatched.length === 1 ? "" : "s"} have on-hand but no matrix defined — NOT exploded:{" "}
+              {payload.explode.packs_unmatched.length} pack SKU{payload.explode.packs_unmatched.length === 1 ? "" : "s"} have on-hand but no matrix defined — NOT exploded:{" "}
               {payload.explode.packs_unmatched.slice(0, 6).map((u, i) => (
                 <span key={`${u.ppk_style_code}-${u.color}-${i}`} style={{ fontFamily: "monospace" }}>
                   {u.ppk_style_code}{u.color ? `/${u.color}` : ""} ({u.qty}){i < Math.min(6, payload!.explode!.packs_unmatched.length) - 1 ? ", " : ""}
@@ -1710,58 +2581,26 @@ export default function InternalInventoryMatrix() {
         </div>
       )}
 
-      {/* All-styles view switch — Snapshot summary (default) vs the stacked
-          per-style size grids. Only when no single style is picked. */}
-      {!styleId && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {([["snapshot", "📋 Inventory Snapshot"], ["matrix", "▦ Size matrices"]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setNoStyleView(v)}
-              style={{
-                background: noStyleView === v ? C.primary : "transparent",
-                color: noStyleView === v ? "#fff" : C.textSub,
-                border: `1px solid ${noStyleView === v ? C.primary : C.cardBdr}`,
-                padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
-              }}>{label}</button>
-          ))}
-        </div>
-      )}
-
       {/* Inventory Snapshot — one row per (style, color) with clickable
-          quantities that drill into the matching app in a new tab. Paginated
-          over the same style page as the matrices view. */}
-      {!styleId && noStyleView === "snapshot" && (() => {
-        const totalStyles = brandStyles.length;
-        const totalPages = Math.max(1, Math.ceil(totalStyles / MULTI_PAGE_SIZE));
-        const pageStart = totalStyles === 0 ? 0 : multiPage * MULTI_PAGE_SIZE + 1;
-        const pageEnd = Math.min((multiPage + 1) * MULTI_PAGE_SIZE, totalStyles);
-        const pagBtn: React.CSSProperties = { background: "none", border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "4px 14px", fontSize: 13, color: C.text };
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13, gap: 12, flexWrap: "wrap" }}>
-              <span style={{ color: C.textMuted }}>Styles {pageStart}–{pageEnd} of {totalStyles}</span>
-              {/* Header date range — filters the Sold/Purchased columns and seeds each drill. */}
-              <DateRange from={snapFrom} to={snapTo} onChange={(f, t) => { setSnapFrom(f); setSnapTo(t); }} />
-              {totalPages > 1 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button onClick={() => setMultiPage((p) => Math.max(0, p - 1))} disabled={multiPage === 0} style={{ ...pagBtn, opacity: multiPage === 0 ? 0.4 : 1, cursor: multiPage === 0 ? "default" : "pointer" }}>◀ Prev</button>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Page {multiPage + 1} of {totalPages}</span>
-                  <button onClick={() => setMultiPage((p) => Math.min(totalPages - 1, p + 1))} disabled={multiPage >= totalPages - 1} style={{ ...pagBtn, opacity: multiPage >= totalPages - 1 ? 0.4 : 1, cursor: multiPage >= totalPages - 1 ? "default" : "pointer" }}>Next ▶</button>
-                </div>
-              )}
-            </div>
-            <SnapshotView rows={snapRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-              thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} />
-          </div>
-        );
-      })()}
+          quantities that drill into the matching app in a new tab. The view
+          switch, presets/dates, export and pager all live in the single
+          controls row above; here we render just the column show/hide control
+          and the table. */}
+      {!styleId && noStyleView === "snapshot" && (
+        <>
+          <SnapshotProgressBar active={snapLoading} />
+          <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={effectiveExplodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} />
+        </>
+      )}
 
       {/* Drill modals */}
       {soldFor && (
-        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setSoldFor(null)}
+        <SoldDetailModal row={soldFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={effectiveExplodePpk} onClose={() => setSoldFor(null)}
           onOpenInvoice={(arId, num, customer) => setDocModal({ kind: "ar", id: arId, number: num, party: customer })} />
       )}
       {purchasedFor && (
-        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} onClose={() => setPurchasedFor(null)}
+        <PurchasedDetailModal row={purchasedFor} headerFrom={snapFrom} headerTo={snapTo} explodePpk={effectiveExplodePpk} onClose={() => setPurchasedFor(null)}
           onOpenBill={(billId, ref, vendor) => setDocModal({ kind: "ap", id: billId, number: ref, party: vendor })} />
       )}
       {docModal && (
@@ -1869,6 +2708,8 @@ export default function InternalInventoryMatrix() {
               const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
               for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
+              // Honor the global "Hide sizes" toggle — drop all size columns.
+              const bRenderSizes = hideSizes ? [] : bSizeOrder;
               const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
@@ -1881,7 +2722,7 @@ export default function InternalInventoryMatrix() {
                           <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                           <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                           {bShowSecondary && <th style={{ ...thBase, textAlign: "left" }}>{bByInseam ? "Inseam" : "Rise"}</th>}
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
                           ))}
                           <th style={{ ...thBase, textAlign: "center" }}>Total</th>
@@ -1900,7 +2741,7 @@ export default function InternalInventoryMatrix() {
                                   <td style={{ padding: "4px 8px" }} />
                                   <td style={{ padding: "6px 12px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                                   <td style={{ padding: "6px 12px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 10 }}>Subtotal</td>
-                                  {bSizeOrder.map((sz) => (
+                                  {bRenderSizes.map((sz) => (
                                     <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                                       {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                                     </td>
@@ -1920,7 +2761,7 @@ export default function InternalInventoryMatrix() {
                                 </td>
                                 <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                                 <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                                {bSizeOrder.map((sz) => (
+                                {bRenderSizes.map((sz) => (
                                   <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                     {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                   </td>
@@ -1944,7 +2785,7 @@ export default function InternalInventoryMatrix() {
                               </td>
                               <td style={{ padding: "6px 12px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                               {bShowRise && <td style={{ padding: "6px 12px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>}
-                              {bSizeOrder.map((sz) => (
+                              {bRenderSizes.map((sz) => (
                                 <td key={sz} style={{ padding: "6px 12px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                                   {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                                 </td>
@@ -1961,7 +2802,7 @@ export default function InternalInventoryMatrix() {
                       <tfoot>
                         <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                           <td colSpan={bColSpan} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                          {bSizeOrder.map((sz) => (
+                          {bRenderSizes.map((sz) => (
                             <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                               {bColTotals[sz] ? fmtQty(bColTotals[sz]) : "—"}
                             </td>
@@ -2134,7 +2975,7 @@ export default function InternalInventoryMatrix() {
         </div>
       ) : visibleRows.length === 0 ? (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 20, textAlign: "center", color: C.textMuted }}>
-          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Turn off <strong>Hide Zeros</strong>{whActive ? " or pick a different store" : ""} to see them.
+          Every color row has a zero total{whActive ? ` for ${warehouse}` : ""}. Turn off <strong>Hide Zeros</strong>{whActive ? " or pick a different warehouse" : ""} to see them.
         </div>
       ) : (
         <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
@@ -2146,9 +2987,28 @@ export default function InternalInventoryMatrix() {
                 <th style={{ ...thBase, textAlign: "left" }}>Description</th>
                 <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                 {showSecondary && <th style={{ ...thBase, textAlign: "left" }}>{byInseam ? "Inseam" : "Rise"}</th>}
-                {sizeOrder.map((sz) => (
-                  <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 60 }}>{sz}</th>
-                ))}
+                {renderSizes.map((sz, i) => {
+                  const isFirst = i === 0;
+                  const isLast = i === renderSizes.length - 1;
+                  const green = sizeCollapse.hasQty && isFirst;
+                  const clickable = isFirst && sizeCollapse.canToggle;
+                  return (
+                    <th
+                      key={sz}
+                      onClick={clickable ? () => setSizesCollapsed((c) => !c) : undefined}
+                      title={clickable
+                        ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with stock")
+                        : undefined}
+                      style={{
+                        ...thBase, textAlign: "center", minWidth: 60,
+                        ...(green ? { color: C.green } : {}),
+                        ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
+                      }}
+                    >
+                      {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                    </th>
+                  );
+                })}
                 <th style={{ ...thBase, textAlign: "center" }}>Total</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
                 <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>
@@ -2169,7 +3029,7 @@ export default function InternalInventoryMatrix() {
                         <td style={{ padding: "8px 14px" }} />
                         <td style={{ padding: "8px 14px", color: "#D1D5DB", fontWeight: 700 }}>{sub.color || "—"}</td>
                         <td style={{ padding: "8px 14px", color: C.textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, fontSize: 11 }}>Subtotal</td>
-                        {sizeOrder.map((sz) => (
+                        {renderSizes.map((sz) => (
                           <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: sub.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace", fontWeight: 700 }}>
                             {sub.sizes[sz] ? fmtQty(sub.sizes[sz]) : "—"}
                           </td>
@@ -2195,7 +3055,7 @@ export default function InternalInventoryMatrix() {
                       <td style={{ padding: "8px 14px", color: C.desc, fontSize: 12 }}>{payload.style.style_name || payload.style.description || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#D1D5DB" }}>{row.color || "—"}</td>
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.inseam ? `${row.inseam}"` : "—"}</td>
-                      {sizeOrder.map((sz) => (
+                      {renderSizes.map((sz) => (
                         <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                           {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                         </td>
@@ -2240,7 +3100,7 @@ export default function InternalInventoryMatrix() {
                     {showRise && (
                       <td style={{ padding: "8px 14px", color: "#C4B5FD", fontFamily: "monospace" }}>{row.rise || "—"}</td>
                     )}
-                    {sizeOrder.map((sz) => (
+                    {renderSizes.map((sz) => (
                       <td key={sz} style={{ padding: "8px 14px", textAlign: "center", color: row.sizes[sz] ? C.gridText : C.emptyCell, fontFamily: "monospace" }}>
                         {row.sizes[sz] ? fmtQty(row.sizes[sz]) : "—"}
                       </td>
@@ -2266,7 +3126,7 @@ export default function InternalInventoryMatrix() {
               <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
                 <td style={{ padding: "12px 14px" }} />
                 <td colSpan={colSpanLead} style={{ padding: "12px 14px", color: C.desc, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-                {sizeOrder.map((sz) => (
+                {renderSizes.map((sz) => (
                   <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: C.amber, fontWeight: 700, fontFamily: "monospace" }}>
                     {colTotals[sz] ? fmtQty(colTotals[sz]) : "—"}
                   </td>

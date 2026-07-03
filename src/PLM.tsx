@@ -7,6 +7,7 @@ import NotificationsShell from "./components/notifications/NotificationsShell";
 import NotificationsPage from "./components/notifications/NotificationsPage";
 import { useAppUnreadCount } from "./components/notifications/useAppUnreadCount";
 import { appConfig } from "./config/env";
+import SearchableSelect from "./tanda/components/SearchableSelect";
 import { registerLoginPresence, SIGNED_OUT_PARAM } from "./utils/plmSessionTabs";
 import {
   ATS_REPORT_KEYS,
@@ -93,7 +94,7 @@ const APPS = [
     id: "design" as const,
     name: "Design Calendar",
     description: "Seasonal design workflow, task tracking and vendor milestones",
-    icon: "🎨",
+    icon: "",
     color: "#CC2200",
     path: "/design",
   },
@@ -101,7 +102,7 @@ const APPS = [
     id: "tanda" as const,
     name: "PO WIP",
     description: "PO tracking, Xoro sync and delivery management",
-    icon: "📋",
+    icon: "",
     color: "#3B82F6",
     path: "/tanda",
   },
@@ -109,7 +110,7 @@ const APPS = [
     id: "techpack" as const,
     name: "Tech Packs",
     description: "Tech packs, spec sheets, costing, approvals, materials & sample tracking",
-    icon: "📐",
+    icon: "",
     color: "#8B5CF6",
     path: "/techpack",
   },
@@ -117,7 +118,7 @@ const APPS = [
     id: "ats" as const,
     name: "ATS",
     description: "Available to Sell — inventory snapshot grid, Xoro sync and Excel upload",
-    icon: "📦",
+    icon: "",
     color: "#10B981",
     path: "/ats",
   },
@@ -125,7 +126,7 @@ const APPS = [
     id: "vendor" as const,
     name: "Vendor Portal",
     description: "Manage vendors, POs, invoices, compliance, RFQ, payments",
-    icon: "🤝",
+    icon: "",
     color: "#EA580C",
     path: "/vendor",
   },
@@ -133,7 +134,7 @@ const APPS = [
     id: "planning" as const,
     name: "Inventory Planning",
     description: "Wholesale + ecom forecasts, supply reconciliation, scenarios, accuracy & AI co-pilot",
-    icon: "📊",
+    icon: "",
     color: "#F59E0B",
     path: "/planning/wholesale",
   },
@@ -141,7 +142,7 @@ const APPS = [
     id: "gs1" as const,
     name: "GTIN Creation",
     description: "GS1 prepack GTIN generation, packing list upload, label batch printing and CSV export",
-    icon: "🏷️",
+    icon: "",
     color: "#0891B2",
     path: "/gs1",
   },
@@ -149,7 +150,7 @@ const APPS = [
     id: "costing" as const,
     name: "Costing",
     description: "Costing projects — multi-vendor quotes, LY + trailing-3-mo comp, margin targeting",
-    icon: "💰",
+    icon: "",
     color: "#EAB308",
     path: "/costing",
   },
@@ -157,7 +158,7 @@ const APPS = [
     id: "tangerine" as const,
     name: "Tangerine ERP",
     description: "Accounting, inventory, sales, procurement & finance — the Xoro replacement",
-    icon: "🍊",
+    icon: "",
     color: "#F97316",
     path: "/tangerine",
   },
@@ -498,7 +499,7 @@ export default function PLMApp() {
               value={loginPass} onChange={e => setLoginPass(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleLogin()} />
             <button onClick={() => setShowPass(p => !p)} style={S.eyeBtn}>
-              {showPass ? "🙈" : "👁"}
+              {showPass ? "Hide" : "Show"}
             </button>
           </div>
 
@@ -559,7 +560,7 @@ export default function PLMApp() {
             onClick={() => setView(view === "notifications" ? "launcher" : "notifications")}
             title="Notifications"
           >
-            🔔 Notifications
+            Notifications
             {unreadAll > 0 && (
               <span style={{
                 minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
@@ -569,7 +570,7 @@ export default function PLMApp() {
             )}
           </button>
           {isAdmin && (
-            <button style={S.headerBtn} onClick={() => setShowAdmin(true)}>⚙️ Manage Users</button>
+            <button style={S.headerBtn} onClick={() => setShowAdmin(true)}>Manage Users</button>
           )}
           <button style={{ ...S.headerBtn, color: "#CC2200", borderColor: "#FCA5A5" }}
             onClick={handleSignOut}>Sign Out</button>
@@ -589,7 +590,7 @@ export default function PLMApp() {
         </main>
       ) : (
       <main style={S.main}>
-        <h2 style={S.greeting}>Welcome back, {user.name?.split(" ")[0] ?? user.username} 👋</h2>
+        <h2 style={S.greeting}>Welcome back, {user.name?.split(" ")[0] ?? user.username}</h2>
         <p style={S.greetingSub}>Select an application to get started</p>
 
         <div style={S.grid}>
@@ -629,7 +630,6 @@ export default function PLMApp() {
                   openApp(app.path);
                 }}>
 
-                <div style={{ fontSize: 40, marginBottom: 12 }}>{app.icon}</div>
                 <h3 style={{ ...S.appName, color: locked ? "#9CA3AF" : "#111827", display: "flex", alignItems: "center", gap: 6 }}>
                   {app.name}
                   {app.id === "planning" && appConfig.inventoryPlanningBetaOnly && (
@@ -645,10 +645,10 @@ export default function PLMApp() {
 
                 <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   {locked ? (
-                    <span style={S.lockedBadge}>🔒 No Access</span>
+                    <span style={S.lockedBadge}>No Access</span>
                   ) : (
                     <span style={{ ...S.accessBadge, background: app.color + "15", color: app.color, border: `1px solid ${app.color}30` }}>
-                      {perm.readOnly ? "👁 Read Only" : "✏️ Read/Write"}
+                      {perm.readOnly ? "Read Only" : "Read/Write"}
                     </span>
                   )}
                   {!locked && (
@@ -847,7 +847,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
 
   // Guard close so unsaved permission edits aren't silently discarded.
   function requestClose() {
-    if (dirty && !window.confirm("You have unsaved changes that haven't been saved to the database.\n\nClick Cancel, then \"💾 Save All Changes\" to keep them. Click OK to discard.")) return;
+    if (dirty && !window.confirm("You have unsaved changes that haven't been saved to the database.\n\nClick Cancel, then \"Save All Changes\" to keep them. Click OK to discard.")) return;
     onClose();
   }
 
@@ -855,7 +855,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
     <div style={S.modalOverlay} onClick={requestClose}>
       <div style={{ ...S.modal, width: 740, maxHeight: "85vh" }} onClick={e => e.stopPropagation()}>
         <div style={S.modalHeader}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>⚙️ User Management</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111827" }}>User Management</h2>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {dirty && (
               <span style={{ color: "#B45309", background: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 6, padding: "2px 8px", fontSize: 12, fontWeight: 600 }}>
@@ -980,7 +980,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 <div style={{ marginTop: 12 }}>
                   {dirty && !saving && (
                     <div style={{ color: "#B45309", fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-                      ⚠️ You have unsaved changes — click “💾 Save All Changes” to apply them.
+                      You have unsaved changes — click “Save All Changes” to apply them.
                     </div>
                   )}
                   <button
@@ -991,7 +991,7 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                     onClick={() => saveUsers(users)}
                     disabled={saving || !dirty}
                   >
-                    {saving ? "Saving…" : dirty ? "💾 Save All Changes" : "✓ All changes saved"}
+                    {saving ? "Saving…" : dirty ? "Save All Changes" : "✓ All changes saved"}
                   </button>
                 </div>
               )}
@@ -1033,10 +1033,16 @@ function UserManagerModal({ onClose, currentUser }: { onClose: () => void; curre
                 </div>
                 <div>
                   <label style={S.label}>Role</label>
-                  <select style={S.select} value={editing.role} onChange={e => setEditing(p => p ? { ...p, role: e.target.value as "admin" | "user" } : p)}>
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
+                  <SearchableSelect
+                    theme="light"
+                    value={editing.role}
+                    onChange={v => setEditing(p => p ? { ...p, role: v as "admin" | "user" } : p)}
+                    options={[
+                      { value: "user", label: "User" },
+                      { value: "admin", label: "Admin" },
+                    ]}
+                    inputStyle={S.select}
+                  />
                 </div>
                 <div>
                   <label style={S.label}>Color</label>

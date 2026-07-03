@@ -58,6 +58,8 @@ import VendorScf from "./payments/VendorScf";
 import VendorVirtualCards from "./payments/VendorVirtualCards";
 import VendorWithholding from "./payments/VendorWithholding";
 import VendorPayments from "./payments/VendorPayments";
+import { LanguageProvider } from "./i18n/LanguageContext";
+import LanguageSelector from "./i18n/LanguageSelector";
 
 function useVendorSession(): { session: Session | null; ready: boolean } {
   const [session, setSession] = useState<Session | null>(null);
@@ -426,7 +428,6 @@ function NotificationsTabLink() {
         display: "inline-flex", alignItems: "center", gap: 6,
       }}
     >
-      <span style={{ fontSize: 15, lineHeight: 1 }}>🔔</span>
       <span>Notifications</span>
       {unread > 0 && (
         <span style={{
@@ -512,20 +513,25 @@ function VendorShell({ children, withTabs = false }: { children: ReactNode; with
         <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", fontWeight: 700, fontSize: 20, color: "#FFFFFF", letterSpacing: 0.3, textShadow: "0 1px 1px rgba(0,0,0,0.2)" }}>
           Vendor Portal
         </div>
-        {session && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
-            <button
-              onClick={async () => {
-                await supabaseVendor.auth.signOut();
-                nav("/vendor/login", { replace: true });
-              }}
-              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.12)", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
-            >
-              Sign out
-            </button>
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Language picker is available before sign-in too, so vendors can
+              set their language on the login screen. */}
+          <LanguageSelector />
+          {session && (
+            <>
+              <span style={{ fontSize: 13, color: "#FFFFFF" }}>{session.user.email}</span>
+              <button
+                onClick={async () => {
+                  await supabaseVendor.auth.signOut();
+                  nav("/vendor/login", { replace: true });
+                }}
+                style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.12)", color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+              >
+                Sign out
+              </button>
+            </>
+          )}
+        </div>
       </header>
       {withTabs && session && <TabNav />}
       <main style={{ padding: "24px" }}>{children}</main>
@@ -561,6 +567,7 @@ export default function VendorApp() {
   }
   return (
     <BrowserRouter>
+      <LanguageProvider>
       <Routes>
         <Route path="/vendor/login" element={<VendorShell><VendorLogin /></VendorShell>} />
         <Route path="/vendor/setup" element={<VendorShell><VendorSetup /></VendorShell>} />
@@ -719,6 +726,7 @@ export default function VendorApp() {
         <Route path="/portal/:slug/login"    element={<PortalLogin />} />
         <Route path="/vendor/*" element={<Navigate to="/vendor" replace />} />
       </Routes>
+      </LanguageProvider>
     </BrowserRouter>
   );
 }

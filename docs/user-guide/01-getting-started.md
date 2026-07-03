@@ -39,7 +39,7 @@ If you forget your password, click **Forgot password?** below the Sign In button
 3. Click **Sign in with Microsoft**. A Microsoft pop-up opens — sign in with the same work account you use for Outlook, Teams and the rest of Microsoft 365.
 4. The pop-up closes and you're taken into the app.
 
-> **Already signed in?** If your browser already holds a valid Microsoft session, the Tangerine sign-in page recognises it and passes you straight through without asking again. Likewise, if you signed into Tangerine earlier in this browser, the other suite apps reuse that Microsoft session.
+> **Already signed in? You won't be asked twice.** If you reached the suite through the **PLM launcher** (username + password) and then open **Tangerine ERP** from a launcher card or an **🧩 Apps** menu, Tangerine recognises that you are already signed in and opens **directly** — it does **not** put up a second "Sign in with Microsoft" screen. The Microsoft sign-in card only appears for people who open Tangerine as a standalone front door without having signed in elsewhere first. And if your browser already holds a valid Microsoft session, the standalone Tangerine sign-in page recognises it and passes you straight through without asking again.
 
 > **Pop-up blocked?** If the Microsoft pop-up doesn't appear, your browser is blocking pop-ups for this site. Allow pop-ups for the suite address and click **Sign in with Microsoft** again. The sign-in card shows a "Sign-in failed" note if this happens.
 
@@ -81,6 +81,8 @@ Each app has its own top bar, but they share the same conventions so you always 
 Within an app, links to related apps appear in the top bar — for example Design Calendar shows quick links to **T&A** (PO WIP) and **Costing**, and Tangerine has a **🧩 Apps** menu that links out to every other app in the suite. These links respect your access: you only see a link to an app you're allowed to open.
 
 > **The browser tab title follows your current screen** — for example the tab reads "Timeline · Design Calendar" — so multiple open tabs are easy to tell apart.
+
+> **Consistent dark interface.** Across every app the working screens use the same dark theme — and that now includes all **dropdown / picker fields**: both the closed control and the list of choices that opens use the app's dark colours, so a dropdown never flashes a stray white box. (The PLM launcher home screen is the one intentionally light surface.)
 
 > The 🍊 **Tangerine ERP** app has the deepest navigation in the suite (dozens of accounting, inventory, sales and procurement panels grouped under section dropdowns). It has its own dedicated getting-started guide — see the Tangerine user guide for its nav layout, **🔍 Find a panel** search box, and Favorites.
 

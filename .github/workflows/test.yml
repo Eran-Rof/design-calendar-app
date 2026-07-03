@@ -35,7 +35,11 @@ jobs:
       # routes.js is generated from routes.manifest.js — fail if a PR edited
       # the manifest (or a handler path) without regenerating routes.js.
       - run: npm run gen:routes -- --check
-      # Type-check gate (the repo's vite/esbuild build only transpiles, so
-      # type errors used to slip through to runtime). Must stay green.
+      # Type-check ratchet. The vite/esbuild build only transpiles, so type
+      # errors (incl. genuine ReferenceErrors) used to reach runtime. The OLD
+      # `tsc -p tsconfig.json` was a no-op (solution-style root config), so a
+      # backlog of ~150 errors built up. The ratchet runs the REAL `tsc -b`
+      # and fails ONLY on errors not already in scripts/typecheck-baseline.txt
+      # — new type errors are blocked; the baseline shrinks as files are fixed.
       - run: npm run typecheck
       - run: npm test

@@ -21,6 +21,8 @@ import {
   type ReconcileBuildOutput,
 } from "../services/buildReconcileService";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../tanda/components/TablePrefs";
+import { useSort } from "../../tanda/hooks/useSort";
+import SortableTh from "../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.build_reconcile";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -129,6 +131,20 @@ export default function BuildReconcileWorkbench() {
   const totalQty = previewRows.reduce((acc, r) => acc + r.qty, 0);
   const totalCost = previewRows.reduce((acc, r) => acc + r.cost, 0);
 
+  // Additive per-column sort over the export preview rows. Column keys map to
+  // the build/vendor/skus/qty/cost fields (qty/cost are the "Total qty/cost"
+  // columns). Until a header is clicked the rows keep their build→vendor order.
+  const { sorted: sortedPreview, sortKey, sortDir, onHeaderClick } = useSort(previewRows, {
+    persistKey: "ip:build_reconcile_preview:sort",
+    accessors: {
+      build: (r) => r.build,
+      vendor: (r) => r.vendor,
+      skus: (r) => r.skus,
+      total_qty: (r) => r.qty,
+      total_cost: (r) => r.cost,
+    },
+  });
+
   return (
     <div style={{ ...S.content, paddingTop: 16 }}>
       {toast && <Toast msg={toast} onDismiss={() => setToast(null)} />}
@@ -235,20 +251,20 @@ export default function BuildReconcileWorkbench() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: PAL.panelAlt }}>
-                  <th style={th} hidden={!visibleColumns.has("build")}>Build</th>
-                  <th style={th} hidden={!visibleColumns.has("vendor")}>Vendor</th>
-                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("skus")}>SKUs</th>
-                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total_qty")}>Total qty</th>
-                  <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total_cost")}>Total cost</th>
+                  <SortableTh label="Build" sortKey="build" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("build")} />
+                  <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("vendor")} />
+                  <SortableTh label="SKUs" sortKey="skus" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("skus")} />
+                  <SortableTh label="Total qty" sortKey="total_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("total_qty")} />
+                  <SortableTh label="Total cost" sortKey="total_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("total_cost")} />
                 </tr>
               </thead>
               <tbody>
-                {previewRows.map((r, i) => (
+                {sortedPreview.map((r, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${PAL.borderFaint}` }}>
                     <td style={td} hidden={!visibleColumns.has("build")}>{r.build}</td>
                     <td style={{ ...td, color: r.vendor_id ? PAL.text : PAL.yellow }} hidden={!visibleColumns.has("vendor")}>
                       {r.vendor}
-                      {!r.vendor_id && <span style={{ marginLeft: 6, fontSize: 10, color: PAL.yellow }}>⚠ no master vendor</span>}
+                      {!r.vendor_id && <span style={{ marginLeft: 6, fontSize: 10, color: PAL.yellow }}>no master vendor</span>}
                     </td>
                     <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("skus")}>{r.skus.toLocaleString()}</td>
                     <td style={{ ...td, textAlign: "right" }} hidden={!visibleColumns.has("total_qty")}>{r.qty.toLocaleString()}</td>

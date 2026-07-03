@@ -52,7 +52,6 @@ export const UnmatchedBanner: React.FC<UnmatchedBannerProps> = ({ unmatchedRows,
     <div style={{ background: "rgba(245,158,11,0.08)", borderBottom: "1px solid rgba(245,158,11,0.3)", padding: "12px 24px" }}>
       <div style={{ maxWidth: 1600, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 16, color: "#F59E0B" }}>⚠</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "#F1F5F9", fontWeight: 600 }}>
               {count} {styleWord} not in item master — these rows are hidden from the grid

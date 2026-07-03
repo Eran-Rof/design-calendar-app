@@ -15,7 +15,7 @@
 //
 // The button:
 // - Disabled when `rows` is empty (cursor + opacity + title tooltip)
-// - Shows row count in the label, e.g. ⬇ Export (47)
+// - Shows row count in the label, e.g. Export (47)
 // - Filename gets a YYYY-MM-DD stamp appended automatically
 // - WYSIWYG — operates on whatever rows the caller passes (filtered / sorted)
 // - Menu closes on outside-click or Escape
@@ -30,6 +30,21 @@ type Props<T extends Record<string, unknown>> = {
   sheetName?: string;
   buttonStyle?: React.CSSProperties;
   label?: string;
+  /**
+   * Optional totals row appended as the last row of the export (bold in xlsx,
+   * plain final row in csv/pdf). Backward compatible — omit for no totals.
+   * Key it by the same column keys, e.g. { customer: "Total", amount: 12345 }.
+   */
+  totalsRow?: Partial<T>;
+  /**
+   * Optional async provider for the FULL export set. When present, picking a
+   * format awaits this (the button shows "Preparing…") and exports whatever it
+   * returns, instead of the bound `rows`. Use when the on-screen `rows` are a
+   * capped/paginated subset and the export must cover everything (operator
+   * item 17 — SO grid "Export all" walks every filtered page). `rows` is still
+   * used for the count label and the enabled/disabled state.
+   */
+  fetchRows?: () => Promise<T[]>;
 };
 
 const defaultBtn: React.CSSProperties = {
@@ -71,12 +86,13 @@ const menuItemStyle: React.CSSProperties = {
 };
 
 export default function ExportButton<T extends Record<string, unknown>>(props: Props<T>) {
-  const { rows, columns, filename, sheetName, buttonStyle, label } = props;
+  const { rows, columns, filename, sheetName, buttonStyle, label, totalsRow, fetchRows } = props;
   const stampedFilename = `${filename}-${todayStamp()}`;
-  const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx" });
+  const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx", totalsRow });
 
   const disabled = !rows || rows.length === 0;
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   // Close on outside-click and Escape.
@@ -98,30 +114,41 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
     };
   }, [open]);
 
-  const pick = (fmt: "xlsx" | "pdf") => {
+  const pick = async (fmt: "xlsx" | "pdf") => {
     setOpen(false);
-    if (!disabled) exportNow(fmt);
+    if (disabled || busy) return;
+    if (!fetchRows) { exportNow(fmt); return; }
+    setBusy(true);
+    try {
+      const all = await fetchRows();
+      exportNow(fmt, all);
+    } catch {
+      // Fall back to the on-screen rows so the operator still gets a deliverable.
+      exportNow(fmt);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const rowSuffix = rows && rows.length > 0 ? ` (${rows.length})` : "";
+  const rowSuffix = busy ? "" : rows && rows.length > 0 ? ` (${rows.length})` : "";
 
   return (
     <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
-        onClick={() => !disabled && setOpen((v) => !v)}
-        disabled={disabled}
+        onClick={() => !disabled && !busy && setOpen((v) => !v)}
+        disabled={disabled || busy}
         aria-haspopup="menu"
         aria-expanded={open}
         style={{
           ...defaultBtn,
           ...buttonStyle,
-          opacity: disabled ? 0.5 : 1,
-          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled || busy ? 0.5 : 1,
+          cursor: disabled || busy ? "not-allowed" : "pointer",
         }}
         title={disabled ? "No rows to export" : `Export ${rows.length} row${rows.length === 1 ? "" : "s"} (Excel or PDF)`}
       >
-        ⬇ {label || "Export"}
+        {busy ? "Preparing…" : (label || "Export")}
         {rowSuffix}
         <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.7 }}>▾</span>
       </button>
@@ -134,9 +161,9 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
             style={menuItemStyle}
             onMouseEnter={(e) => (e.currentTarget.style.background = "#334155")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            onClick={() => pick("xlsx")}
+            onClick={() => void pick("xlsx")}
           >
-            📊 Excel (.xlsx)
+            Excel (.xlsx)
           </button>
           <button
             type="button"
@@ -144,9 +171,9 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
             style={menuItemStyle}
             onMouseEnter={(e) => (e.currentTarget.style.background = "#334155")}
             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            onClick={() => pick("pdf")}
+            onClick={() => void pick("pdf")}
           >
-            📄 PDF
+            PDF
           </button>
         </div>
       )}

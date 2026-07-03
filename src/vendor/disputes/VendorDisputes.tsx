@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import StatusBadge, { disputeTone } from "../StatusBadge";
@@ -46,6 +47,13 @@ export default function VendorDisputes() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   async function load() {
     setLoading(true);
@@ -64,6 +72,36 @@ export default function VendorDisputes() {
   }
   useEffect(() => { void load(); }, []);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3 };
+    const scalar = (d: Dispute): string | number | null => {
+      switch (sortKey) {
+        case "subject": return d.subject || null;
+        case "type": return d.type || null;
+        case "priority": return PRIORITY_RANK[d.priority] ?? null;
+        case "opened": return d.created_at || null;
+        case "last_activity": return d.last_message_at || null;
+        case "status": return statusLabel(d.status) || null;
+        default: return null;
+      }
+    };
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+
   if (loading) return <div style={{ color: TH.textMuted }}>Loading…</div>;
   if (err) return <div style={{ color: TH.primary, padding: 12, background: TH.accent, border: `1px solid ${TH.accentBdr}`, borderRadius: 6 }}>Error: {err}</div>;
 
@@ -76,16 +114,16 @@ export default function VendorDisputes() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "1.8fr 150px 100px 130px 130px 60px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
-          <div>Subject</div>
-          <div>Type</div>
-          <div>Priority</div>
-          <div>Opened</div>
-          <div>Last activity</div>
-          <div style={{ textAlign: "center" }}>Status</div>
+          <div onClick={() => toggleSort("subject")} style={{ cursor: "pointer", userSelect: "none" }}>Subject{sortKey === "subject" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("type")} style={{ cursor: "pointer", userSelect: "none" }}>Type{sortKey === "type" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("priority")} style={{ cursor: "pointer", userSelect: "none" }}>Priority{sortKey === "priority" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("opened")} style={{ cursor: "pointer", userSelect: "none" }}>Opened{sortKey === "opened" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("last_activity")} style={{ cursor: "pointer", userSelect: "none" }}>Last activity{sortKey === "last_activity" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ textAlign: "center", cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
         </div>
-        {rows.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>No disputes yet.</div>
-        ) : rows.map((d) => (
+        ) : sorted.map((d) => (
           <Link key={d.id} to={`/vendor/disputes/${d.id}`} style={{ display: "grid", gridTemplateColumns: "1.8fr 150px 100px 130px 130px 60px", padding: "12px 14px", borderBottom: `1px solid ${TH.border}`, fontSize: 13, alignItems: "center", textDecoration: "none", color: "inherit" }}>
             <div>
               <div style={{ fontWeight: 600, color: TH.text, display: "flex", alignItems: "center", gap: 8 }}>
@@ -179,14 +217,20 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
       <div onClick={(e) => e.stopPropagation()} style={{ background: TH.surface, borderRadius: 10, padding: 22, width: "min(560px, 95vw)", boxSizing: "border-box", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", maxHeight: "90vh", overflowY: "auto" }}>
         <h3 style={{ margin: "0 0 14px", color: TH.text, fontSize: 16 }}>Open a new dispute</h3>
         <Row label="Type">
-          <select value={type} onChange={(e) => setType(e.target.value)} style={inp}>
-            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={type}
+            onChange={(v) => setType(v)}
+            options={TYPES.map((t) => ({ value: t.value, label: t.label }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Priority">
-          <select value={priority} onChange={(e) => setPriority(e.target.value)} style={inp}>
-            {PRIORITIES.map((p) => <option key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</option>)}
-          </select>
+          <SearchableSelect
+            value={priority}
+            onChange={(v) => setPriority(v)}
+            options={PRIORITIES.map((p) => ({ value: p, label: p[0].toUpperCase() + p.slice(1) }))}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Subject">
           <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Brief summary" style={inp} />
@@ -195,10 +239,10 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
           <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} style={{ ...inp, resize: "vertical" }} />
         </Row>
         <Row label="Related PO (optional)">
-          <select
-            value={poId}
-            onChange={(e) => {
-              const newPo = e.target.value;
+          <SearchableSelect
+            value={poId || null}
+            onChange={(v) => {
+              const newPo = v;
               setPoId(newPo);
               if (!newPo) return; // cleared — leave invoice alone
               const currentInv = invoiceId ? invoices.find((i) => i.id === invoiceId) : null;
@@ -215,37 +259,37 @@ function DisputeCreateModal({ onClose, onCreated }: { onClose: () => void; onCre
                 setInvoiceId(firstOnPo ? firstOnPo.id : "");
               }
             }}
-            style={inp}
-          >
-            <option value="">— None —</option>
-            {pos.map((p) => <option key={p.uuid_id} value={p.uuid_id}>{p.po_number}</option>)}
-          </select>
+            options={[
+              { value: "", label: "— None —" },
+              ...pos.map((p) => ({ value: p.uuid_id, label: p.po_number })),
+            ]}
+            inputStyle={inp}
+          />
         </Row>
         <Row label="Related invoice (optional)">
-          <select
-            value={invoiceId}
-            onChange={(e) => {
-              const newInv = e.target.value;
+          <SearchableSelect
+            value={invoiceId || null}
+            onChange={(v) => {
+              const newInv = v;
               setInvoiceId(newInv);
               if (!newInv) return;
               // Auto-fill the PO to match the invoice's po_id.
               const inv = invoices.find((i) => i.id === newInv);
               if (inv?.po_id && inv.po_id !== poId) setPoId(inv.po_id);
             }}
-            style={inp}
-          >
-            <option value="">— None —</option>
-            {invoiceOptions.map((i) => (
-              <option key={i.id} value={i.id}>{i.invoice_number}</option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "— None —" },
+              ...invoiceOptions.map((i) => ({ value: i.id, label: i.invoice_number })),
+            ]}
+            inputStyle={inp}
+          />
           {poId && invoiceOptions.length === 0 && (
             <div style={{ fontSize: 11, color: TH.textMuted, marginTop: 4 }}>No invoices on that PO yet.</div>
           )}
         </Row>
         {mismatch && (
           <div style={{ marginTop: 4, marginBottom: 10, padding: "8px 12px", background: "#78350F33", border: "1px solid #F59E0B", borderRadius: 6, fontSize: 12, color: "#FBBF24" }}>
-            ⚠ The selected invoice belongs to a different PO. Clear one before opening the dispute.
+            The selected invoice belongs to a different PO. Clear one before opening the dispute.
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>

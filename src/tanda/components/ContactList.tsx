@@ -7,13 +7,14 @@
 // caller seeds a row or the user clicks "+ Add contact", so a record with no
 // extra contacts stays compact.
 //
-// Email fields render with a ✉ mailto affordance (operator ask — click to send
+// Email fields render with a mailto affordance (operator ask — click to send
 // an email) that activates as soon as the address looks valid.
 
 import React from "react";
 import { formatUsPhone } from "../../shared/phone";
 
 export type Contact = {
+  id?: string;          // stable per-contact key (for customer_contact_notes)
   name?: string;
   email?: string;
   phone?: string;
@@ -108,7 +109,7 @@ export default function ContactList({
                           textDecoration: "none", fontSize: 14, lineHeight: 1,
                           color: mailOk ? C.primary : C.textMuted, cursor: mailOk ? "pointer" : "default",
                         }}
-                      >✉</a>
+                      >Email</a>
                     )}
                   </div>
                 );

@@ -55,28 +55,29 @@ function go(key: string) {
 
 const REPORTS: { group: string; items: { key: string; label: string; emoji: string }[] }[] = [
   { group: "Financial Statements", items: [
-    { key: "trial_balance", label: "Trial Balance", emoji: "📊" },
-    { key: "income_statement", label: "Income Statement", emoji: "📈" },
-    { key: "balance_sheet", label: "Balance Sheet", emoji: "📋" },
-    { key: "cash_flow", label: "Cash Flow", emoji: "💧" },
-    { key: "year_end_close", label: "Year-End Close", emoji: "🔚" },
+    { key: "trial_balance", label: "Trial Balance", emoji: "" },
+    { key: "income_statement", label: "Income Statement", emoji: "" },
+    { key: "segment_pl", label: "Segment P&L", emoji: "" },
+    { key: "balance_sheet", label: "Balance Sheet", emoji: "" },
+    { key: "cash_flow", label: "Cash Flow", emoji: "" },
+    { key: "year_end_close", label: "Year-End Close", emoji: "" },
   ] },
   { group: "Receivables & Payables", items: [
-    { key: "ar_aging", label: "AR Aging", emoji: "📅" },
-    { key: "ap_aging", label: "AP Aging", emoji: "📅" },
-    { key: "ar_invoices", label: "AR Invoices", emoji: "🧮" },
-    { key: "ap_invoices", label: "AP Invoices", emoji: "🧾" },
-    { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "🏦" },
+    { key: "ar_aging", label: "AR Aging", emoji: "" },
+    { key: "ap_aging", label: "AP Aging", emoji: "" },
+    { key: "ar_invoices", label: "AR Invoices", emoji: "" },
+    { key: "ap_invoices", label: "AP Invoices", emoji: "" },
+    { key: "bank_reconciliation", label: "Bank Reconciliation", emoji: "" },
   ] },
   { group: "General Ledger", items: [
-    { key: "gl_detail", label: "GL Detail", emoji: "🔍" },
-    { key: "gl_accounts", label: "Chart of Accounts", emoji: "📒" },
-    { key: "journal_entries", label: "Journal Entries", emoji: "📓" },
-    { key: "gl_periods", label: "Periods", emoji: "🗓️" },
+    { key: "gl_detail", label: "GL Detail", emoji: "" },
+    { key: "gl_accounts", label: "Chart of Accounts", emoji: "" },
+    { key: "journal_entries", label: "Journal Entries", emoji: "" },
+    { key: "gl_periods", label: "Periods", emoji: "" },
   ] },
   { group: "Sales", items: [
-    { key: "sales_by_rep", label: "Sales by Rep", emoji: "🧑‍💼" },
-    { key: "sales_by_customer", label: "Sales by Customer", emoji: "🤝" },
+    { key: "sales_by_rep", label: "Sales by Rep", emoji: "" },
+    { key: "sales_by_customer", label: "Sales by Customer", emoji: "" },
   ] },
 ];
 
@@ -175,7 +176,7 @@ export default function InternalReportsHub() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>📊 Reports & Analytics</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Reports & Analytics</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>executive KPIs, BI charts + every report in one place</span>
         <span style={{ marginLeft: "auto" }}>
           <ExportButton rows={spendExportRows} filename="vendor-spend" sheetName="Vendor Spend" columns={spendExportColumns} />
@@ -224,7 +225,7 @@ export default function InternalReportsHub() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
             {g.items.map((it) => (
               <button key={it.key} onClick={() => go(it.key)} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "12px 14px", cursor: "pointer", color: C.text, fontSize: 14, textAlign: "left", display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 18 }}>{it.emoji}</span>{it.label}
+                {it.label}
               </button>
             ))}
           </div>

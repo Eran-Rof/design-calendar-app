@@ -8,7 +8,25 @@ import {
   buildInvoicePayload,
   buildLineRows,
   makeItemResolver,
+  billSinglePoNumber,
 } from "../ap-bill-sync.js";
+
+describe("billSinglePoNumber", () => {
+  it("returns the PO number when all lines share one", () => {
+    expect(billSinglePoNumber({ lines: [{ po_number: "ROF-P000080" }, { po_number: "ROF-P000080" }] })).toBe("ROF-P000080");
+  });
+  it("returns null when lines span multiple POs", () => {
+    expect(billSinglePoNumber({ lines: [{ po_number: "A" }, { po_number: "B" }] })).toBe(null);
+  });
+  it("returns null when no line has a PO", () => {
+    expect(billSinglePoNumber({ lines: [{ po_number: "" }, { po_number: null }] })).toBe(null);
+    expect(billSinglePoNumber({ lines: [] })).toBe(null);
+    expect(billSinglePoNumber({})).toBe(null);
+  });
+  it("ignores blank PO lines when one real PO is present", () => {
+    expect(billSinglePoNumber({ lines: [{ po_number: "PT-P000620" }, { po_number: "" }] })).toBe("PT-P000620");
+  });
+});
 
 describe("toCents / toMoney", () => {
   it("rounds money to integer cents", () => {

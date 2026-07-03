@@ -12,6 +12,7 @@ import ImageUploader from "./ImageUploader";
 import SkuManager from "./SkuManager";
 import { DateInput } from "./DateInput";
 import { useAppStore } from "../store";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function TaskEditModal({
   onSkuChange,
@@ -303,7 +304,7 @@ function TaskEditModal({
                 borderRadius: 8,
               }}
             >
-              👁 View Only
+              View Only
             </span>
           )}
         </div>
@@ -538,7 +539,7 @@ function TaskEditModal({
                           fontWeight: 600,
                         }}
                       >
-                        ⚠️ This task is scheduled before the previous task
+                        This task is scheduled before the previous task
                       </div>
                     )}
                   </div>
@@ -581,11 +582,16 @@ function TaskEditModal({
             <div>
               <label style={S.lbl}>Assign To</label>
               <div style={{ marginBottom: 14 }}>
-                <select
+                <SearchableSelect
+                  theme="light"
                   disabled={!canEdit}
-                  value={f.assigneeId || ""}
-                  onChange={e => handleAssign(e.target.value || null)}
-                  style={{
+                  value={f.assigneeId || null}
+                  onChange={v => handleAssign(v || null)}
+                  options={[
+                    { value: "", label: "— Unassigned —" },
+                    ...team.map(m => ({ value: m.id, label: `${m.name} · ${m.role}` })),
+                  ]}
+                  inputStyle={{
                     ...S.inp,
                     marginBottom: 0,
                     borderColor: f.assigneeId
@@ -597,12 +603,7 @@ function TaskEditModal({
                     fontWeight: f.assigneeId ? 600 : 400,
                     opacity: canEdit ? 1 : 0.6,
                   }}
-                >
-                  <option value="">— Unassigned —</option>
-                  {team.map(m => (
-                    <option key={m.id} value={m.id}>{m.name} · {m.role}</option>
-                  ))}
-                </select>
+                />
               </div>
               {(pd || designer || graphic) && (
                 <div>
@@ -651,7 +652,7 @@ function TaskEditModal({
                     onClick={() => { setSelectMode(true); setSelectedAttachments(new Set()); }}
                     style={{ padding: "5px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
                   >
-                    ☑️ Select Attachments
+                    Select Attachments
                   </button>
                 ) : (
                   <>
@@ -683,7 +684,7 @@ function TaskEditModal({
                           }}
                           style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
                         >
-                          🔗 Copy Link
+                          Copy Link
                         </button>
                         <button
                           onClick={() => {
@@ -693,7 +694,7 @@ function TaskEditModal({
                           }}
                           style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}
                         >
-                          🖨️ Open & Print
+                          Open & Print
                         </button>
                       </>
                     )}
@@ -709,7 +710,7 @@ function TaskEditModal({
                   const isSelected = selectedAttachments.has(img.id);
                   const isImage = img.name?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) || img.src?.startsWith("data:image") || img.src?.includes("supabase");
                   const ext = (img.name || "").split(".").pop()?.toUpperCase() || "FILE";
-                  const fileIcons = { PDF: "📄", AI: "🎨", EPS: "🎨", PSD: "🖼️", SVG: "🔷" };
+                  const fileIcons = { PDF: "", AI: "", EPS: "", PSD: "", SVG: "" };
                   return (
                     <div
                       key={img.id}
@@ -730,7 +731,7 @@ function TaskEditModal({
                     >
                       {isImage
                         ? <img src={img.src} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover", opacity: isSelected ? 1 : 0.6 }} />
-                        : <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 22, opacity: isSelected ? 1 : 0.6 }}>{fileIcons[ext] || "📎"}<div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div></div>
+                        : <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 22, opacity: isSelected ? 1 : 0.6 }}>{fileIcons[ext] || ""}<div style={{ fontSize: 9, color: TH.textMuted, marginTop: 2 }}>{ext}</div></div>
                       }
                       {/* Checkmark */}
                       <div style={{
@@ -790,15 +791,14 @@ function TaskEditModal({
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {[...(f.history || [])].reverse().map((h) => {
-                const FIELD_ICONS = { "due date": "📅", "status": "🔄", "assignee": "👤", "vendor": "🏭", "note added": "📝", "order type": "📦", "category": "🗂️", "season": "🌿", "customer": "🏪" };
-                const icon = FIELD_ICONS[h.field] || "✏️";
+                const FIELD_ICONS = { "due date": "", "status": "", "assignee": "", "vendor": "", "note added": "", "order type": "", "category": "", "season": "", "customer": "" };
+                const icon = FIELD_ICONS[h.field] || "";
                 const isNoteAdded = h.field === "note added";
                 const accentColor = h.field === "due date" ? "#1D4ED8" : h.field === "status" ? "#059669" : h.field === "note added" ? "#7C3AED" : TH.primary;
                 return (
                   <div key={h.id} style={{ background: TH.surfaceHi, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${accentColor}55` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 14 }}>{icon}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: accentColor, textTransform: "capitalize" }}>{h.field}</span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
@@ -923,7 +923,7 @@ function TaskEditModal({
                 marginBottom: 12,
               }}
             >
-              ⚠️ DDP Date Will Change
+              DDP Date Will Change
             </div>
             <div
               style={{
@@ -1004,7 +1004,7 @@ function TaskEditModal({
                   textAlign: "left",
                 }}
               >
-                ⚖️ Proportionally Resize Task Durations —{" "}
+                Proportionally Resize Task Durations —{" "}
                 <span style={{ fontWeight: 400 }}>
                   keep DDP {formatDate(cascadeWarn.oldDDP)}
                 </span>
@@ -1030,7 +1030,7 @@ function TaskEditModal({
                   textAlign: "left",
                 }}
               >
-                📌 Keep DDP as-is —{" "}
+                Keep DDP as-is —{" "}
                 <span style={{ fontWeight: 400 }}>
                   only update this task's date
                 </span>

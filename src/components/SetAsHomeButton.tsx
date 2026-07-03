@@ -46,7 +46,7 @@ export default function SetAsHomeButton({ menuKey, className }: SetAsHomeButtonP
     ? "✓ Your landing page"
     : showSaved
       ? "Saved ✓"
-      : "🏠 Set as landing page";
+      : "Set as landing page";
 
   return (
     <button

@@ -26,6 +26,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const TABLE_KEY = "tanda.ar_receipts";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -133,6 +135,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -254,6 +257,21 @@ export default function InternalARReceipts() {
     return t;
   }, [rows]);
 
+  // #5 Sortable columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:arreceipts:sort",
+    accessors: {
+      date: (r) => r.receipt_date,
+      customer: (r) => { const c = customerMap[r.customer_id]; return c ? (c.code ? `${c.code} ${c.name}` : c.name) : r.customer_id; },
+      amount: (r) => Number(r.amount_cents || "0"),
+      applied: (r) => Number(r.applied_cents || "0"),
+      unapplied: (r) => Number(r.unapplied_cents || "0"),
+      method: (r) => r.customer_payment_method,
+      bank: (r) => { const b = accountMap[r.bank_account_id]; return b ? `${b.code} ${b.name}` : r.bank_account_id; },
+      status: (r) => statusLabel(r).label,
+    },
+  });
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, marginBottom: 16 }}>
@@ -276,23 +294,28 @@ export default function InternalARReceipts() {
             placeholder="All customers"
           />
         </div>
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          style={{ ...inputStyle, width: 160 }}
-        >
-          <option value="">All methods</option>
-          {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          style={{ ...inputStyle, width: 150 }}
-          title="Filter by row source — manual entries vs mirrored from Xoro / future integrations"
-        >
-          <option value="">All sources</option>
-          {SOURCE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div style={{ width: 160 }}>
+          <SearchableSelect
+            value={method || null}
+            onChange={(v) => setMethod(v)}
+            options={[
+              { value: "", label: "All methods" },
+              ...METHODS.map((m) => ({ value: m, label: m })),
+            ]}
+            placeholder="All methods"
+          />
+        </div>
+        <div style={{ width: 150 }} title="Filter by row source — manual entries vs mirrored from Xoro / future integrations">
+          <SearchableSelect
+            value={sourceFilter || null}
+            onChange={(v) => setSourceFilter(v)}
+            options={[
+              { value: "", label: "All sources" },
+              ...SOURCE_OPTIONS.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All sources"
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           From&nbsp;
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
@@ -315,35 +338,63 @@ export default function InternalARReceipts() {
           />
           Include voided
         </label>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value) || 100)}
-          style={{ ...inputStyle, width: 100 }}
-        >
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="250">250</option>
-          <option value="500">500</option>
-        </select>
+        <div style={{ width: 100 }}>
+          <SearchableSelect
+            value={String(limit)}
+            onChange={(v) => setLimit(Number(v) || 100)}
+            options={[
+              { value: "50", label: "50" },
+              { value: "100", label: "100" },
+              { value: "250", label: "250" },
+              { value: "500", label: "500" },
+            ]}
+          />
+        </div>
         <button onClick={() => void load()} style={btnSecondary}>Reload</button>
         <ExportButton
-          rows={rows.map((r) => {
-            const cust = customerMap[r.customer_id];
-            const bank = accountMap[r.bank_account_id];
-            return {
-              receipt_date: r.receipt_date,
-              customer: cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : r.customer_id,
-              amount_cents: r.amount_cents,
-              applied_cents: r.applied_cents || "0",
-              unapplied_cents: r.unapplied_cents || "0",
-              method: r.customer_payment_method,
-              bank: bank ? `${bank.code} — ${bank.name}` : r.bank_account_id,
-              reference: r.reference,
-              notes: r.notes,
-              status: statusLabel(r).label,
-              source: r.source || "manual",
-            };
-          }) as unknown as Array<Record<string, unknown>>}
+          // #23 Export totals — base rows + a trailing Totals row that mirrors
+          // the on-screen "Active total" (non-void amount) and sums applied /
+          // unapplied across the exported set.
+          rows={(() => {
+            const base = rows.map((r) => {
+              const cust = customerMap[r.customer_id];
+              const bank = accountMap[r.bank_account_id];
+              return {
+                receipt_date: r.receipt_date,
+                customer: cust ? (cust.code ? `${cust.code} — ${cust.name}` : cust.name) : r.customer_id,
+                amount_cents: r.amount_cents,
+                applied_cents: r.applied_cents || "0",
+                unapplied_cents: r.unapplied_cents || "0",
+                method: r.customer_payment_method,
+                bank: bank ? `${bank.code} — ${bank.name}` : r.bank_account_id,
+                reference: r.reference,
+                notes: r.notes,
+                status: statusLabel(r).label,
+                source: r.source || "manual",
+              };
+            });
+            let appliedTot = 0n, unappliedTot = 0n;
+            for (const r of rows) {
+              appliedTot += BigInt(r.applied_cents || "0");
+              unappliedTot += BigInt(r.unapplied_cents || "0");
+            }
+            return [
+              ...base,
+              {
+                receipt_date: "",
+                customer: "TOTAL (active)",
+                amount_cents: totalCents.toString(),
+                applied_cents: appliedTot.toString(),
+                unapplied_cents: unappliedTot.toString(),
+                method: "",
+                bank: "",
+                reference: null,
+                notes: null,
+                status: "",
+                source: "",
+              },
+            ];
+          })() as unknown as Array<Record<string, unknown>>}
           filename="ar-receipts"
           sheetName="AR Receipts"
           columns={[
@@ -379,7 +430,7 @@ export default function InternalARReceipts() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -388,19 +439,19 @@ export default function InternalARReceipts() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("date")}>Date</th>
-                <th style={th} hidden={!visibleColumns.has("customer")}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("amount")}>Amount</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("applied")}>Applied</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unapplied")}>Unapplied</th>
-                <th style={th} hidden={!visibleColumns.has("method")}>Method</th>
-                <th style={th} hidden={!visibleColumns.has("bank")}>Bank</th>
-                <th style={th} hidden={!visibleColumns.has("status")}>Status</th>
+                <SortableTh label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("date")} />
+                <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("customer")} />
+                <SortableTh label="Amount" sortKey="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("amount")} />
+                <SortableTh label="Applied" sortKey="applied" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("applied")} />
+                <SortableTh label="Unapplied" sortKey="unapplied" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unapplied")} />
+                <SortableTh label="Method" sortKey="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("method")} />
+                <SortableTh label="Bank" sortKey="bank" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("bank")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("status")} />
                 <th style={th}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {sortedRows.map((r) => {
                 const cust = customerMap[r.customer_id];
                 const bank = accountMap[r.bank_account_id];
                 const st = statusLabel(r);
@@ -638,9 +689,13 @@ function AddReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method *
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} style={{ ...inputStyle, marginTop: 4 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4 }}>
+              <SearchableSelect
+                value={paymentMethod || null}
+                onChange={(v) => setPaymentMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank account *
@@ -932,9 +987,14 @@ function DetailReceiptModal({
           </label>
           <label style={{ fontSize: 12, color: C.textSub }}>
             Method
-            <select value={editMethod} onChange={(e) => setEditMethod(e.target.value)} disabled={!editable} style={{ ...inputStyle, marginTop: 4, opacity: editable ? 1 : 0.6 }}>
-              {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div style={{ marginTop: 4, opacity: editable ? 1 : 0.6 }}>
+              <SearchableSelect
+                value={editMethod || null}
+                onChange={(v) => setEditMethod(v)}
+                options={METHODS.map((m) => ({ value: m, label: m }))}
+                disabled={!editable}
+              />
+            </div>
           </label>
           <label style={{ fontSize: 12, color: C.textSub, gridColumn: "1 / -1" }}>
             Bank

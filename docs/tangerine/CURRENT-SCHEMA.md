@@ -715,8 +715,8 @@ _(no columns parsed)_
 
 - `code` text
 - `customer_type` text CHECK `IN ('wholesale', 'ecom', 'showroom', 'employee', 'other')`
-- `default_gl_ar_account_id` uuid → `gl_accounts`
-- `default_gl_revenue_account_id` uuid → `gl_accounts`
+- `default_gl_ar_account_id` uuid → `gl_accounts` — **RETIRED** (no longer written/shown; superseded by `default_ar_account_id`, the column the AR/SO posting engines read). Column kept for back-compat.
+- `default_gl_revenue_account_id` uuid → `gl_accounts` — **RETIRED** (superseded by `default_revenue_account_id`). Column kept for back-compat.
 - `payment_terms` text
 - `default_currency` char(3) NOT NULL DEFAULT 'USD'
 - `tax_exempt` boolean NOT NULL DEFAULT false
@@ -1339,6 +1339,31 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `updated_at` timestamptz NOT NULL DEFAULT now()
 
+## `gs1_catalog_items`  _((GS1 module — Styles Catalog))_
+
+GS1 publishable styles catalog (workflow step 1). Single-tenant, anon-RLS, **no `entity_id`** — matches the rest of the GS1 module. One row per style+color; style/color/price are read from the entity-scoped PLM tables server-side at import time, only the curated catalog row (editable price + publish state) lives here. No cross-module FKs (`style_id`/`color_id`/`price_list_id` are loose uuids).
+
+- `id` uuid PK DEFAULT gen_random_uuid()
+- `style_id` uuid — `style_master.id` (loose link, no FK)
+- `style_no` text NOT NULL — `style_master.style_code`
+- `style_name` text
+- `color` text NOT NULL
+- `color_id` uuid — `color_master.id` when resolved (loose link)
+- `brand` text
+- `category` text
+- `description` text
+- `pack_gtin` text — `pack_gtin_master.pack_gtin` for (style_no,color)
+- `price_cents` bigint CHECK `price_cents IS NULL OR price_cents >= 0`
+- `currency` char(3) NOT NULL DEFAULT 'USD'
+- `price_list_id` uuid — `price_lists.id` the price came from (loose link)
+- `price_list_code` text
+- `status` text NOT NULL DEFAULT 'draft' CHECK `status IN ('draft', 'ready', 'published')`
+- `gdsn_target` text
+- `published_at` timestamptz
+- `created_at` timestamptz NOT NULL DEFAULT now()
+- `updated_at` timestamptz NOT NULL DEFAULT now() _(touch trigger)_
+- UNIQUE `(style_no, color)`
+
 ## `import_documentation`  _(P13-1)_
 
 - `id` uuid PK DEFAULT gen_random_uuid()
@@ -1395,7 +1420,7 @@ _(no columns parsed)_
 - `qty_consumed` numeric(18,4) NOT NULL
 - `cogs_cents` bigint NOT NULL
 - `consumer_kind` text NOT NULL
-- `consumer_invoice_id` uuid → `invoices`
+- `consumer_invoice_id` uuid — FK-less polymorphic per-line consumer ref for `consumer_kind='ar_invoice'`: `ar_invoice_lines.id` (AR posting) or `shopify_order_lines.id` (Shopify COGS). FK to legacy `invoices(id)` dropped 20260895000000.
 - `notes` text
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
@@ -1442,6 +1467,7 @@ _(no columns parsed)_
 - `created_at` timestamptz NOT NULL DEFAULT now()
 - `created_by_user_id` uuid → `auth.users`
 - `location_id` uuid → `inventory_locations`
+- `lot_number` text — lot the stock belongs to (from the originating PO line at receipt); enables lot-aware allocation _(lot numbers Phase 1, mig 20260899000000)_
 
 ## `inventory_locations`  _(P12-0)_
 
@@ -3404,6 +3430,7 @@ _(no columns parsed)_
 - `id` uuid PK DEFAULT gen_random_uuid()
 - `entity_id` uuid → `entities` NOT NULL
 - `style_code` text NOT NULL
+- `aliases` text[] NOT NULL DEFAULT '{}' — old style codes captured on a renumber (mig `20260922000000`, GIN idx `idx_style_master_aliases`). Mirrors vendors/customers.aliases. Keeps string-grain lookups (Xoro importer `loadStyles`, prepack matrix) resolving a renamed style; UUID-keyed history (ip_item_master.style_id, *_lines.inventory_item_id, inventory_layers.item_id, ip_sales_history_wholesale.sku_id) needs no alias. Auto-appended by the style-master PATCH on a style_code change (which also cascades the new code to ip_item_master, keeping sku_code stable, and re-keys prepack_matrices).
 - `description` text NOT NULL
 - `category_id` uuid → `ip_category_master`
 - `gender_code` text

@@ -4,6 +4,7 @@ import type { ExcelData } from "../types";
 // Shared app-wide dark calendar widget (same one every other app uses) so
 // ATS date fields don't pop the browser's light native calendar.
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 // Mouse-off auto-close for filter dropdowns. 600ms grace timer mirrors
 // the planning grid's MultiSelectDropdown so a brief cursor flicker
@@ -112,6 +113,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({ label, value,
               placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
@@ -189,6 +191,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({ label, value, o
               placeholder={placeholder ?? `Search ${label.toLowerCase()}…`}
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
@@ -234,6 +237,10 @@ interface ToolbarProps {
   styles: string[];
   filterGender: string[];
   setFilterGender: (v: string[]) => void;
+  // Gender option codes to show, narrowed to those present under the other
+  // active filters (#9 cascade). Optional — falls back to the full canonical
+  // set so legacy call sites keep working.
+  genderOptions?: string[];
   // Multi-select Brand filter. brandOptions is the full brand_master
   // name list (every brand the Tangerine app knows about), so the
   // dropdown lists all brands regardless of what's loaded in the grid.
@@ -322,7 +329,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   search, setSearch, filterCategory, setFilterCategory, categories,
   filterSubCategory, setFilterSubCategory, subCategories,
   filterStyle, setFilterStyle, styles,
-  filterGender, setFilterGender,
+  filterGender, setFilterGender, genderOptions,
   filterBrand, setFilterBrand, brandOptions,
   setFilterStatus,
   STORES, storeFilter, setStoreFilter, poDropOpen, setPoDropOpen, setSoDropOpen,
@@ -430,6 +437,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       placeholder="Search SKU or description…"
       value={search}
       onChange={e => setSearch(e.target.value)}
+      onFocus={e => e.currentTarget.select()}
     />
     <MultiSelectDropdown
       label="Category"
@@ -453,7 +461,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <MultiSelectDropdown
       label="Gender"
       value={filterGender}
-      options={["M", "B", "C", "Wms", "G"]}
+      options={genderOptions ?? ["M", "B", "C", "Wms", "G"]}
       onChange={setFilterGender}
       getLabel={v => ({ M: "Mens", B: "Boys", C: "Child", Wms: "Women's", G: "Girls" } as Record<string, string>)[v] ?? v}
     />
@@ -466,12 +474,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     />
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Collapse:</span>
-      <select style={S.select} value={collapseLevel} onChange={e => setCollapseLevel(e.target.value as typeof collapseLevel)}>
-        <option value="none">None</option>
-        <option value="category">Category</option>
-        <option value="subCategory">Sub Cat</option>
-        <option value="style">Style</option>
-      </select>
+      <SearchableSelect
+        value={collapseLevel}
+        onChange={v => setCollapseLevel(v as typeof collapseLevel)}
+        options={[
+          { value: "none", label: "None" },
+          { value: "category", label: "Category" },
+          { value: "subCategory", label: "Sub Cat" },
+          { value: "style", label: "Style" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
     {/* Store filter */}
     <div ref={poDropRef} style={{ position: "relative" }} onMouseEnter={storeClose.cancel} onMouseLeave={storeClose.schedule}>
@@ -479,9 +492,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         style={{ ...S.select, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", minWidth: 140, justifyContent: "space-between" }}
         onClick={() => { setPoDropOpen(o => !o); setSoDropOpen(false); }}
       >
-        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Store:</span>
+        <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Warehouse:</span>
         <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {storeFilter.includes("All") ? "All stores" : storeFilter.join(", ")}
+          {storeFilter.includes("All") ? "All warehouses" : storeFilter.join(", ")}
         </span>
         <span style={{ fontSize: 9, color: "#6B7280" }}>▼</span>
       </button>
@@ -562,18 +575,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         value={rangeValue}
         onChange={e => { const v = Math.max(1, Number(e.target.value)); if (v) setRangeValue(v); }}
       />
-      <select
-        style={{ ...S.select, minWidth: 96 }}
+      <SearchableSelect
         value={rangeUnit}
-        onChange={e => {
-          setRangeUnit(e.target.value as "days" | "weeks" | "months");
-          setRangeValue(e.target.value === "days" ? 14 : e.target.value === "weeks" ? 2 : 1);
+        onChange={v => {
+          setRangeUnit(v as "days" | "weeks" | "months");
+          setRangeValue(v === "days" ? 14 : v === "weeks" ? 2 : 1);
         }}
-      >
-        <option value="days">Days</option>
-        <option value="weeks">Weeks</option>
-        <option value="months">Months</option>
-      </select>
+        options={[
+          { value: "days", label: "Days" },
+          { value: "weeks", label: "Weeks" },
+          { value: "months", label: "Months" },
+        ]}
+        inputStyle={{ ...S.select, minWidth: 96 }}
+      />
     </div>
 
     {/* Customer / vendor dropdown */}
@@ -596,6 +610,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               placeholder="Search customers…"
               value={customerSearch}
               onChange={e => setCustomerSearch(e.target.value)}
+              onFocus={e => e.currentTarget.select()}
               autoFocus
               style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
             />
@@ -638,15 +653,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
        PO   → sum of PO qty whose receipt date falls in the cell's period */}
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
       <span style={{ color: "#10B981", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>View:</span>
-      <select
-        style={S.select}
+      <SearchableSelect
         value={viewMode}
-        onChange={e => setViewMode(e.target.value as "ats" | "so" | "po")}
-      >
-        <option value="ats">ATS</option>
-        <option value="so">On SO</option>
-        <option value="po">On PO Receipt</option>
-      </select>
+        onChange={v => setViewMode(v as "ats" | "so" | "po")}
+        options={[
+          { value: "ats", label: "ATS" },
+          { value: "so", label: "On SO" },
+          { value: "po", label: "On PO Receipt" },
+        ]}
+        inputStyle={S.select}
+      />
     </div>
 
     {/* TOTALS row toggle */}
@@ -682,22 +698,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     {/* Freeze-through dropdown — pin leftmost columns when scrolling.
         Default "On PO" matches the historical all-8-sticky behavior;
         the planner can scale freeze back to fewer columns or off. */}
-    <select
-      value={freezeKey ?? ""}
-      onChange={e => setFreezeKey((e.target.value || null) as typeof freezeKey)}
-      title="Pin leftmost columns through the chosen one when scrolling horizontally"
-      style={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
-    >
-      <option value="">No freeze</option>
-      <option value="category">Freeze through Category</option>
-      <option value="subCategory">Freeze through Sub Cat</option>
-      <option value="style">Freeze through Style</option>
-      <option value="description">Freeze through Description</option>
-      <option value="color">Freeze through Color</option>
-      <option value="onHand">Freeze through On Hand</option>
-      <option value="onOrder">Freeze through On Order</option>
-      <option value="onPO">Freeze through On PO</option>
-    </select>
+    <div title="Pin leftmost columns through the chosen one when scrolling horizontally">
+      <SearchableSelect
+        value={freezeKey ?? ""}
+        onChange={v => setFreezeKey((v || null) as typeof freezeKey)}
+        options={[
+          { value: "", label: "No freeze" },
+          { value: "category", label: "Freeze through Category" },
+          { value: "subCategory", label: "Freeze through Sub Cat" },
+          { value: "style", label: "Freeze through Style" },
+          { value: "description", label: "Freeze through Description" },
+          { value: "color", label: "Freeze through Color" },
+          { value: "onHand", label: "Freeze through On Hand" },
+          { value: "onOrder", label: "Freeze through On Order" },
+          { value: "onPO", label: "Freeze through On PO" },
+        ]}
+        inputStyle={{ ...S.select, fontSize: 12, padding: "4px 8px" }}
+      />
+    </div>
 
     {/* Columns visibility dropdown — toggle individual sticky-left
         columns on/off (Category through On PO). Hidden count appears

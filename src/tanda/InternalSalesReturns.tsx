@@ -15,13 +15,15 @@ import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
 import { useItemResolver } from "./hooks/useItemResolver";
 import LineViewToggle, { type LineView } from "./components/LineViewToggle";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444", violet: "#8B5CF6",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 const btnP: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -174,14 +176,38 @@ export default function InternalSalesReturns() {
 
   function lineTotal(r: Rma) { return r.sales_return_lines.reduce((s, l) => s + Number(l.qty_returned) * l.unit_price_cents, 0); }
 
+  // #5 — tri-state column sort on the data grid. Derived columns (customer name,
+  // lines count, credit total) get explicit accessors; rma_number/status read
+  // straight off the row.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rmas, {
+    persistKey: "tangerine:salesreturns:sort",
+    accessors: {
+      rma_number: (r) => r.rma_number || "",
+      customer: (r) => r.customers?.name || custName.get(r.customer_id) || "",
+      lines: (r) => r.sales_return_lines.length,
+      credit: (r) => lineTotal(r),
+    },
+  });
+
   type ExportRow = { rma_number: string; customer: string; status: string; lines: number; credit_dollars: number };
-  const exportRows: ExportRow[] = rmas.map((r) => ({
-    rma_number: r.rma_number || "(draft)",
-    customer: r.customers?.name || custName.get(r.customer_id) || "",
-    status: r.status,
-    lines: r.sales_return_lines.length,
-    credit_dollars: lineTotal(r) / 100,
-  }));
+  const exportRows: ExportRow[] = useMemo(() => {
+    const body: ExportRow[] = rmas.map((r) => ({
+      rma_number: r.rma_number || "(draft)",
+      customer: r.customers?.name || custName.get(r.customer_id) || "",
+      status: r.status,
+      lines: r.sales_return_lines.length,
+      credit_dollars: lineTotal(r) / 100,
+    }));
+    // #23 — append a TOTAL row summing numeric columns (guard empty).
+    if (body.length > 0) {
+      body.push({
+        rma_number: "TOTAL", customer: "", status: "",
+        lines: body.reduce((s, r) => s + r.lines, 0),
+        credit_dollars: body.reduce((s, r) => s + r.credit_dollars, 0),
+      });
+    }
+    return body;
+  }, [rmas, custName]);
   const exportCols: ExportColumn<ExportRow>[] = [
     { key: "rma_number", header: "RMA #" },
     { key: "customer", header: "Customer" },
@@ -193,7 +219,7 @@ export default function InternalSalesReturns() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>↩️ Returns / RMA</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Returns / RMA</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>customer returns → disposition → credit memo</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <ExportButton rows={exportRows} columns={exportCols} filename="sales-returns" />
@@ -254,10 +280,17 @@ export default function InternalSalesReturns() {
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr><th style={th}>RMA #</th><th style={th}>Customer</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Lines</th><th style={{ ...th, textAlign: "right" }}>Credit $</th><th style={th}>Actions</th></tr></thead>
+          <thead><tr>
+            <SortableTh label="RMA #" sortKey="rma_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Lines" sortKey="lines" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <SortableTh label="Credit $" sortKey="credit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <th style={th}>Actions</th>
+          </tr></thead>
           <tbody>
             {rmas.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={6}>No returns yet.</td></tr>}
-            {rmas.map((r) => (
+            {sorted.map((r) => (
               <Fragment key={r.id}>
                 <tr style={{ cursor: "pointer" }} onClick={() => setExpanded(expanded === r.id ? null : r.id)}>
                   <td style={{ ...td, fontFamily: "monospace", color: C.primary }}>{r.rma_number || "(draft)"}</td>
@@ -361,11 +394,12 @@ function RmaLinesDetail({
                 <td style={{ ...td, textAlign: "right" }}>${(l.unit_price_cents / 100).toFixed(2)}</td>
                 <td style={td}>
                   {editable ? (
-                    <select style={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(e) => onSetDisposition(rma, l, e.target.value as "restock" | "scrap" | "pending")} disabled={busy}>
-                      <option value="pending">— pick —</option>
-                      <option value="restock" disabled={!l.inventory_item_id}>Restock{l.inventory_item_id ? "" : " (needs SKU)"}</option>
-                      <option value="scrap">Scrap</option>
-                    </select>
+                    <SearchableSelect inputStyle={{ ...input, padding: "3px 6px" }} value={l.disposition} onChange={(v) => onSetDisposition(rma, l, v as "restock" | "scrap" | "pending")} disabled={busy}
+                      options={[
+                        { value: "pending", label: "— pick —" },
+                        { value: "restock", label: `Restock${l.inventory_item_id ? "" : " (needs SKU)"}`, disabled: !l.inventory_item_id },
+                        { value: "scrap", label: "Scrap" },
+                      ]} />
                   ) : <span style={chip(l.disposition === "restock" ? C.success : C.textMuted)}>{l.disposition}</span>}
                 </td>
               </tr>

@@ -102,15 +102,15 @@ describe("validatePatch", () => {
   it("normalizes empty strings to null for nullable text/uuid fields", () => {
     const v = validatePatch({
       code: "", country: "", payment_terms: "",
-      default_gl_ar_account_id: "", default_gl_revenue_account_id: "",
+      default_ar_account_id: "", default_revenue_account_id: "",
       parent_customer_id: "",
     });
     expect(v.error).toBeUndefined();
     expect(v.data.code).toBeNull();
     expect(v.data.country).toBeNull();
     expect(v.data.payment_terms).toBeNull();
-    expect(v.data.default_gl_ar_account_id).toBeNull();
-    expect(v.data.default_gl_revenue_account_id).toBeNull();
+    expect(v.data.default_ar_account_id).toBeNull();
+    expect(v.data.default_revenue_account_id).toBeNull();
     expect(v.data.parent_customer_id).toBeNull();
   });
   it("rejects invalid customer_type", () => {

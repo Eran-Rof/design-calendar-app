@@ -46,6 +46,9 @@ import { StatCell } from "../../components/StatCell";
 import type { ToastMessage } from "../../components/Toast";
 import { useCurrentUser } from "../../shared/hooks/useCurrentUser";
 import { can } from "../../governance/services/permissionService";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const STATUS_COLOR: Record<string, string> = {
   pending:   "#94A3B8",
@@ -96,6 +99,23 @@ export default function ExecutionBatchDetail({
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
+
+  // Additive per-column sort over the actions list (rows keyed on a.id, so
+  // re-ordering never disturbs the inline approved-qty editor or row actions).
+  const { sorted: sortedActions, sortKey, sortDir, onHeaderClick } = useSort(actions, {
+    persistKey: "ip:execution_actions:sort",
+    accessors: {
+      type: (a) => a.action_type,
+      sku: (a) => itemById.get(a.sku_id)?.sku_code ?? "",
+      period: (a) => a.period_start ?? "",
+      po: (a) => a.po_number ?? "",
+      suggested: (a) => a.suggested_qty ?? 0,
+      approved: (a) => a.approved_qty ?? 0,
+      method: (a) => a.execution_method ?? "",
+      status: (a) => a.execution_status ?? "",
+      reason: (a) => a.action_reason ?? "",
+    },
+  });
   const actionById = useMemo(() => new Map(actions.map((a) => [a.id, a])), [actions]);
   // Resolve an action id to its SKU code for human-readable log/validation lines (never show a raw UUID).
   const actionLabel = (id: string): string => itemById.get(actionById.get(id)?.sku_id ?? "")?.sku_code ?? "—";
@@ -209,7 +229,7 @@ export default function ExecutionBatchDetail({
   async function createPos() {
     if (!(await confirmDialog(
       "Create DRAFT native Tangerine purchase orders from this buy plan?\n\nThe server groups create_buy_request actions by vendor → one draft PO each. You then review + issue them in Tangerine → Procurement → Purchase Orders (issuing assigns the PO number and opens commitments).\n\nTip: use \"Preview POs\" first to see what will be created and which actions will skip.",
-      { title: "Create Tangerine POs", confirmText: "Create POs", icon: "🍊", confirmColor: "#EA580C" },
+      { title: "Create Tangerine POs", confirmText: "Create POs", confirmColor: "#EA580C" },
     ))) return;
     setBusy(true);
     try {
@@ -238,7 +258,7 @@ export default function ExecutionBatchDetail({
 
   async function editApprovedQty(action: IpExecutionAction) {
     const current = action.approved_qty ?? action.suggested_qty;
-    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", icon: "🔢", inputType: "number", defaultValue: String(current) });
+    const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", inputType: "number", defaultValue: String(current) });
     if (raw == null) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) { onToast({ text: "Invalid number", kind: "error" }); return; }
@@ -358,13 +378,13 @@ export default function ExecutionBatchDetail({
                   disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
                   title={canWriteback ? "Preview (dry-run) the draft POs this buy plan would create — no writes" : "Missing permission: run_writeback"}
                   onClick={previewPos}>
-            🔍 Preview POs
+            Preview POs
           </button>
           <button style={{ ...S.btnPrimary, background: "#EA580C" }}
                   disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
                   title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
                   onClick={createPos}>
-            🍊 Create Tangerine POs
+            Create Tangerine POs
           </button>
           <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
             Writeback is per-action (Xoro). <b>Create Tangerine POs</b> turns <code style={{ color: PAL.text }}>create_buy_request</code> actions into draft native POs, grouped by vendor.
@@ -400,7 +420,7 @@ export default function ExecutionBatchDetail({
             {/* Unlinked-vendor suggestions with one-click Link */}
             {poResult.vendor_suggestions.filter((s) => s.candidates.length > 0).map((s) => (
               <div key={"vs" + s.planning_vendor_id} style={{ background: PAL.yellow + "18", color: PAL.text, padding: "6px 10px", borderRadius: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ color: PAL.yellow }}>🔗 link planning vendor <b>{s.vendor_code || s.name}</b> →</span>
+                <span style={{ color: PAL.yellow }}>link planning vendor <b>{s.vendor_code || s.name}</b> →</span>
                 {s.candidates.map((cand) => (
                   <button key={cand.id} style={{ ...S.btnGhost, fontSize: 12 }} disabled={busy} onClick={() => linkVendor(s, cand.id)}
                           title={`Set portal_vendor_id → ${cand.name} (matched on ${cand.match_on})`}>
@@ -411,13 +431,13 @@ export default function ExecutionBatchDetail({
             ))}
             {poResult.vendor_suggestions.filter((s) => s.candidates.length === 0).map((s) => (
               <div key={"vsn" + s.planning_vendor_id} style={{ background: PAL.textMuted + "18", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>
-                🔗 planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
+                planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
               </div>
             ))}
 
             {poResult.warnings.map((w) => (
               <div key={"w" + w.action_id} style={{ background: PAL.yellow + "22", color: PAL.yellow, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace" }}>
-                ⚠ {actionLabel(w.action_id)} · {w.message}
+                {actionLabel(w.action_id)} · {w.message}
               </div>
             ))}
             {poResult.skipped.filter((s) => s.code !== "vendor_unlinked").map((s) => (
@@ -453,21 +473,21 @@ export default function ExecutionBatchDetail({
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={S.th}>Type</th>
-                <th style={S.th}>SKU</th>
-                <th style={S.th}>Period</th>
-                <th style={S.th}>PO</th>
+                <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="PO" sortKey="po" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <th style={S.th}>Tangerine PO</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Suggested</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Approved</th>
-                <th style={S.th}>Method</th>
-                <th style={S.th}>Status</th>
-                <th style={S.th}>Reason</th>
+                <SortableTh label="Suggested" sortKey="suggested" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Approved" sortKey="approved" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Method" sortKey="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Reason" sortKey="reason" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <th style={S.th}></th>
               </tr>
             </thead>
             <tbody>
-              {actions.map((a) => {
+              {sortedActions.map((a) => {
                 const item = itemById.get(a.sku_id);
                 const cfg = cfgByType.get(a.action_type);
                 const apiAllowed = !!cfg?.enabled;
@@ -497,15 +517,17 @@ export default function ExecutionBatchDetail({
                       {a.approved_qty == null ? "click to set" : formatQty(a.approved_qty)}
                     </td>
                     <td style={S.td}>
-                      <select disabled={locked} style={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
-                              value={a.execution_method}
-                              onChange={(e) => changeMethod(a, e.target.value as IpExecutionMethod)}>
-                        <option value="export_only">export_only</option>
-                        <option value="manual_erp_entry">manual_erp_entry</option>
-                        <option value="api_writeback" disabled={!apiAllowed}>
-                          api_writeback {apiAllowed ? "" : "(disabled)"}
-                        </option>
-                      </select>
+                      <SearchableSelect
+                        disabled={locked}
+                        value={a.execution_method}
+                        onChange={(v) => changeMethod(a, v as IpExecutionMethod)}
+                        options={[
+                          { value: "export_only", label: "export_only" },
+                          { value: "manual_erp_entry", label: "manual_erp_entry" },
+                          { value: "api_writeback", label: `api_writeback ${apiAllowed ? "" : "(disabled)"}`, disabled: !apiAllowed },
+                        ]}
+                        inputStyle={{ ...S.select, padding: "4px 8px", fontSize: 12 }}
+                      />
                     </td>
                     <td style={S.td}>
                       <span style={{ ...S.chip, background: (STATUS_COLOR[a.execution_status] ?? PAL.textMuted) + "33", color: STATUS_COLOR[a.execution_status] ?? PAL.textMuted }}>

@@ -118,6 +118,35 @@ describe("arInvoiceSent", () => {
     expect(r.accrual.lines[0].subledger_type).toBe("customer");
     expect(r.accrual.lines[1].account_id).toBe("rev1");
   });
+
+  it("routes revenue + COGS per line from the line's own accounts (#6 per-style)", () => {
+    const r = arInvoiceSent({
+      kind: "ar_invoice_sent", entity_id: ENTITY,
+      data: {
+        invoice_id: "ar-2", customer_id: "c-1",
+        invoice_number: "AR-002", invoice_date: "2026-06-26",
+        ar_account_id: "ar1",
+        revenue_account_id: "revDEFAULT", cogs_account_id: "cogsDEFAULT",
+        inventory_account_id: "inv1",
+        lines: [
+          // line with its own style accounts → must win over the invoice defaults
+          { id: "l1", line_index: 1, inventory_item_id: "i1", quantity: 2,
+            revenue_account_id: "revROF", cogs_account_id: "cogsROF",
+            line_total_cents: 1000 },
+          // line with no per-line accounts → falls back to invoice defaults
+          { id: "l2", line_index: 2, inventory_item_id: "i2", quantity: 1,
+            line_total_cents: 500 },
+        ],
+      },
+    });
+    const rev = r.accrual.lines.filter((l) => l.credit !== "0" && l.account_id.startsWith("rev"));
+    expect(rev.map((l) => l.account_id)).toEqual(["revROF", "revDEFAULT"]);
+    // COGS DR lines (sentinel "0" amounts) carry the per-line vs default account.
+    const cogsDr = r.accrual.lines.filter((l) => l.memo && l.memo.startsWith("COGS") && l.subledger_id);
+    const cogsAccts = [...new Set(cogsDr.map((l) => l.account_id))];
+    expect(cogsAccts).toContain("cogsROF");      // line 1 → its style COGS
+    expect(cogsAccts).toContain("cogsDEFAULT");  // line 2 → invoice default
+  });
 });
 
 describe("arPaymentReceived", () => {

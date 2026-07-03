@@ -62,6 +62,14 @@ export type SearchableSelectProps = {
   onAddNew?: (query: string) => void;
   /** Label for the add-new row. Defaults to '+ Add "<query>"'. */
   addNewLabel?: (query: string) => string;
+  /**
+   * Surface theme for the control + popover. Defaults to "dark" (the
+   * Tangerine palette) so every existing call site is unchanged. Pass
+   * "light" inside the light-themed apps (Design Calendar/PLM, GS1, Vendor
+   * portal, B2B) so the dropdown matches a white surface instead of rendering
+   * a dark popover on a light page.
+   */
+  theme?: "dark" | "light";
 };
 
 const VISIBLE_CAP = 200;
@@ -73,7 +81,19 @@ const VISIBLE_CAP = 200;
 // charter — any consumer outside Tangerine still gets the dark surface
 // without having to thread theme through.
 // ─────────────────────────────────────────────────────────────────────────
-const C = {
+type Palette = {
+  bg: string;
+  card: string;
+  cardBdr: string;
+  text: string;
+  textMuted: string;
+  primary: string;
+  primarySoft: string;
+  primaryFaint: string;
+  shadow: string;
+};
+
+const C: Palette = {
   bg: "#0F172A",
   card: "#1E293B",
   cardBdr: "#334155",
@@ -84,82 +104,106 @@ const C = {
   // on top of any panel background without introducing a new opaque tone.
   primarySoft: "rgba(59, 130, 246, 0.22)",
   primaryFaint: "rgba(59, 130, 246, 0.12)",
+  shadow: "0 4px 12px rgba(0,0,0,0.4)",
 };
 
-const DEFAULT_INPUT_STYLE: React.CSSProperties = {
-  background: C.bg,
-  color: C.text,
-  border: `1px solid ${C.cardBdr}`,
-  padding: "6px 10px",
-  borderRadius: 4,
-  fontSize: 13,
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
+// Light surface palette — matches the white-themed apps (Design Calendar/PLM,
+// GS1, Vendor portal, B2B). Same accent, light backgrounds + dark text so the
+// popover never renders dark on a white page.
+const C_LIGHT: Palette = {
+  bg: "#FFFFFF",
+  card: "#FFFFFF",
+  cardBdr: "#CBD5E1",
+  text: "#1A202C",
+  textMuted: "#64748B",
+  primary: "#3B82F6",
+  primarySoft: "rgba(59, 130, 246, 0.16)",
+  primaryFaint: "rgba(59, 130, 246, 0.08)",
+  shadow: "0 4px 12px rgba(15, 23, 42, 0.18)",
 };
 
-const PANEL_STYLE: React.CSSProperties = {
-  position: "absolute",
-  top: "100%",
-  left: 0,
-  right: 0,
-  marginTop: 2,
-  background: C.card,
-  border: `1px solid ${C.cardBdr}`,
-  borderRadius: 4,
-  zIndex: 1000,
-  overflowY: "auto",
-  listStyle: "none",
-  padding: 0,
-  margin: 0,
-  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+type Styles = {
+  input: React.CSSProperties;
+  panel: React.CSSProperties;
+  option: React.CSSProperties;
+  groupHeader: React.CSSProperties;
+  footer: React.CSSProperties;
+  addNew: React.CSSProperties;
 };
 
-const OPTION_STYLE_BASE: React.CSSProperties = {
-  padding: "6px 10px",
-  fontSize: 13,
-  color: C.text,
-  cursor: "pointer",
-  userSelect: "none",
-};
-
-const GROUP_HEADER_STYLE: React.CSSProperties = {
-  position: "sticky",
-  top: 0,
-  background: C.bg,
-  color: C.textMuted,
-  fontSize: 11,
-  fontWeight: 600,
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  padding: "4px 10px",
-  borderBottom: `1px solid ${C.cardBdr}`,
-  zIndex: 1,
-};
-
-const FOOTER_STYLE: React.CSSProperties = {
-  padding: "6px 10px",
-  fontSize: 11,
-  color: C.textMuted,
-  borderTop: `1px solid ${C.cardBdr}`,
-  fontStyle: "italic",
-  background: C.card,
-  position: "sticky",
-  bottom: 0,
-};
-
-const ADD_NEW_STYLE: React.CSSProperties = {
-  padding: "6px 10px",
-  fontSize: 13,
-  color: C.primary,
-  cursor: "pointer",
-  userSelect: "none",
-  borderTop: `1px solid ${C.cardBdr}`,
-  background: C.card,
-  position: "sticky",
-  bottom: 0,
-  fontWeight: 600,
-};
+function makeStyles(c: Palette): Styles {
+  return {
+    input: {
+      background: c.bg,
+      color: c.text,
+      border: `1px solid ${c.cardBdr}`,
+      padding: "6px 10px",
+      borderRadius: 4,
+      fontSize: 13,
+      outline: "none",
+      width: "100%",
+      boxSizing: "border-box",
+    },
+    panel: {
+      position: "absolute",
+      top: "100%",
+      left: 0,
+      right: 0,
+      marginTop: 2,
+      background: c.card,
+      border: `1px solid ${c.cardBdr}`,
+      borderRadius: 4,
+      zIndex: 1000,
+      overflowY: "auto",
+      listStyle: "none",
+      padding: 0,
+      margin: 0,
+      boxShadow: c.shadow,
+    },
+    option: {
+      padding: "6px 10px",
+      fontSize: 13,
+      color: c.text,
+      cursor: "pointer",
+      userSelect: "none",
+    },
+    groupHeader: {
+      position: "sticky",
+      top: 0,
+      background: c.bg,
+      color: c.textMuted,
+      fontSize: 11,
+      fontWeight: 600,
+      textTransform: "uppercase",
+      letterSpacing: "0.05em",
+      padding: "4px 10px",
+      borderBottom: `1px solid ${c.cardBdr}`,
+      zIndex: 1,
+    },
+    footer: {
+      padding: "6px 10px",
+      fontSize: 11,
+      color: c.textMuted,
+      borderTop: `1px solid ${c.cardBdr}`,
+      fontStyle: "italic",
+      background: c.card,
+      position: "sticky",
+      bottom: 0,
+    },
+    addNew: {
+      padding: "6px 10px",
+      fontSize: 13,
+      color: c.primary,
+      cursor: "pointer",
+      userSelect: "none",
+      borderTop: `1px solid ${c.cardBdr}`,
+      background: c.card,
+      position: "sticky",
+      bottom: 0,
+      fontWeight: 600,
+    },
+  };
+}
 
 function haystack(o: SearchableSelectOption): string {
   return o.searchHaystack ?? o.label;
@@ -183,7 +227,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   autoFocus = false,
   onAddNew,
   addNewLabel,
+  theme = "dark",
 }) => {
+  const PAL = theme === "light" ? C_LIGHT : C;
+  const S = useMemo(() => makeStyles(PAL), [PAL]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlightIdx, setHighlightIdx] = useState(0);
@@ -428,7 +475,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const displayValue = open ? query : (selected?.label ?? "");
 
   const mergedInputStyle: React.CSSProperties = {
-    ...DEFAULT_INPUT_STYLE,
+    ...S.input,
     ...(inputStyle ?? {}),
     ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}),
   };
@@ -462,7 +509,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         aria-autocomplete="list"
         aria-controls={listboxId}
         aria-activedescendant={activeOptionId}
-        onFocus={() => { if (!open) openPanel(); }}
+        onFocus={(e) => { if (!open) openPanel(); else e.currentTarget.select(); }}
         onClick={() => { if (!open) openPanel(); }}
         onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); setAddNewHighlighted(false); }}
         onKeyDown={onKeyDown}
@@ -476,7 +523,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           onMouseEnter={cancelLeave}
           onMouseLeave={scheduleClose}
           style={{
-            ...PANEL_STYLE,
+            ...S.panel,
             position: "fixed",
             top: panelRect.top,
             left: panelRect.left,
@@ -494,7 +541,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               role="option"
               aria-selected={false}
               aria-disabled={true}
-              style={{ ...OPTION_STYLE_BASE, color: C.textMuted, cursor: "default", fontStyle: "italic" }}
+              style={{ ...S.option, color: PAL.textMuted, cursor: "default", fontStyle: "italic" }}
             >
               {emptyText}
             </li>
@@ -505,15 +552,15 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             const isHighlighted = !addNewHighlighted && i === highlightIdx;
             const isSelected = selected?.value === opt.value;
             const itemStyle: React.CSSProperties = {
-              ...OPTION_STYLE_BASE,
+              ...S.option,
               ...(opt.disabled ? { color: "#64748B", cursor: "not-allowed" } : {}),
-              ...(isHighlighted && !opt.disabled ? { background: C.primarySoft } : {}),
-              ...(isSelected && !isHighlighted ? { background: C.primaryFaint } : {}),
+              ...(isHighlighted && !opt.disabled ? { background: PAL.primarySoft } : {}),
+              ...(isSelected && !isHighlighted ? { background: PAL.primaryFaint } : {}),
             };
             return (
               <React.Fragment key={`${opt.value}-${i}`}>
                 {showGroup && (
-                  <li role="presentation" style={GROUP_HEADER_STYLE}>
+                  <li role="presentation" style={S.groupHeader}>
                     {opt.group}
                   </li>
                 )}
@@ -536,7 +583,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             );
           })}
           {filtered.length > VISIBLE_CAP && (
-            <li role="presentation" style={FOOTER_STYLE}>
+            <li role="presentation" style={S.footer}>
               showing {VISIBLE_CAP} of {filtered.length} — refine your search
             </li>
           )}
@@ -552,8 +599,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 commitAddNew();
               }}
               style={{
-                ...ADD_NEW_STYLE,
-                background: addNewHighlighted ? C.primarySoft : C.card,
+                ...S.addNew,
+                background: addNewHighlighted ? PAL.primarySoft : PAL.card,
               }}
             >
               {(addNewLabel ?? defaultAddNewLabel)(query)}

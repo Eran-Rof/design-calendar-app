@@ -50,7 +50,7 @@ export function AttachmentsTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactEle
                   setConfirmModal({
                     title: "File Already Exists",
                     message: `"${file.name}" already exists in this PO's attachments.`,
-                    icon: "📎",
+                    icon: "",
                     confirmText: "Replace",
                     confirmColor: "#EF4444",
                     cancelText: "Add Version",
@@ -89,7 +89,6 @@ export function AttachmentsTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactEle
       </div>
       {files.length === 0 ? (
         <div style={{ background: "#0F172A", borderRadius: 8, padding: 30, textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
           <div style={{ color: "#6B7280", fontSize: 13, marginBottom: 12 }}>No attachments yet</div>
           <button onClick={() => (document.getElementById("po-attach-input") as HTMLInputElement)?.click()} style={{ ...S.btnSecondary, fontSize: 12 }}>Upload your first file</button>
         </div>
@@ -109,7 +108,7 @@ export function AttachmentsTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactEle
                   <span style={{ fontSize: 28, fontWeight: 800, fontFamily: "monospace", color: "#10B981", textShadow: "0 0 12px #10B98166, 0 0 24px #10B98133", letterSpacing: 2 }}>{countdown}</span>
                 </div>
                 <div style={{ position: "relative", zIndex: 2, flex: 1, display: "flex", alignItems: "center", gap: 12, opacity: 0.5 }}>
-                  <span style={{ fontSize: 24, flexShrink: 0 }}>🗑</span>
+                  <span style={{ fontSize: 12, flexShrink: 0, color: "#EF4444", fontWeight: 700 }}>Deleted</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: "#EF4444", fontWeight: 600, textDecoration: "line-through" }}>{f.name}</div>
                   </div>
@@ -133,7 +132,7 @@ export function AttachmentsTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactEle
                     onMouseEnter={e => e.currentTarget.style.textDecoration = "underline"} onMouseLeave={e => e.currentTarget.style.textDecoration = "none"}>{f.name}</a>
                   <div style={{ fontSize: 11, color: "#6B7280" }}>{fmtSize(f.size)} · {f.uploaded_by} · {timeAgo}</div>
                 </div>
-                <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"? You'll have 24 hours to undo.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
+                <button onClick={e => { e.stopPropagation(); setConfirmModal({ title: "Delete Attachment", message: `Delete "${f.name}"? You'll have 24 hours to undo.`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => deleteAttachment(pn, f.id) }); }}
                   style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "4px 8px", fontSize: 10, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>✕</button>
               </div>
             );

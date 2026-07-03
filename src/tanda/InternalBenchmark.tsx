@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
+import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 
 interface Row {
@@ -77,11 +78,16 @@ export default function InternalBenchmark() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Percentiles across the vendor base. Computed monthly from ≥ 5 vendors per category to protect individual data.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={metric} onChange={(e) => setMetric(e.target.value as "unit_price" | "lead_time" | "on_time_pct")} style={selectSt}>
-            <option value="unit_price">Unit price</option>
-            <option value="lead_time">Lead time</option>
-            <option value="on_time_pct">On-time %</option>
-          </select>
+          <SearchableSelect
+            value={metric}
+            onChange={(v) => setMetric(v as "unit_price" | "lead_time" | "on_time_pct")}
+            options={[
+              { value: "unit_price", label: "Unit price" },
+              { value: "lead_time", label: "Lead time" },
+              { value: "on_time_pct", label: "On-time %" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename={`market-benchmark-${metric}`}
@@ -107,13 +113,13 @@ export default function InternalBenchmark() {
           No benchmark data yet for {METRIC_LABEL[metric]}. The monthly compute job populates this — run <code style={{ background: C.bg, padding: "2px 4px", borderRadius: 3 }}>/api/cron/benchmark-compute</code> to backfill.
         </div>
       ) : (
-        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", position: "sticky", top: 0, zIndex: 2 }}>
             <div>Category</div><div>P25</div><div>P50</div><div>P75</div><div>P90</div><div>n</div><div>Period</div>
           </div>
           {rows.map((r) => (
             <div key={r.id} style={{ display: "grid", gridTemplateColumns: "2fr 100px 100px 100px 100px 100px 120px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center", background: overP75(r) ? "rgba(245,158,11,0.08)" : undefined }}>
-              <div style={{ fontWeight: 600 }}>{r.category} {overP75(r) && <span style={{ color: C.warn, fontSize: 10, marginLeft: 6 }}>⚠ ABOVE P75</span>}</div>
+              <div style={{ fontWeight: 600 }}>{r.category} {overP75(r) && <span style={{ color: C.warn, fontSize: 10, marginLeft: 6 }}>ABOVE P75</span>}</div>
               <div>{fmt(r.percentile_25)}</div>
               <div>{fmt(r.percentile_50)}</div>
               <div>{fmt(r.percentile_75)}</div>
@@ -133,4 +139,4 @@ function fmt(v: number | null) {
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;

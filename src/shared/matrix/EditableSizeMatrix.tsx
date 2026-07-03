@@ -14,6 +14,7 @@
 // shares one layout. Callers own the qty/unit state and the cell→SKU mapping.
 
 import React from "react";
+import { computeSizeCollapse } from "./sizeCollapse";
 
 const C = {
   headerBg: "#0F172A", headerText: "#6B7280", gridText: "#E5E7EB",
@@ -67,6 +68,42 @@ export type EditableSizeMatrixProps = {
     /** When set (e.g. 2), reformat the unit value to this many decimals on blur
      *  (plain, no grouping commas — callers parse the value with Number()). */
     forceDecimals?: number;
+    /** Optional per-each DRIVER column rendered immediately BEFORE this column.
+     *  Used for prepacks: the operator types a per-each price here and the caller
+     *  computes this column's value (the pack price) = each × pack size. Opt-in,
+     *  so every non-prepack grid that shares this component is unchanged. */
+    each?: {
+      label: string;
+      placeholder?: string;
+      values: Record<string, string>;
+      onChange: (rowKey: string, value: string) => void;
+      onSetAll?: (value: string) => void;
+    };
+  };
+  /** Optional editable per-row Lot value (free text) with a bulk "set all"
+   *  header field. Grain is the row (style+color). Opt-in so SO / AR / adjustment
+   *  grids that share this component stay unchanged (PO entry uses it). */
+  lot?: {
+    label?: string;                         // default "Lot"
+    placeholder?: string;
+    /** Per-row lot value. Key = rowKey. */
+    values: Record<string, string>;
+    onChange: (rowKey: string, value: string) => void;
+    /** Stamp the given value onto every row. */
+    onSetAll?: (value: string) => void;
+  };
+  /** Optional per-row Customer PO column (SO per-line PO feature). Grain is the
+   *  row (style+color), mirroring `lot`. A row whose PO differs from the header
+   *  PO is split onto a new SO at save (caller owns the split). Opt-in. */
+  customerPo?: {
+    label?: string;                         // default "Customer PO"
+    placeholder?: string;
+    /** Per-row PO value (already defaulted to the header PO by the caller). Key = rowKey. */
+    values: Record<string, string>;
+    onChange: (rowKey: string, value: string) => void;
+    onSetAll?: (value: string) => void;
+    /** Amber-highlight rows whose PO differs from this (the header PO) — flags a split. */
+    highlightWhenDiffersFrom?: string;
   };
   /** Optional per-row quick-fill: a "Qty" column between the lead columns and
    *  the first size. The operator types one TOTAL for the row and on Enter/Tab
@@ -180,7 +217,9 @@ function QtyCell({
       onBlur={() => { const committed = toInt(buf, allowNegative); setBuf(value ? String(value) : ""); onCommit?.(rowKey, size, committed, focusVal.current); }}
       placeholder="0"
       aria-label={`Qty ${color || ""} ${size}`}
-      style={{ ...cellInput, color: value ? C.text : C.emptyCell }}
+      // #2 — auto-grow the qty field to the digits entered (monospace ch units,
+      // +2 covers the box-border padding) so 4-5 digit quantities aren't clipped.
+      style={{ ...cellInput, width: `${Math.max(5, buf.length + 2)}ch`, color: value ? C.text : C.emptyCell }}
     />
   );
 }
@@ -226,10 +265,13 @@ function QuickFillCell({
 }
 
 export function EditableSizeMatrix({
-  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit,
+  rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot, customerPo,
   allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
+  const [bulkEach, setBulkEach] = React.useState("");
+  const [bulkLot, setBulkLot] = React.useState("");
+  const [bulkPo, setBulkPo] = React.useState("");
   const [collapsed, setCollapsed] = React.useState(false);
 
   // Normalise a typed unit value for "set all": blank → null (no stamp); else
@@ -259,21 +301,13 @@ export function EditableSizeMatrix({
   }
   const leadCols = 1 + (showRise ? 1 : 0);
 
-  // Collapsible size range (opt-in). firstIdx/lastIdx bracket the columns that
-  // actually carry a quantity; collapsing hides the all-zero columns outside
-  // that bracket (mid-range zero sizes stay visible). Recomputed each render so
-  // the visible range tracks the entered quantities live.
-  const hasQty = grandQty > 0;
-  let firstIdx = -1, lastIdx = -1;
-  for (let i = 0; i < sizes.length; i++) {
-    if ((colTotals[sizes[i]] || 0) > 0) { if (firstIdx < 0) firstIdx = i; lastIdx = i; }
-  }
-  const canCollapse = collapsibleSizes && hasQty && firstIdx >= 0 && (firstIdx > 0 || lastIdx < sizes.length - 1);
-  const collapsedActive = collapsibleSizes && collapsed && firstIdx >= 0;
-  const visibleSizes = collapsedActive ? sizes.slice(firstIdx, lastIdx + 1) : sizes;
-  const canToggle = collapsibleSizes && (collapsedActive || canCollapse);
-  const hiddenLeading = collapsedActive ? firstIdx : 0;
-  const hiddenTrailing = collapsedActive ? sizes.length - 1 - lastIdx : 0;
+  // Collapsible size range (opt-in). Shared with the read-only Inventory Matrix
+  // via computeSizeCollapse: firstIdx/lastIdx bracket the columns that actually
+  // carry a quantity; collapsing hides the all-zero columns outside that bracket
+  // (mid-range zero sizes stay visible). Recomputed each render so the visible
+  // range tracks the entered quantities live.
+  const { hasQty, visibleSizes, collapsedActive, canToggle, hiddenLeading, hiddenTrailing } =
+    computeSizeCollapse(sizes, colTotals, { enabled: collapsibleSizes, collapsed });
 
   return (
     <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
@@ -306,6 +340,24 @@ export function EditableSizeMatrix({
               );
             })}
             <th style={{ ...thBase, textAlign: "center" }}>Total</th>
+            {unit?.each && (
+              <th style={{ ...thBase, textAlign: "right", minWidth: 96, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{unit.each.label}</div>
+                {unit.each.onSetAll && (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={bulkEach}
+                    onChange={(e) => setBulkEach(e.target.value)}
+                    onBlur={() => { const v = stampValue(bulkEach); if (v !== null) { unit.each!.onSetAll!(v); setBulkEach(v); } }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = stampValue(bulkEach); if (v !== null) { unit.each!.onSetAll!(v); setBulkEach(v); } } }}
+                    placeholder={unit.each.placeholder || "set all"}
+                    title="Type a per-each price and press Enter (or tab out) to stamp it onto every row; the pack price auto-fills."
+                    style={{ ...unitInput, borderColor: C.primary }}
+                  />
+                )}
+              </th>
+            )}
             {unit && (
               // paddingRight matches the per-row unit cell (6px) so the "set all"
               // input lines up exactly under the per-row price inputs below it.
@@ -326,6 +378,40 @@ export function EditableSizeMatrix({
             )}
             {unit?.showLineTotal && (
               <th style={{ ...thBase, textAlign: "right", minWidth: 96 }}>Total $</th>
+            )}
+            {lot && (
+              <th style={{ ...thBase, textAlign: "left", minWidth: 120, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{lot.label || "Lot"}</div>
+                {lot.onSetAll && (
+                  <input
+                    type="text"
+                    value={bulkLot}
+                    onChange={(e) => setBulkLot(e.target.value)}
+                    onBlur={() => { const v = bulkLot.trim(); if (v !== "") lot.onSetAll!(v); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = bulkLot.trim(); if (v !== "") lot.onSetAll!(v); } }}
+                    placeholder={lot.placeholder || "set all"}
+                    title="Type a lot and press Enter (or tab out) to stamp it onto every row, then edit individual rows as needed."
+                    style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: C.primary }}
+                  />
+                )}
+              </th>
+            )}
+            {customerPo && (
+              <th style={{ ...thBase, textAlign: "left", minWidth: 150, paddingRight: 6 }}>
+                <div style={{ marginBottom: 4 }}>{customerPo.label || "Customer PO"}</div>
+                {customerPo.onSetAll && (
+                  <input
+                    type="text"
+                    value={bulkPo}
+                    onChange={(e) => setBulkPo(e.target.value)}
+                    onBlur={() => { const v = bulkPo.trim(); if (v !== "") customerPo.onSetAll!(v); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const v = bulkPo.trim(); if (v !== "") customerPo.onSetAll!(v); } }}
+                    placeholder={customerPo.placeholder || "set all"}
+                    title="Type a Customer PO and press Enter to stamp it onto every color row; a row with a PO different from the header splits onto a new SO when you save."
+                    style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: C.primary }}
+                  />
+                )}
+              </th>
             )}
           </tr>
         </thead>
@@ -376,6 +462,23 @@ export function EditableSizeMatrix({
                 <td style={{ padding: "6px 12px", textAlign: "center", color: rowQty ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                   {rowQty || "—"}
                 </td>
+                {unit?.each && (
+                  <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={unit.each.values[row.key] ?? ""}
+                      onChange={(e) => unit.each!.onChange(row.key, e.target.value)}
+                      onBlur={() => {
+                        const n = parseMoney(unit.each!.values[row.key] ?? "");
+                        if (n != null) unit.each!.onChange(row.key, n.toFixed(2));
+                      }}
+                      placeholder={unit.each.placeholder || "0.00"}
+                      aria-label={`${unit.each.label} ${row.color || ""}`}
+                      style={unitInput}
+                    />
+                  </td>
+                )}
                 {unit && (
                   <td style={{ padding: "4px 6px", textAlign: "right" }}>
                     <input
@@ -399,6 +502,38 @@ export function EditableSizeMatrix({
                     {rowExt ? `$${fmtMoney(rowExt)}` : "—"}
                   </td>
                 )}
+                {lot && (
+                  <td style={{ padding: "4px 6px", textAlign: "left" }}>
+                    <input
+                      type="text"
+                      value={lot.values[row.key] ?? ""}
+                      onChange={(e) => lot.onChange(row.key, e.target.value)}
+                      placeholder={lot.placeholder || "lot"}
+                      aria-label={`Lot ${row.color || ""}`}
+                      // #2 — slightly smaller font + a touch wider so a full
+                      // lot/customer-PO number fits in the field without clipping.
+                      style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12 }}
+                    />
+                  </td>
+                )}
+                {customerPo && (() => {
+                  const val = customerPo.values[row.key] ?? "";
+                  const hdr = customerPo.highlightWhenDiffersFrom;
+                  const differs = hdr != null && val.trim() !== "" && val.trim() !== hdr.trim();
+                  return (
+                    <td style={{ padding: "4px 6px", textAlign: "left" }}>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => customerPo.onChange(row.key, e.target.value)}
+                        placeholder={customerPo.placeholder || "PO #"}
+                        aria-label={`Customer PO ${row.color || ""}`}
+                        title={differs ? "Differs from the header PO — this color splits onto a new confirmed SO when you save." : undefined}
+                        style={{ ...unitInput, width: "16ch", textAlign: "left", fontSize: 12, borderColor: differs ? C.amber : C.cardBdr }}
+                      />
+                    </td>
+                  );
+                })()}
               </tr>
             );
           })}
@@ -413,10 +548,13 @@ export function EditableSizeMatrix({
               </td>
             ))}
             <td style={{ padding: "10px 12px", textAlign: "center", color: C.amber, fontWeight: 800, fontFamily: "monospace" }}>{grandQty || "—"}</td>
+            {unit?.each && <td style={{ padding: "10px 12px" }} />}
             {unit && <td style={{ padding: "10px 12px" }} />}
             {unit?.showLineTotal && (
               <td style={{ padding: "10px 12px", textAlign: "right", color: grandExt ? C.green : C.emptyCell, fontWeight: 800, fontFamily: "monospace" }}>{grandExt ? `$${fmtMoney(grandExt)}` : "—"}</td>
             )}
+            {lot && <td style={{ padding: "10px 12px" }} />}
+            {customerPo && <td style={{ padding: "10px 12px" }} />}
           </tr>
         </tfoot>
       </table>

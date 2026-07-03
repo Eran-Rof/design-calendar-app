@@ -14,6 +14,7 @@ import {
   removeSizeFromSpecSheet,
 } from "../specOps";
 import { subCategoriesFor, type CategoryLike } from "../listLogic";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 export interface SpecSheetDetailProps {
@@ -95,7 +96,7 @@ export function SpecSheetDetail({
               Excel
             </button>
             <label style={S.btnSmall} title="Upload from Excel">
-              📤 Upload Excel
+              Upload Excel
               <input type="file" accept=".xlsx,.csv" style={{ display: "none" }} onChange={async e => {
                 const file = e.target.files?.[0];
                 if (!file) return;
@@ -131,10 +132,13 @@ export function SpecSheetDetail({
               <div>
                 <label style={S.label}>Brand</label>
                 {dcBrands.length > 0 ? (
-                  <select style={selStyle} value={ss.brand} onChange={e => updateSS({ brand: e.target.value })}>
-                    <option value="">— select —</option>
-                    {dcBrands.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.brand || null}
+                    onChange={v => updateSS({ brand: v })}
+                    options={dcBrands.map(b => ({ value: b.name, label: b.name }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 ) : (
                   <input style={S.input} value={ss.brand} onChange={e => updateSS({ brand: e.target.value })} />
                 )}
@@ -142,10 +146,13 @@ export function SpecSheetDetail({
               <div>
                 <label style={S.label}>Season</label>
                 {dcSeasons.length > 0 ? (
-                  <select style={selStyle} value={ss.season} onChange={e => updateSS({ season: e.target.value })}>
-                    <option value="">— select —</option>
-                    {dcSeasons.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.season || null}
+                    onChange={v => updateSS({ season: v })}
+                    options={dcSeasons.map(s => ({ value: s, label: s }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 ) : (
                   <input style={S.input} value={ss.season} onChange={e => updateSS({ season: e.target.value })} />
                 )}
@@ -155,10 +162,13 @@ export function SpecSheetDetail({
               <div>
                 <label style={S.label}>Category</label>
                 {dcCategories.length > 0 ? (
-                  <select style={selStyle} value={ss.category} onChange={e => updateSS({ category: e.target.value, subCategory: "" })}>
-                    <option value="">— select —</option>
-                    {dcCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.category || null}
+                    onChange={v => updateSS({ category: v, subCategory: "" })}
+                    options={dcCategories.map(c => ({ value: c.name, label: c.name }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 ) : (
                   <input style={S.input} value={ss.category} onChange={e => updateSS({ category: e.target.value })} />
                 )}
@@ -166,19 +176,25 @@ export function SpecSheetDetail({
               {detSubCats.length > 0 && (
                 <div>
                   <label style={S.label}>Sub-Category</label>
-                  <select style={selStyle} value={ss.subCategory || ""} onChange={e => updateSS({ subCategory: e.target.value })}>
-                    <option value="">— select —</option>
-                    {detSubCats.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.subCategory || null}
+                    onChange={v => updateSS({ subCategory: v })}
+                    options={detSubCats.map(sc => ({ value: sc, label: sc }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 </div>
               )}
               <div>
                 <label style={S.label}>Gender</label>
                 {dcGenders.length > 0 ? (
-                  <select style={selStyle} value={ss.gender || ""} onChange={e => updateSS({ gender: e.target.value })}>
-                    <option value="">— select —</option>
-                    {dcGenders.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.gender || null}
+                    onChange={v => updateSS({ gender: v })}
+                    options={dcGenders.map(g => ({ value: g, label: g }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 ) : (
                   <input style={S.input} value={ss.gender || ""} onChange={e => updateSS({ gender: e.target.value })} />
                 )}
@@ -186,10 +202,13 @@ export function SpecSheetDetail({
               <div>
                 <label style={S.label}>Vendor</label>
                 {dcVendors.length > 0 ? (
-                  <select style={selStyle} value={ss.vendor || ""} onChange={e => updateSS({ vendor: e.target.value })}>
-                    <option value="">— select —</option>
-                    {dcVendors.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={ss.vendor || null}
+                    onChange={v => updateSS({ vendor: v })}
+                    options={dcVendors.map(v => ({ value: v.name, label: v.name }))}
+                    placeholder="— select —"
+                    inputStyle={selStyle}
+                  />
                 ) : (
                   <input style={S.input} value={ss.vendor || ""} onChange={e => updateSS({ vendor: e.target.value })} />
                 )}
@@ -292,7 +311,7 @@ export function SpecSheetDetail({
                             <button
                               style={{ ...S.iconBtnTiny, flexShrink: 0, marginLeft: 4 }}
                               onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}
-                            >🗑️</button>
+                            >Delete</button>
                           </div>
                         </td>
                       </tr>
@@ -326,7 +345,7 @@ export function SpecSheetDetail({
                           <button
                             style={S.iconBtnTiny}
                             onClick={() => updateSS({ rows: ss.rows.filter(x => x.id !== row.id) })}
-                          >🗑️</button>
+                          >Delete</button>
                         </td>
                       </tr>
                     )

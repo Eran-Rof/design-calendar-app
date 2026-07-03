@@ -27,6 +27,7 @@ import { Fragment, useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import SearchableSelect from "./components/SearchableSelect";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
 type ISRow = {
@@ -441,16 +442,17 @@ export default function InternalIncomeStatement() {
         {brands.length > 0 && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
             Brand:
-            <select
-              value={brandFilter}
-              onChange={(e) => setBrandFilter(e.target.value)}
-              style={{ ...inputStyle, width: 200 }}
-            >
-              <option value="all">All brands (consolidated)</option>
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}{b.is_default ? " (default)" : ""}</option>
-              ))}
-            </select>
+            <div style={{ width: 220 }}>
+              <SearchableSelect
+                value={brandFilter}
+                onChange={(v) => setBrandFilter(v || "all")}
+                options={[
+                  { value: "all", label: "All brands (consolidated)" },
+                  ...brands.map((b) => ({ value: b.id, label: `${b.name}${b.is_default ? " (default)" : ""}` })),
+                ]}
+                placeholder="Brand…"
+              />
+            </div>
           </label>
         )}
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>

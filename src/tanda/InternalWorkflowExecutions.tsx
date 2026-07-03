@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Execution {
   id: string;
@@ -71,13 +72,18 @@ export default function InternalWorkflowExecutions() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Pending approvals</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectSt}>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="auto_approved">Auto approved</option>
-            <option value="all">All</option>
-          </select>
+          <SearchableSelect
+            value={filter}
+            onChange={(v) => setFilter(v)}
+            options={[
+              { value: "pending", label: "Pending" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "auto_approved", label: "Auto approved" },
+              { value: "all", label: "All" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
             rows={rows as unknown as Array<Record<string, unknown>>}
             filename="workflow-executions"
@@ -150,6 +156,6 @@ function statusColor(s: string) {
   return C.textSub;
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "6px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;

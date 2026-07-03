@@ -15,7 +15,7 @@ export const config = { maxDuration: 15 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MUTABLE_FIELDS = new Set(["name", "sort_order", "is_active"]);
+const MUTABLE_FIELDS = new Set(["name", "description", "sort_order", "is_active"]);
 const LOCKED_FIELDS = new Set(["code", "entity_id", "id"]);
 
 function corsHeaders(res) {
@@ -140,6 +140,12 @@ export function validatePatch(body) {
       return { error: "name cannot be empty" };
     }
     out.name = String(out.name).trim();
+  }
+
+  if ("description" in out) {
+    out.description = out.description == null || String(out.description).trim() === ""
+      ? null
+      : String(out.description).trim();
   }
 
   if ("sort_order" in out) {

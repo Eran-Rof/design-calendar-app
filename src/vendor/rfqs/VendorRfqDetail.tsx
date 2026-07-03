@@ -398,13 +398,13 @@ export default function VendorRfqDetail() {
 
       {files.length > 0 && (
         <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 10, padding: "14px 18px", marginTop: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, marginBottom: 10 }}>📎 Documents <span style={{ color: TH.textMuted, fontWeight: 400 }}>({files.length})</span></div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: TH.text, marginBottom: 10 }}>Documents <span style={{ color: TH.textMuted, fontWeight: 400 }}>({files.length})</span></div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {files.map((f) => (
               <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
                 <span style={{ color: TH.text, fontWeight: 500 }}>{f.title}</span>
                 <span style={{ color: TH.textMuted, fontSize: 11 }}>{f.kind}{f.byte_size ? ` · ${fmtBytes(f.byte_size)}` : ""}</span>
-                <a href={f.url} target="_blank" rel="noreferrer" style={{ ...btnSecondary, marginLeft: "auto", textDecoration: "none", display: "inline-block" }}>⬇ Download</a>
+                <a href={f.url} target="_blank" rel="noreferrer" style={{ ...btnSecondary, marginLeft: "auto", textDecoration: "none", display: "inline-block" }}>Download</a>
               </div>
             ))}
           </div>
@@ -412,7 +412,7 @@ export default function VendorRfqDetail() {
       )}
 
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 20, marginBottom: 10 }}>
-        <button onClick={downloadExcel} style={btnSecondary}>⬇ Download Excel</button>
+        <button onClick={downloadExcel} style={btnSecondary}>Download Excel</button>
       </div>
       {/* Costing-derived attributes are split into their own columns. The table
           can get wide, so allow horizontal scroll on narrow screens. */}
@@ -513,7 +513,7 @@ export default function VendorRfqDetail() {
                 onClick={() => setShowHistory((s) => !s)}
                 style={{ cursor: "pointer", color: TH.textSub2, fontSize: 12, fontWeight: 600, userSelect: "none" }}
               >
-                {showHistory ? "▾" : "▸"} 🕑 Your revision history ({quote.revisions.length} prior {quote.revisions.length === 1 ? "version" : "versions"})
+                {showHistory ? "▾" : "▸"} Your revision history ({quote.revisions.length} prior {quote.revisions.length === 1 ? "version" : "versions"})
               </div>
               {showHistory && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>

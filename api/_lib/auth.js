@@ -47,6 +47,29 @@ export async function authenticateCaller(req, admin) {
   return { ok: true, status: 200, error: null, authId };
 }
 
+const UUID_RE_AUTH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resolve the caller's user id for per-user PREFERENCE endpoints (favorites,
+// home-route, drawer-collapsed, menu-click). Tries the per-user JWT first; if it
+// is absent or expired — the normal case on the PLM-session Tangerine path that
+// skips MS-OAuth provisioning (see project_app_no_relogin_g), so the per-user JWT
+// is never minted — it falls back to the cached X-Auth-User-Id header. That's the
+// same UX-only identity users-access/me already trusts; it persists in
+// localStorage across sessions and is set by the provision bridge. This keeps
+// low-sensitivity personalization working without forcing a Microsoft sign-in.
+// Do NOT use this for anything security-sensitive — the header is client-supplied.
+// Returns { ok, status, error, authId, via }.
+export async function resolveUserId(req, admin) {
+  const primary = await authenticateCaller(req, admin);
+  if (primary.ok) return { ...primary, via: "jwt" };
+  const h = req?.headers || {};
+  const raw = (h["x-auth-user-id"] ?? h["X-Auth-User-Id"] ?? "").toString().trim();
+  if (UUID_RE_AUTH.test(raw)) {
+    return { ok: true, status: 200, error: null, authId: raw, via: "header" };
+  }
+  return { ok: false, status: 401, error: "No per-user identity (JWT missing/expired and no X-Auth-User-Id header)", authId: null, via: null };
+}
+
 // Resolve auth_id → vendor_users.{id, vendor_id}. Returns 403 when the
 // authenticated user isn't a vendor user (e.g. internal staff).
 export async function resolveVendorUser(admin, authId) {

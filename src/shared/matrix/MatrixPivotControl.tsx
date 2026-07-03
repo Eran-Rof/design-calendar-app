@@ -6,6 +6,7 @@
 import React from "react";
 import { MATRIX_AXES } from "./types";
 import type { MatrixAxis, MatrixPivotState } from "./types";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export interface MatrixPivotControlProps {
   pivot: MatrixPivotState;
@@ -44,34 +45,30 @@ export function MatrixPivotControl({
     <div style={wrapStyle} data-testid="matrix-pivot-control">
       <label>
         Rows:{" "}
-        <select
+        <SearchableSelect
           value={pivot.rowAxis}
-          onChange={(e) => onAxesChange(e.target.value as MatrixAxis, pivot.colAxis)}
-          style={selectStyle}
-          data-testid="matrix-pivot-row-select"
-        >
-          {MATRIX_AXES.map((a) => (
-            <option key={a} value={a} disabled={a === pivot.colAxis}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onAxesChange(v as MatrixAxis, pivot.colAxis)}
+          inputStyle={selectStyle}
+          options={MATRIX_AXES.map((a) => ({
+            value: a,
+            label: a,
+            disabled: a === pivot.colAxis,
+          }))}
+        />
       </label>
 
       <label>
         Cols:{" "}
-        <select
+        <SearchableSelect
           value={pivot.colAxis}
-          onChange={(e) => onAxesChange(pivot.rowAxis, e.target.value as MatrixAxis)}
-          style={selectStyle}
-          data-testid="matrix-pivot-col-select"
-        >
-          {MATRIX_AXES.map((a) => (
-            <option key={a} value={a} disabled={a === pivot.rowAxis}>
-              {a}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onAxesChange(pivot.rowAxis, v as MatrixAxis)}
+          inputStyle={selectStyle}
+          options={MATRIX_AXES.map((a) => ({
+            value: a,
+            label: a,
+            disabled: a === pivot.rowAxis,
+          }))}
+        />
       </label>
 
       {nonAxisDims.map((dim) => {

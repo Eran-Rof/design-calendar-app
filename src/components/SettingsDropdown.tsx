@@ -48,18 +48,18 @@ function SettingsDropdown({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
   const items = [
-    { icon: "👥", label: "Team", onClick: onTeam, always: true },
-    { icon: "🏭", label: "Vendors", onClick: onVendors, always: true },
-    { icon: "🏷️", label: "Brands", onClick: onBrands, always: false },
-    { icon: "🌿", label: "Seasons", onClick: onSeasons, always: false },
-    { icon: "🏪", label: "Customers", onClick: onCustomers, always: false },
-    { icon: "📐", label: "Sizes", onClick: onSizes, always: false },
-    { icon: "🗂️", label: "Categories", onClick: onCategories, always: false },
-    { icon: "⚧", label: "Genders", onClick: onGenders, always: false },
-    { icon: "📋", label: "Order Types", onClick: onPOTypes, always: false },
-    { icon: "📋", label: "Tasks", onClick: onTasks, always: false },
-    { icon: "🎭", label: "Roles", onClick: onRoles, always: false },
-    { icon: "👤", label: "Users", onClick: onUsers, always: false },
+    { icon: "", label: "Team", onClick: onTeam, always: true },
+    { icon: "", label: "Vendors", onClick: onVendors, always: true },
+    { icon: "", label: "Brands", onClick: onBrands, always: false },
+    { icon: "", label: "Seasons", onClick: onSeasons, always: false },
+    { icon: "", label: "Customers", onClick: onCustomers, always: false },
+    { icon: "", label: "Sizes", onClick: onSizes, always: false },
+    { icon: "", label: "Categories", onClick: onCategories, always: false },
+    { icon: "", label: "Genders", onClick: onGenders, always: false },
+    { icon: "", label: "Order Types", onClick: onPOTypes, always: false },
+    { icon: "", label: "Tasks", onClick: onTasks, always: false },
+    { icon: "", label: "Roles", onClick: onRoles, always: false },
+    { icon: "", label: "Users", onClick: onUsers, always: false },
   ].filter((it) => it.always || isAdmin);
   return (
     <div ref={ref} style={{ position: "relative", width: block ? "100%" : undefined }}>
@@ -82,7 +82,7 @@ function SettingsDropdown({
           justifyContent: block ? "space-between" : undefined,
         }}
       >
-        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>⚙️ Settings</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>Settings</span>
         <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -91,7 +91,7 @@ function SettingsDropdown({
             position: "absolute",
             ...(openUp ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
             right: 0,
-            background: "#1A202C",
+            background: "#1E293B",
             border: "1px solid rgba(255,255,255,0.12)",
             borderRadius: 10,
             boxShadow: "0 8px 32px rgba(0,0,0,0.45)",

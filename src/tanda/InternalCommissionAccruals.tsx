@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import { notify } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
@@ -101,11 +102,13 @@ const btnSuccess: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -284,7 +287,7 @@ export default function InternalCommissionAccruals() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          💰 Commission Accruals
+          Commission Accruals
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           AR-invoice-posting-time accruals + per-rep settle (M44)
@@ -350,30 +353,45 @@ export default function InternalCommissionAccruals() {
       <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Sales rep</label>
-          <select value={repFilter} onChange={(e) => setRepFilter(e.target.value)} style={inputStyle}>
-            <option value="">All reps</option>
-            {reps.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.display_name}{!r.is_active ? " (inactive)" : ""}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={repFilter || null}
+            onChange={(v) => setRepFilter(v)}
+            options={[
+              { value: "", label: "All reps" },
+              ...reps.map((r) => ({
+                value: r.id,
+                label: `${r.display_name}${!r.is_active ? " (inactive)" : ""}`,
+              })),
+            ]}
+            placeholder="All reps"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 160 }}>
           <label style={labelStyle}>Status</label>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {STATUS_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...STATUS_VALUES.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 280 }}>
           <label style={labelStyle}>Period (by accrual date)</label>
-          <select value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} style={inputStyle}>
-            <option value="">All periods</option>
-            {periods.map((p) => (
-              <option key={p.id} value={p.id}>{periodLabel(p)}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={periodFilter || null}
+            onChange={(v) => setPeriodFilter(v)}
+            options={[
+              { value: "", label: "All periods" },
+              ...periods.map((p) => ({ value: p.id, label: periodLabel(p) })),
+            ]}
+            placeholder="All periods"
+            inputStyle={inputStyle}
+          />
         </div>
       </div>
 
@@ -610,39 +628,51 @@ function SettleModal({
       )}
 
       <Field label="Period *">
-        <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} style={inputStyle}>
-          <option value="">(pick a period)</option>
-          {visiblePeriods.map((p) => (
-            <option key={p.id} value={p.id}>{periodLabel(p)} — {p.status}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          value={periodId || null}
+          onChange={(v) => setPeriodId(v)}
+          options={[
+            { value: "", label: "(pick a period)" },
+            ...visiblePeriods.map((p) => ({ value: p.id, label: `${periodLabel(p)} — ${p.status}` })),
+          ]}
+          placeholder="(pick a period)"
+          required
+          inputStyle={inputStyle}
+        />
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Payment method *">
-          <select value={paymentMethod}
-            onChange={(e) => setPaymentMethod(e.target.value as typeof PAYMENT_METHODS[number])}
-            style={inputStyle}>
-            {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <SearchableSelect
+            value={paymentMethod}
+            onChange={(v) => setPaymentMethod(v as typeof PAYMENT_METHODS[number])}
+            options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))}
+            required
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Paid at *">
           <input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} style={inputStyle} />
         </Field>
       </div>
       <Field label="Bank / cash GL account *">
-        <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} style={inputStyle}>
-          <option value="">(pick an account)</option>
-          {cashAccounts.length === 0 && (
-            <option disabled value="__none">
-              No cash/bank accounts found. Add one in Chart of Accounts.
-            </option>
-          )}
-          {cashAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.code} — {a.name}{a.account_subtype ? ` (${a.account_subtype})` : ""}
-            </option>
-          ))}
-        </select>
+        <SearchableSelect
+          value={bankAccountId || null}
+          onChange={(v) => setBankAccountId(v)}
+          options={[
+            { value: "", label: "(pick an account)" },
+            ...(cashAccounts.length === 0
+              ? [{ value: "__none", label: "No cash/bank accounts found. Add one in Chart of Accounts.", disabled: true }]
+              : []),
+            ...cashAccounts.map((a) => ({
+              value: a.id,
+              label: `${a.code} — ${a.name}${a.account_subtype ? ` (${a.account_subtype})` : ""}`,
+              searchHaystack: `${a.code} ${a.name} ${a.account_subtype || ""}`,
+            })),
+          ]}
+          placeholder="(pick an account)"
+          required
+          inputStyle={inputStyle}
+        />
       </Field>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
         <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>

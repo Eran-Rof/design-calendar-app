@@ -245,7 +245,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
               <span
                 style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 11 }}
                 title="Color inferred from sku_code suffix — variant master row has no color set. Populate items.color upstream to silence this hint."
-              >⚠</span>
+              >•</span>
             )}
           </>
         )}
@@ -292,7 +292,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
                       lineHeight: 1.2,
                       whiteSpace: "nowrap",
                     }}
-                  >🏢 DB</button>
+                  >Add to DB</button>
                 );
               })()}
             {r.is_user_added && onDeleteTbdRow && (

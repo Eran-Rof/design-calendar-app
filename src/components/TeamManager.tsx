@@ -6,6 +6,7 @@ import { uid } from "../utils/dates";
 import { ROLES } from "../utils/constants";
 import { fileToDataURL } from "../utils/helpers";
 import Avatar from "./Avatar";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, setRoles }: {
   team: any[];
@@ -52,7 +53,6 @@ function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, s
 
   if (!isAdmin) return (
     <div style={{ padding: 32, textAlign: "center", color: TH.textMuted }}>
-      <div style={{ fontSize: 32, marginBottom: 12 }}>🔒</div>
       <div style={{ fontSize: 15, fontWeight: 600, color: TH.textSub }}>Admin access required</div>
       <div style={{ fontSize: 13, marginTop: 6 }}>Only admins can manage team members.</div>
     </div>
@@ -63,9 +63,13 @@ function TeamManager({ team, setTeam, users, setUsers, isAdmin, roles = ROLES, s
       <label style={S.lbl}>Name</label>
       <input style={S.inp} value={form.name} onChange={(e) => { set("name", e.target.value); set("initials", e.target.value.split(" ").map((w: string) => w[0] || "").join("").toUpperCase().slice(0, 2)); }} placeholder="Full name" />
       <label style={S.lbl}>Role</label>
-      <select style={S.inp} value={form.role} onChange={(e) => set("role", e.target.value)}>
-        {availableRoles.map((r) => <option key={r}>{r}</option>)}
-      </select>
+      <SearchableSelect
+        theme="light"
+        value={form.role || null}
+        onChange={(v) => set("role", v)}
+        options={availableRoles.map((r) => ({ value: r, label: r }))}
+        inputStyle={S.inp}
+      />
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <input style={{ ...S.inp, marginBottom: 0, flex: 1 }} value={newRoleInput} onChange={(e) => setNewRoleInput(e.target.value)} placeholder="Add new role…" onKeyDown={(e) => e.key === "Enter" && addRoleOnTheFly()} />
         <button onClick={addRoleOnTheFly} disabled={!newRoleInput.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${TH.border}`, background: TH.primary, color: "#fff", cursor: newRoleInput.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", fontSize: 12, fontWeight: 700, opacity: newRoleInput.trim() ? 1 : 0.5, whiteSpace: "nowrap" }}>+ Add Role</button>

@@ -2,7 +2,7 @@
 //
 // Click-to-email affordance (operator ask — clicking an email opens a new
 // message). Two shapes:
-//   <MailLink email={x} />                — a ✉ icon button, for sitting inside
+//   <MailLink email={x} />                — an "Email" link button, for sitting inside
 //                                            an input wrapper (absolute, right).
 //   <MailLink email={x}>{label}</MailLink> — a plain mailto: text link, for
 //                                            table cells / read displays.
@@ -39,6 +39,6 @@ export default function MailLink({ email, children }: { email: string | null | u
         textDecoration: "none", fontSize: 14, lineHeight: 1,
         color: ok ? C.primary : C.textMuted, cursor: ok ? "pointer" : "default",
       }}
-    >✉</a>
+    >Email</a>
   );
 }

@@ -7,6 +7,9 @@ import type { IpOverrideEffectiveness } from "../types/accuracy";
 import { aggregateOverrideEffectiveness } from "../compute/accuracyMetrics";
 import { S, PAL, formatQty } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.override_effectiveness";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -30,6 +33,18 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
 
   const byReason = useMemo(() => aggregateOverrideEffectiveness(filtered), [filtered]);
 
+  // Additive per-column sort over the by-reason aggregate rows.
+  const { sorted: byReasonSorted, sortKey, sortDir, onHeaderClick } = useSort(byReason, {
+    persistKey: "ip:override_effectiveness:sort",
+    accessors: {
+      reason: (b) => b.label,
+      helped: (b) => b.helped_count,
+      hurt: (b) => b.hurt_count,
+      neutral: (b) => b.neutral_count,
+      avg_error_delta: (b) => b.avg_error_delta,
+    },
+  });
+
   const samples = useMemo(() => {
     // Show 25 of the most-hurt and 25 of the most-helped row-level examples
     const withHelped = filtered.filter((r) => r.override_helped_flag === true).sort((a, b) => (b.error_delta ?? 0) - (a.error_delta ?? 0)).slice(0, 25);
@@ -40,11 +55,16 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
   return (
     <div>
       <div style={S.toolbar}>
-        <select style={S.select} value={lane} onChange={(e) => setLane(e.target.value as "all" | "wholesale" | "ecom")}>
-          <option value="all">Both lanes</option>
-          <option value="wholesale">Wholesale</option>
-          <option value="ecom">Ecom</option>
-        </select>
+        <SearchableSelect
+          value={lane}
+          onChange={(v) => setLane(v as "all" | "wholesale" | "ecom")}
+          options={[
+            { value: "all", label: "Both lanes" },
+            { value: "wholesale", label: "Wholesale" },
+            { value: "ecom", label: "Ecom" },
+          ]}
+          inputStyle={S.select}
+        />
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           {filtered.length} override rows scored.
         </span>
@@ -60,16 +80,16 @@ export default function OverrideEffectivenessPanel({ rows, skuCodeById }: Overri
           <table style={S.table}>
             <thead>
               <tr>
-                <th style={S.th}>Reason</th>
-                <th hidden={!visibleColumns.has("helped")} style={{ ...S.th, textAlign: "right" }}>Helped</th>
-                <th hidden={!visibleColumns.has("hurt")} style={{ ...S.th, textAlign: "right" }}>Hurt</th>
-                <th hidden={!visibleColumns.has("neutral")} style={{ ...S.th, textAlign: "right" }}>Neutral</th>
-                <th hidden={!visibleColumns.has("avg_error_delta")} style={{ ...S.th, textAlign: "right" }}>Avg error Δ</th>
+                <SortableTh label="Reason" sortKey="reason" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <SortableTh label="Helped" sortKey="helped" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("helped")} />
+                <SortableTh label="Hurt" sortKey="hurt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("hurt")} />
+                <SortableTh label="Neutral" sortKey="neutral" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("neutral")} />
+                <SortableTh label="Avg error Δ" sortKey="avg_error_delta" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("avg_error_delta")} />
                 <th style={S.th}>Net verdict</th>
               </tr>
             </thead>
             <tbody>
-              {byReason.map((b) => (
+              {byReasonSorted.map((b) => (
                 <tr key={b.key}>
                   <td style={S.td}>{b.label}</td>
                   <td hidden={!visibleColumns.has("helped")} style={{ ...S.tdNum, color: PAL.green }}>{b.helped_count}</td>

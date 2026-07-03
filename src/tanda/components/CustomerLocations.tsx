@@ -19,6 +19,7 @@ import { newWorkbook, addAoaSheet, downloadExcelWorkbook } from "../../shared/ex
 import { notify, confirmDialog } from "../../shared/ui/warn";
 import AddressFields, { type Address } from "./AddressFields";
 import { formatUsPhone } from "../../shared/phone";
+import SearchableSelect from "./SearchableSelect";
 
 type LocationType = "dc" | "store" | "other";
 
@@ -87,7 +88,7 @@ function emptyDraft(location_type: LocationType = "store"): LocationDraft {
 
 function addrSummary(addr: Address): string {
   if (!addr) return "—";
-  const parts = [addr.line1, addr.city, addr.state, addr.postal_code, addr.country].filter(Boolean);
+  const parts = [addr.line1, addr.city, addr.state, addr.postal ?? addr.postal_code, addr.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "—";
 }
 
@@ -121,15 +122,16 @@ function LocationForm({ draft, onChange }: LocationFormProps) {
         </div>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Type</div>
-          <select
-            style={inputStyle as React.CSSProperties}
+          <SearchableSelect
+            inputStyle={inputStyle as React.CSSProperties}
             value={draft.location_type}
-            onChange={(e) => set("location_type", e.target.value as LocationType)}
-          >
-            <option value="dc">DC (distribution center)</option>
-            <option value="store">Store</option>
-            <option value="other">Other</option>
-          </select>
+            onChange={(v) => set("location_type", v as LocationType)}
+            options={[
+              { value: "dc", label: "DC (distribution center)" },
+              { value: "store", label: "Store" },
+              { value: "other", label: "Other" },
+            ]}
+          />
         </div>
         <div>
           <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Contact name</div>
@@ -378,7 +380,7 @@ export default function CustomerLocations({ customerId }: CustomerLocationsProps
               line1: cell(row, "address_line1") || undefined,
               city: cell(row, "city") || undefined,
               state: cell(row, "state") || undefined,
-              postal_code: cell(row, "postal") || undefined,
+              postal: cell(row, "postal") || undefined,
               country: cell(row, "country") || undefined,
             };
             return {

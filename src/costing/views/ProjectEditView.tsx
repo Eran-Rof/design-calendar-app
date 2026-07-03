@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useCostingStore } from "../store/costingStore";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { navigate, getEditId } from "../helpers";
 import type { CostingProjectPatch } from "../types";
 import CostingGrid from "../panels/CostingGrid";
@@ -15,7 +16,7 @@ import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
 import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
-import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename } from "../services/exportService";
+import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename, computeExportTotals } from "../services/exportService";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
 import { confirmDialog } from "../../shared/ui/warn";
@@ -92,10 +93,29 @@ export default function ProjectEditView() {
     if (await guardIncompleteRows()) navigate("list");
   };
 
-  const exportRows = React.useMemo(
-    () => buildExportRows(lines, vendorQuotes),
-    [lines, vendorQuotes],
-  );
+  const exportRows = React.useMemo(() => {
+    const rows = buildExportRows(lines, vendorQuotes);
+    // Append a TOTALS row so the Excel/PDF export footers the numeric
+    // columns (qty, total cost, total sales) + a weighted margin, matching
+    // the grid's own footer. computeExportTotals lives in exportService so
+    // the screen + export stay in lockstep. Skipped when there are no rows.
+    if (rows.length === 0) return rows;
+    const t = computeExportTotals(rows);
+    const totalsRow = {
+      style_code: "TOTAL",
+      style_name: "", description: "", size_scale: "", fabric: "", fit: "",
+      color: "", bottom_closure: "", waist_type: "", comment: "",
+      target_qty: t.totalQty,
+      vendor: "",
+      target_cost: "" as const, sell_target: "" as const, sell_price: "" as const,
+      margin_pct: t.weightedMargin,
+      priced_date: "", ly_unit_cost: "" as const, ly_qty: "" as const,
+      ly_margin_pct: "" as const, remarks: "",
+      total_cost: t.totalCost,
+      total_sales: t.totalSales,
+    };
+    return [...rows, totalsRow];
+  }, [lines, vendorQuotes]);
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [tab, setTab] = useState<EditTab>("grid");
@@ -293,19 +313,25 @@ export default function ProjectEditView() {
         </Field>
         <Field label="Brand" required>
           {brands.length > 0 ? (
-            <select value={form.brand || ""} onChange={(e) => setField("brand", e.target.value || null)} style={{ ...inp, ...reqBorder(!!form.brand) }}>
-              <option value="">— select —</option>
-              {brands.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
-            </select>
+            <SearchableSelect
+              value={form.brand || null}
+              onChange={(v) => setField("brand", v || null)}
+              options={[{ value: "", label: "— select —" }, ...brands.map((b) => ({ value: b.name, label: b.name }))]}
+              placeholder="— select —"
+              inputStyle={{ ...inp, ...reqBorder(!!form.brand) }}
+            />
           ) : (
             <input value={form.brand || ""} onChange={(e) => setField("brand", e.target.value)} style={{ ...inp, ...reqBorder(!!form.brand) }} placeholder="(brands loading)" />
           )}
         </Field>
         <Field label="Gender" required>
-          <select value={form.gender_code || ""} onChange={(e) => setField("gender_code", e.target.value || null)} style={{ ...inp, ...reqBorder(!!form.gender_code) }}>
-            <option value="">— select —</option>
-            {GENDER_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
+          <SearchableSelect
+            value={form.gender_code || null}
+            onChange={(v) => setField("gender_code", v || null)}
+            options={[{ value: "", label: "— select —" }, ...GENDER_OPTIONS.map((g) => ({ value: g, label: g }))]}
+            placeholder="— select —"
+            inputStyle={{ ...inp, ...reqBorder(!!form.gender_code) }}
+          />
         </Field>
 
         <Field label="Customer" required>
@@ -325,10 +351,10 @@ export default function ProjectEditView() {
           />
         </Field>
         <Field label="Payment terms" required>
-          <select
-            value={form.payment_terms_id || ""}
-            onChange={(e) => {
-              const ptId = e.target.value || null;
+          <SearchableSelect
+            value={form.payment_terms_id || null}
+            onChange={(v) => {
+              const ptId = v || null;
               const pt = paymentTerms.find((p) => p.id === ptId) || null;
               setForm((f) => ({
                 ...f,
@@ -336,13 +362,10 @@ export default function ProjectEditView() {
                 payment_terms_name: pt ? pt.name : null,
               }));
             }}
-            style={{ ...inp, ...reqBorder(!!form.payment_terms_id) }}
-          >
-            <option value="">(select)</option>
-            {paymentTerms.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            options={[{ value: "", label: "(select)" }, ...paymentTerms.map((p) => ({ value: p.id, label: p.name }))]}
+            placeholder="(select)"
+            inputStyle={{ ...inp, ...reqBorder(!!form.payment_terms_id) }}
+          />
         </Field>
 
         <Field label="Request date" required>
@@ -372,7 +395,6 @@ export default function ProjectEditView() {
           padding: "6px 14px", fontSize: 11, color: "#FCA5A5",
           display: "flex", alignItems: "center", gap: 6,
         }}>
-          <span style={{ fontSize: 13 }}>⚠</span>
           Complete all required fields (marked <span style={{ color: "#EF4444", fontWeight: 700 }}>*</span>) before adding rows.
           Missing: {Array.from(headerMissingSet).join(", ")}.
         </div>

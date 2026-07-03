@@ -330,6 +330,12 @@ The footer below the three sections shows the standard P&L roll-up:
 | **Operating Income** | Gross Margin − OPEX |
 | **NET INCOME** | Operating Income (until M22 Fixed Assets adds depreciation) |
 
+### Per-style revenue / COGS / returns routing
+
+Revenue and COGS are carried **per AR-invoice line** (`ar_invoice_lines.revenue_account_id`), so a line *can* point at a specific account. At posting time each line resolves **line account → invoice/entity default revenue (4000) → COGS (5000)** (see [`ar-invoices/post.js`](../../../api/_handlers/internal/ar-invoices/post.js)).
+
+> **Important — there is NO per-style GL mapping today.** `style_master` has no Revenue/COGS/Returns account columns, and nothing populates the per-line `revenue_account_id` from a style. So in practice all sales currently resolve to the **shared** entity-default accounts (revenue 4000, COGS 5000). To see revenue/COGS/margin broken out by brand, channel, warehouse or gender, use the **[Segment P&L](#segment-pl-p26)** report (P26), which pivots shared accounts into configurable columns rather than relying on per-style accounts. Per-style GL routing is a possible future enhancement, not a shipped feature.
+
 ### The COGS heuristic (code starts with '5')
 
 The system identifies COGS rows by checking whether the gl_accounts code begins with `5`. This is a convention, not a hard schema rule. If your COA uses a different numbering scheme (e.g., 50000-series instead of 5xxx, or you have non-COGS accounts that happen to start with 5), you'll see misclassifications — talk to engineering about adding an explicit `gl_accounts.is_cogs boolean` flag. Per arch §13, the heuristic is the MVP default; the flag ships only if range-based detection turns out wrong for your COA.
@@ -351,6 +357,31 @@ Operators should make a habit of running the IS over the about-to-close FY one f
 - **CASH** — revenue is recognized when the customer's payment is received, expenses when the vendor is actually paid. Useful for cash-flow visibility but doesn't match GAAP.
 
 Both books are kept in parallel — every accrual JE has a sibling cash JE (or vice versa) — so flipping the toggle is instant and always available.
+
+---
+
+## Segment P&L (P26)
+
+**Where:** Tangerine → 💼 Accounting → 📈 **Segment P&L** (also linked from the **Reports & Analytics** hub).
+
+The Segment P&L shows Revenue, COGS, Gross Margin and units sliced by **Brand × Channel × Warehouse × Gender**, with the dimensions rendered as **configurable columns**. The GL accounts stay shared — the split is a reporting pivot, not separate accounts.
+
+### Source of the numbers (important)
+Unlike the Income Statement (which reads posted journal entries), the Segment P&L reports off the **sales history sub-ledger** (`ip_sales_history_wholesale`, which despite its name holds **both** wholesale and ecom/DTC sales, tagged by channel). This is deliberate: the Tangerine GL has no posted sales yet, while the sub-ledger holds the full sales history with COGS and margin. So this report reflects the books of record for sales today — **wholesale and DTC (ROF / PT ecom) are both included** from existing data.
+
+### Configurable columns
+- The toolbar shows your segment columns as chips. Defaults are **Private Label** (MPL Epic + MPL Sun & Stone), **ROF DTC** (brand ROF + channel DTC), and **PT DTC** (brand PT + channel DTC).
+- **+ Add column** opens an editor where a column is defined as any filter over **Brands / Channels / Warehouses / Genders** (an empty group means "all"). Name it whatever you like — you can create as many columns as you want.
+- **Drag a chip** to reorder columns; **✎** edits, **✕** removes, **Reset** restores the default segments. Your layout is remembered in the browser.
+
+### Total always reconciles (the "Other" column)
+**Total** and **Other** are computed automatically — you can't edit or delete them. Every sale is counted in the **first** of your columns (left → right) whose filter it matches; any sale not captured by **any** column drops into an auto **Other** column (shown only when it has activity). Because each sale lands in exactly one column-or-Other, **the columns always sum to Total** — the math can't drift. (Reordering only changes which column claims a sale when two columns would both match it; normal non-overlapping segments are unaffected.)
+
+### Rows
+Net Sales (optionally broken out by gender via the checkbox), COGS, Gross Margin, Gross Margin %, and Units. Margin is blank where the source carries no cost (ecom). Use **Export** for the Excel version of the matrix.
+
+### Date range
+Defaults to current FY (Jan 1 → today); use the From/To pickers or the **Date Presets** dropdown.
 
 ---
 

@@ -146,8 +146,8 @@ export default function POPrintView() {
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 24px", background: "#0f172a", position: "sticky", top: 0, zIndex: 10 }}>
         <Link to={`/vendor/pos/${id}`} style={{ color: "#fff", fontSize: 13, textDecoration: "none" }}>← Back to PO</Link>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => window.print()} style={toolBtn}>🖨 Print</button>
-          <button onClick={() => window.print()} style={toolBtnPrimary}>⬇ Download PDF</button>
+          <button onClick={() => window.print()} style={toolBtn}>Print</button>
+          <button onClick={() => window.print()} style={toolBtnPrimary}>Download PDF</button>
         </div>
       </div>
 

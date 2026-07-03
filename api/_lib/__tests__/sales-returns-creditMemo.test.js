@@ -18,6 +18,20 @@ describe("buildCreditMemoLines", () => {
     expect(lines[0].quantity).toBeUndefined();
   });
 
+  it("routes the revenue reversal to the per-style returns account when provided, else 4100 (#6)", () => {
+    const lines = buildCreditMemoLines({
+      rmaLines: [
+        line({ id: "a", line_number: 1, inventory_item_id: "i-rof" }),  // has a style returns acct
+        line({ id: "b", line_number: 2, inventory_item_id: "i-none" }), // no entry → fallback
+        line({ id: "c", line_number: 3 }),                              // no item → fallback
+      ],
+      returnsAccountId: RETURNS,
+      costByItem: new Map(),
+      returnsByItem: new Map([["i-rof", "4236-rof-returns"]]),
+    });
+    expect(lines.map((l) => l.revenue_account_id)).toEqual(["4236-rof-returns", RETURNS, RETURNS]);
+  });
+
   it("restock line → carries inventory_item_id, quantity, resolved cost", () => {
     const rl = line({ disposition: "restock", inventory_item_id: "item-9", qty_returned: 3, unit_price_cents: 1500 });
     const lines = buildCreditMemoLines({ rmaLines: [rl], returnsAccountId: RETURNS, costByItem: new Map([["item-9", 480]]) });

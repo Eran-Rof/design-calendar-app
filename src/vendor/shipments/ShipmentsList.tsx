@@ -31,6 +31,13 @@ export default function ShipmentsList() {
   const [err, setErr] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   const load = async () => {
     setLoading(true);
@@ -71,6 +78,35 @@ export default function ShipmentsList() {
     );
   }, [rows, search]);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return visible;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const scalar = (r: ShipmentRow): string | null => {
+      switch (sortKey) {
+        case "type": return r.number_type || null;
+        case "number": return r.number || null;
+        case "carrier": return r.carrier || r.sealine_name || r.sealine_scac || null;
+        case "route": return r.pol_locode || null;
+        case "eta_ata": return r.ata || r.eta || null;
+        case "status": return r.current_status || null;
+        case "last_tracked": return r.last_tracked_at || null;
+        default: return null;
+      }
+    };
+    const arr = [...visible];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [visible, sortKey, sortDir]);
+
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading shipments…</div>;
 
   return (
@@ -80,6 +116,7 @@ export default function ShipmentsList() {
           placeholder="Search by container / PO / POL / POD…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 14, fontFamily: "inherit", background: TH.surface, color: TH.text }}
         />
         <button
@@ -104,21 +141,21 @@ export default function ShipmentsList() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "60px 160px 180px 180px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
-          <div>Type</div>
-          <div>Number</div>
-          <div>Carrier</div>
-          <div>Route</div>
-          <div>ETA / ATA</div>
-          <div>Status</div>
-          <div style={{ textAlign: "right" }}>Last tracked</div>
+          <div onClick={() => toggleSort("type")} style={{ cursor: "pointer", userSelect: "none" }}>Type{sortKey === "type" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("number")} style={{ cursor: "pointer", userSelect: "none" }}>Number{sortKey === "number" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("carrier")} style={{ cursor: "pointer", userSelect: "none" }}>Carrier{sortKey === "carrier" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("route")} style={{ cursor: "pointer", userSelect: "none" }}>Route{sortKey === "route" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("eta_ata")} style={{ cursor: "pointer", userSelect: "none" }}>ETA / ATA{sortKey === "eta_ata" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("last_tracked")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Last tracked{sortKey === "last_tracked" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
         </div>
 
-        {visible.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
             {rows.length === 0 ? "No shipments yet. Click '+ Add shipment' to track one." : "No shipments match that search."}
           </div>
         ) : (
-          visible.map((r) => (
+          sorted.map((r) => (
             <Link
               key={r.id}
               to={`/vendor/shipments/${r.id}`}
@@ -145,7 +182,7 @@ export default function ShipmentsList() {
                 )}
                 {r.invoice_created_at && (
                   <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "#D1FAE5", border: "1px solid #A7F3D0", color: "#065F46", alignSelf: "flex-start", fontWeight: 600 }}>
-                    🧾 Invoiced {fmtDate(r.invoice_created_at)}
+                    Invoiced {fmtDate(r.invoice_created_at)}
                   </span>
                 )}
                 {!r.current_status && !r.invoice_created_at && (

@@ -90,6 +90,14 @@ export function candidateToPayload(c, siblingJeId) {
       subledger_id: l.subledger_id ?? null,
     })),
   };
+  // T11 D3: when the caller supplied a reason (via event.reason → stamped onto
+  // the candidate by postEvent), forward it as audit_reason. gl_post_journal_entry
+  // set_config's it onto app.audit_reason before flipping status to 'posted' so
+  // the audit trigger's required-reason check on POST is satisfied. Omitted =>
+  // key absent => RPC leaves the session var untouched (back-compat).
+  if (c.audit_reason) {
+    payload.audit_reason = String(c.audit_reason);
+  }
   // P4-2: pass bypass_period_lock through to the RPC. The PG-side function
   // (extended in P4-1) gates this to journal_type IN
   // ('ar_invoice_historical','ar_receipt_historical') — operator UI cannot

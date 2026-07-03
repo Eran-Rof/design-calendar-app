@@ -88,11 +88,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -258,7 +260,7 @@ export default function InternalCrmActivities() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          📋 Activities
+          Activities
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Append-only CRM activity log (M25)
@@ -302,10 +304,16 @@ export default function InternalCrmActivities() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 160 }}>
           <label style={labelStyle}>Type</label>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {ALL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...ALL_TYPES.map((t) => ({ value: t, label: t })),
+            ]}
+            placeholder="All"
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Customer</label>
@@ -370,7 +378,7 @@ export default function InternalCrmActivities() {
 
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`,
-        borderRadius: 8, overflow: "hidden",
+        borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -513,9 +521,12 @@ function CreateActivityModal({ customers, opportunities, onClose, onCreated }: {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label="Type">
-          <select value={activityType} onChange={(e) => setActivityType(e.target.value)} style={inputStyle}>
-            {MANUAL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <SearchableSelect
+            value={activityType || null}
+            onChange={(v) => setActivityType(v)}
+            options={MANUAL_TYPES.map((t) => ({ value: t, label: t }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Occurred at">
           <input

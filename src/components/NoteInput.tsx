@@ -41,7 +41,7 @@ export function buildSkuCadPage(skus: any[], brand: any, showPrice: boolean, mod
     const img = s.images?.[0]?.src || "";
     const imgHtml = img
       ? `<img src="${img}" class="sku-img" alt="${s.styleNum || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge" />`
-      : `<div class="sku-img-placeholder">👕</div>`;
+      : `<div class="sku-img-placeholder"></div>`;
 
     const details = [
       s.description ? `<div class="detail-row"><span class="detail-label">Description</span><span class="detail-val">${s.description}</span></div>` : "",
@@ -156,7 +156,7 @@ export function buildAttachmentPage(task: any, taskOrig: any, collData: any, bra
 
   const imagesHtml = images.map((img: any) => {
     const isImg = img.src?.startsWith("http") || img.src?.startsWith("data:image");
-    if (!isImg) return `<div class="attachment file-attachment"><div class="file-icon">📎</div><div class="file-name">${img.name || "File"}</div></div>`;
+    if (!isImg) return `<div class="attachment file-attachment"><div class="file-name">${img.name || "File"}</div></div>`;
     return `<div class="attachment"><img src="${img.src}" alt="${img.name || ""}" ondblclick="enlargeImg(this)" title="Double-click to enlarge · Right-click to save/print" /><div class="img-info">${img.name || ""}</div></div>`;
   }).join("");
 

@@ -8,6 +8,7 @@ import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
 import { useSort } from "../../../tanda/hooks/useSort";
 import SortableTh from "../../../tanda/components/SortableTh";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.job_runs";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -97,14 +98,18 @@ export default function JobRunsDashboard({ onToast, currentUserEmail }: JobRunsD
       </div>
 
       <div style={S.toolbar}>
-        <select style={S.select} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="all">All statuses</option>
-          {Object.keys(counts).map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
-        </select>
-        <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterStatus}
+          onChange={(v) => setFilterStatus(v)}
+          options={[{ value: "all", label: "All statuses" }, ...Object.keys(counts).map((s) => ({ value: s, label: s.replace(/_/g, " ") }))]}
+        />
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterType}
+          onChange={(v) => setFilterType(v)}
+          options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: t }))]}
+        />
         <button style={S.btnSecondary} onClick={refresh}>Refresh</button>
         <div style={{ marginLeft: "auto" }}>
           <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}

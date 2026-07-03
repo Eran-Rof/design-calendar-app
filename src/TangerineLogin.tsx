@@ -110,7 +110,7 @@ export default function TangerineLogin() {
               boxShadow: `0 8px 24px ${C.tangerineDim}66`,
             }}
           >
-            🍊
+            T
           </div>
           <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.2 }}>
             <span style={{ fontSize: 24, fontWeight: 700, color: C.text }}>Tangerine</span>
@@ -168,7 +168,7 @@ export default function TangerineLogin() {
         <p style={{ margin: "20px 0 0", fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
           Uses the same Microsoft 365 work account as the rest of the suite. Once signed in,
           launch the other apps (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning,
-          Costing, Vendor Portal) from the 🧩 Apps menu inside Tangerine.
+          Costing, Vendor Portal) from the Apps menu inside Tangerine.
         </p>
 
         {/* Fallback while the PLM launcher is still live (pre-retirement). */}

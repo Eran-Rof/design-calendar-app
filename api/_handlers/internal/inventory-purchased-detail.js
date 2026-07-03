@@ -16,6 +16,7 @@
 //               receipt_date, bill_date }] }
 
 import { createClient } from "@supabase/supabase-js";
+import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
 
 export const config = { maxDuration: 30 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,12 +48,36 @@ export default async function handler(req, res) {
   if (!UUID_RE.test(styleId)) return res.status(400).json({ error: "style_id (uuid) required" });
   const from = DATE_RE.test(String(url.searchParams.get("from") || "")) ? String(url.searchParams.get("from")) : null;
   const to = DATE_RE.test(String(url.searchParams.get("to") || "")) ? String(url.searchParams.get("to")) : null;
+  // Explode PPK: when on AND this style is a PPK, purchased quantities (recorded
+  // at pack grain) are multiplied by the style's units-per-pack; unit_price is
+  // divided by the same so the line amount stays correct after explosion.
+  const explodePpk = String(url.searchParams.get("explode_ppk") || "") === "true";
 
   try {
-    const items = await fetchChunked([styleId], (ids) => admin.from("ip_item_master").select("id, color").in("style_id", ids));
+    const items = await fetchChunked([styleId], (ids) => admin.from("ip_item_master").select("id, color, style_code, size, sku_code").in("style_id", ids));
     const colorByItem = new Map(items.map((i) => [i.id, i.color ?? null]));
     const itemIds = items.map((i) => i.id);
     if (itemIds.length === 0) return res.status(200).json({ color_totals: [], grand_total: 0, rows: [] });
+
+    // Pack ratio for this style (1 = no explosion). PRIMARY = the SKU size token
+    // ("PPK24" → 24); prepack_matrices master is only a fallback.
+    let packRatio = 1;
+    if (explodePpk) {
+      const ppkCode = items.map((i) => i.style_code).find((c) => c && isPpkStyle(c));
+      if (ppkCode) {
+        let r = 0;
+        for (const it of items) {
+          const m = /PPK\s*(\d+)/i.exec(String(it.size || "")) || /PPK\s*(\d+)/i.exec(String(it.sku_code || ""));
+          if (m) { r = parseInt(m[1], 10); break; }
+        }
+        if (!(r > 0)) {
+          const { data: ent } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
+          const u = await ppkUnitsPerPackByStyle(admin, ent?.id || null, [ppkCode]);
+          r = u.get(String(ppkCode).toLowerCase()) || 0;
+        }
+        if (r > 0) packRatio = r;
+      }
+    }
 
     const rows = [];
 
@@ -94,11 +119,13 @@ export default async function handler(req, res) {
         billMap.set(key, r);
       }
       if (!r.po_number && l.po_number) r.po_number = l.po_number; // first PO on the (bill,colour)
-      const q = Number(l.quantity) || 0;
+      const q = (Number(l.quantity) || 0) * packRatio;
       r.qty += q;
       // Prefer the P3 cents column; fall back to the legacy unit_price (money)
-      // for bills synced before lines carried unit_cost_cents.
-      const unit = l.unit_cost_cents != null ? Number(l.unit_cost_cents) / 100 : (l.unit_price != null ? Number(l.unit_price) : null);
+      // for bills synced before lines carried unit_cost_cents. Per-each price =
+      // pack price ÷ units-per-pack so amount (price × exploded qty) is unchanged.
+      const unitRaw = l.unit_cost_cents != null ? Number(l.unit_cost_cents) / 100 : (l.unit_price != null ? Number(l.unit_price) : null);
+      const unit = unitRaw != null ? unitRaw / packRatio : null;
       if (unit != null) { r._amt += unit * q; r._q += q; }
     }
     // Bridge each bill row to a goods-receipt date via its PO number
@@ -145,7 +172,7 @@ export default async function handler(req, res) {
           receipt_date: r.received_date ?? null, bill_date: null };
         recMap.set(key, row);
       }
-      row.qty += Number(r.qty) || 0;
+      row.qty += (Number(r.qty) || 0) * packRatio;
     }
     for (const r of recMap.values()) rows.push(r);
 

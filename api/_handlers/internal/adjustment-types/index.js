@@ -132,12 +132,19 @@ export function validateInsert(body) {
     typeof body.is_active === "boolean" ? body.is_active :
       body.is_active === "true" || body.is_active === 1;
 
+  // Optional free-text description; empty/blank -> null.
+  let description = null;
+  if (body.description != null && String(body.description).trim() !== "") {
+    description = String(body.description).trim();
+  }
+
   return {
     data: {
       // code is injected by the handler (server-generated); not taken from body.
-      name:       String(body.name).trim(),
-      sort_order: sortOrder,
-      is_active:  isActive,
+      name:        String(body.name).trim(),
+      description,
+      sort_order:  sortOrder,
+      is_active:   isActive,
     },
   };
 }

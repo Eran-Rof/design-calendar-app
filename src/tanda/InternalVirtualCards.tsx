@@ -5,6 +5,7 @@ import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Card {
   id: string;
@@ -64,6 +65,20 @@ export default function InternalVirtualCards() {
   }
   useEffect(() => { void load(); }, [entityId, statusFilter]);
 
+  // #5 Sortable columns — div-grid "table".
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:virtualcards:sort",
+    accessors: {
+      vendor: (c) => c.vendor?.name || "",
+      card: (c) => c.card_number_last4,
+      limit: (c) => Number(c.credit_limit),
+      spent: (c) => Number(c.amount_spent),
+      provider: (c) => c.provider,
+      status: (c) => c.status,
+      issued: (c) => c.issued_at,
+    },
+  });
+
   async function cancel(c: Card) {
     if (!(await confirmDialog(`Cancel the card ending in ${c.card_number_last4}? It can no longer be charged.`))) return;
     const r = await fetch(`/api/internal/virtual-cards/${c.id}/cancel`, { method: "PUT" });
@@ -79,16 +94,18 @@ export default function InternalVirtualCards() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>PAN + CVV are AES-256-GCM encrypted; only last4 is ever shown here. Vendors see the full details for 24 hours via a one-time reveal link.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="spent">Spent</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="expired">Expired</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={entityId || null}
+            onChange={(v) => setEntityId(v)}
+            options={entities.map((e) => ({ value: e.id, label: e.name }))}
+            inputStyle={selectSt}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "active", label: "Active" }, { value: "spent", label: "Spent" }, { value: "cancelled", label: "Cancelled" }, { value: "expired", label: "Expired" }, { value: "", label: "All" }]}
+            inputStyle={selectSt}
+          />
           <button onClick={() => setIssueOpen(true)} style={btnPrimary}>+ Issue card</button>
           <ExportButton
             rows={rows.map((c) => ({
@@ -122,9 +139,16 @@ export default function InternalVirtualCards() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Card</div><div>Limit</div><div>Spent</div><div>Provider</div><div>Status</div><div>Issued</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Card" k="card" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Limit" k="limit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Spent" k="spent" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Provider" k="provider" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Issued" k="issued" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {rows.map((c) => (
+          {sortedRows.map((c) => (
             <div key={c.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 120px 100px 100px 100px 140px 110px", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{c.vendor?.name || "—"}</div>
@@ -137,7 +161,7 @@ export default function InternalVirtualCards() {
               <div><StatusChip status={c.status} /></div>
               <div style={{ color: C.textMuted, fontSize: 11 }}>{fmtDateDisplay(c.issued_at)}</div>
               <div style={{ textAlign: "right", display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">📎 Docs</button>
+                <button onClick={() => setDocsCard(c)} style={btnMini} title="Attach / view supporting documents">Docs</button>
                 {c.status === "active" && <button onClick={() => void cancel(c)} style={{ ...btnMini, color: C.danger }}>Cancel</button>}
               </div>
             </div>
@@ -227,11 +251,12 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
               />
             </Row>
             <Row label="Provider">
-              <select value={provider} onChange={(e) => setProvider(e.target.value as "stripe")} style={inp}>
-                <option value="stripe">Stripe</option>
-                <option value="marqeta">Marqeta</option>
-                <option value="railsbank">Railsbank</option>
-              </select>
+              <SearchableSelect
+                value={provider}
+                onChange={(v) => setProvider(v as "stripe")}
+                options={[{ value: "stripe", label: "Stripe" }, { value: "marqeta", label: "Marqeta" }, { value: "railsbank", label: "Railsbank" }]}
+                inputStyle={inp}
+              />
             </Row>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={onClose} style={btnSecondary}>Cancel</button>
@@ -255,6 +280,20 @@ function IssueModal({ onClose, onIssued }: { onClose: () => void; onIssued: () =
   );
 }
 
+// Clickable sortable header cell for the div-grid "table".
+function SortHeader({ label, k, activeKey, dir, onSort }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir; onSort: (key: string) => void;
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div onClick={() => onSort(k)} title={`Sort by ${label}`} style={{ cursor: "pointer", userSelect: "none", ...(active ? { color: C.text } : null) }}>
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
+    </div>
+  );
+}
+
 function StatusChip({ status }: { status: string }) {
   const color = status === "active" ? C.success : status === "spent" ? C.primary : C.danger;
   return <span style={{ fontSize: 10, color: "#fff", background: color, padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{status}</span>;
@@ -269,8 +308,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

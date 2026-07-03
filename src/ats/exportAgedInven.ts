@@ -162,7 +162,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
     // Row 0 — Title banner
     const titleStyle = semHeader(GRAND_TOTAL_FILL, "center");
     aoa.push([
-      { v: `${ageDaysThreshold}+ Day Aged Inventory${categoryLabel} – Summary by Store & Gender`, t: "s", s: titleStyle },
+      { v: `${ageDaysThreshold}+ Day Aged Inventory${categoryLabel} – Summary by Warehouse & Gender`, t: "s", s: titleStyle },
       ...Array(TC - 1).fill(null).map(() => ({ v: "", t: "s", s: titleStyle })),
     ]);
     // Row 1 — Subtitle
@@ -200,7 +200,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     // Row 4 — column headers (inherit each col's group color)
     const colHdrs: Array<[string, "left" | "center" | "right", string]> = [
-      ["Store",                "left",   PALETTE.HEADER_TEXT],
+      ["Warehouse",                "left",   PALETTE.HEADER_TEXT],
       ["Gender",               "left",   PALETTE.HEADER_TEXT],
       ["Total Qty\nOn Hand",   "center", PALETTE.HEADER_TEXT],
       ["Avg Unit\nCost",       "center", PALETTE.HEADER_TEXT],
@@ -356,7 +356,7 @@ export function exportAgedInven(rows: ATSRow[], ageDaysThreshold: number, catego
 
     const colHdrLabels: Array<[string, "left" | "center" | "right"]> = [
       ["Gender",              "center"],
-      ["Store",               "left"],
+      ["Warehouse",               "left"],
       ["Base Part Number",    "left"],
       ["Color",               "center"],
       ["Description",         "left"],

@@ -5,6 +5,7 @@ import { formatSscc18Display } from "../services/gtinService";
 import { exportSsccCsv } from "../services/labelExport";
 import type { ManualCartonInput } from "../types";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const TH_STYLE: React.CSSProperties = {
   padding: "8px 12px", textAlign: "left", fontSize: 12,
@@ -128,12 +129,17 @@ export default function CartonPanel() {
           <form onSubmit={handleCreate}>
             <div style={FIELD}>
               <label style={LABEL}>Packing List Upload (optional)</label>
-              <select style={{ ...INPUT, appearance: "auto" }} value={form.upload_id ?? ""} onChange={e => set("upload_id", e.target.value || undefined)}>
-                <option value="">— None —</option>
-                {uploads.map(u => (
-                  <option key={u.id} value={u.id}>{u.file_name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                theme="light"
+                value={form.upload_id ?? ""}
+                onChange={v => set("upload_id", v || undefined)}
+                inputStyle={{ ...INPUT, appearance: "auto" }}
+                placeholder="— None —"
+                options={[
+                  { value: "", label: "— None —" },
+                  ...uploads.map(u => ({ value: u.id, label: u.file_name })),
+                ]}
+              />
 
             </div>
 

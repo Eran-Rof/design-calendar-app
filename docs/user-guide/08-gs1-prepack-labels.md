@@ -23,13 +23,15 @@ The app has a single top navigation bar with these tabs, left to right:
 2. **UPC Master** — the child (size-level) UPCs.
 3. **Scale Master** — pack scale codes and their size ratios.
 4. **Pack GTINs** — one GTIN per style/color/scale, plus BOM build.
-5. **Packing List** — upload a packing list and parse it.
-6. **PA Unpacker** — a standalone tool for Macy's Pack Assortment files.
-7. **Label Batches** — create and print/export label runs.
-8. **Label Templates** — label layouts (size, printer, what prints).
-9. **Carton Labels** — generate a single carton SSCC by hand.
-10. **Receiving** — scan a carton in and confirm what arrived.
-11. **Exceptions** — data quality checks and the audit trail.
+5. **Styles Catalog** — the publishable supplier catalog: auto-import styles & colors, set sales prices, publish a GDSN / retail-portal feed.
+6. **Packing List** — upload a packing list and parse it.
+7. **PA Unpacker** — a standalone tool for Macy's Pack Assortment files.
+8. **Label Batches** — create and print/export label runs.
+9. **Label Templates** — label layouts (size, printer, what prints).
+10. **Carton Labels** — generate a single carton SSCC by hand.
+11. **Receiving** — scan a carton in and confirm what arrived.
+12. **Exceptions** — data quality checks and the audit trail.
+13. **Workflow Guide** — a read-only reference of the standard GS1 → EDI retail flow.
 
 A **🔔 Notifications** button sits on the right of the bar. There is also a **Favorites** menu and the suite-wide ⌘K / Ctrl-K search palette.
 
@@ -329,13 +331,67 @@ Three sub-views run across the top: **Open Issues**, **Resolved**, and **Audit L
 
 ---
 
-## 8.12 Quick reference — common jobs
+## 8.13 Styles Catalog — the publishable supplier catalog
+
+The **Styles Catalog** is the first step of the standard retail workflow (see 8.14): before a retailer can send you an order, you publish a catalog of your styles, their barcodes, and their prices so the retailer can load them. This tab builds that catalog from data you already keep in Tangerine — you don't re-key anything.
+
+### Build the catalog
+
+You choose **which** styles and colors to include first, then import pulls the price for just those.
+
+1. **Pick a price list.** The **Price list** dropdown lists every Tangerine price list (the M43 pricing lists — Default, per-tier, per-customer, per-brand). Whichever you choose supplies the **sales price** on import. Each option shows its code, name, how many styles it prices, and currency.
+2. Click **＋ Add styles & colors.** A picker opens listing every style from the PLM, each expandable to its colors:
+   - **Search** by style number, name, brand, or color to narrow the list.
+   - Tick a **style** to select all its colors, or expand it (▸) and tick individual **colors**. A green ● on a color means it already has a pack GTIN; a ✓ means it's already in the catalog (re-adding just refreshes its price).
+   - **Hide already in catalog** filters out colors you've added before; **Select all shown** / **Clear** act on the filtered list.
+3. Click **Import N → pull prices.** The app adds just the selected style/color rows, attaches each style's price from the chosen list, and looks up the pack GTIN already minted for that style/color (from **Pack GTINs**).
+4. A green banner reports the result, e.g. *"Added 24 style/color rows — 20 priced from the list, 4 with no list price, 12 already have a pack GTIN."*
+
+> Re-adding a style+color is safe and is how you refresh prices. Rows are keyed on **style + color**, so importing the same one again updates it in place — it never creates duplicates. Switch to a different price list and re-add to re-price.
+
+### Adjust prices before publishing
+
+The grid has one row per **style + color**, showing Style No, Style Name, Color, Brand, Pack GTIN, **Price**, and **Status**.
+
+- **Edit a price** directly in the **Price** cell (enter dollars, e.g. `24.50`) and press Enter or click away — it saves immediately. This overrides the price pulled from the list for that row, without changing the price list itself.
+- A **Pack GTIN** of **—** means no GTIN has been minted for that style/color yet. Mint it in **Pack GTINs** (8.5), then re-import. Rows without a GTIN are skipped on the GDSN export.
+- Set each row's **Status** — **Draft** (still being prepared), **Ready** (priced and checked), or **Published** (sent to the data pool).
+- Use the **search box** (style / color / brand / GTIN) and the **status filter** to narrow large catalogs. Tick the checkbox on rows to act on just those; with nothing ticked, the export/publish buttons act on all rows currently shown.
+
+### Publish the catalog (GDSN / retail-portal feed)
+
+| Button | Output | Use it for |
+|---|---|---|
+| **⬇ Export CSV** | A `.csv` of the catalog (GTIN, style, color, brand, price, status) | Loading into a retail portal or sharing with a partner |
+| **⬇ Export GDSN (XML)** | A GS1 **CIN** (Catalogue Item Notification) payload — one trade item per pack GTIN with its price | Submitting to your GDSN data pool |
+| **Publish** | Marks the selected (or all shown) rows **Published** and stamps the date | Recording that the catalog has gone out |
+
+> **Connecting to a live data pool.** The GDSN export produces the *submission payload* you hand to a data pool such as **1WorldSync** or **GS1 Canada**. Actually transmitting to the pool needs that provider's account, your GLN, and transport credentials — those are set up with the data pool, not in this app. Generate the XML here, then upload it through your data pool's portal/connection.
+
+---
+
+## 8.14 Workflow Guide — the standard GS1 → EDI flow
+
+A read-only reference tab explaining how your GS1 codes move between you and a retail partner. The prices and barcodes you manage in the Styles Catalog (8.13) and Pack GTINs (8.5) are what every document below references — keep them consistent end to end.
+
+1. **Catalog** — you publish your style catalog via GDSN or a retail portal (this is the Styles Catalog tab).
+2. **Download** — the retailer imports your catalog to load the correct barcodes (UPC / EAN / GTIN).
+3. **EDI 850** — the retailer sends a Purchase Order using the exact barcodes they downloaded.
+4. **EDI 856** — you ship and send an Advance Shipping Notice (ASN) matching those codes (built from your packing list and carton SSCCs).
+5. **EDI 810** — you send the Invoice for final payment.
+
+The tab also includes notes on mapping GS1 attributes for apparel (per-variant GTINs, prepacks/pack GTINs, and publishing the catalog before the first order).
+
+---
+
+## 8.15 Quick reference — common jobs
 
 | I want to… | Do this |
 |---|---|
 | Set up the app for the first time | **Company Setup** → fill prefix, GTIN and SSCC numbering → Save |
 | Load size barcodes | **UPC Master** → Import Excel or Sync from Xoro |
 | Define a pack's size mix | **Scale Master** → Add Scale Code → enter size ratios |
+| Publish a catalog to a retailer | **Styles Catalog** → pick price list → ＋ Add styles & colors (select) → Import → adjust prices → Export GDSN (XML) / CSV → Publish |
 | Turn a packing list into labels | **Packing List** → upload → Generate GTINs → Build BOMs → Create Label Batch → Print/Export |
 | Check a pack has all its barcodes | **Scale Master** → UPC Coverage Check, or **Pack GTINs** → BOM Status |
 | Print one carton's SSCC | **Carton Labels** → fill form → Create Carton & Generate SSCC |

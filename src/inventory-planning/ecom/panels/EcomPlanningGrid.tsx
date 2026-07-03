@@ -7,6 +7,7 @@ import type { IpEcomGridRow } from "../types/ecom";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.ecom_planning_grid";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -53,34 +54,63 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
+  // Per-filter predicate set. A row "passes" a filter if it matches the
+  // current value of THAT filter. Used both for the final filtered list and —
+  // crucially — for cascading the Channel / Category dropdown option pools:
+  // each dropdown's options are derived from the rows that pass every OTHER
+  // active filter, so picking a Channel narrows the Category list (and the
+  // search box) to only the categories that still have rows, and vice-versa.
+  const passes = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    return {
+      channel: (r: IpEcomGridRow) => filterChannel === "all" || r.channel_id === filterChannel,
+      category: (r: IpEcomGridRow) => filterCategory === "all" || r.category_id === filterCategory,
+      active: (r: IpEcomGridRow) =>
+        filterActive === "all" || (filterActive === "active" ? r.is_active : !r.is_active),
+      launch: (r: IpEcomGridRow) =>
+        filterLaunch === "all" || (filterLaunch === "launch" ? r.launch_flag : !r.launch_flag),
+      promo: (r: IpEcomGridRow) =>
+        filterPromo === "all" || (filterPromo === "promo" ? r.promo_flag : !r.promo_flag),
+      search: (r: IpEcomGridRow) => !q || r.sku_code.includes(q) || r.channel_name.toUpperCase().includes(q),
+    };
+  }, [search, filterChannel, filterCategory, filterActive, filterLaunch, filterPromo]);
+
+  // Channel options: rows passing every filter except Channel itself.
   const channels = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of rows) m.set(r.channel_id, r.channel_name);
+    for (const r of rows) {
+      if (!passes.category(r) || !passes.active(r) || !passes.launch(r) || !passes.promo(r) || !passes.search(r)) continue;
+      m.set(r.channel_id, r.channel_name);
+    }
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+  }, [rows, passes]);
 
+  // Category options: rows passing every filter except Category itself.
   const categories = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of rows) if (r.category_id) m.set(r.category_id, r.category_name ?? r.category_id);
+    for (const r of rows) {
+      if (!passes.channel(r) || !passes.active(r) || !passes.launch(r) || !passes.promo(r) || !passes.search(r)) continue;
+      if (r.category_id) m.set(r.category_id, r.category_name ?? r.category_id);
+    }
     return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows]);
+  }, [rows, passes]);
+
+  // Drop a now-invalid Channel / Category selection when narrowing the other
+  // filter removes it from the option pool, so the grid never shows an empty
+  // list under a stale pick the operator can no longer see.
+  useEffect(() => {
+    if (filterChannel !== "all" && !channels.some((c) => c.id === filterChannel)) setFilterChannel("all");
+  }, [channels, filterChannel]);
+  useEffect(() => {
+    if (filterCategory !== "all" && !categories.some((c) => c.id === filterCategory)) setFilterCategory("all");
+  }, [categories, filterCategory]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toUpperCase();
-    const out = rows.filter((r) => {
-      if (filterChannel !== "all" && r.channel_id !== filterChannel) return false;
-      if (filterCategory !== "all" && r.category_id !== filterCategory) return false;
-      if (filterActive === "active" && !r.is_active) return false;
-      if (filterActive === "inactive" && r.is_active) return false;
-      if (filterLaunch === "launch" && !r.launch_flag) return false;
-      if (filterLaunch === "not" && r.launch_flag) return false;
-      if (filterPromo === "promo" && !r.promo_flag) return false;
-      if (filterPromo === "not" && r.promo_flag) return false;
-      if (q && !(r.sku_code.includes(q) || r.channel_name.toUpperCase().includes(q))) return false;
-      return true;
-    });
+    const out = rows.filter((r) =>
+      passes.channel(r) && passes.category(r) && passes.active(r) &&
+      passes.launch(r) && passes.promo(r) && passes.search(r));
     return out.sort((a, b) => cmp(a, b, sortKey, sortDir)).slice(0, PAGE_SIZE);
-  }, [rows, search, filterChannel, filterCategory, filterActive, filterLaunch, filterPromo, sortKey, sortDir]);
+  }, [rows, passes, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const t = { final: 0, protected: 0, promo: 0, launch: 0, markdown: 0 };
@@ -111,30 +141,27 @@ export default function EcomPlanningGrid({ rows, onSelectRow, onUpdateBuyQty, lo
 
       <div style={S.toolbar}>
         <input style={{ ...S.input, width: 220 }} placeholder="Search channel or SKU"
-               value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select style={S.select} value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)}>
-          <option value="all">All channels</option>
-          {channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-          <option value="all">All categories</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select style={S.select} value={filterActive} onChange={(e) => setFilterActive(e.target.value as "all" | "active" | "inactive")}>
-          <option value="active">Active only</option>
-          <option value="all">Active + inactive</option>
-          <option value="inactive">Inactive only</option>
-        </select>
-        <select style={S.select} value={filterLaunch} onChange={(e) => setFilterLaunch(e.target.value as "all" | "launch" | "not")}>
-          <option value="all">Launch: any</option>
-          <option value="launch">Launching</option>
-          <option value="not">Not launching</option>
-        </select>
-        <select style={S.select} value={filterPromo} onChange={(e) => setFilterPromo(e.target.value as "all" | "promo" | "not")}>
-          <option value="all">Promo: any</option>
-          <option value="promo">Promo weeks</option>
-          <option value="not">No promo</option>
-        </select>
+               value={search} onChange={(e) => setSearch(e.target.value)}
+               onFocus={(e) => e.currentTarget.select()} />
+        <SearchableSelect value={filterChannel} onChange={(v) => setFilterChannel(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All channels" }, ...channels.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterCategory} onChange={(v) => setFilterCategory(v)} inputStyle={S.select}
+          options={[{ value: "all", label: "All categories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]} />
+        <SearchableSelect value={filterActive} onChange={(v) => setFilterActive(v as "all" | "active" | "inactive")} inputStyle={S.select} options={[
+          { value: "active", label: "Active only" },
+          { value: "all", label: "Active + inactive" },
+          { value: "inactive", label: "Inactive only" },
+        ]} />
+        <SearchableSelect value={filterLaunch} onChange={(v) => setFilterLaunch(v as "all" | "launch" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Launch: any" },
+          { value: "launch", label: "Launching" },
+          { value: "not", label: "Not launching" },
+        ]} />
+        <SearchableSelect value={filterPromo} onChange={(v) => setFilterPromo(v as "all" | "promo" | "not")} inputStyle={S.select} options={[
+          { value: "all", label: "Promo: any" },
+          { value: "promo", label: "Promo weeks" },
+          { value: "not", label: "No promo" },
+        ]} />
         <button style={S.btnSecondary} onClick={() => {
           setSearch(""); setFilterChannel("all"); setFilterCategory("all");
           setFilterActive("active"); setFilterLaunch("all"); setFilterPromo("all");

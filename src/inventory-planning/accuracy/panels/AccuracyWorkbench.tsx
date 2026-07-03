@@ -24,6 +24,7 @@ import AnomalyQueue from "../../intelligence/panels/AnomalyQueue";
 import AISuggestionPanel from "../../intelligence/panels/AISuggestionPanel";
 import AIDemandPanel from "../../intelligence/panels/AIDemandPanel";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 type TabKey = "accuracy" | "overrides" | "anomalies" | "suggestions" | "ai_demand";
 
@@ -192,14 +193,16 @@ export default function AccuracyWorkbench() {
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Planning run</strong>
-            <select style={S.select} value={selectedRunId ?? ""} onChange={(e) => setSelectedRunId(e.target.value)}>
-              <option value="">— pick —</option>
-              {runs.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name} · {r.planning_scope} · {r.status} · {formatDate(r.horizon_start)}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={selectedRunId}
+              onChange={(v) => setSelectedRunId(v)}
+              placeholder="— pick —"
+              options={runs.map((r) => ({
+                value: r.id,
+                label: `${r.name} · ${r.planning_scope} · ${r.status} · ${formatDate(r.horizon_start)}`,
+              }))}
+              inputStyle={S.select}
+            />
             <button style={S.btnPrimary} onClick={runPass} disabled={building || !selected}>
               {building ? "Running pass…" : "Run accuracy + intelligence pass"}
             </button>
@@ -217,7 +220,7 @@ export default function AccuracyWorkbench() {
             Suggestions ({suggestions.filter((s) => s.accepted_flag == null).length}/{suggestions.length})
           </TabButton>
           <TabButton active={tab === "ai_demand"} onClick={() => setTab("ai_demand")}>
-            AI Demand ✦
+            AI Demand
           </TabButton>
         </div>
 

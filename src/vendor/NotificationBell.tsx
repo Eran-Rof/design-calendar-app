@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TH } from "./theme";
 import { supabaseVendor } from "./supabaseVendor";
+import { notificationLink } from "../components/notifications/notificationLink";
 
 interface Notification {
   id: string;
@@ -11,6 +12,7 @@ interface Notification {
   link: string | null;
   read_at: string | null;
   created_at: string;
+  metadata: Record<string, unknown> | null;
 }
 
 function timeAgo(iso: string): string {
@@ -35,7 +37,7 @@ export default function NotificationBell() {
     try {
       const { data, error } = await supabaseVendor
         .from("notifications")
-        .select("id, event_type, title, body, link, read_at, created_at")
+        .select("id, event_type, title, body, link, read_at, created_at, metadata")
         .order("created_at", { ascending: false })
         .limit(20);
       if (!error) setItems((data ?? []) as Notification[]);
@@ -83,9 +85,12 @@ export default function NotificationBell() {
 
   async function onItemClick(n: Notification) {
     if (!n.read_at) await markRead(n.id);
-    if (n.link) {
+    // Resolve to the actual record (PO/RFQ/invoice/dispute/…) via the shared
+    // resolver so rows with only metadata (no explicit link) still navigate.
+    const target = notificationLink(n, "vendor");
+    if (target) {
       setOpen(false);
-      nav(n.link);
+      nav(target);
     }
   }
 
@@ -110,7 +115,7 @@ export default function NotificationBell() {
         aria-label="Notifications"
         title="Notifications"
       >
-        🔔
+        Alerts
         {unreadCount > 0 && (
           <span style={{ position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, padding: "0 4px", borderRadius: 999, background: TH.primary, color: "#FFF", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -141,7 +146,7 @@ export default function NotificationBell() {
                   style={{
                     padding: "12px 14px",
                     borderBottom: `1px solid ${TH.border}`,
-                    cursor: n.link ? "pointer" : "default",
+                    cursor: notificationLink(n, "vendor") ? "pointer" : "default",
                     background: n.read_at ? TH.surface : TH.surfaceHi,
                   }}
                 >
@@ -153,7 +158,7 @@ export default function NotificationBell() {
                         onClick={(e) => { e.stopPropagation(); void deleteOne(n.id); }}
                         title="Delete this notification"
                         style={{ background: "none", border: "none", color: TH.textMuted, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
-                      >🗑</button>
+                      >Delete</button>
                     </span>
                   </div>
                   {n.body && <div style={{ fontSize: 12, color: TH.textSub2, lineHeight: 1.4 }}>{n.body}</div>}

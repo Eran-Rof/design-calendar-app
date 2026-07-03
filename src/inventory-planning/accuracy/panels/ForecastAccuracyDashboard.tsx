@@ -7,6 +7,9 @@ import { aggregateAccuracy } from "../compute/accuracyMetrics";
 import { S, PAL, METHOD_LABEL, formatQty, formatPeriodCode } from "../../components/styles";
 import { StatCell } from "../../components/StatCell";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.forecast_accuracy";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -65,6 +68,23 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       .slice(0, 200);
   }, [filtered, groupBy, search, skuCodeById, categoryNameById, customerNameById, channelNameById]);
 
+  // Additive per-column sort over the already-filtered/grouped rows. The "label"
+  // column reads the group label; metric columns read their aggregate scalars.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(grouped, {
+    persistKey: "ip:forecast_accuracy:sort",
+    accessors: {
+      label: (g) => g.label,
+      rows: (g) => g.metrics.row_count,
+      sum_actual: (g) => g.metrics.total_actual,
+      wape_sys: (g) => g.metrics.wape_system,
+      wape_final: (g) => g.metrics.wape_final,
+      mae_sys: (g) => g.metrics.mae_system,
+      mae_final: (g) => g.metrics.mae_final,
+      bias_final: (g) => g.metrics.bias_final,
+      delta: (g) => g.metrics.mae_delta,
+    },
+  });
+
   return (
     <div>
       <div style={S.statsRow}>
@@ -77,20 +97,31 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
       </div>
 
       <div style={S.toolbar}>
-        <select style={S.select} value={lane} onChange={(e) => setLane(e.target.value as "all" | "wholesale" | "ecom")}>
-          <option value="all">Both lanes</option>
-          <option value="wholesale">Wholesale only</option>
-          <option value="ecom">Ecom only</option>
-        </select>
-        <select style={S.select} value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-          <option value="sku">Group by SKU</option>
-          <option value="category">Group by category</option>
-          <option value="customer">Group by customer</option>
-          <option value="channel">Group by channel</option>
-          <option value="method">Group by method</option>
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={lane}
+          onChange={(v) => setLane(v as "all" | "wholesale" | "ecom")}
+          options={[
+            { value: "all", label: "Both lanes" },
+            { value: "wholesale", label: "Wholesale only" },
+            { value: "ecom", label: "Ecom only" },
+          ]}
+        />
+        <SearchableSelect
+          inputStyle={S.select}
+          value={groupBy}
+          onChange={(v) => setGroupBy(v as GroupBy)}
+          options={[
+            { value: "sku", label: "Group by SKU" },
+            { value: "category", label: "Group by category" },
+            { value: "customer", label: "Group by customer" },
+            { value: "channel", label: "Group by channel" },
+            { value: "method", label: "Group by method" },
+          ]}
+        />
         <input style={{ ...S.input, width: 220 }} placeholder="Search label"
-               value={search} onChange={(e) => setSearch(e.target.value)} />
+               value={search} onChange={(e) => setSearch(e.target.value)}
+               onFocus={(e) => e.currentTarget.select()} />
         <span style={{ color: PAL.textMuted, fontSize: 12 }}>
           Top {grouped.length} by WAPE (final) · sorted descending
         </span>
@@ -104,19 +135,19 @@ export default function ForecastAccuracyDashboard({ rows, skuCodeById, categoryN
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th}>{{ sku: "SKU", category: "Category", customer: "Customer", channel: "Channel", method: "Method" }[groupBy]}</th>
-              <th hidden={!visibleColumns.has("rows")} style={{ ...S.th, textAlign: "right" }}>Rows</th>
-              <th hidden={!visibleColumns.has("sum_actual")} style={{ ...S.th, textAlign: "right" }}>Σ actual</th>
-              <th hidden={!visibleColumns.has("wape_sys")} style={{ ...S.th, textAlign: "right" }}>WAPE sys</th>
-              <th hidden={!visibleColumns.has("wape_final")} style={{ ...S.th, textAlign: "right" }}>WAPE final</th>
-              <th hidden={!visibleColumns.has("mae_sys")} style={{ ...S.th, textAlign: "right" }}>MAE sys</th>
-              <th hidden={!visibleColumns.has("mae_final")} style={{ ...S.th, textAlign: "right" }}>MAE final</th>
-              <th hidden={!visibleColumns.has("bias_final")} style={{ ...S.th, textAlign: "right" }}>Bias final</th>
-              <th hidden={!visibleColumns.has("delta")} style={{ ...S.th, textAlign: "right" }}>Δ (sys − final)</th>
+              <SortableTh label={{ sku: "SKU", category: "Category", customer: "Customer", channel: "Channel", method: "Method" }[groupBy]} sortKey="label" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+              <SortableTh label="Rows" sortKey="rows" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("rows")} />
+              <SortableTh label="Σ actual" sortKey="sum_actual" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("sum_actual")} />
+              <SortableTh label="WAPE sys" sortKey="wape_sys" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("wape_sys")} />
+              <SortableTh label="WAPE final" sortKey="wape_final" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("wape_final")} />
+              <SortableTh label="MAE sys" sortKey="mae_sys" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("mae_sys")} />
+              <SortableTh label="MAE final" sortKey="mae_final" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("mae_final")} />
+              <SortableTh label="Bias final" sortKey="bias_final" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("bias_final")} />
+              <SortableTh label="Δ (sys − final)" sortKey="delta" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("delta")} />
             </tr>
           </thead>
           <tbody>
-            {grouped.map((g) => (
+            {sorted.map((g) => (
               <tr key={g.key}>
                 <td style={{ ...S.td, fontFamily: groupBy === "sku" ? "monospace" : undefined, color: groupBy === "sku" ? PAL.accent : PAL.text }}>
                   {g.label}

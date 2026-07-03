@@ -195,3 +195,83 @@ export function computePreset(key: string, today: Date = new Date()): { from: st
   if (p && p.key !== "custom") return p.compute(today);
   return { from: iso(addDays(today, -29)), to: iso(today) };
 }
+
+// ---------- Date Presets master (user-defined, relative `kind` + optional n) ----------
+
+export function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, d.getDate());
+}
+
+export type DatePresetMasterRow = {
+  id: string;
+  label: string;
+  kind: string;       // see VALID_KINDS in api/_handlers/internal/date-presets
+  n: number | null;
+  sort_order?: number;
+  is_active?: boolean;
+  /**
+   * When set, this row MIRRORS a code DEFAULT_PRESET with this key (the master
+   * is backfilled with the current built-ins so operators can manage them).
+   * mergePresets() suppresses the matching code built-in so each preset shows
+   * exactly once — the editable master row wins.
+   */
+  source_key?: string | null;
+};
+
+/** Compute a relative-expression preset (the master `kind` + n) → {from,to}. */
+export function computeForKind(kind: string, n: number | null, t: Date = new Date()): { from: string; to: string } {
+  switch (kind) {
+    case "today":            return { from: iso(t), to: iso(t) };
+    case "yesterday":        return { from: iso(addDays(t, -1)), to: iso(addDays(t, -1)) };
+    case "last_n_days":      return { from: iso(addDays(t, -(n || 30))), to: iso(t) };
+    case "last_n_months":    return { from: iso(addMonths(t, -(n || 1))), to: iso(t) };
+    case "mtd":              return { from: iso(startOfMonth(t)), to: iso(t) };
+    case "ytd":              return { from: iso(startOfYear(t)), to: iso(t) };
+    case "this_month":       return { from: iso(startOfMonth(t)), to: iso(endOfMonth(t)) };
+    case "this_year":        return { from: iso(startOfYear(t)), to: iso(endOfYear(t)) };
+    case "this_quarter":     return { from: iso(startOfQuarter(t)), to: iso(endOfQuarter(t)) };
+    case "last_quarter": {
+      const inPriorQ = new Date(startOfQuarter(t).getFullYear(), startOfQuarter(t).getMonth(), 0);
+      return { from: iso(startOfQuarter(inPriorQ)), to: iso(endOfQuarter(inPriorQ)) };
+    }
+    case "last_month": {
+      const inPrior = new Date(t.getFullYear(), t.getMonth(), 0);
+      return { from: iso(startOfMonth(inPrior)), to: iso(endOfMonth(inPrior)) };
+    }
+    case "last_year": {
+      const ly = new Date(t.getFullYear() - 1, 0, 1);
+      return { from: iso(startOfYear(ly)), to: iso(endOfYear(ly)) };
+    }
+    case "ty_to_last_month":
+      return { from: iso(startOfYear(t)), to: iso(new Date(t.getFullYear(), t.getMonth(), 0)) };
+    default:
+      return { from: iso(addDays(t, -29)), to: iso(t) };
+  }
+}
+
+/** Map a Date Presets master row → a runtime Preset (key prefixed to avoid clashes). */
+export function presetFromMasterRow(row: DatePresetMasterRow): Preset {
+  return {
+    key: `custom:${row.id}`,
+    label: row.label,
+    compute: (t = new Date()) => computeForKind(row.kind, row.n, t),
+  };
+}
+
+/**
+ * Merge the code DEFAULT_PRESETS (or a provided base) with the operator's
+ * custom presets from the Date Presets master, keeping the "custom" sentinel
+ * last. Used by <DateRangePresets/> so every date-range picker shows the
+ * operator's additional presets automatically.
+ */
+export function mergePresets(base: Preset[], custom: DatePresetMasterRow[]): Preset[] {
+  const activeRows = (custom || []).filter((r) => r.is_active !== false);
+  // Built-ins backfilled into the master carry a source_key naming the code
+  // preset they mirror — suppress that built-in so it isn't shown twice (the
+  // editable master row wins). Operator-added rows have no source_key.
+  const covered = new Set(activeRows.map((r) => r.source_key).filter(Boolean) as string[]);
+  const customPresets = activeRows.map(presetFromMasterRow);
+  const sentinel = base.find((p) => p.key === "custom");
+  const builtins = base.filter((p) => p.key !== "custom" && !covered.has(p.key));
+  return sentinel ? [...builtins, ...customPresets, sentinel] : [...builtins, ...customPresets];
+}

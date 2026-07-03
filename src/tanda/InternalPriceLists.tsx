@@ -18,7 +18,7 @@ const C = {
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box", colorScheme: "dark" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -100,7 +100,7 @@ export default function InternalPriceLists() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🏷️ Price Lists</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Price Lists</h2>
         <button style={btnPrimary} onClick={() => setNewOpen(true)}>+ New price list</button>
       </div>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -115,7 +115,7 @@ export default function InternalPriceLists() {
           columns={[{ key: "code", header: "Code" }, { key: "name", header: "Name" }, { key: "scope", header: "Scope" }, { key: "currency", header: "Currency" }, { key: "items", header: "Items" }, { key: "active", header: "Active" }] as ExportColumn<Record<string, unknown>>[]} />
       </div>
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Code</th><th style={th}>Name</th><th style={th}>Scope</th><th style={th}>Currency</th><th style={{ ...th, textAlign: "right" }}>Items</th><th style={th}>Active</th></tr></thead>
           <tbody>
@@ -195,7 +195,7 @@ function ListModal({ list, customers, brands, styles, onClose, onSaved }: { list
   }
   async function deleteList() {
     if (!list) return;
-    if (!(await confirmDialog(`Delete price list "${list.code}" and all its prices?`, { confirmText: "Delete", danger: true, icon: "🗑️" }))) return;
+    if (!(await confirmDialog(`Delete price list "${list.code}" and all its prices?`, { confirmText: "Delete", danger: true }))) return;
     const r = await fetch(`/api/internal/price-lists/${list.id}`, { method: "DELETE" });
     if (!r.ok) { notify((await r.json().catch(() => ({}))).error || "Delete failed", "error"); return; }
     notify("Price list deleted.", "success"); onSaved();
@@ -223,12 +223,13 @@ function ListModal({ list, customers, brands, styles, onClose, onSaved }: { list
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
           <Field label="Scope">
-            <select value={scope} onChange={(e) => setScope(e.target.value as "default" | "brand" | "tier" | "customer")} style={inputStyle}>
-              <option value="default">Default — all brands (fallback)</option>
-              <option value="brand">Per-brand default</option>
-              <option value="tier">Customer tier</option>
-              <option value="customer">Specific customer</option>
-            </select>
+            <SearchableSelect value={scope} onChange={(v) => setScope(v as "default" | "brand" | "tier" | "customer")} inputStyle={inputStyle}
+              options={[
+                { value: "default", label: "Default — all brands (fallback)" },
+                { value: "brand", label: "Per-brand default" },
+                { value: "tier", label: "Customer tier" },
+                { value: "customer", label: "Specific customer" },
+              ]} />
           </Field>
           {scope === "brand" && <Field label="Brand"><SearchableSelect value={brandId || null} onChange={(v) => setBrandId(v)} options={[{ value: "", label: "(pick brand)" }, ...brands.map((b) => ({ value: b.id, label: b.name, searchHaystack: `${b.name} ${b.code || ""}` }))]} placeholder="(pick brand)" /></Field>}
           {scope === "tier" && <Field label="Customer tier"><input value={tier} onChange={(e) => setTier(e.target.value)} style={inputStyle} placeholder="distributor" /></Field>}

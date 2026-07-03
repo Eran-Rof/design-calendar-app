@@ -1,6 +1,7 @@
 import React from "react";
 import { type XoroPO, STATUS_COLORS, fmtDateDisplay } from "../../utils/tandaTypes";
 import S from "../styles";
+import SearchableSelect from "../components/SearchableSelect";
 
 export interface ArchiveViewProps {
   archivedPos: XoroPO[];
@@ -51,10 +52,10 @@ export function ArchiveView({
               setConfirmModal({
                 title: "Permanently Delete",
                 message: `Permanently delete ${archiveSelected.size} PO${archiveSelected.size > 1 ? "s" : ""}?\n\nThis will remove all data including milestones, notes, and attachments. This cannot be undone.`,
-                icon: "🗑️", confirmText: "Delete Forever", confirmColor: "#EF4444",
+                icon: "", confirmText: "Delete Forever", confirmColor: "#EF4444",
                 onConfirm: async () => { await permanentDeleteArchived([...archiveSelected]); setArchiveSelected(new Set()); },
               });
-            }} style={{ ...S.navBtnDanger }}>🗑 Delete {archiveSelected.size} Selected</button>
+            }} style={{ ...S.navBtnDanger }}>Delete {archiveSelected.size} Selected</button>
           </>)}
           {archivedPos.length > 0 && (
             <button onClick={() => {
@@ -72,29 +73,34 @@ export function ArchiveView({
         </div>
       </div>
       <div style={S.filters}>
-        <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)} placeholder="🔍 Search PO#, vendor…" style={{ ...S.input, width: 240, marginBottom: 0 }} />
-        <select value={archiveFilterVendor} onChange={e => setArchiveFilterVendor(e.target.value)} style={S.select}>
-          {vendors.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={archiveFilterStatus} onChange={e => setArchiveFilterStatus(e.target.value)} style={S.select}>
-          {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <input value={archiveSearch} onChange={e => setArchiveSearch(e.target.value)} placeholder="Search PO#, vendor…" style={{ ...S.input, width: 240, marginBottom: 0 }} />
+        <SearchableSelect
+          value={archiveFilterVendor}
+          onChange={v => setArchiveFilterVendor(v)}
+          options={vendors.map(v => ({ value: v, label: v }))}
+          inputStyle={S.select}
+        />
+        <SearchableSelect
+          value={archiveFilterStatus}
+          onChange={v => setArchiveFilterStatus(v)}
+          options={statuses.map(s => ({ value: s, label: s }))}
+          inputStyle={S.select}
+        />
         {filtered.length > 0 && (
           <button onClick={() => {
             setConfirmModal({
               title: "Delete All Filtered",
               message: `Permanently delete all ${filtered.length} filtered PO${filtered.length > 1 ? "s" : ""}? This cannot be undone.`,
-              icon: "🗑️", confirmText: "Delete All", confirmColor: "#EF4444",
+              icon: "", confirmText: "Delete All", confirmColor: "#EF4444",
               onConfirm: async () => { await permanentDeleteArchived(filtered.map(p => p.PoNumber ?? "").filter(Boolean)); setArchiveSelected(new Set()); },
             });
-          }} style={S.navBtnDanger}>🗑 Delete All Filtered ({filtered.length})</button>
+          }} style={S.navBtnDanger}>Delete All Filtered ({filtered.length})</button>
         )}
       </div>
       {archiveLoading ? (
         <div style={S.emptyState}>Loading archived POs…</div>
       ) : filtered.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
           <p style={{ color: "#6B7280", margin: 0 }}>{archivedPos.length === 0 ? "No archived POs yet" : "No POs match your filters"}</p>
         </div>
       ) : (
@@ -126,10 +132,10 @@ export function ArchiveView({
                   <button onClick={() => {
                     setConfirmModal({
                       title: "Permanently Delete", message: `Delete PO ${poNum} permanently? All data will be lost.`,
-                      icon: "🗑️", confirmText: "Delete", confirmColor: "#EF4444",
+                      icon: "", confirmText: "Delete", confirmColor: "#EF4444",
                       onConfirm: () => permanentDeleteArchived([poNum]),
                     });
-                  }} title="Delete permanently" style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>🗑</button>
+                  }} title="Delete permanently" style={{ background: "none", border: "1px solid #EF444444", color: "#EF4444", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>
                 </div>
               </div>
             );

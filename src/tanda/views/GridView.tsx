@@ -11,6 +11,7 @@ import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import { SB_URL, SB_HEADERS } from "../../utils/supabase";
 import { useTandaStore } from "../store/index";
 import { PoMatrixPopover } from "./PoMatrixPopover";
+import { SearchableSelect } from "../components/SearchableSelect";
 import {
   PAGE_SIZE,
   MAX_UNDO,
@@ -241,6 +242,7 @@ export function GridView({
   } | null>(null);
   // Vendors the user dismissed this session — state so dismissal triggers re-render.
   const [dismissedTplVendors, setDismissedTplVendors] = useState<Set<string>>(new Set());
+  const [tplCopyFrom, setTplCopyFrom] = useState("__default__");
   // When the set of available vendor templates grows (user or background load),
   // un-dismiss those vendors so they don't get permanently hidden if they were
   // dismissed before wipTemplates finished loading.
@@ -998,18 +1000,22 @@ export function GridView({
       <div style={{ ...S.filters, flexWrap: "wrap" }}>
         <input
           style={{ ...S.input, flex: 1, minWidth: 240, marginBottom: 0 }}
-          placeholder="🔍 Search PO#, vendor, buyer, buyer PO…"
+          placeholder="Search PO#, vendor, buyer, buyer PO…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select style={{ ...S.select, width: 200 }} value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-          <option value="All">All Vendors</option>
-          {vendors.map(v => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select style={{ ...S.select, width: 200 }} value={filterBuyer} onChange={e => setFilterBuyer(e.target.value)}>
-          <option value="All">All Buyers</option>
-          {buyerOptions.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
+        <SearchableSelect
+          value={filterVendor}
+          onChange={v => setFilterVendor(v)}
+          options={[{ value: "All", label: "All Vendors" }, ...vendors.map(v => ({ value: v, label: v }))]}
+          inputStyle={{ ...S.select, width: 200 }}
+        />
+        <SearchableSelect
+          value={filterBuyer}
+          onChange={v => setFilterBuyer(v)}
+          options={[{ value: "All", label: "All Buyers" }, ...buyerOptions.map(b => ({ value: b, label: b }))]}
+          inputStyle={{ ...S.select, width: 200 }}
+        />
         <button style={S.btnSecondary} onClick={() => { setSearch(""); setFilterVendor("All"); setFilterBuyer("All"); }}>Clear</button>
 
         {/* Columns & Sections dropdown — toggle which fixed columns AND which
@@ -1084,17 +1090,17 @@ export function GridView({
 
         {/* Freeze dropdown — pin leftmost columns through the
             chosen one when scrolling horizontally. */}
-        <select
-          value={freezeKey ?? ""}
-          onChange={(e) => setFreezeKey(e.target.value === "" ? null : e.target.value as HideableColKey)}
-          style={{ ...S.select, width: 180 }}
-          title="Pin leftmost columns through the selected one when scrolling horizontally"
-        >
-          <option value="">No freeze</option>
-          {HIDEABLE_COL_KEYS.filter(k => !hiddenCols.has(k)).map((k) => (
-            <option key={k} value={k}>Freeze through {COL_LABELS[k]}</option>
-          ))}
-        </select>
+        <div title="Pin leftmost columns through the selected one when scrolling horizontally">
+          <SearchableSelect
+            value={freezeKey ?? ""}
+            onChange={(v) => setFreezeKey(v === "" ? null : v as HideableColKey)}
+            options={[
+              { value: "", label: "No freeze" },
+              ...HIDEABLE_COL_KEYS.filter(k => !hiddenCols.has(k)).map((k) => ({ value: k, label: `Freeze through ${COL_LABELS[k]}` })),
+            ]}
+            inputStyle={{ ...S.select, width: 180 }}
+          />
+        </div>
 
         <button
           onClick={handleUndo}
@@ -1110,7 +1116,7 @@ export function GridView({
           title="Download as Excel"
           style={{ background: "#217346", border: "1px solid #145A2E", color: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
         >
-          <span style={{ fontSize: 15 }}>⬇</span> Excel
+          Excel
         </button>
       </div>
 
@@ -1139,16 +1145,17 @@ export function GridView({
                 </p>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ color: "#94A3B8", fontSize: 12, display: "block", marginBottom: 6 }}>Copy from</label>
-                  <select style={{ ...S.select, width: "100%" }} id="gridModalCopyFrom">
-                    <option value="__default__">Default Template</option>
-                    {templateVendorList().map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={tplCopyFrom}
+                    onChange={v => setTplCopyFrom(v)}
+                    options={[{ value: "__default__", label: "Default Template" }, ...templateVendorList().map(v => ({ value: v, label: v }))]}
+                    inputStyle={{ ...S.select, width: "100%" }}
+                  />
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
                   <button style={{ ...S.btnSecondary, flex: 1 }} onClick={dismiss}>Cancel</button>
                   <button style={{ ...S.btnPrimary, flex: 2 }} onClick={async () => {
-                    const copyEl = document.getElementById("gridModalCopyFrom") as HTMLSelectElement;
-                    const copyFrom = copyEl?.value || "__default__";
+                    const copyFrom = tplCopyFrom || "__default__";
                     const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom) || [];
                     const newTpls = source.map((t: WipTemplate) => ({ ...t, id: milestoneUid() }));
                     await saveVendorTemplates(vendorN, newTpls);
@@ -1345,7 +1352,7 @@ export function GridView({
                         {/* Right closing border on last phase Notes sub-label */}
                         <span style={{ ...hdr2, ...(isLastPhase ? phaseDividerHost : {}) }}>
                           {isLastPhase && <span style={phaseDividerOverlayRight} />}
-                          📝
+                          Notes
                         </span>
                       </React.Fragment>
                     );
@@ -1407,7 +1414,7 @@ export function GridView({
                           onClick={() => setNotesModal({ po, ms: poMs })}
                           title={tip}
                         >
-                          <span style={{ fontSize: 13, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>📝</span>
+                          <span style={{ fontSize: 11, color: hasNotes ? "#60A5FA" : "#374151", lineHeight: 1 }}>Notes</span>
                           {hasNotes && <span style={{ fontSize: 8, fontWeight: 700, color: "#60A5FA", lineHeight: 1 }}>{totalNoteCount}</span>}
                         </span>
                       );
@@ -1436,14 +1443,12 @@ export function GridView({
 
                     {/* Buyer — dropdown from all customers + ROF Stock + PT Stock */}
                     <span style={{ ...cell, padding: 2 }}>
-                      <select
+                      <SearchableSelect
                         value={po.BuyerName || ""}
-                        onChange={e => persistBuyerName(poNum, e.target.value)}
-                        style={{ background: "transparent", border: "none", color: po.BuyerName ? "#D1D5DB" : "#4B5563", fontSize: 11, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
-                      >
-                        <option value="" style={{ background: "#0F172A", color: "#4B5563" }}>— unassigned —</option>
-                        {buyerOptions.map(b => <option key={b} value={b} style={{ background: "#0F172A", color: "#D1D5DB" }}>{b}</option>)}
-                      </select>
+                        onChange={v => persistBuyerName(poNum, v)}
+                        options={[{ value: "", label: "— unassigned —" }, ...buyerOptions.map(b => ({ value: b, label: b }))]}
+                        inputStyle={{ background: "transparent", border: "none", color: po.BuyerName ? "#D1D5DB" : "#4B5563", fontSize: 11, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
+                      />
                     </span>
 
                     {/* Buyer PO */}
@@ -1539,15 +1544,12 @@ export function GridView({
 
                           {/* Status */}
                           <span style={{ ...sub, padding: 2 }}>
-                            <select
+                            <SearchableSelect
                               value={m.status}
-                              onChange={e => updateStatus(po, m, e.target.value)}
-                              style={{ background: "transparent", border: "none", color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
-                            >
-                              {MILESTONE_STATUSES.map(s => (
-                                <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s], background: "#0F172A" }}>{s}</option>
-                              ))}
-                            </select>
+                              onChange={v => updateStatus(po, m, v)}
+                              options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                              inputStyle={{ background: "transparent", border: "none", color: MILESTONE_STATUS_COLORS[m.status] || "#6B7280", fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: "pointer" }}
+                            />
                           </span>
 
                           {/* Status Date */}
@@ -1577,7 +1579,7 @@ export function GridView({
                           >
                             {isLastPhase && <span style={phaseDividerOverlayRight} />}
                             <span style={{ fontSize: 11, color: phaseHasNotes ? "#60A5FA" : "#374151" }}>
-                              {phaseHasNotes ? `📝${noteCount}` : "📝"}
+                              {phaseHasNotes ? `Notes ${noteCount}` : "Notes"}
                             </span>
                           </span>
                         </React.Fragment>
@@ -1694,7 +1696,7 @@ export function GridView({
                                     <span style={{ ...hdr2, background: infoBg2 }}>Status Date</span>
                                     <span style={{ ...hdr2, background: infoBg2 }}>Days</span>
                                     <span style={{ ...hdr2, background: infoBg2, ...(isLast ? phaseDividerHost : {}) }}>
-                                      {isLast && <span style={phaseDividerOverlayRight} />}📝
+                                      {isLast && <span style={phaseDividerOverlayRight} />}Notes
                                     </span>
                                   </React.Fragment>
                                 );
@@ -1790,21 +1792,20 @@ export function GridView({
                                           </span>
                                         </span>
                                         <span style={{ ...sub, padding: 2 }}>
-                                          <select
+                                          <SearchableSelect
                                             value={itemStatus}
-                                            onChange={e => {
+                                            onChange={v => {
                                               if (closed) return;
                                               const iso = todayLocalIso();
                                               const vsNew = { ...(m.variant_statuses || {}) };
                                               const prev  = vsNew[varKey];
-                                              vsNew[varKey] = { status: e.target.value, status_date: e.target.value !== "Not Started" ? (prev?.status_date || iso) : null };
+                                              vsNew[varKey] = { status: v, status_date: v !== "Not Started" ? (prev?.status_date || iso) : null };
                                               saveMilestone({ ...m, variant_statuses: vsNew, updated_at: new Date().toISOString(), updated_by: user?.name || "" }, true);
                                             }}
                                             disabled={closed}
-                                            style={{ background: "transparent", border: "none", color: closed ? "#374151" : itemColor, fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: closed ? "default" : "pointer" }}
-                                          >
-                                            {MILESTONE_STATUSES.map(s => <option key={s} value={s} style={{ color: MILESTONE_STATUS_COLORS[s], background: "#0F172A" }}>{s}</option>)}
-                                          </select>
+                                            options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                                            inputStyle={{ background: "transparent", border: "none", color: closed ? "#374151" : itemColor, fontSize: 10, padding: "2px 4px", width: "100%", fontWeight: 600, outline: "none", cursor: closed ? "default" : "pointer" }}
+                                          />
                                         </span>
                                         <span style={{ ...sub, padding: 2 }}>
                                           <MilestoneDateInput
@@ -1833,7 +1834,7 @@ export function GridView({
                                             >
                                               {isLast && <span style={phaseDividerOverlayRight} />}
                                               <span style={{ fontSize: 10, color: vnHas ? "#60A5FA" : "#374151" }}>
-                                                {vnHas ? `📝${vnCount}` : "📝"}
+                                                {vnHas ? `Notes ${vnCount}` : "Notes"}
                                               </span>
                                             </span>
                                           );
@@ -1972,7 +1973,7 @@ export function GridView({
             onClick={e => e.stopPropagation()}
           >
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #1E293B", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>⚠ DDP Date Will Change</h2>
+              <h2 style={{ margin: 0, color: "#F97316", fontSize: 15, fontWeight: 700 }}>DDP Date Will Change</h2>
               <button onClick={() => setDDPChangeModal(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             </div>
             <div style={{ padding: "16px 20px" }}>

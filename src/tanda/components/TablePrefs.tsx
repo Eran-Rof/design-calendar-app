@@ -386,7 +386,6 @@ export const TablePrefsButton: React.FC<TablePrefsButtonProps> = ({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
         Columns
       </button>
       {open && (

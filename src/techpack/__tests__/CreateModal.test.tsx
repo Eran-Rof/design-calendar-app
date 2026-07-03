@@ -95,7 +95,8 @@ describe("<CreateModal />", () => {
     render(<CreateModal {...defaultProps({
       dcCategories: [{ name: "Tops", subCategories: ["T-Shirts"] }],
     })} />);
-    // Find by the placeholder option text
-    expect(screen.getByText("Select category first")).toBeInTheDocument();
+    // Sub-category is now a themed SearchableSelect; its disabled placeholder
+    // shows "Select category first" on the combobox input.
+    expect(screen.getByPlaceholderText("Select category first")).toBeInTheDocument();
   });
 });

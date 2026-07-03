@@ -63,7 +63,7 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
       toastedRef.current = true;
       const names = info.revisedVendors.map((v) => v.vendor_name).join(", ");
       const plural = info.revisedVendors.length > 1;
-      notify(`⚠ ${names} revised ${plural ? "their quotes" : "their quote"} — review the highlighted rows below.`, "info");
+      notify(`${names} revised ${plural ? "their quotes" : "their quote"} — review the highlighted rows below.`, "info");
     }
   }
   function dismissRevised() {
@@ -132,7 +132,6 @@ export default function InternalRfqDetail({ rfqId, onClose, onChanged }: { rfqId
 
       {revised && (
         <div style={{ background: "#422006", border: `1px solid ${C.warn}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>⚠️</span>
           <div style={{ flex: 1, fontSize: 13, color: C.text }}>
             <b>{revised.revisedVendors.map((v) => `${v.vendor_name} (v${v.revision})`).join(", ")}</b>{" "}
             {revised.revisedVendors.length > 1 ? "have revised their quotes" : "has revised their quote"} since first submission.
@@ -189,7 +188,7 @@ function RofRevisionHistory({
         style={{ background: "transparent", border: "none", color: C.text, cursor: "pointer", fontSize: 13, fontWeight: 700, padding: 0, display: "flex", alignItems: "center", gap: 8 }}
       >
         <span>{open ? "▾" : "▸"}</span>
-        🕑 RFQ revision history (Ring of Fire) · {revisions.length}
+        RFQ revision history (Ring of Fire) · {revisions.length}
       </button>
       {open && (
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>

@@ -18,6 +18,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
@@ -213,17 +214,24 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 600 }}>{label}</label>
         {hint && <span style={{ fontSize: 10, color: C.textDim, lineHeight: 1.2 }}>{hint}</span>}
-        <select value={single} onChange={e => onChange(e.target.value ? [e.target.value as T] : [])} style={inputStyle}>
-          <option value="">All</option>
-          {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
-        </select>
+        <SearchableSelect
+          value={single}
+          onChange={v => onChange(v ? [v as T] : [])}
+          options={[
+            { value: "", label: "All" },
+            ...options.map(o => ({ value: o, label: fmt(o) })),
+          ]}
+          inputStyle={inputStyle}
+        />
       </div>
     );
   }
 
   const filtered = search.trim() === ""
     ? options
-    : options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+    // Match against the formatted label (e.g. "RYB1416 — ARENA Loose Relaxed")
+    // so the operator can find a style by its description, not just its code.
+    : options.filter(o => fmt(o).toLowerCase().includes(search.toLowerCase()));
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
@@ -267,7 +275,11 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
           ...(openDir === "down"
             ? { top: "calc(100% + 4px)" }
             : { bottom: "calc(100% + 4px)" }),
-          left: 0, right: 0, zIndex: 1100,
+          // Grow to fit the widest option (e.g. "RYB1416 — ARENA Loose
+          // Relaxed") rather than clamping to the field width, so the style
+          // description is readable. At least the field width; capped so it
+          // never runs off-screen.
+          left: 0, right: "auto", minWidth: "100%", width: "max-content", maxWidth: "min(560px, 92vw)", zIndex: 1100,
           background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6,
           maxHeight: 260, display: "flex", flexDirection: "column", padding: 4,
           boxShadow: "0 6px 18px rgba(0,0,0,0.5)",
@@ -276,6 +288,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onFocus={e => e.currentTarget.select()}
             placeholder="Search…"
             autoFocus
             style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, marginBottom: 4 }}
@@ -285,7 +298,7 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
             {filtered.map(o => (
               <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                 <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(o)}</span>
+                <span style={{ whiteSpace: "normal", wordBreak: "break-word" }}>{fmt(o)}</span>
               </label>
             ))}
           </div>
@@ -372,6 +385,21 @@ export const SalesCompsModal: React.FC<Props> = ({
   const categories    = useMemo(() => [...allCategories].sort(),    [allCategories]);
   const subCategories = useMemo(() => [...allSubCategories].sort(), [allSubCategories]);
   const styles        = useMemo(() => [...allStyles].sort(),        [allStyles]);
+  // style_code → clean style description, sourced from the enriched grid rows
+  // (master fields). Lets the Style picker show the description beside the code.
+  const styleDescByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rows) {
+      const code = (r.master_style ?? "").trim();
+      const desc = (r.master_description ?? "").trim();
+      if (code && desc && !m.has(code)) m.set(code, desc);
+    }
+    return m;
+  }, [rows]);
+  const styleOptionLabel = (code: string) => {
+    const d = styleDescByCode.get(code);
+    return d ? `${code} — ${d}` : code;
+  };
   const stores        = useMemo(() => {
     if (allStores.length > 0) return [...allStores].sort();
     return ["ROF", "ROF ECOM", "PT", "PT ECOM"];
@@ -1251,10 +1279,10 @@ export const SalesCompsModal: React.FC<Props> = ({
                 section above the fold even when DevTools is open. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <SelectField label="Customer" value={customer} options={customers} onChange={setCustomer} multi />
-              <SelectField label="Stores" value={selStores} options={stores} onChange={setSelStores} multi />
+              <SelectField label="Warehouses" value={selStores} options={stores} onChange={setSelStores} multi />
               <SelectField label="Category" value={selCategories} options={categories} onChange={setSelCategories} multi />
               <SelectField label="Sub-Category" value={selSubCategories} options={subCategories} onChange={setSelSubCategories} multi />
-              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi />
+              <SelectField label="Style" value={selStyles} options={styles} onChange={setSelStyles} multi optionLabel={styleOptionLabel} />
               <SelectField label="Gender" value={selGenders} options={genders} onChange={setSelGenders} multi />
             </div>
 
@@ -1390,6 +1418,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                   rows={built}
                   totals={builtTotals}
                   customerFacing={customerFacing}
+                  descByLabel={dim === "style" ? styleDescByCode : undefined}
                 />
               );
             })}
@@ -1466,7 +1495,63 @@ interface CompsTotalsProp {
   combined: { tyQty: number; tyRev: number; tyMrgn: number; tyCogs: number; lyQty: number; lyRev: number; lyMrgn: number; lyCogs: number };
   hasMixed: boolean;
 }
-function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean }): React.ReactElement {
+// Sort keys for the comparison table. "label" sorts on the leftmost
+// dimension text; the rest are numeric. Δ Rev / Δ Mrgn use the same
+// growth math the cells render so the sort matches what's on screen.
+type CompsSortKey = "label" | "tyQty" | "tyRev" | "tyMrgn" | "lyQty" | "lyRev" | "lyMrgn" | "dRev" | "dMrgn";
+function compsSortValue(r: DimRow, key: CompsSortKey): number | string {
+  switch (key) {
+    case "label":  return r.label.toLowerCase();
+    case "tyQty":  return r.tyQty;
+    case "tyRev":  return r.tyRev;
+    case "tyMrgn": return r.tyRev > 0 ? r.tyMrgn / r.tyRev : -Infinity;
+    case "lyQty":  return r.lyQty;
+    case "lyRev":  return r.lyRev;
+    case "lyMrgn": return r.lyRev > 0 ? r.lyMrgn / r.lyRev : -Infinity;
+    // Growth fraction (ty - ly)/ty — matches fmtGrowth; no-TY rows sink.
+    case "dRev":   return r.tyRev > 0 ? (r.tyRev - r.lyRev) / r.tyRev : -Infinity;
+    // Margin-points diff — matches fmtMarginPoints.
+    case "dMrgn": {
+      const typ = r.tyRev > 0 ? r.tyMrgn / r.tyRev : 0;
+      const lyp = r.lyRev > 0 ? r.lyMrgn / r.lyRev : 0;
+      return (typ === 0 || lyp === 0) ? -Infinity : typ - lyp;
+    }
+  }
+}
+
+function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
+  // Per-column sort over the data rows. null = natural (upstream) order,
+  // which is already TY-rev descending. Clicking a header sorts; clicking
+  // the active header flips direction. Totals rows below are unaffected —
+  // they're rendered after the sorted data rows, so they stay pinned.
+  const [sortKey, setSortKey] = useState<CompsSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const onSort = (k: CompsSortKey) => {
+    if (sortKey === k) { setSortDir(d => (d === "asc" ? "desc" : "asc")); }
+    else { setSortKey(k); setSortDir(k === "label" ? "asc" : "desc"); }
+  };
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = compsSortValue(a, sortKey);
+      const vb = compsSortValue(b, sortKey);
+      if (typeof va === "string" || typeof vb === "string") {
+        return String(va).localeCompare(String(vb)) * dir;
+      }
+      return (va - vb) * dir;
+    });
+  }, [rows, sortKey, sortDir]);
+  // Header cell with a functional ▲▼ affordance. align mirrors the body
+  // cell alignment so the arrow sits flush with the column.
+  const SortTh = ({ k, label, align }: { k: CompsSortKey; label: string; align?: "left" | "right" }): React.ReactElement => {
+    const active = sortKey === k;
+    return (
+      <th style={{ ...th(align === "right" ? "right" : "left"), cursor: "pointer", userSelect: "none", color: active ? C.text : undefined }} onClick={() => onSort(k)} title="Click to sort">
+        {label}{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+      </th>
+    );
+  };
   // Helper: render one totals row. Used three times below — once for
   // the combined total (single-grain modes), or twice (one per grain
   // when hasMixed is true and we're in explode-OFF mode).
@@ -1495,24 +1580,24 @@ function CompsTable({ colLabel, rows, totals, customerFacing }: { colLabel: stri
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
         <thead style={{ position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
           <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-            <th style={th()}>{colLabel}</th>
-            <th style={th("right")}>TY Qty</th>
-            <th style={th("right")}>TY Rev</th>
-            {!customerFacing && <th style={th("right")}>TY Mrgn%</th>}
-            <th style={th("right")}>LY Qty</th>
-            <th style={th("right")}>LY Rev</th>
-            {!customerFacing && <th style={th("right")}>LY Mrgn%</th>}
-            <th style={th("right")}>Δ Rev</th>
-            {!customerFacing && <th style={th("right")}>Δ Mrgn pp</th>}
+            <SortTh k="label" label={colLabel} />
+            <SortTh k="tyQty" label="TY Qty" align="right" />
+            <SortTh k="tyRev" label="TY Rev" align="right" />
+            {!customerFacing && <SortTh k="tyMrgn" label="TY Mrgn%" align="right" />}
+            <SortTh k="lyQty" label="LY Qty" align="right" />
+            <SortTh k="lyRev" label="LY Rev" align="right" />
+            {!customerFacing && <SortTh k="lyMrgn" label="LY Mrgn%" align="right" />}
+            <SortTh k="dRev" label="Δ Rev" align="right" />
+            {!customerFacing && <SortTh k="dMrgn" label="Δ Mrgn pp" align="right" />}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => {
+          {sortedRows.map((r, i) => {
             const growth = fmtGrowth(r.tyRev, r.lyRev);
             const mp = fmtMarginPoints(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev);
             return (
               <tr key={r.key} style={{ background: i % 2 === 0 ? "transparent" : C.rowAlt }}>
-                <td style={td()}>{r.label}</td>
+                <td style={td()}>{r.label}{descByLabel?.get(r.label) && <span style={{ color: C.textMuted, fontWeight: 400 }}> — {descByLabel.get(r.label)}</span>}</td>
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
                 {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}

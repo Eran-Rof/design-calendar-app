@@ -51,6 +51,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13,
@@ -139,7 +140,7 @@ export default function InternalApiKeys() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -270,7 +271,7 @@ function RevealKeyModal({ label, apiKey, onClose }: { label: string; apiKey: str
       <div onClick={(e) => e.stopPropagation()} style={modalCard}>
         <h3 style={{ margin: "0 0 8px", fontSize: 18 }}>API key created — copy it now</h3>
         <div style={{ background: "#78350f", color: "#fed7aa", padding: "10px 12px", borderRadius: 6, fontSize: 13, marginBottom: 14, border: "1px solid #b45309" }}>
-          ⚠️ This is the only time the full key for <strong>{label}</strong> will be shown. Store it somewhere safe.
+          This is the only time the full key for <strong>{label}</strong> will be shown. Store it somewhere safe.
           It cannot be retrieved again — if you lose it, revoke this key and create a new one.
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>

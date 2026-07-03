@@ -15,7 +15,7 @@
 // Auth — Bearer JWT, same pattern as the other personalization handlers.
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateCaller } from "../../../../../_lib/auth.js";
+import { resolveUserId } from "../../../../../_lib/auth.js";
 import { isKnownMenuKey } from "../../../../../_lib/menuKeys.js";
 
 export const config = { maxDuration: 10 };
@@ -23,7 +23,7 @@ export const config = { maxDuration: 10 };
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Auth-User-Id, X-Entity-ID");
 }
 
 function client() {
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const auth = await authenticateCaller(req, admin);
+  const auth = await resolveUserId(req, admin);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   let body = req.body;

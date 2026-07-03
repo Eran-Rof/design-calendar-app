@@ -11,6 +11,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtDate } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 export type PhaseFilter = "all" | "overdue" | "this_week" | "next_30";
 
@@ -528,6 +529,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
           placeholder="Search by PO # or buyer…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           style={{ width: "100%", maxWidth: 360, marginBottom: 10, padding: "7px 12px", borderRadius: 6, border: `1px solid ${TH.border}`, fontSize: 13, background: TH.surface, color: TH.text }}
         />
       )}
@@ -592,7 +594,7 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   </div>
                 )}
                 <div style={{ color: TH.text }}>
-                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " 🔒"}</div>
+                  <div style={{ fontWeight: 600 }}>{r.phase.name}{editable ? "" : " (locked)"}</div>
                   <div style={{ fontSize: 10, color: TH.textMuted, marginTop: 2 }}>{r.phase.category} · T−{r.phase.daysBeforeDDP}d</div>
                 </div>
                 <div>
@@ -612,20 +614,18 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                 <div style={{ textAlign: "center", fontSize: 12, color: r.daysFromToday == null ? TH.textMuted : r.daysFromToday < 0 ? "#F87171" : r.daysFromToday <= 7 ? "#FBBF24" : TH.textSub2, fontWeight: 600 }}>
                   {r.daysFromToday == null ? "—" : r.daysFromToday < 0 ? `${-r.daysFromToday}d late` : `${r.daysFromToday}d`}
                 </div>
-                <div>
-                  <select
+                <div title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}>
+                  <SearchableSelect
                     value={r.effectiveStatus}
                     disabled={!editable}
-                    onChange={(e) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, e.target.value)}
-                    title={hasMismatch ? "One or more lines have a different status — expand to review" : undefined}
-                    style={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
+                    onChange={(v) => void proposeChange(r.po, r.phase.name, "status", r.effectiveStatus, v)}
+                    options={STATUSES.map((s) => ({ value: s, label: s }))}
+                    inputStyle={{ width: "100%", padding: "3px 4px", fontSize: 11, borderRadius: 4,
                       border: `2px solid ${masterCellBorder}`,
                       background: sc.bg, color: sc.fg, cursor: editable ? "pointer" : "not-allowed",
                       fontWeight: 600, fontFamily: "inherit",
                     }}
-                  >
-                    {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  />
                 </div>
                 {/* Status date — when this phase's status field was most
                     recently changed. Approved request → reviewed_at;
@@ -646,8 +646,8 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                   })()}
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 1.35, display: "grid", gap: 2 }}>
-                  {pending && <div style={{ color: "#FCD34D" }}>⏳ Pending review</div>}
-                  {hasMismatch && <div style={{ color: "#7C3AED" }}>⚠ Lines differ</div>}
+                  {pending && <div style={{ color: "#FCD34D" }}>Pending review</div>}
+                  {hasMismatch && <div style={{ color: "#7C3AED" }}>Lines differ</div>}
 
                   {/* Stack all reviewed history for this phase (across status +
                       expected_date fields) newest-first, so the vendor sees the
@@ -750,23 +750,22 @@ export default function VendorPhasesView({ poId }: Props = {}) {
                             <div></div>{/* Expected date placeholder */}
                             <div></div>{/* Days placeholder */}
                             <div>
-                              <select
+                              <SearchableSelect
                                 value={lineStatus}
                                 disabled={!editable}
-                                onChange={(e) => void proposeChange(r.po, r.phase.name, "status", lineStatus, e.target.value, l.id)}
-                                style={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
+                                onChange={(v) => void proposeChange(r.po, r.phase.name, "status", lineStatus, v, l.id)}
+                                options={STATUSES.map((s) => ({ value: s, label: s }))}
+                                inputStyle={{ width: "100%", padding: "2px 4px", fontSize: 10, borderRadius: 4,
                                   border: `1px solid ${linePending ? "#F59E0B" : differs ? "#7C3AED" : TH.border}`,
                                   background: lsc.bg, color: lsc.fg, cursor: editable ? "pointer" : "not-allowed",
                                   fontWeight: 600, fontFamily: "inherit",
                                 }}
-                              >
-                                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                              </select>
+                              />
                               {differs && (
                                 <div style={{ fontSize: 9, color: "#7C3AED", marginTop: 2 }}>overrides master</div>
                               )}
                               {linePending && (
-                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>⏳ Pending</div>
+                                <div style={{ fontSize: 9, color: "#FCD34D", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>Pending</div>
                               )}
                             </div>
                             {/* Status date — same logic as the master row
@@ -895,7 +894,7 @@ function NotesButton({
           fontSize: 11, fontWeight: 700,
         }}
       >
-        💬{count + reviewCount > 0 ? count + reviewCount : ""}
+        Notes{count + reviewCount > 0 ? ` ${count + reviewCount}` : ""}
       </button>
 
       {open && (

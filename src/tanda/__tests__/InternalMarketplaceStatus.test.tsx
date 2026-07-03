@@ -23,7 +23,6 @@ vi.mock("../../shared/ui/warn", () => ({
 
 import InternalMarketplaceStatus, {
   CHANNEL_LABEL,
-  CHANNEL_EMOJI,
   FEEDS,
   DEPOSIT_TABLES,
   UNPOSTED_JE_TABLES,
@@ -82,10 +81,9 @@ describe("InternalMarketplaceStatus — catalogs", () => {
     expect(Object.keys(CHANNEL_LABEL).sort()).toEqual(["faire", "fba", "shopify", "walmart"]);
   });
 
-  it("every channel has an emoji + a human label", () => {
+  it("every channel has a human label", () => {
     for (const ch of ["shopify", "fba", "walmart", "faire"] as const) {
       expect(CHANNEL_LABEL[ch]).toBeTruthy();
-      expect(CHANNEL_EMOJI[ch]).toBeTruthy();
     }
   });
 

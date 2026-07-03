@@ -4,6 +4,7 @@ import { AppDatePicker } from "../shared/components/AppDatePicker";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Vendor { id: string; name: string }
 interface Workspace {
@@ -76,19 +77,43 @@ export default function InternalWorkspaces() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Cross-team collab space with vendors — pin items, assign tasks, chat.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "active" | "archived")} style={selectSt}>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select>
+          <div style={{ width: 200 }}>
+            <SearchableSelect
+              value={entityId || null}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))}
+              inputStyle={selectSt}
+              onChange={(v) => setEntityId(v)}
+            />
+          </div>
+          <div style={{ width: 140 }}>
+            <SearchableSelect
+              value={statusFilter}
+              options={[{ value: "active", label: "Active" }, { value: "archived", label: "Archived" }]}
+              inputStyle={selectSt}
+              onChange={(v) => setStatusFilter(v as "active" | "archived")}
+            />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New workspace</button>
           <ExportButton
-            rows={rows.map((w) => ({
-              ...w,
-              vendor_name: w.vendor?.name || "—",
-            })) as unknown as Array<Record<string, unknown>>}
+            rows={(() => {
+              const base = rows.map((w) => ({
+                ...w,
+                vendor_name: w.vendor?.name || "—",
+              })) as Array<Record<string, unknown>>;
+              if (base.length === 0) return base as unknown as Array<Record<string, unknown>>;
+              // #23 export totals — append a TOTAL row summing the count columns.
+              const totalRow: Record<string, unknown> = {
+                name: "TOTAL",
+                vendor_name: "",
+                description: "",
+                status: "",
+                pin_count: rows.reduce((s, w) => s + (Number(w.pin_count) || 0), 0),
+                open_task_count: rows.reduce((s, w) => s + (Number(w.open_task_count) || 0), 0),
+                task_count: rows.reduce((s, w) => s + (Number(w.task_count) || 0), 0),
+                created_at: "",
+              };
+              return [...base, totalRow] as unknown as Array<Record<string, unknown>>;
+            })()}
             filename="workspaces"
             sheetName="Workspaces"
             columns={[
@@ -119,8 +144,8 @@ export default function InternalWorkspaces() {
               <div style={{ fontSize: 11, color: C.textSub, marginTop: 2 }}>Vendor: {w.vendor?.name || "—"}</div>
               {w.description && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{w.description}</div>}
               <div style={{ display: "flex", gap: 8, fontSize: 11, color: C.textMuted, marginTop: 10 }}>
-                <span>📌 {w.pin_count || 0}</span>
-                <span>✅ {w.open_task_count || 0} open / {w.task_count || 0}</span>
+                <span>Pins {w.pin_count || 0}</span>
+                <span>{w.open_task_count || 0} open / {w.task_count || 0}</span>
                 <span style={{ marginLeft: "auto" }}>{fmtDateDisplay(w.created_at)}</span>
               </div>
             </button>
@@ -176,10 +201,13 @@ function CreateWorkspaceModal({ entityId, onClose, onCreated }: { entityId: stri
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New workspace</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select a vendor…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect
+            value={vendorId || null}
+            options={vendors.map((v) => ({ value: v.id, label: v.name }))}
+            placeholder="Select a vendor…"
+            inputStyle={inp}
+            onChange={(v) => setVendorId(v)}
+          />
         </Row>
         <Row label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Q3 capacity planning" style={inp} /></Row>
         <Row label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} /></Row>
@@ -339,13 +367,18 @@ function PinModal({ workspaceId, onClose, onSaved }: { workspaceId: string; onCl
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 480 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>Pin an item</h3>
         <Row label="Entity type">
-          <select value={entityType} onChange={(e) => setEntityType(e.target.value)} style={inp}>
-            <option value="po">PO</option>
-            <option value="invoice">Invoice</option>
-            <option value="contract">Contract</option>
-            <option value="rfq">RFQ</option>
-            <option value="document">Compliance doc</option>
-          </select>
+          <SearchableSelect
+            value={entityType}
+            options={[
+              { value: "po", label: "PO" },
+              { value: "invoice", label: "Invoice" },
+              { value: "contract", label: "Contract" },
+              { value: "rfq", label: "RFQ" },
+              { value: "document", label: "Compliance doc" },
+            ]}
+            inputStyle={inp}
+            onChange={(v) => setEntityType(v)}
+          />
         </Row>
         <Row label="Entity ID (UUID)"><input value={entityId} onChange={(e) => setEntityId(e.target.value)} placeholder="00000000-..." style={inp} /></Row>
         <Row label="Label (optional)"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Auto-generated if blank" style={inp} /></Row>
@@ -420,8 +453,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const miniBtn = { padding: "2px 8px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "inherit" } as const;

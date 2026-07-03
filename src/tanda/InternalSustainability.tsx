@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import SearchableSelect from "./components/SearchableSelect";
 
 interface Report {
   id: string;
@@ -69,6 +70,36 @@ export default function InternalSustainability() {
     await load();
   }
 
+  // #23 — export rows with a TOTAL footer summing the numeric ESG metrics.
+  const exportRows = useMemo(() => {
+    const body = rows.map((r) => ({
+      ...r,
+      vendor_name: r.vendor?.name || r.vendor_id,
+      certifications_list: (r.certifications || []).join("; "),
+    })) as unknown as Array<Record<string, unknown>>;
+    if (rows.length > 0) {
+      const sum = (sel: (r: Report) => number | null) =>
+        rows.reduce((a, r) => a + (Number(sel(r)) || 0), 0);
+      body.push({
+        vendor_name: "TOTAL",
+        reporting_period_start: "",
+        reporting_period_end: "",
+        status: "",
+        scope1_emissions: sum((r) => r.scope1_emissions),
+        scope2_emissions: sum((r) => r.scope2_emissions),
+        scope3_emissions: sum((r) => r.scope3_emissions),
+        renewable_energy_pct: sum((r) => r.renewable_energy_pct),
+        waste_diverted_pct: sum((r) => r.waste_diverted_pct),
+        water_usage_liters: sum((r) => r.water_usage_liters),
+        certifications_list: "",
+        submitted_at: "",
+        reviewed_at: "",
+        rejection_reason: "",
+      });
+    }
+    return body;
+  }, [rows]);
+
   if (selected) return <ReportDetail report={selected} onBack={() => setSelected(null)} onReview={review} />;
 
   return (
@@ -79,15 +110,20 @@ export default function InternalSustainability() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Review vendor submissions. Approval triggers ESG score calculation.</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="submitted">Submitted</option>
-            <option value="under_review">Under review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </select>
+          <SearchableSelect
+            value={status}
+            onChange={(v) => setStatus(v)}
+            options={[
+              { value: "submitted", label: "Submitted" },
+              { value: "under_review", label: "Under review" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "", label: "All" },
+            ]}
+            inputStyle={selectSt}
+          />
           <ExportButton
-            rows={rows.map((r) => ({ ...r, vendor_name: r.vendor?.name || r.vendor_id, certifications_list: (r.certifications || []).join("; ") })) as unknown as Array<Record<string, unknown>>}
+            rows={exportRows}
             filename="sustainability-reports"
             sheetName="Sustainability"
             columns={[
@@ -195,6 +231,6 @@ function StatusChip({ status }: { status: string }) {
   return <span style={{ fontSize: 10, color: "#fff", background: color, padding: "2px 8px", borderRadius: 10, fontWeight: 700, textTransform: "uppercase" }}>{status.replace("_", " ")}</span>;
 }
 
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;

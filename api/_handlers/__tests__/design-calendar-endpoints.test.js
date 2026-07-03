@@ -100,6 +100,7 @@ describe("POST /api/planning/sync-on-hand", () => {
     await syncOnHandHandler(req, res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      onhand_layer_sync: null, // ONHAND_LAYER_SYNC env unset → hook inert
       upserted: 2468,
       new_skus: 1,
       skipped: 0,

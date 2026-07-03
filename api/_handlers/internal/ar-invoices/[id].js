@@ -9,6 +9,7 @@
 // Tangerine P4 Chunk 4 (M4 Accounts Receivable).
 
 import { createClient } from "@supabase/supabase-js";
+import { reopenSalesOrderFromInvoice } from "../../../_lib/sales-orders/reopenFromInvoice.js";
 
 export const config = { maxDuration: 15 };
 
@@ -131,6 +132,11 @@ export default async function handler(req, res) {
         error: `Cannot delete invoice in gl_status='${invoice.gl_status}'. Use /void instead.`,
       });
     }
+    // Re-open the originating sales order (if any) BEFORE deleting — the reopen
+    // reads this invoice's lines to know how much to un-invoice. Otherwise the SO
+    // is stranded in 'invoiced' and effectively lost.
+    let reopened = { reopened: false, so_number: null };
+    try { reopened = await reopenSalesOrderFromInvoice(admin, id); } catch { /* best-effort; never block the delete */ }
     // FK CASCADE on ar_invoice_lines handles line cleanup.
     const { error: delErr } = await admin
       .from("ar_invoice_lines")
@@ -142,7 +148,7 @@ export default async function handler(req, res) {
       .delete()
       .eq("id", id);
     if (invErr) return res.status(500).json({ error: invErr.message });
-    return res.status(204).end();
+    return res.status(200).json({ deleted: true, reopened_sales_order: reopened.reopened, so_number: reopened.so_number });
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");

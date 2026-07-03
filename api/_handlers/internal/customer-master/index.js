@@ -12,8 +12,12 @@
 //        country, payment_terms, default_currency, tax_exempt,
 //        tax_exempt_certificate, credit_limit, credit_limit_cents,
 //        status, billing_address, shipping_address,
-//        contact_name, contact_title, email, phone, website, wechat_id,
-//        default_gl_ar_account_id, default_gl_revenue_account_id }
+//        contact_name, contact_title, email, phone, website, wechat_id }
+//
+// GL routing accounts (AR / revenue / returns / COGS) live on the GL Accounts
+// tab and use the default_ar_/revenue_/returns_/cogs_account_id columns — the
+// only ones the SO + AR posting engines read. The older default_gl_ar/revenue
+// pair is retired (no longer written or shown); the columns remain in the DB.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
 
@@ -63,7 +67,6 @@ export function titleCaseCustomerName(raw) {
 const LIST_COLUMNS = [
   "id", "entity_id", "customer_code", "code", "name", "parent_customer_id",
   "customer_tier", "country", "channel_id", "customer_type",
-  "default_gl_ar_account_id", "default_gl_revenue_account_id",
   // P16 — SO routing defaults (brand/channel prefill + per-line revenue routing).
   "default_brand_id", "default_channel_id",
   "default_revenue_account_id", "default_returns_account_id", "default_cogs_account_id",
@@ -77,6 +80,7 @@ const LIST_COLUMNS = [
   "sales_rep_1_commission_pct",
   "sales_rep_2_id",
   "sales_rep_2_commission_pct",
+  "closeout_commission_pct",
   "default_brand_id",
   "default_channel_id",
   "default_revenue_account_id",
@@ -89,12 +93,13 @@ const LIST_COLUMNS = [
   "active", "external_refs", "created_at", "updated_at", "deleted_at",
 ].join(", ");
 
-// Up to 12 contacts, each {name,email,phone,title,department} (strings only).
-// Blank rows are dropped; everything beyond 12 is truncated.
+// Up to 12 contacts, each {id,name,email,phone,title,department} (strings only).
+// `id` is a stable per-contact key (lets customer_contact_notes attach to a
+// contact); preserved verbatim. Blank rows are dropped; beyond `max` truncated.
 export function sanitizeContacts(raw, max) {
   if (raw == null) return undefined;
   if (!Array.isArray(raw)) return { error: "contacts must be an array" };
-  const keys = ["name", "email", "phone", "title", "department"];
+  const keys = ["id", "name", "email", "phone", "title", "department"];
   const out = [];
   for (const c of raw) {
     if (c == null || typeof c !== "object") continue;
@@ -103,7 +108,8 @@ export function sanitizeContacts(raw, max) {
       const val = c[k];
       if (val != null && String(val).trim() !== "") row[k] = String(val).trim();
     }
-    if (Object.keys(row).length) out.push(row);
+    // An id-only row (no name/email/phone) is still blank → dropped below.
+    if (Object.keys(row).filter((k) => k !== "id").length) out.push(row);
     if (out.length >= max) break;
   }
   return out;
@@ -187,6 +193,10 @@ export default async function handler(req, res) {
     const buildRow = (code) => ({
       entity_id: entityId,
       name: v.data.name,
+      // customer_code is NOT NULL (legacy Xoro ref). App-created customers have no
+      // Xoro ref, so default it to the generated code (CUST-NNNNN) — fixes the
+      // "null value in column customer_code" error when adding a customer on the fly.
+      customer_code: v.data.customer_code != null && String(v.data.customer_code).trim() !== "" ? String(v.data.customer_code).trim() : code,
       code,
       customer_type: v.data.customer_type || "wholesale",
       country: v.data.country || null,
@@ -195,21 +205,27 @@ export default async function handler(req, res) {
       default_currency: v.data.default_currency || "USD",
       tax_exempt: v.data.tax_exempt === true,
       credit_limit: v.data.credit_limit != null ? v.data.credit_limit : null,
-      credit_limit_cents: v.data.credit_limit_cents ?? null,
-      credit_limit_currency: v.data.credit_limit_currency ?? null,
+      // credit_limit_cents (NOT NULL default 0) + credit_limit_currency (NOT NULL
+      // default 'USD'): default to the column defaults rather than null, else an
+      // on-the-fly add (which sends neither) overrides the default with an explicit
+      // null and trips the not-null constraint (operator item 14, second cause).
+      credit_limit_cents: v.data.credit_limit_cents ?? 0,
+      credit_limit_currency: v.data.credit_limit_currency ?? "USD",
       // Chunk K — customer factoring (operator item 17).
       is_factored: v.data.is_factored === true,
       factor_id: v.data.factor_id || null,
       status: v.data.status || "active",
       billing_address: v.data.billing_address || {},
       shipping_address: v.data.shipping_address || {},
-      default_gl_ar_account_id: v.data.default_gl_ar_account_id || null,
-      default_gl_revenue_account_id: v.data.default_gl_revenue_account_id || null,
       // P4-family sales-rep / default / GL-routing columns.
       sales_rep_1_id: v.data.sales_rep_1_id || null,
-      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? null,
+      // sales_rep_*_commission_pct are NOT NULL default 0 — default to 0, not null,
+      // so an on-the-fly add (which omits them) doesn't override the default and trip
+      // the not-null constraint. closeout_commission_pct IS nullable, so it stays null.
+      sales_rep_1_commission_pct: v.data.sales_rep_1_commission_pct ?? 0,
       sales_rep_2_id: v.data.sales_rep_2_id || null,
-      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? null,
+      sales_rep_2_commission_pct: v.data.sales_rep_2_commission_pct ?? 0,
+      closeout_commission_pct: v.data.closeout_commission_pct ?? null,
       default_brand_id: v.data.default_brand_id || null,
       default_channel_id: v.data.default_channel_id || null,
       default_revenue_account_id: v.data.default_revenue_account_id || null,
@@ -341,10 +357,6 @@ export function validateInsert(body) {
   } else {
     out.payment_terms_id = null;
   }
-  // UUID FK fields — coerce empty string to null.
-  for (const k of ["default_gl_ar_account_id", "default_gl_revenue_account_id"]) {
-    if (out[k] === "" || out[k] == null) out[k] = null;
-  }
   // P4-family UUID FK fields — coerce empty string to null + validate UUID.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   for (const k of [
@@ -359,7 +371,7 @@ export function validateInsert(body) {
     }
   }
   // P4-family commission percentages — numeric, 0..100.
-  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct"]) {
+  for (const k of ["sales_rep_1_commission_pct", "sales_rep_2_commission_pct", "closeout_commission_pct"]) {
     if (out[k] === "" || out[k] == null) {
       out[k] = null;
     } else {

@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import type { IpAiSuggestion } from "../types/intelligence";
 import { S, PAL, formatQty, formatPeriodCode } from "../../components/styles";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const SUGGESTION_COLOR: Record<string, string> = {
   increase_forecast:         "#10B981",
@@ -48,10 +49,15 @@ export default function AISuggestionPanel({ suggestions, skuCodeById, onAccept, 
             <input type="checkbox" checked={showOnlyOpen} onChange={(e) => setShowOnlyOpen(e.target.checked)} />
             Open only
           </label>
-          <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-            <option value="all">All types</option>
-            {types.map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
-          </select>
+          <SearchableSelect
+            value={filterType}
+            onChange={(v) => setFilterType(v)}
+            options={[
+              { value: "all", label: "All types" },
+              ...types.map((t) => ({ value: t, label: t.replace(/_/g, " ") })),
+            ]}
+            inputStyle={S.select}
+          />
         </div>
       </div>
 

@@ -8,6 +8,8 @@ import { runAIDemandPrediction } from "../services/aiDemandService";
 import { S, PAL, formatQty } from "../../components/styles";
 import type { ToastMessage } from "../../components/Toast";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const TABLE_KEY = "ip.ai_demand";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -76,6 +78,23 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
     return b.confidence_score - a.confidence_score;
   });
 
+  // Additive per-column sort over the filtered predictions. When the user
+  // hasn't clicked a header, rows keep the flag-then-confidence natural order
+  // above. SKU/dir/qty/pct/score/flag map to direct scalars; Top Signal maps
+  // to the first key signal the cell renders.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "ip:ai_demand:sort",
+    accessors: {
+      sku: (p) => p.sku_code ?? "",
+      dir: (p) => p.direction ?? "",
+      predicted: (p) => p.predicted_qty ?? null,
+      vs_forecast: (p) => p.vs_current_forecast_pct ?? null,
+      confidence: (p) => p.confidence_score ?? null,
+      flag: (p) => p.flag ?? "",
+      top_signal: (p) => p.key_signals?.[0] ?? "",
+    },
+  });
+
   const flagCounts = predictions.reduce<Record<string, number>>((acc, p) => {
     if (p.flag) acc[p.flag] = (acc[p.flag] || 0) + 1;
     return acc;
@@ -125,7 +144,7 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
         {/* Search */}
         {result && (
           <div style={S.toolbar}>
-            <input style={{ ...S.input, width: 220 }} placeholder="Search SKU" value={search} onChange={e => setSearch(e.target.value)} />
+            <input style={{ ...S.input, width: 220 }} placeholder="Search SKU" value={search} onChange={e => setSearch(e.target.value)} onFocus={e => e.currentTarget.select()} />
             <span style={{ fontSize: 12, color: PAL.textMuted }}>{filtered.length} of {predictions.length} SKUs</span>
             <div style={{ marginLeft: "auto" }}>
               <TablePrefsButton tableKey={TABLE_KEY} columns={ALL_COLUMNS} visibleColumns={visibleColumns}
@@ -137,7 +156,6 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
         {/* Idle state */}
         {!result && !running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>No prediction run yet</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Select a planning run and click "Run AI Prediction" to analyze demand using Claude.
@@ -147,7 +165,6 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
 
         {running && (
           <div style={{ ...S.card, textAlign: "center", padding: 60, color: PAL.textMuted }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
             <div style={{ fontSize: 14, fontWeight: 600, color: PAL.text }}>Analyzing demand data…</div>
             <div style={{ fontSize: 12, marginTop: 4 }}>
               Claude is reviewing your sales history, inventory, and market context. This takes ~15–30 seconds.
@@ -161,17 +178,17 @@ export default function AIDemandPanel({ planningRunId, onToast }: AIDemandPanelP
             <table style={S.table}>
               <thead>
                 <tr>
-                  <th hidden={!visibleColumns.has("sku")} style={S.th}>SKU</th>
-                  <th hidden={!visibleColumns.has("dir")} style={{ ...S.th, textAlign: "center" }}>Dir</th>
-                  <th hidden={!visibleColumns.has("predicted")} style={{ ...S.th, textAlign: "right" }}>Predicted</th>
-                  <th hidden={!visibleColumns.has("vs_forecast")} style={{ ...S.th, textAlign: "right" }}>vs Forecast</th>
-                  <th hidden={!visibleColumns.has("confidence")} style={{ ...S.th, textAlign: "right" }}>Confidence</th>
-                  <th hidden={!visibleColumns.has("flag")} style={S.th}>Flag</th>
-                  <th hidden={!visibleColumns.has("top_signal")} style={S.th}>Top Signal</th>
+                  <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("sku")} />
+                  <SortableTh label="Dir" sortKey="dir" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("dir")} cellStyle={{ textAlign: "center" }} />
+                  <SortableTh label="Predicted" sortKey="predicted" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("predicted")} cellStyle={{ textAlign: "right" }} />
+                  <SortableTh label="vs Forecast" sortKey="vs_forecast" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("vs_forecast")} cellStyle={{ textAlign: "right" }} />
+                  <SortableTh label="Confidence" sortKey="confidence" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("confidence")} cellStyle={{ textAlign: "right" }} />
+                  <SortableTh label="Flag" sortKey="flag" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("flag")} />
+                  <SortableTh label="Top Signal" sortKey="top_signal" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("top_signal")} />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(p => (
+                {sorted.map(p => (
                   <tr
                     key={p.sku_id}
                     style={{ cursor: "pointer", background: selected?.sku_id === p.sku_id ? PAL.panel : undefined }}

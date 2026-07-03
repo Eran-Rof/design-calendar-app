@@ -61,11 +61,12 @@
 //
 // Reads SUPABASE_PAT from .env.local / .env.staging (same as run-sql-prod.mjs).
 
-import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from "fs";
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync, mkdirSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
+import { repairSizeCell } from "../api/_lib/inventory/restCsvSize.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -91,6 +92,17 @@ const REVERSE_BATCH = argVal("--reverse-batch");
 // PROD identity (Ring of Fire entity + prod project ref).
 const PROD_REF = "qcvqvxxoperiurauoxmp";
 const ROF_ENTITY_ID = "404b8a6b-0d2d-44d2-8539-9064ff0fafee";
+
+// Xoro StoreName → Tangerine inventory_locations.code. Each REST cell carries its
+// StoreName; the layer must sit on THAT store's warehouse location (not one
+// style-level location), else e.g. ROF-ECOM stock shows as on-hand in Main. The
+// per-cell store is also recorded in the layer notes (wh=<Store>).
+const STORE_TO_LOC_CODE = {
+  "ROF Main": "WH-00000",
+  "ROF - ECOM": "WH-00001",
+  "Psycho Tuna": "WH-00002",
+  "Psycho Tuna Ecom": "WH-00003",
+};
 
 // --apply is OPT-IN, PROD-mutating, and STYLE-SCOPED. It must refuse to run
 // catalog-wide. A single explicit --style is mandatory.
@@ -228,13 +240,19 @@ const bySize = new Map(); // bp -> Map(size -> qty)  (style-level size profile)
 // Store-grain cells for --apply (ROF Main vs ROF - ECOM stay SEPARATE layers).
 // key = bp||color||size||store -> { bp, color, size, store, qty }
 const cellStoreMap = new Map();
+let repairedCells = 0; // kids age-range "XS(5,6)" comma corruption fixed (see restCsvSize.js)
 for (let i = 1; i < lines.length; i++) {
   const f = parseCsvLine(lines[i]);
   const bp = (f[cBP] || "").trim();
   if (!bp) continue;
   if (ONLY_STYLE && bp.toUpperCase() !== ONLY_STYLE.toUpperCase()) continue;
-  const color = (f[cColor] || "").trim();
-  const size = (f[cSize] || "").trim();
+  // Xoro bakes kids age-range sizes into Color with an UNQUOTED comma
+  // ("DEEP BLACK-XS(5,6)"), so the CSV split spills "6)" into Size. Rebuild the
+  // clean (color,size) before it forks garbage SKUs.
+  const fixed = repairSizeCell(f[cColor] || "", f[cSize] || "");
+  if (fixed.repaired) repairedCells++;
+  const color = fixed.color;
+  const size = fixed.size;
   const qty = Number(f[cOnHand] || 0) || 0;
   const store = cStore >= 0 ? (f[cStore] || "").trim() : "DEFAULT";
   const key = `${bp}||${color}||${size}`;
@@ -261,6 +279,7 @@ for (const [bp, sm] of bySize.entries()) {
 
 const bps = Array.from(restStyleTotal.keys());
 console.log(`# REST styles in CSV (after filter): ${bps.length}`);
+if (repairedCells > 0) console.log(`# Repaired ${repairedCells} kids age-range size cells (XS(5,6) comma corruption)`);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // --apply : STYLE-SCOPED PROD cutover (writes). Replaces a style's color-grain
@@ -325,24 +344,84 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   if (cells.length === 0) {
     return { ok: false, error: `no non-zero (color,size,store) cells for EXACT BasePartNumber '${styleCode}'`, code: 3 };
   }
+  // Non-sized styles (blank Size in REST — accessories / one-size samples like
+  // BP00001, FL00001) can't resolve a per-SIZE SKU. Skip the WHOLE style cleanly
+  // (partial cutover would make Σxoro_rest_size != REST and self-reverse anyway).
+  const blankSizeCells = cells.filter((c) => !String(c.size || "").trim());
+  if (blankSizeCells.length > 0) {
+    return { ok: false, error: `non-sized style (blank Size on ${blankSizeCells.length}/${cells.length} cells) — skipped (needs a size scale)`, code: 3, skip: true };
+  }
   const restTotal = cells.reduce((s, c) => s + c.qty, 0);
   const whTotals = {};
   for (const c of cells) whTotals[c.store] = (whTotals[c.store] || 0) + c.qty;
   console.log(`# (color,size,store) cells: ${cells.length}   REST total: ${restTotal}   per-warehouse: ${JSON.stringify(whTotals)}`);
 
   // Resolve the style_id from prod (must exist; do NOT create styles here).
+  // 0 rows is NOT fatal here: an inseam-suffixed BP (e.g. RYB059430) may have no
+  // style_master row of its own yet still have SKUs under a parent — PREFIX-MODE
+  // below resolves it. Only >1 is a hard error. If styleId stays null and
+  // prefix-mode doesn't fire, we fail cleanly further down.
   let styleId = styleIdHint || null;
   if (!styleId) {
     const { data: srows, error: sErr } = await admin
       .from("style_master").select("id")
       .eq("style_code", styleCode).eq("entity_id", ROF_ENTITY_ID);
     if (sErr) return { ok: false, error: `resolve style_id: ${sErr.message}`, code: 3 };
-    if (!srows || srows.length !== 1) {
-      return { ok: false, error: `expected exactly 1 style_master row for ${styleCode} in ROF entity, got ${srows ? srows.length : 0}`, code: 3 };
+    if (srows && srows.length > 1) {
+      return { ok: false, error: `expected ≤1 style_master row for ${styleCode} in ROF entity, got ${srows.length}`, code: 3 };
     }
-    styleId = srows[0].id;
+    styleId = srows && srows.length === 1 ? srows[0].id : null;
   }
-  console.log(`# style_id:      ${styleId}`);
+  console.log(`# style_id:      ${styleId || "(none — trying prefix-mode)"}`);
+
+  // ── PREFIX-MODE (inseam-suffixed BP) ────────────────────────────────────────
+  // Some Xoro BasePartNumbers bake the INSEAM into the code: RYB059432 = style
+  // RYB0594 + inseam 32. Those BPs have a style_master row with ZERO SKUs of
+  // their own; the actual SKUs live under the PARENT style (RYB0594), coded by
+  // the BP prefix ('RYB059432-…') with `inseam` populated — the parent holds
+  // every inseam side-by-side. Without special handling the batch guard skips
+  // them (resolved SKUs are "foreign" to the empty BP style) and their on-hand
+  // never refreshes. Here: if THIS style has no SKUs but 'BP-%' SKUs exist under
+  // exactly ONE parent at ONE inseam, refresh AGAINST THE PARENT, scoped to just
+  // this BP's inseam SKUs (so sibling inseams like RYB059430 are untouched).
+  let prefixMode = false;
+  let prefixSkuIds = null; // when set, retire/delete/verify scope to these SKUs
+  let resolveInseam = null;
+  {
+    // Own-SKU check only when this BP has a style row of its own.
+    let ownCount = 0;
+    if (styleId) {
+      const { data: ownSkus } = await admin
+        .from("ip_item_master").select("id")
+        .eq("entity_id", ROF_ENTITY_ID).eq("style_id", styleId).limit(1);
+      ownCount = (ownSkus || []).length;
+    }
+    // No own SKUs (empty style row) OR no style row at all → look for parent SKUs
+    // coded with this BP prefix.
+    if (ownCount === 0) {
+      const { data: pfx } = await admin
+        .from("ip_item_master").select("id, style_id, inseam")
+        .eq("entity_id", ROF_ENTITY_ID).like("sku_code", `${styleCode}-%`);
+      if (pfx && pfx.length > 0) {
+        const parentIds = [...new Set(pfx.map((r) => r.style_id).filter(Boolean))];
+        const inseams = [...new Set(pfx.map((r) => r.inseam).filter((v) => v != null).map((v) => String(v).trim()))];
+        if (parentIds.length === 1 && inseams.length === 1) {
+          prefixMode = true;
+          styleId = parentIds[0];
+          resolveInseam = inseams[0];
+          prefixSkuIds = pfx.map((r) => r.id);
+          console.log(`# PREFIX-MODE: '${styleCode}' → refresh under PARENT ${styleId} (inseam ${resolveInseam}), scoped to ${prefixSkuIds.length} '${styleCode}-*' SKUs.`);
+        } else {
+          return { ok: false, skip: true, code: 3, error: `sized-BP '${styleCode}' maps to ${parentIds.length} parent style(s) / ${inseams.length} inseam(s) — ambiguous, skipped` };
+        }
+      }
+    }
+  }
+  // If we still have no style to write to (unmatched BP, no parent prefix SKUs),
+  // skip cleanly — nothing to cut over.
+  if (!styleId) {
+    return { ok: false, skip: true, code: 3, error: `'${styleCode}' has no style_master row and no parent prefix SKUs — skipped (unmatched)` };
+  }
 
   // 1. Find-or-create per-size SKU per (color,size). Store is NOT part of the
   //    SKU. We do this INLINE (not via the shared resolveOrCreateSku) because
@@ -356,22 +435,54 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   // SML/LRG row instead of forking), creates canonical, and catches a 23505 on
   // the logical-SKU UNIQUE index by re-finding the tuple. isApparel:false
   // matches this style's existing color-grain SKUs + avoids apparel_dims_required.
-  const { resolveOrCreateSku } = await import("../api/_lib/styleMatrix.js");
-  async function findOrCreateSizeSku(color, size) {
-    return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: null }, { isApparel: false });
-  }
-
+  const { resolveOrCreateSku, canonColor, normalizeSize } = await import("../api/_lib/styleMatrix.js");
   const skuByColorSize = new Map(); // `${color}||${size}` -> item_id
   let created = 0, reused = 0;
-  for (const cell of cells) {
-    const k = `${cell.color}||${cell.size}`;
-    if (skuByColorSize.has(k)) continue;
-    const res = await findOrCreateSizeSku(cell.color, cell.size);
-    if (res.error || !res.id) {
-      return { ok: false, error: `findOrCreateSizeSku failed for (${cell.color}, ${cell.size}): ${res.error}`, code: 4 };
+
+  if (prefixMode) {
+    // REUSE-ONLY: match REST cells to the parent's EXISTING '<BP>-*' SKUs by
+    // (canonColor, normalizeSize). NEVER create here — the inseam SKUs were laid
+    // down by the original by-size cutover, so a cell with no match is a genuine
+    // data gap (a new color/size Xoro added since). Creating would fork a
+    // wrong/null-style SKU (resolveOrCreateSku's create path mis-set style_id in
+    // this scenario) and the guard would skip anyway — but leave clutter. Instead
+    // skip the whole style cleanly and report the gap, so the nightly never
+    // accretes stray SKUs.
+    const pMeta = [];
+    for (let i = 0; i < prefixSkuIds.length; i += 100) {
+      const { data: rows } = await admin
+        .from("ip_item_master").select("id, color, size")
+        .in("id", prefixSkuIds.slice(i, i + 100));
+      for (const r of rows || []) pMeta.push(r);
     }
-    skuByColorSize.set(k, res.id);
-    if (res.created) created++; else reused++;
+    const byCS = new Map();
+    for (const r of pMeta) byCS.set(`${canonColor(r.color)}||${normalizeSize(String(r.size))}`, r.id);
+    const gaps = [];
+    for (const cell of cells) {
+      const k = `${cell.color}||${cell.size}`;
+      if (skuByColorSize.has(k)) continue;
+      const id = byCS.get(`${canonColor(cell.color)}||${normalizeSize(String(cell.size))}`);
+      if (!id) { gaps.push(`${cell.color}/${cell.size}`); continue; }
+      skuByColorSize.set(k, id);
+      reused++;
+    }
+    if (gaps.length > 0) {
+      return { ok: false, skip: true, code: 3, error: `prefix-mode reuse-only: ${gaps.length}/${cells.length} REST cell(s) have no existing parent SKU (e.g. ${gaps[0]}) — new color/size data gap, skipped (no SKUs created)` };
+    }
+  } else {
+    async function findOrCreateSizeSku(color, size) {
+      return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: resolveInseam }, { isApparel: false });
+    }
+    for (const cell of cells) {
+      const k = `${cell.color}||${cell.size}`;
+      if (skuByColorSize.has(k)) continue;
+      const res = await findOrCreateSizeSku(cell.color, cell.size);
+      if (res.error || !res.id) {
+        return { ok: false, error: `findOrCreateSizeSku failed for (${cell.color}, ${cell.size}): ${res.error}`, code: 4 };
+      }
+      skuByColorSize.set(k, res.id);
+      if (res.created) created++; else reused++;
+    }
   }
   console.log(`# SKUs: ${skuByColorSize.size} distinct (color,size)  [${created} created, ${reused} reused]`);
 
@@ -381,10 +492,25 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   const skuIds = [...new Set(skuByColorSize.values())];
   const { data: skuMeta, error: skuMetaErr } = await admin
     .from("ip_item_master")
-    .select("id, sku_code, color, size")
+    .select("id, sku_code, color, size, style_id")
     .in("id", skuIds);
   if (skuMetaErr) { return { ok: false, error: `load sku meta: ${skuMetaErr.message}`, code: 4 }; }
   const skuCodeById = new Map((skuMeta || []).map((r) => [r.id, r.sku_code]));
+
+  // GUARD (pre-write): every resolved SKU must belong to THIS style_id. For a
+  // SKU-less style_master row whose style_code is a size/gender-suffixed BP
+  // (e.g. RYB059432 = style RYB0594 + waist 32, RYB086934PL), resolveOrCreateSku
+  // can't find/create under the empty style and re-finds a FOREIGN SKU by the
+  // globally-unique sku_code — so layers would land on the parent style and the
+  // per-style reversal (scoped to THIS style's SKUs, which is empty) can't undo
+  // them → an un-reversible orphan double-count. Refuse the whole style instead.
+  const foreignSkus = (skuMeta || []).filter((r) => r.style_id !== styleId);
+  if (foreignSkus.length > 0) {
+    return {
+      ok: false, skip: true, code: 3,
+      error: `resolved ${foreignSkus.length}/${skuIds.length} SKU(s) belonging to a DIFFERENT style (e.g. ${foreignSkus[0].sku_code}) — SKU-less / sized-BP style, skipped to avoid orphan layers on the parent`,
+    };
+  }
 
   // Determine the location_id to stamp on new layers: reuse the location on the
   // style's existing layers (deterministic, single-location in prod); fallback
@@ -397,16 +523,35 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     .limit(1);
   let locationId = existLayerLoc && existLayerLoc[0] ? existLayerLoc[0].location_id : null;
   if (!locationId) {
+    // Zero-layer styles (brand-new SKUs with no prior on-hand) have no existing
+    // location to mirror. The ROF Main Warehouse code is WH-00000 (NOT MAIN_WH);
+    // fall back to it, then to ANY location for the entity as a last resort.
     const { data: mainWh } = await admin
       .from("inventory_locations")
       .select("id")
       .eq("entity_id", ROF_ENTITY_ID)
-      .eq("code", "MAIN_WH")
+      .eq("code", "WH-00000")
       .maybeSingle();
     locationId = mainWh?.id || null;
+    if (!locationId) {
+      const { data: anyLoc } = await admin
+        .from("inventory_locations")
+        .select("id").eq("entity_id", ROF_ENTITY_ID).order("code").limit(1);
+      locationId = anyLoc && anyLoc[0] ? anyLoc[0].id : null;
+    }
   }
   if (!locationId) { return { ok: false, error: `could not resolve a location_id for new layers`, code: 4 }; }
-  console.log(`# location_id:   ${locationId}`);
+  console.log(`# location_id (fallback): ${locationId}`);
+
+  // Per-store location map so each layer sits on ITS store's warehouse (ROF Main
+  // → WH-00000, ROF - ECOM → WH-00001, …). Falls back to `locationId` for any
+  // store not in the map. Without this all stores' stock lands on one location.
+  const { data: allLocs } = await admin
+    .from("inventory_locations")
+    .select("id, code")
+    .eq("entity_id", ROF_ENTITY_ID);
+  const locByCode = new Map((allLocs || []).map((l) => [l.code, l.id]));
+  const locForStore = (store) => locByCode.get(STORE_TO_LOC_CODE[store]) || locationId;
 
   // Avg cost: ip_item_avg_cost keyed by sku_code, dollars. Prefer the exact
   // per-size sku_code; fall back to the color-level sku_code (style-COLOR);
@@ -435,14 +580,27 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   }
 
   // 2. Upsert tangerine_size_onhand: one row per (item_id, warehouse=Store).
-  const upsertRows = cells.map((cell) => ({
-    entity_id: ROF_ENTITY_ID,
-    item_id: skuByColorSize.get(`${cell.color}||${cell.size}`),
-    warehouse_code: cell.store, // ROF Main / ROF - ECOM kept SEPARATE
-    snapshot_date: snapshotDate,
-    qty_on_hand: cell.qty,
-    source: "xoro_rest",
-  }));
+  //    AGGREGATE by (item_id, warehouse): when two REST (color,size) cells
+  //    resolve to the SAME SKU (e.g. resolveOrCreateSku reuses one legacy
+  //    SML/LRG row for multiple REST sizes), naive per-cell rows collide on the
+  //    (entity,item,warehouse,snapshot,source) unique key → "ON CONFLICT DO
+  //    UPDATE command cannot affect row a second time". Sum the qty instead.
+  const upsertByKey = new Map();
+  for (const cell of cells) {
+    const itemId = skuByColorSize.get(`${cell.color}||${cell.size}`);
+    const key = `${itemId}||${cell.store}`;
+    const prev = upsertByKey.get(key);
+    if (prev) prev.qty_on_hand += cell.qty;
+    else upsertByKey.set(key, {
+      entity_id: ROF_ENTITY_ID,
+      item_id: itemId,
+      warehouse_code: cell.store, // ROF Main / ROF - ECOM kept SEPARATE
+      snapshot_date: snapshotDate,
+      qty_on_hand: cell.qty,
+      source: "xoro_rest",
+    });
+  }
+  const upsertRows = [...upsertByKey.values()];
   const { error: upErr } = await admin
     .from("tangerine_size_onhand")
     .upsert(upsertRows, { onConflict: "entity_id,item_id,warehouse_code,snapshot_date,source" });
@@ -452,13 +610,21 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   // ── Retire the seed (REVERSIBLE) ────────────────────────────────────────────
   // EVERY ip_item_master SKU under this style (not just resolved ones) — the
   // 24 color-grain seed SKUs must all go to 0 so the matrix total == REST.
-  const { data: allStyleSkus, error: allSkuErr } = await admin
-    .from("ip_item_master")
-    .select("id")
-    .eq("entity_id", ROF_ENTITY_ID)
-    .eq("style_id", styleId);
-  if (allSkuErr) { return { ok: false, error: `load style SKUs: ${allSkuErr.message}`, code: 5 }; }
-  const allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
+  // PREFIX-MODE: scope to ONLY this BP's inseam SKUs (+ any just-resolved) so the
+  // parent's OTHER inseams (e.g. RYB059430) keep their layers untouched.
+  let allStyleSkuIds;
+  if (prefixMode) {
+    allStyleSkuIds = [...new Set([...prefixSkuIds, ...skuByColorSize.values()])];
+    console.log(`# PREFIX-MODE scope: ${allStyleSkuIds.length} SKUs (this inseam only).`);
+  } else {
+    const { data: allStyleSkus, error: allSkuErr } = await admin
+      .from("ip_item_master")
+      .select("id")
+      .eq("entity_id", ROF_ENTITY_ID)
+      .eq("style_id", styleId);
+    if (allSkuErr) { return { ok: false, error: `load style SKUs: ${allSkuErr.message}`, code: 5 }; }
+    allStyleSkuIds = (allStyleSkus || []).map((r) => r.id);
+  }
 
   // A few legacy styles carry HUNDREDS of stale SKUs; a single `.in(item_id,[…])`
   // over all of them blows past PostgREST's URL length (→ 400 Bad Request). Chunk
@@ -470,22 +636,31 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     return out;
   };
 
-  // 4a. Capture the opening_balance layers we will zero (for exact reversal),
-  //     then UPDATE remaining_qty=0 (do NOT delete). Chunked over item_id.
+  // 4a. Capture the MIRROR-OWNED layers we will zero (for exact reversal), then
+  //     UPDATE remaining_qty=0 (do NOT delete). Chunked over item_id.
+  //     Mirror-owned = {opening_balance, xoro_onhand_sync}: both are synthetic
+  //     on-hand seeds that the per-SIZE xoro_rest_size layer SUPERSEDES. The
+  //     nightly xoro_onhand_sync (color-grain) manages ~70 styles; once a style
+  //     has xoro_rest_size the sync disqualifies it, so a leftover nonzero
+  //     xoro_onhand_sync layer would DOUBLE-COUNT (23 styles overlap the REST
+  //     feed). Native kinds (po_receipt/ap_invoice/adjustment/transfer_in/
+  //     manufacture/credit_memo_return) are legit stock and NEVER touched here.
+  const RETIRE_KINDS = ["opening_balance", "xoro_onhand_sync"];
   const obToZero = [];
   for (const ids of chunkIds(allStyleSkuIds)) {
     const { data: obLayers, error: obErr } = await admin
       .from("inventory_layers")
-      .select("id, item_id, original_qty, remaining_qty")
+      .select("id, item_id, original_qty, remaining_qty, source_kind")
       .eq("entity_id", ROF_ENTITY_ID)
       .in("item_id", ids)
-      .eq("source_kind", "opening_balance")
+      .in("source_kind", RETIRE_KINDS)
       .gt("remaining_qty", 0);
-    if (obErr) { return { ok: false, error: `load opening_balance layers: ${obErr.message}`, code: 5 }; }
+    if (obErr) { return { ok: false, error: `load mirror-owned (${RETIRE_KINDS.join("/")}) layers: ${obErr.message}`, code: 5 }; }
     for (const l of obLayers || []) obToZero.push(l);
   }
   const obZeroedTotal = obToZero.reduce((s, l) => s + Number(l.remaining_qty), 0);
-  console.log(`\n# ── REVERSAL LOG: opening_balance layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units) ──`);
+  const retiredByKind = obToZero.reduce((m, l) => ((m[l.source_kind] = (m[l.source_kind] || 0) + Number(l.remaining_qty)), m), {});
+  console.log(`\n# ── REVERSAL LOG: mirror-owned layers being zeroed (${obToZero.length} layers, ${obZeroedTotal} units; ${JSON.stringify(retiredByKind)}) ──`);
   for (const l of obToZero) {
     console.log(`#   layer ${l.id}  item ${l.item_id}  remaining_qty ${l.remaining_qty}  (original_qty ${l.original_qty})`);
   }
@@ -498,8 +673,19 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     all_style_sku_ids: allStyleSkuIds, rest_total: restTotal,
   };
   const manifestPath = join(tmp, `reversal-manifest-${styleCode}-${snapshotDate}.json`);
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
-  console.log(`# reversal manifest written: ${manifestPath}`);
+  // NON-FATAL + self-healing: the OS can clean the temp dir mid-run on a long
+  // --batch (Windows temp cleanup wiped it once → ENOENT threw and ~208 styles
+  // failed pre-write). Recreate the dir; if the write still fails, WARN and
+  // continue — the authoritative per-batch reversal manifest is flushed to
+  // .launchd-logs after every success, so this per-style copy is only a
+  // convenience for the single --apply path.
+  try {
+    mkdirSync(tmp, { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+    console.log(`# reversal manifest written: ${manifestPath}`);
+  } catch (e) {
+    console.log(`# ⚠ per-style manifest write skipped (${e.code || e.message}); batch manifest in .launchd-logs is authoritative.`);
+  }
 
   // 4b. Idempotent re-run: delete any PRIOR xoro_rest_size layers for these SKUs
   //     FIRST (we delete-then-reinsert below; this guards a partial state).
@@ -532,7 +718,7 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     return {
       entity_id: ROF_ENTITY_ID,
       item_id: itemId,
-      location_id: locationId,
+      location_id: locForStore(cell.store),
       received_at: "2026-05-31T23:59:59Z",
       original_qty: cell.qty,
       remaining_qty: cell.qty,
@@ -567,18 +753,33 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
   console.log(`#   Σ remaining_qty (all nonzero layers): ${total}`);
   console.log(`#   by source_kind: ${JSON.stringify(byKind)}`);
   console.log(`#   by warehouse:   ${JSON.stringify(byWh)}`);
-  const okTotal = total === restTotal;
-  const okKinds = Object.keys(byKind).every((k) => k === "xoro_rest_size");
-  console.log(`#   total == REST (${restTotal}): ${okTotal ? "PASS" : "FAIL"}`);
-  console.log(`#   only xoro_rest_size nonzero: ${okKinds ? "PASS" : "FAIL"}`);
-  if (!okTotal || !okKinds) {
+  // The invariants this cutover OWNS are only two:
+  //   (1) the seed is retired  → NO opening_balance layer left nonzero, and
+  //   (2) our xoro_rest_size layers sum to EXACTLY the REST size-grain total.
+  // Any OTHER source_kind (transfer_in / adjustment / po_receipt / ap_invoice /
+  // manufacture / credit_memo_return) is LEGIT native on-hand this cutover must
+  // NOT touch — its presence is NOT a failure. (Earlier the check demanded "only
+  // xoro_rest_size" + total==REST, so a single legit transfer_in layer tripped a
+  // false FAIL and, in --batch, auto-reversed the whole style.)
+  const xoroRestTotal = byKind["xoro_rest_size"] || 0;
+  const mirrorRemaining = (byKind["opening_balance"] || 0) + (byKind["xoro_onhand_sync"] || 0);
+  const nativeKinds = Object.keys(byKind).filter((k) => k !== "xoro_rest_size" && k !== "opening_balance" && k !== "xoro_onhand_sync");
+  const nativeTotal = nativeKinds.reduce((s, k) => s + byKind[k], 0);
+  const okRest = xoroRestTotal === restTotal;
+  const okSeedRetired = mirrorRemaining === 0;
+  console.log(`#   Σ xoro_rest_size == REST (${restTotal}): ${okRest ? "PASS" : "FAIL"} (got ${xoroRestTotal})`);
+  console.log(`#   mirror seed retired (opening_balance+xoro_onhand_sync 0 remaining): ${okSeedRetired ? "PASS" : "FAIL"} (got ${mirrorRemaining})`);
+  if (nativeTotal > 0) {
+    console.log(`#   ℹ preserved ${nativeTotal} units on native layers (${nativeKinds.join(", ")}) — untouched by design.`);
+  }
+  if (!okRest || !okSeedRetired) {
     return {
       ok: false,
-      error: `POST-APPLY VERIFY FAILED (total=${total} restTotal=${restTotal} byKind=${JSON.stringify(byKind)})`,
+      error: `POST-APPLY VERIFY FAILED (xoro_rest_size=${xoroRestTotal} restTotal=${restTotal} mirror_remaining=${mirrorRemaining} byKind=${JSON.stringify(byKind)})`,
       code: 8, manifest, manifestPath, byKind, byWh, restTotal, total,
     };
   }
-  return { ok: true, restTotal, byKind, byWh, manifest, manifestPath, total };
+  return { ok: true, restTotal, byKind, byWh, manifest, manifestPath, total, xoroRestTotal, nativeTotal };
 }
 
 // reverseStyle: undo ONE style given its applyStyle manifest. Restores each
@@ -649,6 +850,11 @@ async function runBatch() {
   // Final work-list: matched, non-PPK, excluding RYB0412 (pilot — verify+skip),
   // and excluding zero-REST styles (no on-hand to cut over; applyStyle would
   // no-op with a "no non-zero cells" error — skip cleanly, don't count failed).
+  // NOTE: unmatched inseam-suffixed BPs (e.g. RYB059430 with no style row) are
+  // deliberately NOT included — their SKUs are tangled across parents and
+  // resolveOrCreateSku would fork null-style clutter (the guard skips them but
+  // after creating stray rows). Matched-but-empty inseam BPs (the 12: RYB059432
+  // etc.) ARE in the list and PREFIX-MODE refreshes them cleanly.
   const PILOT = "RYB0412";
   const matchedNonPilot = candidateBps.filter((bp) => matchedSet.has(bp) && bp !== PILOT);
   const zeroRestSkipped = matchedNonPilot.filter((bp) => (restStyleTotal.get(bp) || 0) === 0);

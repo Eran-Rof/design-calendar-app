@@ -13,6 +13,8 @@ import {
 } from "../../governance/services/permissionService";
 import { logChange } from "../../scenarios/services/auditLogService";
 import { S, PAL, formatDate } from "../../components/styles";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 import { confirmDialog, promptDialog } from "../../../shared/ui/warn";
 import type { ToastMessage } from "../../components/Toast";
 
@@ -38,9 +40,18 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
   const selectedRole = useMemo(() => roles.find((r) => r.id === selectedRoleId) ?? null, [roles, selectedRoleId]);
   const assignments = useMemo(() => userRoles.filter((ur) => ur.role_id === selectedRoleId), [userRoles, selectedRoleId]);
 
+  // Per-column sort over the selected role's assignments. "Granted at" maps to
+  // the raw timestamp the cell formats; the rest are direct scalars.
+  const { sorted: sortedAssignments, sortKey, sortDir, onHeaderClick } = useSort(assignments, {
+    persistKey: "ip:roles_assignments:sort",
+    accessors: {
+      granted_at: (ur) => ur.granted_at ?? "",
+    },
+  });
+
   async function assign() {
     if (!selectedRole || !isAdmin) return;
-    const email = await promptDialog(`Grant "${selectedRole.role_name}" to which email?`, { title: "Grant role", icon: "🔑", placeholder: "name@domain.com", required: true });
+    const email = await promptDialog(`Grant "${selectedRole.role_name}" to which email?`, { title: "Grant role", placeholder: "name@domain.com", required: true });
     if (!email) return;
     try {
       await assignUserRole(email, selectedRole.id, currentUser.user_email);
@@ -127,16 +138,16 @@ export default function RolesPermissionsPanel({ currentUser, onToast }: RolesPer
             <table style={S.table}>
               <thead>
                 <tr>
-                  <th style={S.th}>User</th>
-                  <th style={S.th}>Active</th>
-                  <th style={S.th}>Granted at</th>
-                  <th style={S.th}>Granted by</th>
-                  <th style={S.th}>Note</th>
+                  <SortableTh label="User" sortKey="user_email" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                  <SortableTh label="Active" sortKey="active" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                  <SortableTh label="Granted at" sortKey="granted_at" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                  <SortableTh label="Granted by" sortKey="granted_by" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                  <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                   <th style={S.th}></th>
                 </tr>
               </thead>
               <tbody>
-                {assignments.map((ur) => (
+                {sortedAssignments.map((ur) => (
                   <tr key={ur.id}>
                     <td style={{ ...S.td, fontFamily: "monospace" }}>{ur.user_email}</td>
                     <td style={S.td}>{ur.active ? "✓" : "✕"}</td>

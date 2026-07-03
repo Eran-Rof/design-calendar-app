@@ -31,13 +31,28 @@
  */
 export async function nextCode(admin, table, column, prefix, opts = {}) {
   const { entityId = null, pad = 5, bump = 0 } = opts;
+  // Use MAX(numeric suffix)+1, NOT COUNT+1. A count-based next number collides
+  // with existing codes whenever the sequence has gaps (deleted/imported rows),
+  // e.g. 192 CUST- rows numbered up to CUST-00195 → count+1=CUST-00193 already
+  // exists → unique violation, and the small retry can't climb past the dense
+  // region (→ spurious 409 "could not allocate a unique code"). Fetching the
+  // existing codes and taking the real max is gap-proof. Volumes here are in the
+  // hundreds per master, well under the PostgREST row cap.
   let q = admin
     .from(table)
-    .select("id", { count: "exact", head: true })
+    .select(column)
     .ilike(column, `${prefix}%`);
   if (entityId) q = q.eq("entity_id", entityId);
-  const { count } = await q;
-  const next = (count || 0) + 1 + bump;
+  const { data } = await q;
+  let max = 0;
+  for (const row of data || []) {
+    const m = String(row[column] ?? "").match(/(\d+)\s*$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  const next = max + 1 + bump;
   return `${prefix}${String(next).padStart(pad, "0")}`;
 }
 

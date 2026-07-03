@@ -60,6 +60,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -163,7 +164,7 @@ export default function InternalEmployeeTitles() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -189,7 +190,7 @@ export default function InternalEmployeeTitles() {
                   {...getRowProps(t)}
                 >
                   <td style={td} hidden={!isVisible("name")}>{t.name}</td>
-                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "🟢 yes" : "—"}</td>
+                  <td style={td} hidden={!isVisible("is_sales_role")}>{t.is_sales_role ? "yes" : "—"}</td>
                   <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sort_order")}>{t.sort_order}</td>
                   <td style={{ ...td, textAlign: "right" }}>
                     <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} style={btnSecondary}>Edit</button>

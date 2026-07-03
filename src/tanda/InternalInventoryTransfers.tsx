@@ -113,6 +113,8 @@ const INV_XFER_COLUMNS: ColumnDef[] = [
   { key: "from",  label: "From" },
   { key: "to",    label: "To" },
   { key: "date",  label: "Date" },
+  { key: "by",      label: "By" },
+  { key: "created", label: "Created" },
   { key: "notes", label: "Notes" },
 ];
 
@@ -128,6 +130,8 @@ type InventoryTransfer = {
   posted_je_id: string | null;
   created_at: string;
   updated_at: string;
+  created_by_user_id?: string | null;
+  created_by_name?: string | null;
 };
 
 const C = {
@@ -153,6 +157,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -179,6 +184,8 @@ export default function InternalInventoryTransfers() {
   // Warehouse SearchableSelect filters (replaces free-text from/to inputs).
   const [filterFromCode, setFilterFromCode] = useState("");
   const [filterToCode, setFilterToCode] = useState("");
+  // Item 4 — filter by who created the transfer (client-side over loaded rows).
+  const [filterUser, setFilterUser] = useState("");
   // Master data for filter dropdowns.
   const [styles, setStyles] = useState<StyleMasterRow[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
@@ -274,8 +281,18 @@ export default function InternalInventoryTransfers() {
     return () => { cancelled = true; };
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // No extra client-side filter — filtering is server-side via query params.
-  const displayRows = useMemo(() => sorted, [sorted]);
+  // Item 4 — user filter is client-side (over the loaded rows); style/from/to are
+  // server-side via query params.
+  const displayRows = useMemo(
+    () => (filterUser ? sorted.filter((t) => (t.created_by_user_id || "") === filterUser) : sorted),
+    [sorted, filterUser],
+  );
+  // Distinct creators present in the loaded rows → user-filter options.
+  const userOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of rows) if (t.created_by_user_id) m.set(t.created_by_user_id, t.created_by_name || t.created_by_user_id.slice(0, 8));
+    return [{ value: "", label: "All users" }, ...[...m].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }))];
+  }, [rows]);
 
   const fmtDate = fmtDateDisplay;
 
@@ -346,6 +363,14 @@ export default function InternalInventoryTransfers() {
             placeholder="To warehouse"
           />
         </div>
+        <div style={{ width: 200 }} title="Filter by who logged the transfer">
+          <SearchableSelect
+            value={filterUser || null}
+            onChange={(v) => setFilterUser(v || "")}
+            options={userOptions}
+            placeholder="All users"
+          />
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 12, alignItems: "center" }}>
           <TablePrefsButton
             tableKey={INV_XFER_TABLE_KEY}
@@ -378,7 +403,7 @@ export default function InternalInventoryTransfers() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -387,16 +412,18 @@ export default function InternalInventoryTransfers() {
               <SortableTh label="From" sortKey="from" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("from")} />
               <SortableTh label="To" sortKey="to" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("to")} />
               <SortableTh label="Date" sortKey="date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("date")} />
+              <th style={th} hidden={!isVisible("by")}>By</th>
+              <th style={th} hidden={!isVisible("created")}>Created</th>
               <SortableTh label="Notes" sortKey="notes" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("notes")} />
               <th style={th} />
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td style={td} colSpan={7}>Loading…</td></tr>
+              <tr><td style={td} colSpan={9}>Loading…</td></tr>
             )}
             {!loading && displayRows.length === 0 && (
-              <tr><td style={td} colSpan={7}>
+              <tr><td style={td} colSpan={9}>
                 <span style={{ color: C.textMuted }}>
                   No transfers logged yet. Use "+ Add" to log a single-variant or matrix transfer.
                 </span>
@@ -411,6 +438,8 @@ export default function InternalInventoryTransfers() {
                 <td style={td} hidden={!isVisible("from")}>{t.from_location}</td>
                 <td style={td} hidden={!isVisible("to")}>{t.to_location}</td>
                 <td style={td} hidden={!isVisible("date")}>{fmtDate(t.transfer_date)}</td>
+                <td style={{ ...td, color: C.textSub }} hidden={!isVisible("by")}>{t.created_by_name || "—"}</td>
+                <td style={{ ...td, color: C.textSub, whiteSpace: "nowrap" }} hidden={!isVisible("created")}>{t.created_at ? new Date(t.created_at).toLocaleString("en-US") : "—"}</td>
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("notes")}>{t.notes || "—"}</td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   {!t.posted_je_id && (
@@ -536,6 +565,7 @@ function SingleTransferModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { reasons, addReason } = useTransferReasons();
+  const isAdmin = !!getCachedAuthUserId(); // item 1 — only admins add reasons on the fly
   const warehouses = useWarehouses();
   const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
@@ -650,7 +680,7 @@ function SingleTransferModal({
             reasons={reasons}
             value={reason}
             onChange={setReason}
-            onAddNew={(q) => { void addReason(q).then((name) => { if (name) setReason(name); }); }}
+            onAddNew={(q) => { if (!isAdmin) { notify("Only admins can add transfer reasons. Ask an admin, or pick an existing reason.", "error"); return; } void addReason(q).then((name) => { if (name) setReason(name); }); }}
           />
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
             Required. Curate the list in the Transfer Reasons master, or type one and choose "Add new".
@@ -727,6 +757,7 @@ function MatrixTransferModal({
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const { reasons, addReason } = useTransferReasons();
+  const isAdmin = !!getCachedAuthUserId(); // item 1 — only admins add reasons on the fly
   const warehouses = useWarehouses();
   const whOpts = useMemo(() => warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` })), [warehouses]);
 
@@ -923,7 +954,10 @@ function MatrixTransferModal({
 
   return (
     <div style={modalBg} onClick={onClose}>
-      <div style={{ ...modalCard, width: "min(820px, 95vw)" }} onClick={(e) => e.stopPropagation()}>
+      {/* Item 2 — wide enough to show the full color × size grid + Grand Total for
+          the largest matrix, with a little breathing room each side; the grid wraps
+          in a horizontal-scroll area so an extra-wide size run never gets clipped. */}
+      <div style={{ ...modalCard, width: "min(1400px, 97vw)" }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ margin: "0 0 4px", fontSize: 18 }}>Matrix Inventory Transfer</h2>
         <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
           Pick a FROM + TO location once, choose a style, then type a transfer qty into each cell.
@@ -964,7 +998,7 @@ function MatrixTransferModal({
             reasons={reasons}
             value={reason}
             onChange={setReason}
-            onAddNew={(q) => { void addReason(q).then((name) => { if (name) setReason(name); }); }}
+            onAddNew={(q) => { if (!isAdmin) { notify("Only admins can add transfer reasons. Ask an admin, or pick an existing reason.", "error"); return; } void addReason(q).then((name) => { if (name) setReason(name); }); }}
           />
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
             Required — applies to every transfer in this batch. Curate the list in the Transfer Reasons master, or type one and choose "Add new".
@@ -1002,15 +1036,17 @@ function MatrixTransferModal({
                 This style has no sized SKUs or size scale yet — use single-variant "+ Add" instead.
               </div>
             ) : (
-              <EditableSizeMatrix
-                rows={rows}
-                sizes={sizes}
-                showRise={hasMultiInseam}
-                riseLabel="Inseam"
-                qty={qtyMap}
-                onQtyChange={setQty}
-                onHand={onHand}
-              />
+              <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+                <EditableSizeMatrix
+                  rows={rows}
+                  sizes={sizes}
+                  showRise={hasMultiInseam}
+                  riseLabel="Inseam"
+                  qty={qtyMap}
+                  onQtyChange={setQty}
+                  onHand={onHand}
+                />
+              </div>
             )}
           </div>
         )}

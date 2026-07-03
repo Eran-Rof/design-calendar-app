@@ -49,6 +49,8 @@ import DateRangePresets from "./components/DateRangePresets.tsx";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const TABLE_KEY = "tanda.marketplace_status";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -83,13 +85,6 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   fba:     "Amazon FBA",
   walmart: "Walmart",
   faire:   "Faire",
-};
-
-export const CHANNEL_EMOJI: Record<Channel, string> = {
-  shopify: "🛍️",
-  fba:     "📦",
-  walmart: "🟦",
-  faire:   "🤝",
 };
 
 export type FeedKind = "orders" | "payouts" | "settlements" | "refunds" | "returns" | "inventory";
@@ -256,18 +251,49 @@ export default function InternalMarketplaceStatus() {
     return out;
   }, [statuses]);
 
+  // #5 — tri-state column sort over the feed-status rows. Accessors resolve
+  // the derived/JSX columns (channel + feed labels, last-sync timestamp); the
+  // numeric columns read same-named scalar fields straight off the row.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(statuses, {
+    persistKey: "tangerine:marketplace_status:sort",
+    accessors: {
+      channel: (s) => CHANNEL_LABEL[s.channel],
+      feed: (s) => FEEDS.find((f) => f.channel === s.channel && f.kind === s.kind)?.label ?? s.kind,
+      last_sync: (s) => (s.last_sync_at ? new Date(s.last_sync_at) : null),
+      unposted: (s) => s.unposted_count,
+      unmatched_dep: (s) => s.unmatched_deposits,
+    },
+  });
+
   // Export rows — WYSIWYG, the full table the operator is staring at.
   const exportRows = useMemo(
-    () => statuses.map((s) => ({
-      channel: CHANNEL_LABEL[s.channel],
-      feed: s.kind,
-      table: s.table,
-      last_sync_at: s.last_sync_at,
-      rows_in_range: s.rows_in_range,
-      unposted_count: s.unposted_count ?? "",
-      unmatched_deposits: s.unmatched_deposits ?? "",
-      errors_24h: s.errors_24h,
-    })),
+    () => {
+      const body = statuses.map((s) => ({
+        channel: CHANNEL_LABEL[s.channel],
+        feed: s.kind as string,
+        table: s.table,
+        last_sync_at: s.last_sync_at,
+        rows_in_range: s.rows_in_range,
+        unposted_count: s.unposted_count ?? "",
+        unmatched_deposits: s.unmatched_deposits ?? "",
+        errors_24h: s.errors_24h,
+      }));
+      // #23 — append a TOTAL row summing the numeric columns so the exported
+      // spreadsheet carries a footer (no totals prop on ExportButton).
+      if (body.length > 0) {
+        body.push({
+          channel: "TOTAL",
+          feed: "",
+          table: "",
+          last_sync_at: null,
+          rows_in_range: statuses.reduce((a, s) => a + (s.rows_in_range || 0), 0),
+          unposted_count: statuses.reduce((a, s) => a + (s.unposted_count ?? 0), 0),
+          unmatched_deposits: statuses.reduce((a, s) => a + (s.unmatched_deposits ?? 0), 0),
+          errors_24h: statuses.reduce((a, s) => a + (s.errors_24h || 0), 0),
+        });
+      }
+      return body;
+    },
     [statuses],
   );
 
@@ -293,7 +319,7 @@ export default function InternalMarketplaceStatus() {
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>🛒 Marketplace Status</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Marketplace Status</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: C.textMuted }}>
             Shopify · FBA · Walmart · Faire
@@ -315,7 +341,6 @@ export default function InternalMarketplaceStatus() {
           return (
             <div key={ch} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 18 }}>{CHANNEL_EMOJI[ch]}</span>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{CHANNEL_LABEL[ch]}</span>
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Last sync</div>
@@ -392,20 +417,20 @@ export default function InternalMarketplaceStatus() {
         />
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)", marginBottom: 18 }}>
         {loading ? (
           <div style={{ padding: 20, color: C.textMuted, textAlign: "center" }}>Loading…</div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th} hidden={!visibleColumns.has("channel")}>Channel</th>
-                <th style={th} hidden={!visibleColumns.has("feed")}>Feed</th>
-                <th style={th} hidden={!visibleColumns.has("last_sync")}>Last sync</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")}>Rows in range</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unposted")}>Unposted</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")}>Unmatched dep.</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")}>Errors 24h</th>
+                <SortableTh label="Channel" sortKey="channel" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("channel")} />
+                <SortableTh label="Feed" sortKey="feed" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("feed")} />
+                <SortableTh label="Last sync" sortKey="last_sync" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!visibleColumns.has("last_sync")} />
+                <SortableTh label="Rows in range" sortKey="rows_in_range" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("rows_in_range")} />
+                <SortableTh label="Unposted" sortKey="unposted" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unposted")} />
+                <SortableTh label="Unmatched dep." sortKey="unmatched_dep" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("unmatched_dep")} />
+                <SortableTh label="Errors 24h" sortKey="errors_24h" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!visibleColumns.has("errors_24h")} />
                 <th style={{ ...th, textAlign: "center" }}>Run now</th>
               </tr>
             </thead>
@@ -413,13 +438,12 @@ export default function InternalMarketplaceStatus() {
               {statuses.length === 0 && !loading && (
                 <tr><td colSpan={8} style={{ ...td, color: C.textMuted, textAlign: "center", fontStyle: "italic" }}>No feeds reporting.</td></tr>
               )}
-              {statuses.map((s) => {
+              {sorted.map((s) => {
                 const feed = FEEDS.find((f) => f.channel === s.channel && f.kind === s.kind);
                 const busy = feed?.manualUrl === manualBusy;
                 return (
                   <tr key={`${s.channel}-${s.kind}`}>
                     <td style={td} hidden={!visibleColumns.has("channel")}>
-                      <span style={{ marginRight: 6 }}>{CHANNEL_EMOJI[s.channel]}</span>
                       {CHANNEL_LABEL[s.channel]}
                     </td>
                     <td style={td} hidden={!visibleColumns.has("feed")}>{feed?.label ?? s.kind}</td>
@@ -466,7 +490,7 @@ export default function InternalMarketplaceStatus() {
 
       <div style={{ background: C.card, border: `1px solid ${C.tangerine}55`, borderRadius: 10, padding: 14, fontSize: 12, color: C.textSub, lineHeight: 1.5 }}>
         <div style={{ fontSize: 11, color: C.tangerine, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-          💡 Period close hook
+          Period close hook
         </div>
         Unmatched marketplace deposits (je_id IS NULL) landing in a period block its close — the P12-99
         pre-flight check <code>unmatched_marketplace_deposits</code> surfaces on the Periods panel. Run the
@@ -508,6 +532,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`,

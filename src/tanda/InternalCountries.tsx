@@ -60,6 +60,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -168,7 +169,7 @@ export default function InternalCountries() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -302,7 +303,7 @@ function CountryFormModal({ mode, country, onClose, onSaved }: ModalProps) {
                     style={{ ...btnSecondary, whiteSpace: "nowrap", flexShrink: 0 }}
                     title="Use Claude AI to suggest the ISO 3166-1 alpha-2 code from the country name"
                   >
-                    {isoLoading ? "…" : "🤖 Suggest"}
+                    {isoLoading ? "…" : "AI Suggest"}
                   </button>
                 </div>
                 {isoErr && <div style={{ fontSize: 11, color: C.warn, marginTop: 4 }}>{isoErr}</div>}

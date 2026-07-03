@@ -117,11 +117,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -253,7 +255,7 @@ export default function InternalCrmOpportunities() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          💼 Opportunities
+          Opportunities
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Pipeline (M25)
@@ -352,7 +354,7 @@ export default function InternalCrmOpportunities() {
 
       <div style={{
         background: C.card, border: `1px solid ${C.cardBdr}`,
-        borderRadius: 8, overflow: "hidden",
+        borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)",
       }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -433,14 +435,16 @@ function Select({ label, value, onChange, options, placeholder }: {
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-      >
-        <option value="">{placeholder || "All"}</option>
-        {options.map((o) => <option key={o} value={o}>{o.replace("_", " ")}</option>)}
-      </select>
+      <SearchableSelect
+        value={value || null}
+        onChange={(v) => onChange(v)}
+        options={[
+          { value: "", label: placeholder || "All" },
+          ...options.map((o) => ({ value: o, label: o.replace("_", " ") })),
+        ]}
+        placeholder={placeholder || "All"}
+        inputStyle={inputStyle}
+      />
     </div>
   );
 }
@@ -733,16 +737,16 @@ function OpportunityDetailModal({ id, onClose, customers }: {
           </h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 12, alignItems: "end" }}>
             <Field label="New stage">
-              <select
+              <SearchableSelect
                 value={pendingStage}
-                onChange={(e) => setPendingStage(e.target.value as Stage | "")}
-                style={inputStyle}
-              >
-                <option value="">— select —</option>
-                {STAGE_VALUES.filter((s) => s !== data.stage).map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+                onChange={(v) => setPendingStage(v as Stage | "")}
+                options={[
+                  { value: "", label: "— select —" },
+                  ...STAGE_VALUES.filter((s) => s !== data.stage).map((s) => ({ value: s, label: s })),
+                ]}
+                placeholder="— select —"
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Reason (optional)">
               <input
@@ -913,9 +917,12 @@ function CreateOpportunityModal({ customers, onClose, onCreated }: {
           />
         </Field>
         <Field label="Stage">
-          <select value={stage} onChange={(e) => setStage(e.target.value as Stage)} style={inputStyle}>
-            {STAGE_VALUES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SearchableSelect
+            value={stage}
+            onChange={(v) => setStage(v as Stage)}
+            options={STAGE_VALUES.map((s) => ({ value: s, label: s }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Owner">
           <SearchableSelect

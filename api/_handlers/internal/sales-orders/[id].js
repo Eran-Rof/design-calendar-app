@@ -9,12 +9,15 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveInternalRecipients } from "../../../_lib/internal-recipients.js";
+import { evaluateSoCreditGate } from "../../../_lib/customers/soShipGate.js";
 
 export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUSES = ["draft", "confirmed", "allocated", "fulfilling", "shipped", "invoiced", "closed", "cancelled"];
 const FACTOR_STATUSES = ["not_submitted", "pending", "approved", "partial", "declined", "not_required"];
+// Non-factor credit gate (house-account overdue-AR + credit-card paid-in-full).
+const CREDIT_STATUSES = ["not_required", "pending", "on_hold", "approved", "declined"];
 
 // Item 9 — resolve the revenue account to stamp on each SO line: the customer's
 // default_revenue_account_id, else the entity default. Returns a uuid or null.
@@ -128,7 +131,14 @@ export default async function handler(req, res, params) {
     }
     if ("notes" in body) patch.notes = body.notes ? String(body.notes).trim() : null;
     if ("customer_po" in body) patch.customer_po = body.customer_po ? String(body.customer_po).trim() : null;
+    if ("sale_store" in body) patch.sale_store = body.sale_store && String(body.sale_store).trim() ? String(body.sale_store).trim() : null;
+    if ("is_bulk_order" in body) patch.is_bulk_order = body.is_bulk_order === true;
+    // Scenario 2 — placeholder flag. Explicit value wins; otherwise replacing the
+    // customer PO on a placeholder SO clears the flag (it's now a real buyer PO).
+    if ("customer_po_is_placeholder" in body) patch.customer_po_is_placeholder = body.customer_po_is_placeholder === true;
+    else if ("customer_po" in body && so.customer_po_is_placeholder) patch.customer_po_is_placeholder = false;
     if ("fulfillment_source" in body) patch.fulfillment_source = ["production", "ats"].includes(body.fulfillment_source) ? body.fulfillment_source : null;
+    if ("is_closeout" in body) patch.is_closeout = body.is_closeout === true || body.is_closeout === "true";
 
     // Item 3 — factor / credit-insurance approval (manual).
     if ("factor_approval_status" in body) {
@@ -150,6 +160,33 @@ export default async function handler(req, res, params) {
         if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return res.status(400).json({ error: "factor_approved_cents must be a non-negative integer" });
         patch.factor_approved_cents = n;
       }
+    }
+
+    // Non-factor credit gate — manual operator override/release. Accepting
+    // credit_approval_status on PATCH lets an operator approve (release a hold),
+    // decline, or reset the gate. When approving, we stamp the source as
+    // 'manual' and record who did it; an explicit credit_approval_source in the
+    // body wins (e.g. the record-payment endpoint sets 'payment'). This is the
+    // sole UI-writable path for the gate — the confirm/ship logic below sets it
+    // automatically otherwise.
+    if ("credit_approval_status" in body) {
+      const cs = body.credit_approval_status;
+      if (cs == null || cs === "") {
+        patch.credit_approval_status = "not_required";
+      } else if (!CREDIT_STATUSES.includes(cs)) {
+        return res.status(400).json({ error: `credit_approval_status must be one of ${CREDIT_STATUSES.join(", ")}` });
+      } else {
+        patch.credit_approval_status = cs;
+        if (cs === "approved") {
+          patch.credit_approval_source = body.credit_approval_source && ["manual", "auto", "payment"].includes(body.credit_approval_source)
+            ? body.credit_approval_source : "manual";
+          patch.credit_approved_by_user_id =
+            (body.credit_approved_by_user_id && UUID_RE.test(String(body.credit_approved_by_user_id)))
+              ? body.credit_approved_by_user_id : null;
+          patch.credit_hold_reason = null; // releasing the hold clears the reason
+        }
+      }
+      patch.credit_checked_at = new Date().toISOString();
     }
 
     if ("status" in body) {
@@ -178,6 +215,33 @@ export default async function handler(req, res, params) {
                 error: "Factored customer — factor approval required before shipping. Set Factor/Ins Approval = approved on the sales order first.",
               });
             }
+          } else {
+            // NON-factored: enforce the credit ship-gate (house-account overdue
+            // AR / credit-card paid-in-full). An operator override sets
+            // credit_approval_status='approved' which always releases the gate.
+            // The effective status is the PATCH value when supplied, else the
+            // current row value.
+            const effCredit = ("credit_approval_status" in patch)
+              ? patch.credit_approval_status
+              : so.credit_approval_status;
+            if (effCredit !== "approved") {
+              try {
+                const decision = await evaluateSoCreditGate(admin, {
+                  customer_id: custId,
+                  entity_id: so.entity_id,
+                  payment_terms_id: ("payment_terms_id" in patch ? patch.payment_terms_id : so.payment_terms_id),
+                  total_cents: so.total_cents,
+                  amount_paid_cents: so.amount_paid_cents,
+                });
+                if (decision.blocked) {
+                  return res.status(409).json({ error: decision.reason, credit_gate: decision.gate });
+                }
+              } catch (e) {
+                // High-stakes: if the overdue-AR lookup fails we DO NOT silently
+                // allow the ship — surface the error so the operator/ops notices.
+                return res.status(500).json({ error: `Credit gate check failed: ${e instanceof Error ? e.message : String(e)}` });
+              }
+            }
           }
         }
       }
@@ -187,6 +251,34 @@ export default async function handler(req, res, params) {
       if (body.status === "confirmed" && !so.so_number) {
         const year = (so.order_date || new Date().toISOString().slice(0, 10)).slice(0, 4);
         patch.so_number = await nextSoNumber(admin, so.entity_id, year);
+      }
+
+      // On confirm — capture-but-hold: evaluate the non-factor credit gate and
+      // stamp credit_approval_status (on_hold for house-account overdue AR,
+      // pending for an unpaid credit-card order). The SO still saves either way.
+      // An operator override already in this PATCH ('approved'/'declined') is
+      // respected — we never downgrade an explicit operator decision. Factored
+      // customers are skipped (the factor gate owns them).
+      if (body.status === "confirmed" && !("credit_approval_status" in patch)) {
+        const effCredit = so.credit_approval_status;
+        if (effCredit !== "approved" && effCredit !== "declined") {
+          try {
+            const decision = await evaluateSoCreditGate(admin, {
+              customer_id: ("customer_id" in patch ? patch.customer_id : so.customer_id),
+              entity_id: so.entity_id,
+              payment_terms_id: ("payment_terms_id" in patch ? patch.payment_terms_id : so.payment_terms_id),
+              // Use the post-line-replace total when this PATCH also rewrites lines.
+              total_cents: ("total_cents" in patch ? patch.total_cents : so.total_cents),
+              amount_paid_cents: so.amount_paid_cents,
+            });
+            patch.credit_approval_status = decision.target_status;
+            patch.credit_hold_reason = decision.reason;
+            patch.credit_checked_at = new Date().toISOString();
+          } catch {
+            // Non-blocking at confirm — the hard block lives at the ship/
+            // fulfilling transition (which re-evaluates and surfaces errors).
+          }
+        }
       }
     }
 
@@ -216,6 +308,7 @@ export default async function handler(req, res, params) {
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_price_cents: unit, line_total_cents: Math.round(qty * unit),
           revenue_account_id: lineRevenueAccountId,
+          lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
       await admin.from("sales_order_lines").delete().eq("sales_order_id", id);
@@ -231,6 +324,26 @@ export default async function handler(req, res, params) {
     if (Object.keys(patch).length === 0) return res.status(200).json(so);
     const { data, error } = await admin.from("sales_orders").update(patch).eq("id", id).select("*").single();
     if (error) return res.status(500).json({ error: error.message });
+
+    // Scenario 2 — replacing the SO's customer PO (e.g. a placeholder → the real
+    // buyer PO) re-lots every NOT-YET-RECEIVED PO linked to this SO: lines that
+    // carried the OLD customer PO as their lot switch to the new one. Received /
+    // cancelled POs are left as-is (their stock is already lot-stamped on layers).
+    let relotted = null;
+    const oldPo = (so.customer_po || "").trim();
+    const newPo = ("customer_po" in patch) ? (patch.customer_po || "").trim() : oldPo;
+    if ("customer_po" in body && oldPo && newPo && newPo !== oldPo) {
+      const { data: pos } = await admin.from("purchase_orders")
+        .select("id").eq("sales_order_id", id).not("status", "in", "(received,cancelled)");
+      const poIds = (pos || []).map((p) => p.id);
+      let lines = 0;
+      if (poIds.length) {
+        const { data: upd } = await admin.from("purchase_order_lines")
+          .update({ lot_number: newPo }).in("purchase_order_id", poIds).eq("lot_number", oldPo).select("id");
+        lines = (upd || []).length;
+      }
+      relotted = { pos: poIds.length, lines, from: oldPo, to: newPo };
+    }
 
     // Production fulfillment alert — when this PATCH confirms the order and the
     // effective fulfillment source is Production, notify the Production team
@@ -252,7 +365,13 @@ export default async function handler(req, res, params) {
                 event_type: "production_order_requested",
                 title: `Production order: ${soNo}`,
                 body: `Sales order ${soNo} was confirmed for PRODUCTION fulfillment. Review it in Tangerine → Sales Orders.`,
-                link: "/tangerine?m=sales_orders",
+                // Deep-link straight to this SO: q= filters the Sales Orders
+                // list to the so_number (falls back to the bare list if the
+                // number isn't assigned yet). The shared notificationLink
+                // resolver also derives this from metadata as a backstop.
+                link: data.so_number
+                  ? `/tangerine?m=sales_orders&q=${encodeURIComponent(data.so_number)}`
+                  : "/tangerine?m=sales_orders",
                 metadata: { sales_order_id: id, so_number: data.so_number || null, fulfillment_source: "production" },
                 recipient: { internal_id: "production", email },
                 dedupe_key: `production_order_${id}`,
@@ -264,7 +383,7 @@ export default async function handler(req, res, params) {
         }
       } catch { /* non-blocking */ }
     }
-    return res.status(200).json(productionNotice ? { ...data, production_notice: productionNotice } : data);
+    return res.status(200).json({ ...data, ...(productionNotice ? { production_notice: productionNotice } : {}), ...(relotted ? { relotted } : {}) });
   }
 
   res.setHeader("Allow", "GET, PATCH, DELETE");

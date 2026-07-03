@@ -10,6 +10,7 @@
 // from sessionStorage; bearer header injected by installInternalApiAuth).
 
 import { useEffect, useMemo, useState } from "react";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 const PAL = {
   bg: "#0F172A",
@@ -323,16 +324,24 @@ export default function DocumentsApp() {
             <label style={label}>Description <span style={{ color: PAL.textMuted, fontWeight: 400 }}>(optional)</span></label>
             <input value={draftDesc} onChange={e => setDraftDesc(e.target.value)} maxLength={600} style={input} />
             <label style={label}>Workflow</label>
-            <select value={draftWorkflow} onChange={e => setDraftWorkflow(e.target.value)} style={input}>
-              {WORKFLOW_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <SearchableSelect
+              value={draftWorkflow || null}
+              onChange={v => setDraftWorkflow(v)}
+              options={WORKFLOW_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+              inputStyle={input}
+            />
             <label style={label}>Params <span style={{ color: PAL.textMuted, fontWeight: 400 }}>(JSON — workflow-specific, e.g. {`{"top_n": 15}`} for underperformer_review)</span></label>
             <textarea value={draftParams} onChange={e => setDraftParams(e.target.value)} rows={5} style={{ ...input, fontFamily: "ui-monospace, monospace", fontSize: 12, resize: "vertical" }} />
             <label style={label}>Visibility</label>
-            <select value={draftScope} onChange={e => setDraftScope(e.target.value as "self" | "shared")} style={input}>
-              <option value="self">Private (just me)</option>
-              <option value="shared">Shared (everyone)</option>
-            </select>
+            <SearchableSelect
+              value={draftScope}
+              onChange={v => setDraftScope(v as "self" | "shared")}
+              options={[
+                { value: "self", label: "Private (just me)" },
+                { value: "shared", label: "Shared (everyone)" },
+              ]}
+              inputStyle={input}
+            />
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button onClick={saveDoc} disabled={saving} style={btnPrimary}>{saving ? "Saving…" : "Save"}</button>
               <button onClick={cancelEdit} disabled={saving} style={btnSecondary}>Cancel</button>

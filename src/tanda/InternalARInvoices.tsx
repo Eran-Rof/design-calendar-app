@@ -15,11 +15,15 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
+import QuickAddPartyModal from "./components/QuickAddPartyModal";
+import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 // Cross-cutter T11-3 — audit-trail drop-in for the detail modal.
 import RowHistory from "./components/RowHistory";
 // Wave 5 universal primitives — column show/hide, row-click-to-edit, dyn search.
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
@@ -84,6 +88,8 @@ type ARInvoice = {
   paid_amount_cents: string;
   description: string | null;
   source?: string | null;
+  sales_order_id?: string | null;
+  so_number?: string | null;  // resolved server-side for the delete/void warning
   created_at: string;
 };
 
@@ -153,6 +159,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -267,6 +274,20 @@ export default function InternalARInvoices() {
     return m;
   }, [customers]);
 
+  // #5 Sortable columns — null-safe accessors for computed/derived columns.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:arinvoices:sort",
+    accessors: {
+      customer: (inv) => customerMap[inv.customer_id]?.name || inv.customer_id,
+      total: (inv) => Number(inv.total_amount_cents || "0"),
+      paid: (inv) => Number(inv.paid_amount_cents || "0"),
+      balance: (inv) => Number(BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")),
+      invoice_date: (inv) => inv.invoice_date,
+      invoice_number: (inv) => inv.invoice_number,
+      status: (inv) => inv.gl_status,
+    },
+  });
+
   async function doPost(inv: ARInvoice) {
     if (!(await confirmDialog(`Post invoice ${inv.invoice_number}? This creates the accrual JE and consumes FIFO inventory for any inventory lines.`))) return;
     setBusy(inv.id);
@@ -286,7 +307,9 @@ export default function InternalARInvoices() {
   }
 
   async function doVoid(inv: ARInvoice) {
-    const reason = prompt(`Void invoice ${inv.invoice_number}? Optional reason:`, "");
+    // Item 2 — warn that voiding re-opens the originating sales order + its allocations.
+    const soWarn = inv.so_number ? `\n\nThis will RE-OPEN sales order ${inv.so_number} and restore its allocations.` : "";
+    const reason = prompt(`Void invoice ${inv.invoice_number}?${soWarn}\n\nOptional reason:`, "");
     if (reason === null) return;
     setBusy(inv.id);
     try {
@@ -304,6 +327,11 @@ export default function InternalARInvoices() {
         }
         return;
       }
+      {
+        const inv = Number(j.inventory_restored_qty) > 0 ? ` ${Number(j.inventory_restored_qty).toLocaleString()} units returned to on-hand.` : "";
+        if (j.reopened_sales_order && j.so_number) notify(`Invoice voided — GL reversed, sales order ${j.so_number} re-opened (allocations restored).${inv}`, "success");
+        else if (inv) notify(`Invoice voided — GL reversed;${inv}`, "success");
+      }
       await load();
     } catch (e: unknown) {
       notify(`Void failed: ${e instanceof Error ? e.message : String(e)}`, "error");
@@ -313,14 +341,17 @@ export default function InternalARInvoices() {
   }
 
   async function doDelete(inv: ARInvoice) {
-    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.`))) return;
+    // Item 2 — warn that deleting re-opens the originating sales order + its allocations.
+    const soWarn = inv.so_number ? ` This will re-open sales order ${inv.so_number} and restore its allocations.` : "";
+    if (!(await confirmDialog(`Delete draft invoice ${inv.invoice_number}? This is irreversible.${soWarn}`))) return;
     setBusy(inv.id);
     try {
       const r = await fetch(`/api/internal/ar-invoices/${inv.id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
         throw new Error(j.error || `HTTP ${r.status}`);
       }
+      if (j.reopened_sales_order && j.so_number) notify(`Invoice deleted — sales order ${j.so_number} re-opened (allocations restored).`, "success");
       await load();
     } catch (e: unknown) {
       notify(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, "error");
@@ -391,12 +422,19 @@ export default function InternalARInvoices() {
           to={toDate}
           onChange={(f, t) => { setFromDate(f); setToDate(t); }}
         />
-        <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} style={{ ...inputStyle, width: 110 }}>
-          <option value={50}>Limit 50</option>
-          <option value={100}>Limit 100</option>
-          <option value={200}>Limit 200</option>
-          <option value={500}>Limit 500</option>
-        </select>
+        <div style={{ width: 110 }}>
+          <SearchableSelect
+            value={String(limit)}
+            onChange={(v) => setLimit(Number(v))}
+            options={[
+              { value: "50", label: "Limit 50" },
+              { value: "100", label: "Limit 100" },
+              { value: "200", label: "Limit 200" },
+              { value: "500", label: "Limit 500" },
+            ]}
+            inputStyle={inputStyle}
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input type="checkbox" checked={includeVoid} onChange={(e) => setIncludeVoid(e.target.checked)} />
           Include void
@@ -448,7 +486,7 @@ export default function InternalARInvoices() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -457,18 +495,18 @@ export default function InternalARInvoices() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")}>Invoice #</th>
-                <th style={th} hidden={!isVisible("invoice_date")}>Date</th>
-                <th style={th} hidden={!isVisible("customer")}>Customer</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("paid")}>Paid</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!isVisible("balance")}>Balance</th>
-                <th style={th} hidden={!isVisible("status")}>Status</th>
+                <SortableTh label="Invoice #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")} />
+                <SortableTh label="Date" sortKey="invoice_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("invoice_date")} />
+                <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("customer")} />
+                <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+                <SortableTh label="Paid" sortKey="paid" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("paid")} />
+                <SortableTh label="Balance" sortKey="balance" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("balance")} />
+                <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
                 <th style={{ ...th, width: 260, textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((inv) => {
+              {sortedRows.map((inv) => {
                 const isDraft = inv.gl_status === "draft" || inv.gl_status === "unposted";
                 const isPendingApproval = inv.gl_status === "pending_approval";
                 const isSent = inv.gl_status === "sent" || inv.gl_status === "partial_paid" || inv.gl_status === "paid";
@@ -578,7 +616,7 @@ export default function InternalARInvoices() {
 // Add / Edit modal
 // ─────────────────────────────────────────────────────────────────────
 function ARInvoiceModal({
-  invoice, customers, onClose, onSaved,
+  invoice, customers: customersProp, onClose, onSaved,
 }: {
   invoice: ARInvoice | null;
   customers: Customer[];
@@ -587,6 +625,15 @@ function ARInvoiceModal({
 }) {
   const isNew = invoice === null;
   const editable = isNew || invoice?.gl_status === "draft" || invoice?.gl_status === "unposted";
+
+  // Item 1 — on-the-fly "+ New customer" rows merged in front of the loaded list.
+  const [extraCustomers, setExtraCustomers] = useState<Customer[]>([]);
+  const [quickAddCustomer, setQuickAddCustomer] = useState(false);
+  const [quickAddInitialName, setQuickAddInitialName] = useState(""); // item 8 — typeahead prefill
+  const customers = useMemo(
+    () => (extraCustomers.length ? [...extraCustomers, ...customersProp] : customersProp),
+    [extraCustomers, customersProp],
+  );
 
   const [customerId, setCustomerId] = useState(invoice?.customer_id || "");
   const [shipToLocationId, setShipToLocationId] = useState(invoice?.ship_to_location_id || "");
@@ -850,6 +897,8 @@ function ARInvoiceModal({
             {/* Row 1: Customer + Ship-to + Invoice # */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Customer">
+                {/* Item 8 — pick a customer, or type a new name and click the
+                    "+ Add …" typeahead row to create it on the fly. */}
                 <SearchableSelect
                   value={customerId || null}
                   onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
@@ -859,6 +908,8 @@ function ARInvoiceModal({
                   options={customers.map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || ""}` }))}
                   placeholder="(pick customer…)"
                   disabled={!editable}
+                  onAddNew={editable ? (q) => { setQuickAddInitialName(q.trim()); setQuickAddCustomer(true); } : undefined}
+                  addNewLabel={(q) => `+ Add customer "${q.trim()}"`}
                 />
               </Field>
               <Field label="Ship-to location">
@@ -891,10 +942,16 @@ function ARInvoiceModal({
             {/* Row 2: Type (standalone) */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <Field label="Type">
-                <select value={kind} onChange={(e) => setKind(e.target.value)} disabled={!editable} style={inputStyle as React.CSSProperties}>
-                  <option value="customer_invoice">Invoice</option>
-                  <option value="customer_credit_memo">Credit memo</option>
-                </select>
+                <SearchableSelect
+                  value={kind || null}
+                  onChange={(v) => setKind(v)}
+                  options={[
+                    { value: "customer_invoice", label: "Invoice" },
+                    { value: "customer_credit_memo", label: "Credit memo" },
+                  ]}
+                  disabled={!editable}
+                  inputStyle={inputStyle}
+                />
               </Field>
             </div>
 
@@ -1027,6 +1084,25 @@ function ARInvoiceModal({
           </>
         )}
       </div>
+
+      {/* Item 8 — on-the-fly Add-customer popup (typeahead-driven, prefilled). */}
+      {quickAddCustomer && (
+        <QuickAddPartyModal
+          kind="customer"
+          initialName={quickAddInitialName}
+          onClose={() => { setQuickAddCustomer(false); setQuickAddInitialName(""); }}
+          onCreated={(row) => {
+            const c = { id: String(row.id), name: String(row.name), customer_code: typeof row.customer_code === "string" ? row.customer_code : undefined };
+            setExtraCustomers((prev) => [c, ...prev]);
+            setCustomerId(c.id);
+            setShipToLocationId("");
+            setQuickAddCustomer(false);
+            setQuickAddInitialName("");
+            notify(`Customer "${c.name}" added — finish its full record from the reminder in your notifications.`, "success");
+            void notifyCompleteParty("customer", c);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -89,3 +89,56 @@ export function ppkMultiplierForAts(
   if (!sku || !/PPK/i.test(sku)) return 1;
   return extractPpk(sku) ?? extractPpk(description) ?? 1;
 }
+
+// ── Order-entry pack→eaches math ───────────────────────────────────────────
+// A prepack is ordered and STORED as a number of PACKS (native pack grain). Each
+// pack holds a fixed per-size garment composition defined in the Prepack Matrix
+// master (prepack_matrices). The helpers below turn "N packs" into the per-size
+// eaches breakdown ("explode") used by SO / PO line entry — pure, no side
+// effects. The order line keeps the pack count; this breakdown is for display
+// and the size-level explode used downstream.
+
+/** One composition row of a prepack: garment units of `size` in a single pack.
+ *  `qty_per_pack` = the carton-pack quantity; `inner_pack_qty` = the inner-pack
+ *  quantity (optional — present when the prepack matrix defines it). */
+export type PrepackCompositionRow = { size: string; qty_per_pack: number; inner_pack_qty?: number };
+
+/** The order-entry prepack block returned on a PPK style's matrix payload. */
+export type PrepackBlock = {
+  /** Pack token used as the single entry column (e.g. "PPK24"). */
+  pack_token: string;
+  /** Units in one pack: Σ qty_per_pack (or the token's digits when no matrix). */
+  pack_total: number | null;
+  /** Per-size composition (ordered). Empty when no active matrix is defined. */
+  composition: PrepackCompositionRow[];
+  /** True when an active prepack matrix supplies the composition. */
+  has_matrix: boolean;
+};
+
+/** Units in one pack = Σ of the (non-negative) per-size quantities. */
+export function packTotal(composition: PrepackCompositionRow[]): number {
+  return composition.reduce((s, c) => s + (c.qty_per_pack > 0 ? c.qty_per_pack : 0), 0);
+}
+
+/**
+ * Explode `packs` into per-size eaches via the composition: each size gets
+ * `packs × qty_per_pack`. Returns a { size → eaches } map containing only sizes
+ * with a positive ratio. `packs ≤ 0` (or an empty composition) yields {}.
+ */
+export function explodePacks(
+  packs: number,
+  composition: PrepackCompositionRow[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!(packs > 0)) return out;
+  for (const c of composition) {
+    if (c.qty_per_pack > 0) out[c.size] = packs * c.qty_per_pack;
+  }
+  return out;
+}
+
+/** Total eaches represented by `packs` of a prepack = packs × pack units. */
+export function packsToUnits(packs: number, composition: PrepackCompositionRow[]): number {
+  if (!(packs > 0)) return 0;
+  return packs * packTotal(composition);
+}

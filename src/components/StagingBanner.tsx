@@ -31,7 +31,7 @@ export default function StagingBanner() {
         userSelect:    "none",
       }}
     >
-      <span style={{ fontWeight: 700, letterSpacing: "0.06em" }}>⚠ STAGING</span>
+      <span style={{ fontWeight: 700, letterSpacing: "0.06em" }}>STAGING</span>
       <Dot />
       <span>Inventory Planning Beta</span>
       {readOnlyActive && (

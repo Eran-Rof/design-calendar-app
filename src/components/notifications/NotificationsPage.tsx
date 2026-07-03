@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationRow } from "./types";
 import { notificationMatchesApp, type AppKey } from "./notificationApps";
+import { notificationLink } from "./notificationLink";
 
 interface Props {
   kind: "vendor" | "internal";
@@ -51,29 +52,29 @@ const C = {
 // Visual metadata per known event_type. Anything not in the map falls
 // back to a neutral grey card.
 const EVENT_META: Record<string, { icon: string; label: string; color: string }> = {
-  phase_change_proposed:    { icon: "📝", label: "Phase change requests",   color: C.accent },
-  phase_change_approved:    { icon: "✅", label: "Phase changes approved",  color: C.success },
-  phase_change_rejected:    { icon: "❌", label: "Phase changes rejected",  color: C.danger },
+  phase_change_proposed:    { icon: "", label: "Phase change requests",   color: C.accent },
+  phase_change_approved:    { icon: "", label: "Phase changes approved",  color: C.success },
+  phase_change_rejected:    { icon: "", label: "Phase changes rejected",  color: C.danger },
   phase_change_reopened:    { icon: "↻",  label: "Phase changes reopened",  color: C.warn },
-  invoice_submitted:        { icon: "🧾", label: "New invoices",            color: C.primary },
-  invoice_approved:         { icon: "✅", label: "Invoices approved",       color: C.success },
-  invoice_discrepancy:      { icon: "⚠️", label: "Invoice discrepancies",   color: C.warn },
-  payment_sent:             { icon: "💸", label: "Payments sent",           color: C.success },
-  shipment_created:         { icon: "📦", label: "New shipments",           color: C.primary },
-  shipment_delivered:       { icon: "🚚", label: "Shipments delivered",     color: C.success },
-  po_issued:                { icon: "📄", label: "Purchase orders issued",  color: C.primary },
-  new_message:              { icon: "💬", label: "New messages",            color: C.primaryLt },
-  compliance_expiring_soon: { icon: "⏰", label: "Compliance expiring",     color: C.warn },
-  onboarding_submitted:     { icon: "🆕", label: "Onboarding submitted",    color: C.primary },
-  onboarding_approved:      { icon: "✅", label: "Onboarding approved",     color: C.success },
-  rfq_invited:              { icon: "📨", label: "RFQ invitations",         color: C.primary },
-  rfq_awarded:              { icon: "🏆", label: "RFQ awards",              color: C.success },
-  anomaly_detected:         { icon: "⚠️", label: "Anomalies detected",      color: C.danger },
-  discount_offer_made:      { icon: "💰", label: "Discount offers",         color: C.warn },
-  scf_funded:               { icon: "💵", label: "SCF funded",              color: C.success },
-  workspace_task_assigned:  { icon: "🗂", label: "Workspace tasks",         color: C.primary },
-  dispute_opened:           { icon: "⚠️", label: "Disputes",                color: C.danger },
-  contract_expiring_soon:   { icon: "📜", label: "Contracts expiring",      color: C.warn },
+  invoice_submitted:        { icon: "", label: "New invoices",            color: C.primary },
+  invoice_approved:         { icon: "", label: "Invoices approved",       color: C.success },
+  invoice_discrepancy:      { icon: "", label: "Invoice discrepancies",   color: C.warn },
+  payment_sent:             { icon: "", label: "Payments sent",           color: C.success },
+  shipment_created:         { icon: "", label: "New shipments",           color: C.primary },
+  shipment_delivered:       { icon: "", label: "Shipments delivered",     color: C.success },
+  po_issued:                { icon: "", label: "Purchase orders issued",  color: C.primary },
+  new_message:              { icon: "", label: "New messages",            color: C.primaryLt },
+  compliance_expiring_soon: { icon: "", label: "Compliance expiring",     color: C.warn },
+  onboarding_submitted:     { icon: "", label: "Onboarding submitted",    color: C.primary },
+  onboarding_approved:      { icon: "", label: "Onboarding approved",     color: C.success },
+  rfq_invited:              { icon: "", label: "RFQ invitations",         color: C.primary },
+  rfq_awarded:              { icon: "", label: "RFQ awards",              color: C.success },
+  anomaly_detected:         { icon: "", label: "Anomalies detected",      color: C.danger },
+  discount_offer_made:      { icon: "", label: "Discount offers",         color: C.warn },
+  scf_funded:               { icon: "", label: "SCF funded",              color: C.success },
+  workspace_task_assigned:  { icon: "", label: "Workspace tasks",         color: C.primary },
+  dispute_opened:           { icon: "", label: "Disputes",                color: C.danger },
+  contract_expiring_soon:   { icon: "", label: "Contracts expiring",      color: C.warn },
 };
 
 function prettify(eventType: string): string {
@@ -85,7 +86,7 @@ function prettify(eventType: string): string {
 }
 
 function eventIcon(eventType: string): string {
-  return EVENT_META[eventType]?.icon || "🔔";
+  return EVENT_META[eventType]?.icon || "";
 }
 
 function eventColor(eventType: string): string {
@@ -201,7 +202,11 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
 
   function onRowClick(n: NotificationRow) {
     if (!n.read_at) void markRead(n.id);
-    if (n.link) window.location.href = n.link;
+    // Deep-link to the actual task/record. Resolves through the shared resolver
+    // so rows whose producer stored only a weak link (app home / bare list) but
+    // a rich `metadata` reference still navigate to the right record.
+    const target = notificationLink(n, kind);
+    if (target) window.location.href = target;
   }
 
   // ── Selection + bulk delete ──────────────────────────────────────────────
@@ -321,7 +326,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                 </span>
               ) : (
                 <button onClick={() => setConfirmDelete(true)} style={{ ...smallBtn, color: C.danger, borderColor: C.danger }} title="Delete the selected notifications">
-                  🗑 Delete ({selected.size})
+                  Delete ({selected.size})
                 </button>
               )
             )}
@@ -351,7 +356,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
             {items.length === 0
               ? "No notifications yet. You're all caught up."
               : filter === "unread"
-                ? "🎉 All caught up — no unread notifications."
+                ? "All caught up — no unread notifications."
                 : `No notifications match "${search.trim()}".`}
           </div>
         ) : (
@@ -418,7 +423,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {rows.slice(0, 12).map((n) => {
                       const unread = !n.read_at;
-                      const clickable = !!n.link;
+                      const clickable = !!notificationLink(n, kind);
                       const isSel = selected.has(n.id);
                       const restBg = isSel ? C.primary + "22" : unread ? C.surfaceAlt : "transparent";
                       return (
@@ -485,7 +490,7 @@ export default function NotificationsPage({ kind, supabase, userId, title = "Not
                                 border: `1px solid ${C.borderLt}`, background: "transparent",
                                 color: C.textMuted, cursor: "pointer", fontSize: 10, fontWeight: 600, fontFamily: "inherit",
                               }}
-                            >🗑 Delete</button>
+                            >Delete</button>
                           </div>
                         </div>
                       );

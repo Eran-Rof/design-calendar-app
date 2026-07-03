@@ -55,6 +55,7 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const labelStyle: React.CSSProperties = {
   display: "block", fontSize: 11, color: C.textMuted, marginBottom: 4,
@@ -138,7 +139,7 @@ export default function InternalCrmPipelineReport() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          📊 Pipeline Report
+          Pipeline Report
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           Per-stage count + weighted value (M25)
@@ -173,12 +174,15 @@ export default function InternalCrmPipelineReport() {
         </div>
         <div style={{ minWidth: 260 }}>
           <label style={labelStyle}>Customer</label>
-          <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{(c.code ? `${c.code} — ` : "") + c.name}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={customerFilter || null}
+            onChange={(v) => setCustomerFilter(v)}
+            options={[
+              { value: "", label: "All" },
+              ...customers.map((c) => ({ value: c.id, label: (c.code ? `${c.code} — ` : "") + c.name })),
+            ]}
+            inputStyle={inputStyle}
+          />
         </div>
       </div>
 

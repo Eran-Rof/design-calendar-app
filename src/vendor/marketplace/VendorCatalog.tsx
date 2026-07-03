@@ -3,6 +3,7 @@ import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { fmtMoney2 } from "../utils";
 import { showAlert, showConfirm } from "../ui/AppDialog";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface CatalogItem {
   id: string;
@@ -176,11 +177,16 @@ function CatalogEditModal({ vendorId, item, onClose, onSaved }: { vendorId: stri
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} style={inp} /></Field>
           <Field label="Category"><input value={category} onChange={(e) => setCategory(e.target.value)} style={inp} /></Field>
           <Field label="Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value as CatalogItem["status"])} style={inp}>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="discontinued">Discontinued</option>
-            </select>
+            <SearchableSelect
+              value={status}
+              onChange={(v) => setStatus(v as CatalogItem["status"])}
+              options={[
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+                { value: "discontinued", label: "Discontinued" },
+              ]}
+              inputStyle={inp}
+            />
           </Field>
           <Field label="Unit price"><input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} type="number" step="0.01" style={inp} /></Field>
           <Field label="Lead time (days)"><input value={leadTime} onChange={(e) => setLeadTime(e.target.value)} type="number" style={inp} /></Field>

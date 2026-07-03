@@ -6,6 +6,7 @@ import { useAppStore } from "../store";
 import { uid, formatDate, addDays, diffDays, parseLocalDate, toDateStr, addDaysForPhase, diffDaysForPhase, getBrand, diffBusinessDays, addBusinessDays, getDaysUntil } from "../utils/dates";
 import { generateTasks, getChannelForCustomer } from "../utils/helpers";
 import { DateInput, LeadTimeCell } from "./DateInput";
+import SearchableSelect from "../tanda/components/SearchableSelect";
 
 // ─── DEFERRED DATE INPUT — only commits on blur/enter, not on every keystroke ─
 function DeferredDateInput({ value, onCommit, style }) {
@@ -515,18 +516,16 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
             Step 1 of 2 — Brand, Collection & Team
           </div>
           <label style={S.lbl}>Brand</label>
-          <select
-            style={S.inp}
-            value={form.brand}
-            onChange={(e) => set("brand", e.target.value)}
-          >
-            {brandList.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.isPrivateLabel ? " (PL)" : ""}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={S.inp}
+            value={form.brand || null}
+            onChange={(v) => set("brand", v)}
+            options={brandList.map((b) => ({
+              value: b.id,
+              label: `${b.name}${b.isPrivateLabel ? " (PL)" : ""}`,
+            }))}
+          />
           {isPriv && (
             <div
               style={{
@@ -539,7 +538,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                 color: "#6D28D9",
               }}
             >
-              ✦ Private label — Line Review & Compliance/Testing auto-added
+              Private label — Line Review & Compliance/Testing auto-added
             </div>
           )}
           <label style={S.lbl}>Collection Name</label>
@@ -558,66 +557,64 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
           >
             <div>
               <label style={S.lbl}>Season</label>
-              <select
-                style={{ ...S.inp, marginBottom: 0 }}
-                value={form.season}
-                onChange={(e) => set("season", e.target.value)}
-              >
-                {seasons.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                theme="light"
+                inputStyle={{ ...S.inp, marginBottom: 0 }}
+                value={form.season || null}
+                onChange={(v) => set("season", v)}
+                options={seasons.map((s) => ({ value: s, label: s }))}
+              />
             </div>
             <div>
               <label style={S.lbl}>Year</label>
-              <select
-                style={{ ...S.inp, marginBottom: 0 }}
-                value={form.year}
-                onChange={(e) => set("year", parseInt(e.target.value))}
-              >
-                {[2024, 2025, 2026, 2027, 2028].map((y) => (
-                  <option key={y}>{y}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                theme="light"
+                inputStyle={{ ...S.inp, marginBottom: 0 }}
+                value={String(form.year)}
+                onChange={(v) => set("year", parseInt(v))}
+                options={[2024, 2025, 2026, 2027, 2028].map((y) => ({
+                  value: String(y),
+                  label: String(y),
+                }))}
+              />
             </div>
             <div>
               <label style={S.lbl}>Gender</label>
-              <select
-                style={{ ...S.inp, marginBottom: 0 }}
-                value={form.gender}
-                onChange={(e) => {
-                  set("gender", e.target.value);
-                  if (genderSizes && genderSizes[e.target.value]?.length > 0) {
-                    setSelectedSizes(genderSizes[e.target.value]);
+              <SearchableSelect
+                theme="light"
+                inputStyle={{ ...S.inp, marginBottom: 0 }}
+                value={form.gender || null}
+                onChange={(v) => {
+                  set("gender", v);
+                  if (genderSizes && genderSizes[v]?.length > 0) {
+                    setSelectedSizes(genderSizes[v]);
                   }
                 }}
-              >
-                {(genderList || GENDERS).map((g: any) => (
-                  <option key={typeof g === "string" ? g : g.label}>{typeof g === "string" ? g : g.label}</option>
-                ))}
-              </select>
+                options={(genderList || GENDERS).map((g: any) => {
+                  const label = typeof g === "string" ? g : g.label;
+                  return { value: label, label };
+                })}
+              />
             </div>
             <div>
               <label style={S.lbl}>Category</label>
-              <select
-                style={{ ...S.inp, marginBottom: 0 }}
-                value={form.category}
-                onChange={(e) => {
-                  const newCat = e.target.value;
+              <SearchableSelect
+                theme="light"
+                inputStyle={{ ...S.inp, marginBottom: 0 }}
+                value={form.category || null}
+                onChange={(v) => {
+                  const newCat = v;
                   const newMatchV = vendors.filter(
-                    (v) =>
-                      v.categories.length === 0 || v.categories.includes(newCat)
+                    (vv) =>
+                      vv.categories.length === 0 || vv.categories.includes(newCat)
                   );
                   const newVendorId =
                     newMatchV.length > 0 ? newMatchV[0].id : "";
                   set("category", newCat);
                   set("vendorId", newVendorId);
                 }}
-              >
-                {categoryList.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
+                options={categoryList.map((c) => ({ value: c, label: c }))}
+              />
             </div>
           </div>
           <div style={{ height: 16 }} />
@@ -627,29 +624,27 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
             <div>
               <label style={S.lbl}>Customer</label>
               {/* FIX: pure select dropdown - no datalist combo issue */}
-              <select
-                style={S.inp}
-                value={form.customer}
-                onChange={(e) => set("customer", e.target.value)}
-              >
-                <option value="">-- Select Customer --</option>
-                {(customers || DEFAULT_CUSTOMERS).map((c) => {
+              <SearchableSelect
+                theme="light"
+                inputStyle={S.inp}
+                placeholder="-- Select Customer --"
+                value={form.customer || null}
+                onChange={(v) => set("customer", v)}
+                options={(customers || DEFAULT_CUSTOMERS).map((c) => {
                   const name = typeof c === "string" ? c : c.name;
-                  return <option key={name} value={name}>{name}</option>;
+                  return { value: name, label: name };
                 })}
-              </select>
+              />
             </div>
             <div>
               <label style={S.lbl}>Order Type</label>
-              <select
-                style={S.inp}
-                value={form.orderType}
-                onChange={(e) => set("orderType", e.target.value)}
-              >
-                {orderTypes.map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                theme="light"
+                inputStyle={S.inp}
+                value={form.orderType || null}
+                onChange={(v) => set("orderType", v)}
+                options={orderTypes.map((o) => ({ value: o, label: o }))}
+              />
             </div>
           </div>
           <label style={S.lbl}>
@@ -658,16 +653,14 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
               (auto-fills from customer)
             </span>
           </label>
-          <select
-            style={S.inp}
-            value={form.channelType}
-            onChange={(e) => set("channelType", e.target.value)}
-          >
-            <option value="">-- Select --</option>
-            {CHANNEL_TYPES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={S.inp}
+            placeholder="-- Select --"
+            value={form.channelType || null}
+            onChange={(v) => set("channelType", v)}
+            options={CHANNEL_TYPES.map((c) => ({ value: c, label: c }))}
+          />
           <span style={S.sec}>Collection Team</span>
           <div
             style={{
@@ -683,18 +676,17 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
             ].map(([role, key]) => (
               <div key={key}>
                 <label style={S.lbl}>{role}</label>
-                <select
-                  style={{ ...S.inp, marginBottom: 0 }}
-                  value={form[key]}
-                  onChange={(e) => set(key, e.target.value)}
-                >
-                  <option value="">-- None --</option>
-                  {byRole(role).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  theme="light"
+                  inputStyle={{ ...S.inp, marginBottom: 0 }}
+                  placeholder="-- None --"
+                  value={form[key] || null}
+                  onChange={(v) => set(key, v)}
+                  options={byRole(role).map((m) => ({
+                    value: m.id,
+                    label: m.name,
+                  }))}
+                />
               </div>
             ))}
           </div>
@@ -726,28 +718,28 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
               — {form.category} specialists shown first
             </span>
           </label>
-          <select
-            style={S.inp}
-            value={form.vendorId}
-            onChange={(e) => set("vendorId", e.target.value)}
-          >
-            <option value="">-- Select Vendor --</option>
-            {matchV.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} ({v.country})
-              </option>
-            ))}
-            {vendors.filter((v) => !matchV.includes(v)).length > 0 && (
-              <option disabled>── Other vendors ──</option>
-            )}
-            {vendors
-              .filter((v) => !matchV.includes(v))
-              .map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name} ({v.country})
-                </option>
-              ))}
-          </select>
+          <SearchableSelect
+            theme="light"
+            inputStyle={S.inp}
+            placeholder="-- Select Vendor --"
+            value={form.vendorId || null}
+            onChange={(v) => set("vendorId", v)}
+            options={[
+              ...matchV.map((v) => ({
+                value: v.id,
+                label: `${v.name} (${v.country})`,
+              })),
+              ...(vendors.filter((v) => !matchV.includes(v)).length > 0
+                ? [{ value: "__other_vendors__", label: "── Other vendors ──", disabled: true }]
+                : []),
+              ...vendors
+                .filter((v) => !matchV.includes(v))
+                .map((v) => ({
+                  value: v.id,
+                  label: `${v.name} (${v.country})`,
+                })),
+            ]}
+          />
 
           {selV && (
             <div style={{ ...S.card, marginBottom: 16 }}>
@@ -771,7 +763,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                     {selV.name}
                   </div>
                   <div style={{ fontSize: 12, color: TH.textMuted }}>
-                    🌏 {selV.country} · ⛵ {selV.transitDays}d transit · MOQ{" "}
+                    {selV.country} · {selV.transitDays}d transit · MOQ{" "}
                     {selV.moq?.toLocaleString()}
                   </div>
                 </div>
@@ -983,7 +975,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
           </div>
 
           <div style={{ fontSize: 11, color: TH.textMuted, marginBottom: 8 }}>
-            💡 Edit any date or days-back value — all later phases adjust
+            Edit any date or days-back value — all later phases adjust
             automatically. DDP changes require approval.
           </div>
           <div
@@ -1189,7 +1181,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                           borderRadius: 4,
                         }}
                       >
-                        ⚠️ past
+                        past
                       </span>
                     )}
                   </div>
@@ -1270,7 +1262,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
           {ddpWarn && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2100, padding: 16 }}>
               <div style={{ background: "#FFFFFF", border: `1px solid ${TH.accentBdr}`, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box", boxShadow: "0 40px 100px rgba(0,0,0,0.4)" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 12 }}>⚠️ DDP Date Will Change</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: TH.text, marginBottom: 12 }}>DDP Date Will Change</div>
                 <div style={{ fontSize: 13, color: TH.textMuted, lineHeight: 1.65, marginBottom: 20 }}>
                   {ddpWarn.cascade ? (
                     <>
@@ -1304,7 +1296,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                       onClick={() => { proportionalResizePhases(ddpWarn.idx, ddpWarn.newDue); setDdpWarn(null); }}
                       style={{ padding: "12px 20px", borderRadius: 10, border: `2px solid ${TH.primary}`, background: TH.primary + "10", color: TH.primary, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
                     >
-                      ⚖️ Proportionally Resize Phase Durations —{" "}
+                      Proportionally Resize Phase Durations —{" "}
                       <span style={{ fontWeight: 400 }}>keep DDP {formatDate(ddpWarn.oldDDP)}</span>
                     </button>
                   )}
@@ -1320,7 +1312,7 @@ function CollectionWizard({ onClose }: { onClose: () => void }) {
                     }}
                     style={{ padding: "12px 20px", borderRadius: 10, border: "2px solid #065F46", background: "#ECFDF5", color: "#065F46", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textAlign: "left" }}
                   >
-                    📌 Keep DDP as-is —{" "}
+                    Keep DDP as-is —{" "}
                     <span style={{ fontWeight: 400 }}>only update this phase's date</span>
                   </button>
                   {/* Option 4: Cancel */}

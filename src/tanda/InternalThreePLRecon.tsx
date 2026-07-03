@@ -13,6 +13,8 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -28,7 +30,7 @@ type Provider = {
 type Snapshot = { id: string; snapshot_date: string; source: string; line_count: number; matched_count: number; created_at: string };
 type Diff = { sku_code: string; qty_3pl: number; qty_tangerine_location: number; qty_tangerine_total: number; direction: string };
 
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const tdNum: React.CSSProperties = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", fontFamily: "SFMono-Regular, Menlo, monospace" };
 const btn: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -164,6 +166,13 @@ export default function InternalThreePLRecon() {
     return filtered.sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
   }, [diffs, basis, mismatchOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // #5 — universal per-column sort (tri-state asc → desc → off, persisted).
+  // Default (unsorted) preserves the variance-magnitude order `rows` builds.
+  // Every column key maps 1:1 to the mapped row, so no accessors are needed.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:tplrecon:sort",
+  });
+
   const totals = useMemo(() => {
     let over = 0, under = 0, net = 0;
     for (const r of rows) { net += r.variance; if (r.variance > 0) over += r.variance; else under += -r.variance; }
@@ -178,10 +187,30 @@ export default function InternalThreePLRecon() {
     { key: "direction", header: "Type" },
   ];
 
+  // #23 — append the on-screen totals footer to the export. Mirrors the grid's
+  // <tfoot>: SKU label carries the differing-SKU count, the numeric columns sum,
+  // and Variance carries the net (the same number the footer prints).
+  const exportRows = useMemo(() => {
+    const body: Array<Record<string, unknown>> = sorted.map((r) => ({
+      sku_code: r.sku_code, qty_3pl: r.qty_3pl, tangerine: r.tangerine,
+      variance: r.variance, direction: r.direction,
+    }));
+    if (body.length) {
+      body.push({
+        sku_code: `TOTAL (${totals.count} differing SKU${totals.count === 1 ? "" : "s"})`,
+        qty_3pl: rows.reduce((s, r) => s + (Number(r.qty_3pl) || 0), 0),
+        tangerine: rows.reduce((s, r) => s + (Number(r.tangerine) || 0), 0),
+        variance: totals.net,
+        direction: "",
+      });
+    }
+    return body;
+  }, [sorted, rows, totals]);
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>📋 3PL Inventory Recon</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>3PL Inventory Recon</h2>
         <div style={{ minWidth: 240 }}>
           <SearchableSelect
             options={providers.map((p) => ({ value: p.id, label: p.name, searchHaystack: `${p.name} ${p.code || ""}` }))}
@@ -206,7 +235,7 @@ export default function InternalThreePLRecon() {
         <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
           <button style={btn} onClick={() => void ingest()} disabled={ingesting || !providerId || !paste.trim()}>{ingesting ? "Reconciling…" : "Ingest & reconcile"}</button>
           <label style={{ ...btnGhost, display: "inline-flex", alignItems: "center", gap: 6 }}>
-            ⬆ Upload file
+            Upload file
             <input type="file" accept=".csv,.txt,.edi,.x12,text/plain" onChange={onFile} style={{ display: "none" }} />
           </label>
           <span style={{ fontSize: 11, color: C.textMuted }}>Each ingest stores a dated snapshot and recomputes the differences.</span>
@@ -216,7 +245,7 @@ export default function InternalThreePLRecon() {
       {/* SFTP auto-pull settings (nightly cron) */}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, marginBottom: 14 }}>
         <button onClick={() => setShowSftp((v) => !v)} style={{ width: "100%", textAlign: "left", background: "transparent", border: 0, color: C.textSub, cursor: "pointer", padding: "10px 14px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-          {showSftp ? "▾" : "▸"} ⚙ Auto-pull (SFTP) — runs nightly at 02:30 UTC
+          {showSftp ? "▾" : "▸"} Auto-pull (SFTP) — runs nightly at 02:30 UTC
           {selectedProvider?.last_inventory_pulled_at && (
             <span style={{ marginLeft: "auto", fontSize: 11, color: C.textMuted, fontWeight: 400 }}>
               last pulled {new Date(selectedProvider.last_inventory_pulled_at).toLocaleString()} {selectedProvider.last_inventory_file ? `· ${selectedProvider.last_inventory_file}` : ""}
@@ -253,7 +282,7 @@ export default function InternalThreePLRecon() {
           <label style={{ display: "inline-flex", gap: 6, alignItems: "center", color: C.textSub }}>
             <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} /> Mismatches only
           </label>
-          <ExportButton rows={rows as unknown as Array<Record<string, unknown>>} columns={exportCols} filename={`tpl-recon-${snapshot.snapshot_date}`} sheetName="3PL Differences" />
+          <ExportButton rows={exportRows} columns={exportCols} filename={`tpl-recon-${snapshot.snapshot_date}`} sheetName="3PL Differences" />
         </div>
       )}
 
@@ -264,7 +293,7 @@ export default function InternalThreePLRecon() {
       )}
 
       {/* Differences */}
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : !snapshot ? (
@@ -275,15 +304,15 @@ export default function InternalThreePLRecon() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>SKU</th>
-                <th style={{ ...th, textAlign: "right" }}>3PL On-Hand</th>
-                <th style={{ ...th, textAlign: "right" }}>Tangerine ({basis})</th>
-                <th style={{ ...th, textAlign: "right" }}>Variance</th>
-                <th style={th}>Type</th>
+                <SortableTh label="SKU" sortKey="sku_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                <SortableTh label="3PL On-Hand" sortKey="qty_3pl" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label={`Tangerine (${basis})`} sortKey="tangerine" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Variance" sortKey="variance" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+                <SortableTh label="Type" sortKey="direction" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <tr key={`${r.sku_code}-${r.direction}`}>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.sku_code}</td>
                   <td style={tdNum}>{fmtQty(r.qty_3pl)}</td>

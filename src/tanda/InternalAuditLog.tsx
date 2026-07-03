@@ -332,7 +332,7 @@ export default function InternalAuditLog() {
           marginBottom: 16,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 22 }}>🕒 Audit Log</h2>
+        <h2 style={{ margin: 0, fontSize: 22 }}>Audit Log</h2>
         <div style={{ fontSize: 11, color: C.textMuted }}>
           {rows.length} change{rows.length === 1 ? "" : "s"} · page {Math.floor(offset / PAGE) + 1}
         </div>
@@ -417,17 +417,18 @@ export default function InternalAuditLog() {
           }}
         >
           Entity type
-          <select
-            value={sourceTable}
-            onChange={(e) => setSourceTable(e.target.value)}
-            style={{ ...inputStyle, width: 220 }}
-            data-testid="audit-source-table"
-          >
-            <option value="">— Any —</option>
-            {T11_SOURCE_TABLES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <div style={{ width: 220 }} data-testid="audit-source-table">
+            <SearchableSelect
+              value={sourceTable || null}
+              onChange={(v) => setSourceTable(v)}
+              options={[
+                { value: "", label: "— Any —" },
+                ...T11_SOURCE_TABLES.map((t) => ({ value: t, label: t })),
+              ]}
+              placeholder="— Any —"
+              inputStyle={inputStyle}
+            />
+          </div>
         </label>
         <label
           style={{

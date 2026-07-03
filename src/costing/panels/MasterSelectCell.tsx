@@ -7,6 +7,7 @@
 import React from "react";
 import { useCostingStore, type MasterKind } from "../store/costingStore";
 import { promptDialog } from "../../shared/ui/warn";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Props {
   kind: MasterKind;
@@ -26,7 +27,7 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
 
   const onSelect = async (raw: string) => {
     if (raw === "__add__") {
-      const newName = await promptDialog(`Add new ${kind}:`, { title: `New ${kind}`, icon: "➕", required: true });
+      const newName = await promptDialog(`Add new ${kind}:`, { title: `New ${kind}`, required: true });
       if (!newName || !newName.trim()) return;
       const clean = newName.trim();
       await addMaster(kind, clean);
@@ -38,10 +39,17 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
   };
 
   return (
-    <select
-      value={value || ""}
-      onChange={(e) => onSelect(e.target.value)}
-      style={{
+    <SearchableSelect
+      value={value || null}
+      onChange={(v) => onSelect(v)}
+      options={[
+        { value: "", label: "—" },
+        ...(value && !includesValue ? [{ value, label: `${value} (legacy)` }] : []),
+        ...entries.map((e) => ({ value: e.name, label: e.name })),
+        { value: "──────────", label: "──────────", disabled: true },
+        { value: "__add__", label: "+ Add new…" },
+      ]}
+      inputStyle={{
         // 4px 6px matches the default numeric/text input padding so the
         // text inside this select aligns with the header label and other
         // cell contents (header padding 8px 10px, cell padding 0 4px,
@@ -49,15 +57,8 @@ export default function MasterSelectCell({ kind, value, onChange, cellStyle }: P
         width: "100%", padding: "4px 6px", fontSize: 12,
         background: "transparent", border: "1px solid transparent",
         color: "#E2E8F0", outline: "none",
-        colorScheme: "dark",
         ...cellStyle,
       }}
-    >
-      <option value="">—</option>
-      {value && !includesValue && <option value={value}>{value} (legacy)</option>}
-      {entries.map((e) => <option key={e.id} value={e.name}>{e.name}</option>)}
-      <option disabled>──────────</option>
-      <option value="__add__">+ Add new…</option>
-    </select>
+    />
   );
 }

@@ -26,7 +26,7 @@ const UUID_RE           = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 // `base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(...)` joins
 // fabric_codes via the explicit FK added in 20260630010000_style_master_base_fabric_fk.sql.
-const STYLE_SELECT = "id, style_code, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
+const STYLE_SELECT = "id, style_code, aliases, style_name, description, category_id, gender_code, season, design_year, is_apparel, launch_date, lifecycle_status, planning_class, base_fabric_code_id, base_fabric_legacy, group_name, category_name, sub_category_name, brand_id, size_scale_id, rise, hts_code, duty_rate_pct, additional_tariff_pct, unit_weight_kg, units_per_carton, carton_cbm_m3, carton_length_in, carton_width_in, carton_height_in, gross_weight_lb, cbm_confidence, cbm_note, cbm_inputs, carton_cbm_override, attributes, created_at, updated_at, deleted_at, base_fabric:fabric_codes!style_master_base_fabric_code_id_fkey(id, code, name)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -179,9 +179,18 @@ export default async function handler(req, res) {
       rise: v.data.rise || null,
       hts_code: v.data.hts_code || null,
       duty_rate_pct: v.data.duty_rate_pct ?? null,
+      additional_tariff_pct: v.data.additional_tariff_pct ?? null,
       unit_weight_kg: v.data.unit_weight_kg ?? null,
       units_per_carton: v.data.units_per_carton ?? null,
       carton_cbm_m3: v.data.carton_cbm_m3 ?? null,
+      carton_length_in: v.data.carton_length_in ?? null,
+      carton_width_in: v.data.carton_width_in ?? null,
+      carton_height_in: v.data.carton_height_in ?? null,
+      gross_weight_lb: v.data.gross_weight_lb ?? null,
+      cbm_confidence: v.data.cbm_confidence ?? null,
+      cbm_note: v.data.cbm_note ?? null,
+      cbm_inputs: v.data.cbm_inputs ?? null,
+      carton_cbm_override: v.data.carton_cbm_override === true,
       attributes: v.data.attributes || {},
     };
 
@@ -287,6 +296,13 @@ export function validateInsert(body) {
   } else {
     body.duty_rate_pct = null;
   }
+  // Additional tariff % (Trump-administration flat +10%) — numeric or null.
+  if (body.additional_tariff_pct != null && String(body.additional_tariff_pct).trim() !== "") {
+    const n = Number(body.additional_tariff_pct);
+    body.additional_tariff_pct = Number.isFinite(n) ? n : null;
+  } else {
+    body.additional_tariff_pct = null;
+  }
   // Logistics roll-up fields (PO total weight / cartons / CBM). Positive numbers
   // or null; units_per_carton is a positive integer.
   for (const k of ["unit_weight_kg", "carton_cbm_m3"]) {
@@ -299,5 +315,21 @@ export function validateInsert(body) {
     const n = Math.floor(Number(body.units_per_carton));
     body.units_per_carton = Number.isFinite(n) && n > 0 ? n : null;
   } else body.units_per_carton = null;
+  // AI carton-CBM estimate fields. Carton dims + gross weight = non-negative
+  // number or null; confidence/note = trimmed text; cbm_inputs = jsonb object;
+  // carton_cbm_override = boolean.
+  for (const k of ["carton_length_in", "carton_width_in", "carton_height_in", "gross_weight_lb"]) {
+    if (body[k] != null && String(body[k]).trim() !== "") {
+      const n = Number(body[k]);
+      body[k] = Number.isFinite(n) && n >= 0 ? n : null;
+    } else body[k] = null;
+  }
+  for (const k of ["cbm_confidence", "cbm_note"]) {
+    if (body[k] != null) { const t = String(body[k]).trim(); body[k] = t === "" ? null : t; }
+  }
+  if ("cbm_inputs" in body) {
+    body.cbm_inputs = body.cbm_inputs && typeof body.cbm_inputs === "object" ? body.cbm_inputs : null;
+  }
+  if ("carton_cbm_override" in body) body.carton_cbm_override = body.carton_cbm_override === true || body.carton_cbm_override === "true";
   return { data: body };
 }

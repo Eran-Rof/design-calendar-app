@@ -51,7 +51,7 @@ From the **AR Invoices** panel, click **+ New invoice**.
 
 | Field | Required? | Notes |
 |---|---|---|
-| Customer | yes | Sourced from M36 Customer Master (must already exist). UUID paste fallback is offered. |
+| Customer | yes | Sourced from M36 Customer Master. Type an unknown name → a **"+ Add customer '<name>'"** typeahead row opens the Add-customer popup pre-filled, creates it on the fly, selects it here, and sends a complete-the-info reminder (item 8). UUID paste fallback is offered. |
 | Invoice number | optional | Auto-generated as `AR-YYYY-NNNNN` if blank. Must be unique per entity. |
 | Kind | yes | `customer_invoice` / `customer_credit_memo` |
 | Invoice date | yes | The date the GL JE will land on (must be inside an open period at post time). `posting_date` is kept in lockstep with this field. |
@@ -96,6 +96,10 @@ Click **Post** on a draft row (or on a pending-approval row to re-emit the gate)
 
    If any required leg is unresolvable, the handler returns **400** with a clear error message before any DB writes occur.
 
+   > **Per-style revenue + COGS routing (operator #6).** Each invoice **line** can carry its own `revenue_account_id` and `cogs_account_id`. When an invoice is created from a sales order, each line's accounts are resolved **style → customer default → entity default** — the style's `style_master.revenue_account_id` / `cogs_account_id` win (these are set per brand bucket: ROF Brands / Boys / PT / Private Label, from the Xoro item GL export). So a single invoice spanning several brands books **each line's revenue and COGS to that brand's accounts**; the invoice-level account is only the fallback for styles with no account set. The `arInvoiceSent` rule applies the per-line account when present, else the invoice default.
+   >
+   > **Per-style returns routing.** Customer **credit memos** (returns, M23) route the same way: each return line's revenue reversal posts to the style's **`returns_account_id`** (the brand's Sales Returns account — 4236 ROF / 4234 Boys / 4235 PT / 4201 Private Label) → customer `default_returns_account_id` → entity Sales Returns (4100). So returns show up against the right brand's contra-revenue line.
+
 2. Calls `approvalsAPI.requestIfRequired({ kind: 'ar_invoice', amount_cents: total, payload: { customer_id, customer_code } })`.
    - If a rule matches (e.g. amount > $10k, or a `customer_credit_extension` rule fires for over-limit customers — see arch §5.1):
      - Sets `gl_status='pending_approval'`.
@@ -130,10 +134,12 @@ Click **Void** on a sent row (or **Del** on a draft row for hard delete). The vo
 2. Calls `postEvent({ kind: 'ar_invoice_voided', data: { invoice_id, accrual_je_id, cash_je_id, gl_status, reason } })`. The `arInvoiceVoided` rule emits a `reversals[]` array of JE ids to reverse:
    - **Draft / pending_approval:** empty array (nothing posted yet).
    - **Sent / partial_paid / paid:** `[accrual_je_id]` and, if `cash_je_id` is set, also includes it.
-3. The posting service calls `reverseJournalEntry(jeId)` for each — emitting a new JE with negated lines (`reverses_je_id` set) and, for sources tagged `ar_invoices`, calling `inventoryFifoAPI.restoreConsumption()` to undo any layer draw-downs.
+3. The posting service calls `reverseJournalEntry(jeId)` for each — emitting a new JE with negated lines (`reverses_je_id` set). This reverses the GL, including putting the inventory **asset dollars** back (DR Inventory / CR COGS).
+   - **Physical inventory put-back.** The GL reversal alone does **not** restore the on-hand *quantity* (the consumed FIFO layers stay drawn down). So the void flow then calls **`restoreInvoiceConsumption()`** (`api/_lib/inventory/restoreInvoiceConsumption.js`): for each live `inventory_consumption` row this invoice's lines drew, it adds `qty_consumed` back to that layer's `remaining_qty` (true reversal — the exact layers, capped at `original_qty`) and stamps the consumption row `reversed_at` (kept for audit, not deleted). The units return to on-hand, since the goods are no longer considered shipped. A never-posted **draft delete** consumed nothing, so this is a no-op there.
 4. Flips `ar_invoices.gl_status='void'`.
 5. Appends `[void] <reason>` to `ar_invoices.notes` if a reason was supplied.
 6. Fires the `ar_invoice_voided` notification to **admin + accountant**.
+7. **Re-opens the originating sales order** (when the invoice carries a `sales_order_id`): `reopenSalesOrderFromInvoice()` rolls the SO lines' `qty_invoiced` back by the invoiced quantities and re-derives the line + header status — **allocated** when the soft allocations still fully cover the order, else **confirmed** (a `cancelled` SO is never resurrected). The same re-open runs on a **draft Delete**. This stops a deleted/voided invoice from stranding its SO in `invoiced`. The Void prompt and the Delete confirmation **warn** *"this will re-open SO-NNNN and restore its allocations"* first, and a toast confirms the re-opened SO afterward. (Allocations are a soft reservation untouched by invoicing, so they remain in place — only the SO status/invoiced quantities are repaired.)
 
 Voiding is **always** reversible to a clean GL — the audit trail keeps both the original JE and its reversal pair, so the AP/AR aging reports always reconcile.
 

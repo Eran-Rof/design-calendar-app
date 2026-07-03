@@ -6,6 +6,9 @@ import { useMemo, useState } from "react";
 import type { IpSupplyException } from "../types/supply";
 import { S, PAL, formatPeriodCode } from "../../components/styles";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
 
 const TABLE_KEY = "ip.supply_exception";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -66,6 +69,21 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
     return by;
   }, [exceptions]);
 
+  // Additive per-column sort. Until a header is clicked the list keeps its
+  // natural severity-ranked order (critical → low). Severity sorts by rank,
+  // not alphabetically, so asc = critical-first.
+  const sevRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "ip:supply_exception:sort",
+    accessors: {
+      severity: (e) => sevRank[e.severity] ?? 9,
+      type: (e) => EXCEPTION_LABEL[e.exception_type] ?? e.exception_type,
+      sku: (e) => skuCodeById.get(e.sku_id) ?? "",
+      period: (e) => e.period_code ?? "",
+      detail: (e) => describeDetails(e),
+    },
+  });
+
   return (
     <div style={S.card}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -87,10 +105,12 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
         </div>
       </div>
       <div style={S.toolbar}>
-        <select style={S.select} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="all">All types</option>
-          {types.map((t) => <option key={t} value={t}>{EXCEPTION_LABEL[t] ?? t}</option>)}
-        </select>
+        <SearchableSelect
+          inputStyle={S.select}
+          value={filterType}
+          onChange={(v) => setFilterType(v)}
+          options={[{ value: "all", label: "All types" }, ...types.map((t) => ({ value: t, label: EXCEPTION_LABEL[t] ?? t }))]}
+        />
         <div style={{ marginLeft: "auto" }}>
           <TablePrefsButton
             tableKey={TABLE_KEY}
@@ -106,15 +126,15 @@ export default function SupplyExceptionPanel({ exceptions, skuCodeById }: Supply
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th} hidden={!visibleColumns.has("severity")}>Severity</th>
-              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
-              <th style={S.th} hidden={!visibleColumns.has("sku")}>SKU</th>
-              <th style={S.th} hidden={!visibleColumns.has("period")}>Period</th>
-              <th style={S.th} hidden={!visibleColumns.has("detail")}>Detail</th>
+              <SortableTh label="Severity" sortKey="severity" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("severity")} />
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+              <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("sku")} />
+              <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("period")} />
+              <SortableTh label="Detail" sortKey="detail" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("detail")} />
             </tr>
           </thead>
           <tbody>
-            {filtered.map((e) => (
+            {sorted.map((e) => (
               <tr key={e.id}>
                 <td style={S.td} hidden={!visibleColumns.has("severity")}>
                   <span style={{

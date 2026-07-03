@@ -14,6 +14,7 @@ import { appConfirm } from "../../utils/theme";
 import { useCostingStore } from "../store/costingStore";
 import { useSort } from "../../tanda/hooks/useSort";
 import SortableTh from "../../tanda/components/SortableTh";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import type { RfqListRow, RfqStatus, RfqDetail, RfqLineItem, RfqQuoteSummary } from "../types";
 
 const STATUS_COLOR: Record<RfqStatus, { bg: string; fg: string }> = {
@@ -262,6 +263,7 @@ export default function RfqListView() {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           placeholder="Search by vendor, customer, style, or RFQ title…"
           style={{
             flex: 1, maxWidth: 480,
@@ -270,19 +272,17 @@ export default function RfqListView() {
             padding: "6px 10px", fontSize: 13, outline: "none",
           }}
         />
-        <select
+        <SearchableSelect
           value={status}
-          onChange={(e) => setStatus(e.target.value as RfqStatus | "")}
-          style={{
+          onChange={(v) => setStatus(v as RfqStatus | "")}
+          options={[{ value: "", label: "All statuses" }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s }))]}
+          placeholder="All statuses"
+          inputStyle={{
             background: "#1E293B", color: "#E2E8F0",
             border: "1px solid #334155", borderRadius: 4,
             padding: "6px 10px", fontSize: 13, outline: "none",
-            colorScheme: "dark",
           }}
-        >
-          <option value="">All statuses</option>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        />
         {selected.size > 0 && (
           <>
             <button

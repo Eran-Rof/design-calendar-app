@@ -122,7 +122,7 @@ export default function VendorRfqMessageThread({ rfqId, height = 320, onChanged 
                         </a>
                       ) : (
                         <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: mine ? "rgba(255,255,255,0.9)" : TH.primary, fontSize: 12, display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
-                          📄 {a.name}
+                          {a.name}
                         </a>
                       )
                     ))}
@@ -158,8 +158,8 @@ export default function VendorRfqMessageThread({ rfqId, height = 320, onChanged 
         )}
         <div style={{ padding: "6px 16px 10px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" style={{ display: "none" }} onChange={pickFiles} />
-          <button onClick={() => fileInputRef.current?.click()} title="Attach file" style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "transparent", color: TH.textMuted, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
-            📎
+          <button onClick={() => fileInputRef.current?.click()} title="Attach file" style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${TH.border}`, background: "transparent", color: TH.textMuted, cursor: "pointer", fontSize: 13, lineHeight: 1 }}>
+            Attach
           </button>
           <button onClick={() => void send()} disabled={sending || (!draft.trim() && pendingFiles.length === 0)} style={{ ...btnPrimary, opacity: sending || (!draft.trim() && pendingFiles.length === 0) ? 0.5 : 1, cursor: sending || (!draft.trim() && pendingFiles.length === 0) ? "not-allowed" : "pointer" }}>
             {uploading ? "Uploading…" : sending ? "Sending…" : "Send"}

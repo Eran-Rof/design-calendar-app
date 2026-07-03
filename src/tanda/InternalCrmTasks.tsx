@@ -89,11 +89,13 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -280,7 +282,7 @@ export default function InternalCrmTasks() {
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 14, gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: C.text }}>
-          ✅ Tasks
+          Tasks
         </h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>
           CRM follow-ups (M25)
@@ -322,10 +324,12 @@ export default function InternalCrmTasks() {
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 140 }}>
           <label style={labelStyle}>Status</label>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
-            <option value="">All</option>
-            {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-          </select>
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[{ value: "", label: "All" }, ...STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))]}
+            inputStyle={inputStyle}
+          />
         </div>
         <div style={{ minWidth: 220 }}>
           <label style={labelStyle}>Assignee</label>
@@ -383,7 +387,7 @@ export default function InternalCrmTasks() {
         }}>{err}</div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -608,14 +612,20 @@ function EditTaskModal({ id, customers, opportunities, onClose }: {
           </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value as Status)} style={inputStyle}>
-                {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-              </select>
+              <SearchableSelect
+                value={status}
+                onChange={(v) => setStatus(v as Status)}
+                options={STATUS_VALUES.map((s) => ({ value: s, label: s.replace("_", " ") }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Priority">
-              <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
-                {PRIORITY_VALUES.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+              <SearchableSelect
+                value={priority}
+                onChange={(v) => setPriority(v as Priority)}
+                options={PRIORITY_VALUES.map((p) => ({ value: p, label: p }))}
+                inputStyle={inputStyle}
+              />
             </Field>
             <Field label="Due">
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />
@@ -747,9 +757,12 @@ function CreateTaskModal({ customers, opportunities, onClose, onCreated }: {
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label="Priority">
-          <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} style={inputStyle}>
-            {PRIORITY_VALUES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <SearchableSelect
+            value={priority}
+            onChange={(v) => setPriority(v as Priority)}
+            options={PRIORITY_VALUES.map((p) => ({ value: p, label: p }))}
+            inputStyle={inputStyle}
+          />
         </Field>
         <Field label="Due">
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle} />

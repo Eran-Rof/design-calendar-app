@@ -6,7 +6,15 @@
 // ✕ removes a sample.
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
+
+// Pick the value `name` on the Nth themed SearchableSelect (combobox): open it
+// (focus its input) then mousedown the matching option.
+function selectCombo(idx: number, name: string) {
+  const combo = screen.getAllByRole("combobox")[idx];
+  fireEvent.focus(combo.querySelector("input")!);
+  fireEvent.mouseDown(within(screen.getByRole("listbox")).getByRole("option", { name }));
+}
 import { SamplesTab } from "../tabs/SamplesTab";
 import { emptyTechPack } from "../factories";
 import type { TechPack, Sample } from "../types";
@@ -70,9 +78,8 @@ describe("<SamplesTab />", () => {
       showToast={vi.fn()}
       today={TODAY}
     />);
-    // Status select is the second select on the page (first is "Type")
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[1], { target: { value: "Received" } });
+    // Status select is the second combobox on the page (first is "Type").
+    selectCombo(1, "Received");
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.samples[0].status).toBe("Received");
     expect(arg.samples[0].receiveDate).toBe("2026-05-17");
@@ -88,15 +95,14 @@ describe("<SamplesTab />", () => {
       showToast={vi.fn()}
       today={TODAY}
     />);
-    const selects = screen.getAllByRole("combobox");
-    fireEvent.change(selects[1], { target: { value: "Requested" } });
+    selectCombo(1, "Requested");
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.samples[0].status).toBe("Requested");
     // updateSampleStatus preserves it
     expect(arg.samples[0].receiveDate).toBe("2026-04-01");
   });
 
-  it("clicking 🗑️ removes the sample", () => {
+  it("clicking Delete removes the sample", () => {
     const updateSelected = vi.fn();
     render(<SamplesTab
       tp={makeTp([sample({ id: "a" }), sample({ id: "b", type: "PP" })])}
@@ -106,7 +112,7 @@ describe("<SamplesTab />", () => {
       showToast={vi.fn()}
       today={TODAY}
     />);
-    fireEvent.click(screen.getAllByText("🗑️")[0]);
+    fireEvent.click(screen.getAllByText("Delete")[0]);
     const arg = updateSelected.mock.calls[0][0];
     expect(arg.samples.map((s: Sample) => s.id)).toEqual(["b"]);
   });

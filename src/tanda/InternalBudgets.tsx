@@ -10,7 +10,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 
 const C = { bg: "#0F172A", card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1", primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444" };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 const btnP: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -66,7 +66,7 @@ export default function InternalBudgets() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🎯 Budgets</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Budgets</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>budget vs actual by account</span>
         <label style={{ color: C.textMuted, fontSize: 12, marginLeft: 10 }}>FY <input style={{ ...input, width: "8ch" }} value={fy} onChange={(e) => setFy(Number(e.target.value) || thisYear)} /></label>
         <div style={{ marginLeft: "auto" }}><ExportButton rows={rows} columns={cols} filename={`budgets-${fy}`} /></div>
@@ -78,6 +78,7 @@ export default function InternalBudgets() {
         <button style={btnP} disabled={busy} onClick={save}>Save (full-year)</button>
       </div>
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : (
+        <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={th}>Account</th><th style={{ ...th, textAlign: "right" }}>Budget</th><th style={{ ...th, textAlign: "right" }}>Actual</th><th style={{ ...th, textAlign: "right" }}>Variance</th><th style={th}></th></tr></thead>
           <tbody>
@@ -93,6 +94,7 @@ export default function InternalBudgets() {
             ); })}
           </tbody>
         </table>
+        </div>
       )}
       <div style={{ color: C.textMuted, fontSize: 12, marginTop: 8 }}>Actuals come from the GL balance view (read $0 until transactions post). Variance = budget − actual.</div>
     </div>

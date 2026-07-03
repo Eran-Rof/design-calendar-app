@@ -22,6 +22,7 @@ import {
   updateColorSpecOnBOM,
 } from "../bomOps";
 import { CW_COLORS } from "../constants";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 const FIXED_COLS = 10; // image, mat no, material, placement, content, weight, qty, uom, unit$, total
@@ -169,20 +170,25 @@ export function BOMTab({
                     </td>
                     <td style={S.td}><input style={{ ...S.cellInput, width: 72 }} value={b.materialNo || ""} onChange={e => updateBOMItem(idx, { materialNo: e.target.value })} placeholder="TRM001" /></td>
                     <td style={S.td}>
-                      <select style={{ ...S.cellInput, width: "100%" }} value={b.material} onChange={e => {
-                        const mat = materials.find(m => m.name === e.target.value);
-                        updateBOMItem(idx, {
-                          material: e.target.value,
-                          supplier: mat?.supplier || b.supplier,
-                          unitCost: mat?.unitPrice || b.unitCost,
-                          content: mat?.composition || b.content,
-                          weight: mat?.weight || b.weight,
-                        });
-                      }}>
-                        <option value="">Select...</option>
-                        {materials.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-                        {b.material && !materials.find(m => m.name === b.material) && <option value={b.material}>{b.material}</option>}
-                      </select>
+                      <SearchableSelect
+                        value={b.material || null}
+                        onChange={v => {
+                          const mat = materials.find(m => m.name === v);
+                          updateBOMItem(idx, {
+                            material: v,
+                            supplier: mat?.supplier || b.supplier,
+                            unitCost: mat?.unitPrice || b.unitCost,
+                            content: mat?.composition || b.content,
+                            weight: mat?.weight || b.weight,
+                          });
+                        }}
+                        options={[
+                          ...materials.map(m => ({ value: m.name, label: m.name })),
+                          ...(b.material && !materials.find(m => m.name === b.material) ? [{ value: b.material, label: b.material }] : []),
+                        ]}
+                        placeholder="Select..."
+                        inputStyle={{ ...S.cellInput, width: "100%" }}
+                      />
                       <input style={{ ...S.cellInput, fontSize: 11, marginTop: 3, color: "#94A3B8" }} value={b.material} onChange={e => updateBOMItem(idx, { material: e.target.value })} placeholder="or type name..." />
                     </td>
                     <td style={S.td}><textarea style={{ ...S.cellInput, minHeight: 48, resize: "vertical" as any, fontSize: 12, lineHeight: 1.4 }} value={b.placement} onChange={e => updateBOMItem(idx, { placement: e.target.value })} placeholder="Placement details..." /></td>
@@ -190,9 +196,12 @@ export function BOMTab({
                     <td style={S.td}><input style={{ ...S.cellInput, width: 62 }} value={b.weight || ""} onChange={e => updateBOMItem(idx, { weight: e.target.value })} placeholder="180g" /></td>
                     <td style={S.td}><input style={{ ...S.cellInput, width: 48, textAlign: "center" }} value={b.quantity} onChange={e => updateBOMItem(idx, { quantity: e.target.value })} /></td>
                     <td style={S.td}>
-                      <select style={{ ...S.cellInput, width: 48 }} value={b.uom || "YDS"} onChange={e => updateBOMItem(idx, { uom: e.target.value })}>
-                        {["YDS", "MTR", "PCS", "KG", "LB", "DOZ", "SET"].map(u => <option key={u} value={u}>{u}</option>)}
-                      </select>
+                      <SearchableSelect
+                        value={b.uom || "YDS"}
+                        onChange={v => updateBOMItem(idx, { uom: v })}
+                        options={["YDS", "MTR", "PCS", "KG", "LB", "DOZ", "SET"].map(u => ({ value: u, label: u }))}
+                        inputStyle={{ ...S.cellInput, width: 48 }}
+                      />
                     </td>
                     <td style={S.td}><input style={{ ...S.cellInput, width: 62, textAlign: "right" }} type="number" step="0.01" value={b.unitCost || ""} onChange={e => updateBOMItem(idx, { unitCost: parseFloat(e.target.value) || 0 })} /></td>
                     <td style={{ ...S.td, color: "#10B981", fontWeight: 600, fontFamily: "monospace", whiteSpace: "nowrap" as any }}>{fmtCurrency(b.totalCost)}</td>
@@ -209,7 +218,7 @@ export function BOMTab({
                       ];
                     })}
                     <td style={S.td}>
-                      <button style={S.iconBtnTiny} onClick={() => updateSelected({ bom: tp.bom.filter(x => x.id !== b.id) })}>🗑️</button>
+                      <button style={S.iconBtnTiny} onClick={() => updateSelected({ bom: tp.bom.filter(x => x.id !== b.id) })}>Delete</button>
                     </td>
                   </tr>
                 );

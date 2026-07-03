@@ -1,7 +1,7 @@
 // PlanningShell — thin chrome wrapper used by every /planning/* route.
 //
 // Adds the same notifications affordances every other internal app
-// has: a 🔔 Notifications header button with unread badge, a card-
+// has: a Notifications header button with unread badge, a card-
 // grouped in-app inbox filtered to planning-relevant events, and the
 // background NotificationsShell for toast delivery. Wraps the panel
 // passed in as children so individual workbenches stay focused on
@@ -142,7 +142,7 @@ export default function PlanningShell({ title, children }: Props) {
               fontFamily: "inherit",
             }}
           >
-            ✨ Ask AI
+            Ask AI
           </button>
           <button
             onClick={() => setShowNotifs((v) => !v)}
@@ -162,7 +162,7 @@ export default function PlanningShell({ title, children }: Props) {
               fontFamily: "inherit",
             }}
           >
-            🔔 Notifications
+            Notifications
             {unread > 0 && (
               <span style={{
                 minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,

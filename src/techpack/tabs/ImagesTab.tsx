@@ -49,7 +49,6 @@ export function ImagesTab({ tp, updateSelected, uploadImage, setLightboxImg }: I
 
       {tp.images.length === 0 ? (
         <div style={{ ...S.emptyState, padding: 40 }}>
-          <div style={{ fontSize: 48 }}>🖼️</div>
           <p style={{ color: "#6B7280" }}>No images uploaded yet</p>
           <label style={S.btnPrimarySmall}>
             Upload Images
@@ -71,7 +70,7 @@ export function ImagesTab({ tp, updateSelected, uploadImage, setLightboxImg }: I
                 <button
                   style={{ ...S.iconBtnTiny, flexShrink: 0 }}
                   onClick={() => removeImage(img.id)}
-                >🗑️</button>
+                >Delete</button>
               </div>
             </div>
           ))}

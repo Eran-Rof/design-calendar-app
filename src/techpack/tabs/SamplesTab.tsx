@@ -7,6 +7,7 @@ import type { TechPack, Sample } from "../types";
 import { today as todayFn } from "../utils";
 import { createEmptySample, updateSampleStatus } from "../sampleOps";
 import { SAMPLE_TYPES, SAMPLE_STATUS_COLORS } from "../constants";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import S from "../styles";
 
 const SAMPLE_STATUSES: Sample["status"][] = ["Requested", "In Progress", "Received", "Approved", "Rejected"];
@@ -57,13 +58,12 @@ export function SamplesTab({
           <div key={s.id} style={{ background: "#0F172A", borderRadius: 10, padding: 16, marginBottom: 12, border: `1px solid ${SAMPLE_STATUS_COLORS[s.status]}44` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <select
-                  style={S.select}
+                <SearchableSelect
                   value={s.type}
-                  onChange={e => updateAt(idx, { type: e.target.value as Sample["type"] })}
-                >
-                  {SAMPLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                  onChange={v => updateAt(idx, { type: v as Sample["type"] })}
+                  options={SAMPLE_TYPES.map(t => ({ value: t, label: t }))}
+                  inputStyle={S.select}
+                />
                 <span style={{
                   ...S.badge,
                   background: (SAMPLE_STATUS_COLORS[s.status] || "#6B7280") + "22",
@@ -74,25 +74,24 @@ export function SamplesTab({
               <button
                 style={{ ...S.iconBtn, color: "#EF4444" }}
                 onClick={() => removeSample(s.id)}
-              >🗑️</button>
+              >Delete</button>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={S.label}>Status</label>
-                <select
-                  style={{ ...S.select, width: "100%" }}
+                <SearchableSelect
                   value={s.status}
-                  onChange={e => {
+                  onChange={v => {
                     // Goes through updateSampleStatus so the
                     // auto-receiveDate rule fires uniformly.
                     const updated = [...tp.samples];
-                    updated[idx] = updateSampleStatus(s, e.target.value as Sample["status"], today);
+                    updated[idx] = updateSampleStatus(s, v as Sample["status"], today);
                     updateSelected({ samples: updated });
                   }}
-                >
-                  {SAMPLE_STATUSES.map(st => <option key={st} value={st}>{st}</option>)}
-                </select>
+                  options={SAMPLE_STATUSES.map(st => ({ value: st, label: st }))}
+                  inputStyle={{ ...S.select, width: "100%" }}
+                />
               </div>
               <div>
                 <label style={S.label}>Vendor</label>

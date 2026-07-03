@@ -12,13 +12,15 @@ import SearchableSelect from "./components/SearchableSelect";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify } from "../shared/ui/warn";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444", violet: "#8B5CF6",
 };
-const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+const th: React.CSSProperties = { background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600, textAlign: "left", padding: "7px 10px", borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5, position: "sticky", top: 0, zIndex: 2 };
 const td: React.CSSProperties = { padding: "6px 10px", borderBottom: `1px solid ${C.cardBdr}`, color: C.text, fontSize: 13 };
 const input: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" };
 const btnP: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
@@ -64,6 +66,40 @@ export default function InternalEDI() {
 
   const vendName = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors]);
 
+  // #5 — tri-state column sort for the two LIST tables. Vendor / document /
+  // when columns resolve through derived accessors (display values).
+  const {
+    sorted: sortedPartners,
+    sortKey: partnersSortKey,
+    sortDir: partnersSortDir,
+    onHeaderClick: onPartnersSort,
+  } = useSort(partners, {
+    persistKey: "tangerine:edi-partners:sort",
+    accessors: {
+      vendor: (p) => p.vendor_name || vendName.get(p.vendor_id) || "",
+      partner_id: (p) => p.partner_id,
+      transport: (p) => p.transport || "",
+      status: (p) => p.status,
+      last_sync: (p) => p.last_sync_at || "",
+    },
+  });
+  const {
+    sorted: sortedMessages,
+    sortKey: messagesSortKey,
+    sortDir: messagesSortDir,
+    onHeaderClick: onMessagesSort,
+  } = useSort(messages, {
+    persistKey: "tangerine:edi-messages:sort",
+    accessors: {
+      when: (m) => m.created_at,
+      vendor: (m) => m.vendor_name || vendName.get(m.vendor_id) || "",
+      direction: (m) => m.direction,
+      document: (m) => TXN_LABEL[m.transaction_set] || m.transaction_set,
+      interchange: (m) => m.interchange_id || "",
+      status: (m) => m.status,
+    },
+  });
+
   async function enable() {
     if (!vendId) { notify("Pick a vendor", "error"); return; }
     if (!partnerId.trim()) { notify("Partner / ISA sender ID required", "error"); return; }
@@ -86,7 +122,7 @@ export default function InternalEDI() {
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>🔌 EDI</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>EDI</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>X12 trading-partner exchange (vendor PO / ack / ASN / invoice)</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button style={tabBtn(tab === "partners")} onClick={() => setTab("partners")}>Partners ({partners.length})</button>
@@ -104,41 +140,60 @@ export default function InternalEDI() {
             <div style={{ background: C.card, border: `1px solid ${C.primary}`, borderRadius: 8, padding: 14, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ minWidth: 220 }}><SearchableSelect options={vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))} value={vendId} onChange={setVendId} placeholder="Vendor…" /></div>
               <input style={{ ...input, minWidth: 180 }} placeholder="Partner / ISA sender ID *" value={partnerId} onChange={(e) => setPartnerId(e.target.value)} />
-              <select style={input} value={transport} onChange={(e) => setTransport(e.target.value)}>
-                <option value="">Transport…</option><option value="as2">AS2</option><option value="sftp">SFTP</option><option value="van">VAN</option>
-              </select>
+              <SearchableSelect
+                value={transport || null}
+                onChange={(v) => setTransport(v)}
+                options={[{ value: "", label: "Transport…" }, { value: "as2", label: "AS2" }, { value: "sftp", label: "SFTP" }, { value: "van", label: "VAN" }]}
+                inputStyle={input}
+              />
               <button style={btnP} disabled={busy} onClick={enable}>Enable</button>
               <span style={{ color: C.textMuted, fontSize: 12 }}>The engine resolves inbound X12 by matching GS02 to this partner ID.</span>
             </div>
           )}
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>Vendor</th><th style={th}>Partner ID</th><th style={th}>Transport</th><th style={th}>Status</th><th style={th}>Last sync</th></tr></thead>
+            <thead><tr>
+              <SortableTh label="Vendor" sortKey="vendor" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Partner ID" sortKey="partner_id" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Transport" sortKey="transport" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Status" sortKey="status" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+              <SortableTh label="Last sync" sortKey="last_sync" activeKey={partnersSortKey} dir={partnersSortDir} onSort={onPartnersSort} style={th} />
+            </tr></thead>
             <tbody>
               {partners.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={5}>No EDI partners configured yet.</td></tr>}
-              {partners.map((p) => (
+              {sortedPartners.map((p) => (
                 <tr key={p.id}>
                   <td style={td}>{p.vendor_name || vendName.get(p.vendor_id) || "—"}{p.vendor_code ? ` (${p.vendor_code})` : ""}</td>
                   <td style={{ ...td, fontFamily: "monospace" }}>{p.partner_id}</td>
                   <td style={td}>{p.transport || "—"}</td>
                   <td style={td}><span style={chip(p.status === "active" ? C.success : C.textMuted)}>{p.status}</span></td>
-                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{p.last_sync_at ? new Date(p.last_sync_at).toLocaleString() : "—"}{p.last_sync_error ? ` · ⚠ ${p.last_sync_error}` : ""}</td>
+                  <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{p.last_sync_at ? new Date(p.last_sync_at).toLocaleString() : "—"}{p.last_sync_error ? ` · ${p.last_sync_error}` : ""}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
-            <select style={input} value={dir} onChange={(e) => setDir(e.target.value)}><option value="">All directions</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option></select>
-            <select style={input} value={txn} onChange={(e) => setTxn(e.target.value)}><option value="">All documents</option>{Object.entries(TXN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            <SearchableSelect value={dir || null} onChange={(v) => setDir(v)} options={[{ value: "", label: "All directions" }, { value: "inbound", label: "Inbound" }, { value: "outbound", label: "Outbound" }]} inputStyle={input} />
+            <SearchableSelect value={txn || null} onChange={(v) => setTxn(v)} options={[{ value: "", label: "All documents" }, ...Object.entries(TXN_LABEL).map(([k, v]) => ({ value: k, label: v }))]} inputStyle={input} />
             <span style={{ color: C.textMuted, fontSize: 12, marginLeft: "auto" }}>{messages.length} message{messages.length === 1 ? "" : "s"}</span>
           </div>
+          <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr><th style={th}>When</th><th style={th}>Vendor</th><th style={th}>Dir</th><th style={th}>Document</th><th style={th}>Interchange</th><th style={th}>Status</th></tr></thead>
+            <thead><tr>
+              <SortableTh label="When" sortKey="when" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Vendor" sortKey="vendor" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Dir" sortKey="direction" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Document" sortKey="document" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Interchange" sortKey="interchange" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+              <SortableTh label="Status" sortKey="status" activeKey={messagesSortKey} dir={messagesSortDir} onSort={onMessagesSort} style={th} />
+            </tr></thead>
             <tbody>
               {messages.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={6}>No EDI messages yet — they appear here once partners exchange X12.</td></tr>}
-              {messages.map((m) => (
+              {sortedMessages.map((m) => (
                 <tr key={m.id}>
                   <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{new Date(m.created_at).toLocaleString()}</td>
                   <td style={td}>{m.vendor_name || vendName.get(m.vendor_id) || "—"}</td>
@@ -150,6 +205,7 @@ export default function InternalEDI() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

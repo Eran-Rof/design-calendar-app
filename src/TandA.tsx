@@ -23,6 +23,7 @@ import { VendorsView } from "./tanda/views/VendorsView";
 import { ArchiveView } from "./tanda/views/ArchiveView";
 import ShipmentsView from "./tanda/ShipmentsView";
 import MatchView from "./tanda/MatchView";
+import SearchableSelect from "./tanda/components/SearchableSelect";
 import ComplianceReview from "./tanda/ComplianceReview";
 import MessagesView from "./tanda/MessagesView";
 import VendorLeaderboard from "./tanda/VendorLeaderboard";
@@ -2052,14 +2053,19 @@ function TandAApp() {
                 Update milestones across all POs for a specific vendor. Select a vendor, optionally filter by category or phase, then choose the new status.
               </p>
               <label style={S.label}>Vendor</label>
-              <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkVendor} onChange={e => { setBulkVendor(e.target.value); setBulkPhase(""); setBulkCategory(""); }}>
-                <option value="">Select vendor…</option>
-                {[...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort().map(v => {
-                  const vPOs = pos.filter(p => (p.VendorName ?? "") === v);
-                  const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
-                  return <option key={v} value={v}>{v} ({vPOs.length} POs, {vMs.length} milestones)</option>;
-                })}
-              </select>
+              <div style={{ marginBottom: 12 }}>
+                <SearchableSelect
+                  value={bulkVendor || null}
+                  onChange={v => { setBulkVendor(v); setBulkPhase(""); setBulkCategory(""); }}
+                  placeholder="Select vendor…"
+                  inputStyle={{ ...S.select, width: "100%" }}
+                  options={[...new Set(pos.map(p => p.VendorName ?? "").filter(Boolean))].sort().map(v => {
+                    const vPOs = pos.filter(p => (p.VendorName ?? "") === v);
+                    const vMs = vPOs.flatMap(p => milestones[p.PoNumber ?? ""] || []);
+                    return { value: v, label: `${v} (${vPOs.length} POs, ${vMs.length} milestones)` };
+                  })}
+                />
+              </div>
 
               {bulkVendor && (() => {
                 const vendorPOs = pos.filter(p => (p.VendorName ?? "") === bulkVendor);
@@ -2105,10 +2111,17 @@ function TandAApp() {
                     </div>
 
                     <label style={S.label}>Category (optional)</label>
-                    <select style={{ ...S.select, width: "100%", marginBottom: 12 }} value={bulkCategory} onChange={e => { setBulkCategory(e.target.value); setBulkPhases([]); }}>
-                      <option value="">All Categories</option>
-                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <div style={{ marginBottom: 12 }}>
+                      <SearchableSelect
+                        value={bulkCategory}
+                        onChange={v => { setBulkCategory(v); setBulkPhases([]); }}
+                        inputStyle={{ ...S.select, width: "100%" }}
+                        options={[
+                          { value: "", label: "All Categories" },
+                          ...cats.map(c => ({ value: c, label: c })),
+                        ]}
+                      />
+                    </div>
 
                     <label style={S.label}>Phases (optional — leave empty for all)</label>
                     <div style={{ marginBottom: 12, maxHeight: 120, overflowY: "auto", background: "#0F172A", borderRadius: 8, border: "1px solid #334155", padding: 6 }}>
@@ -2128,10 +2141,15 @@ function TandAApp() {
                     </div>
 
                     <label style={S.label}>New Status</label>
-                    <select style={{ ...S.select, width: "100%", marginBottom: 16 }} value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}>
-                      <option value="">Select status…</option>
-                      {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <div style={{ marginBottom: 16 }}>
+                      <SearchableSelect
+                        value={bulkStatus || null}
+                        onChange={v => setBulkStatus(v)}
+                        placeholder="Select status…"
+                        inputStyle={{ ...S.select, width: "100%" }}
+                        options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                      />
+                    </div>
 
                     <div style={{ background: "#0F172A", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: "#9CA3AF" }}>
                       <strong style={{ color: "#60A5FA" }}>Preview:</strong> {matching.length} milestones across {targetPOs.length} POs{bulkPOs.length > 0 ? ` (${bulkPOs.length} selected)` : " (all)"}

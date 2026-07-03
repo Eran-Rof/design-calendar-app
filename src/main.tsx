@@ -52,7 +52,6 @@ function PlanningBlocked() {
         padding:        "0 24px",
       }}
     >
-      <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
       <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>Inventory Planning</h1>
       <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>{reason}</p>
       <a href="/" style={{ color: "#CC2200", fontSize: 14, textDecoration: "none" }}>
@@ -80,7 +79,6 @@ function AppAccessBlocked({ appName }: { appName: string }) {
         padding:        "0 24px",
       }}
     >
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
       <h1 style={{ margin: 0, fontSize: 20, color: "#111827" }}>{appName}</h1>
       <p style={{ margin: "10px 0 24px", maxWidth: 360 }}>
         Your account does not have access to {appName}.

@@ -5,6 +5,7 @@ import {
 } from "../../utils/tandaTypes";
 import S from "../styles";
 import { WipTemplateEditor } from "../detailPanel";
+import SearchableSelect from "../components/SearchableSelect";
 
 export interface TemplatesViewProps {
   user: User | null;
@@ -79,6 +80,7 @@ export function TemplatesView({
     setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set());
   }
   const [showNewVendor, setShowNewVendor_] = useState<boolean>(false);
+  const [copyFromVendor, setCopyFromVendor] = useState<string>("__default__");
 
   return (
     <>
@@ -90,17 +92,21 @@ export function TemplatesView({
         {/* Vendor selector */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
           <span style={{ color: "#94A3B8", fontSize: 13 }}>Vendor:</span>
-          <select style={{ ...S.select, flex: 1, maxWidth: 300 }} value={tplVendor} onChange={e => {
-            const newVendor = e.target.value;
-            if (tplDirty) {
-              setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "⚠️", confirmText: "💾 Save & Switch", confirmColor: "#2563EB", cancelText: "🗑 Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
-            } else {
-              setTplVendor(newVendor);
-            }
-          }}>
-            <option value="__default__">Default Template</option>
-            {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
+          <div style={{ flex: 1, maxWidth: 300 }}>
+            <SearchableSelect
+              value={tplVendor}
+              options={[{ value: "__default__", label: "Default Template" }, ...vendorKeys.map(v => ({ value: v, label: v }))]}
+              inputStyle={{ ...S.select }}
+              onChange={v => {
+                const newVendor = v;
+                if (tplDirty) {
+                  setConfirmModal({ title: "Unsaved Template Changes", message: "You have unsaved changes to the production template. Would you like to save or discard?", icon: "", confirmText: "Save & Switch", confirmColor: "#2563EB", cancelText: "Discard & Switch", onConfirm: () => { saveVendorTemplates(tplLocalEdits!.vendor, tplLocalEdits!.edits); setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); }, onCancel: () => { setTplLocalEdits(null); setTplUndoStack([]); setTplMovedIds(new Set()); setTplVendor(newVendor); } });
+                } else {
+                  setTplVendor(newVendor);
+                }
+              }}
+            />
+          </div>
           {isAdmin && (
             <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px" }} onClick={() => setShowNewVendor_(true)}>
               + New Vendor Template
@@ -108,7 +114,7 @@ export function TemplatesView({
           )}
           {isAdmin && tplVendor !== "__default__" && (
             <button style={{ ...S.btnSecondary, fontSize: 12, padding: "6px 12px", borderColor: "#EF4444", color: "#EF4444" }}
-              onClick={() => setConfirmModal({ title: "Delete Template", message: `Delete template for "${tplVendor}"? POs will fall back to default template.`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } })}>
+              onClick={() => setConfirmModal({ title: "Delete Template", message: `Delete template for "${tplVendor}"? POs will fall back to default template.`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { deleteVendorTemplate(tplVendor); setTplVendor("__default__"); } })}>
               Delete Template
             </button>
           )}
@@ -133,18 +139,21 @@ export function TemplatesView({
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
               <span style={{ color: "#94A3B8", fontSize: 12, flexShrink: 0 }}>Copy from:</span>
-              <select style={{ ...S.select, flex: 1 }} id="copyFromVendor">
-                <option value="__default__">Default Template</option>
-                {vendorKeys.map(v => <option key={v} value={v}>{v}</option>)}
-              </select>
+              <div style={{ flex: 1 }}>
+                <SearchableSelect
+                  value={copyFromVendor}
+                  options={[{ value: "__default__", label: "Default Template" }, ...vendorKeys.map(v => ({ value: v, label: v }))]}
+                  inputStyle={{ ...S.select }}
+                  onChange={setCopyFromVendor}
+                />
+              </div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button style={S.btnSecondary} onClick={() => setShowNewVendor_(false)}>Cancel</button>
               <button style={{ ...S.btnPrimary, width: "auto", padding: "8px 16px" }} onClick={() => {
                 const vendorEl = document.getElementById("newTplVendor") as HTMLInputElement;
-                const copyEl = document.getElementById("copyFromVendor") as HTMLSelectElement;
                 const vendorName = vendorEl?.value?.trim();
-                const copyFrom = copyEl?.value || "__default__";
+                const copyFrom = copyFromVendor || "__default__";
                 if (!vendorName) return;
                 const source = getVendorTemplates(copyFrom === "__default__" ? undefined : copyFrom);
                 const newTpls = source.map(t => ({ ...t, id: milestoneUid() }));
@@ -245,10 +254,12 @@ export function TemplatesView({
                   value={tpl.phase} onChange={e => tplUpdate(i, "phase", e.target.value)} />
               ) : <span style={{ color: "#D1D5DB" }}>{tpl.phase}</span>}
               {isAdmin ? (
-                <select style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#9CA3AF", fontSize: 12, padding: "3px 4px" }}
-                  value={tpl.category} onChange={e => tplUpdate(i, "category", e.target.value)}>
-                  {WIP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <SearchableSelect
+                  value={tpl.category}
+                  options={WIP_CATEGORIES.map(c => ({ value: c, label: c }))}
+                  inputStyle={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: "#9CA3AF", fontSize: 12, padding: "3px 4px" }}
+                  onChange={v => tplUpdate(i, "category", v)}
+                />
               ) : <span style={{ color: "#9CA3AF", fontSize: 12 }}>{tpl.category}</span>}
               {isAdmin ? (
                 <input
@@ -260,15 +271,17 @@ export function TemplatesView({
                 />
               ) : <span style={{ color: "#9CA3AF", textAlign: "center" }}>{tpl.daysBeforeDDP}</span>}
               {isAdmin ? (
-                <select style={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", fontSize: 11, padding: "3px 4px" }}
-                  value={tpl.status} onChange={e => tplUpdate(i, "status", e.target.value)}>
-                  {MILESTONE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <SearchableSelect
+                  value={tpl.status}
+                  options={MILESTONE_STATUSES.map(s => ({ value: s, label: s }))}
+                  inputStyle={{ background: "#0F172A", border: "1px solid #334155", borderRadius: 4, color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", fontSize: 11, padding: "3px 4px" }}
+                  onChange={v => tplUpdate(i, "status", v)}
+                />
               ) : <span style={{ color: MILESTONE_STATUS_COLORS[tpl.status] || "#6B7280", textAlign: "center", fontSize: 11 }}>{tpl.status}</span>}
               {isAdmin && (
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <button style={{ background: "none", border: "1px solid #EF4444", color: "#EF4444", borderRadius: 4, cursor: "pointer", padding: "2px 6px", fontSize: 10 }}
-                    onClick={() => setConfirmModal({ title: "Delete Phase", message: `Delete "${tpl.phase}" from this template?`, icon: "🗑", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { const arr = localTpl.filter(t => t.id !== tpl.id); tplPushState(arr); } })}>✕</button>
+                    onClick={() => setConfirmModal({ title: "Delete Phase", message: `Delete "${tpl.phase}" from this template?`, icon: "", confirmText: "Delete", confirmColor: "#EF4444", onConfirm: () => { const arr = localTpl.filter(t => t.id !== tpl.id); tplPushState(arr); } })}>✕</button>
                 </div>
               )}
             </div>

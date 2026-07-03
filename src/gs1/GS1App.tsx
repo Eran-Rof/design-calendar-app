@@ -14,6 +14,8 @@ import CartonPanel from "./panels/CartonPanel";
 import ReceivingPanel from "./panels/ReceivingPanel";
 import LabelTemplatesPanel from "./panels/LabelTemplatesPanel";
 import ExceptionsPanel from "./panels/ExceptionsPanel";
+import EdiWorkflowPanel from "./panels/EdiWorkflowPanel";
+import CatalogPanel from "./panels/CatalogPanel";
 import NotificationsPage from "../components/notifications/NotificationsPage";
 import NotificationsShell from "../components/notifications/NotificationsShell";
 import { useAppUnreadCount } from "../components/notifications/useAppUnreadCount";
@@ -29,6 +31,7 @@ const GS1_TAB_LABELS: Record<string, string> = {
   upc:           "UPC Master",
   scale:         "Scale Master",
   gtins:         "Pack GTINs",
+  catalog:       "Styles Catalog",
   upload:        "Packing List",
   pa_unpacker:   "PA Unpacker",
   labels:        "Label Batches",
@@ -36,6 +39,7 @@ const GS1_TAB_LABELS: Record<string, string> = {
   cartons:       "Carton Labels",
   receiving:     "Receiving",
   exceptions:    "Exceptions",
+  edi_workflow:  "Workflow Guide",
   notifications: "Notifications",
 };
 
@@ -140,6 +144,7 @@ export default function GS1App() {
         {activeTab === "upc"      && <UpcMasterPanel />}
         {activeTab === "scale"    && <ScaleMasterPanel />}
         {activeTab === "gtins"    && <PackGtinMasterPanel />}
+        {activeTab === "catalog"  && <CatalogPanel />}
         {activeTab === "upload"   && <PackingListUploadPanel />}
         {activeTab === "pa_unpacker" && <PAUnpackerPanel />}
         {activeTab === "labels"   && <LabelBatchPanel />}
@@ -147,6 +152,7 @@ export default function GS1App() {
         {activeTab === "cartons"  && <CartonPanel />}
         {activeTab === "receiving"   && <ReceivingPanel />}
         {activeTab === "exceptions"  && <ExceptionsPanel />}
+        {activeTab === "edi_workflow" && <EdiWorkflowPanel />}
         {activeTab === "notifications" && supabaseClient && userId && (
           <div style={{ padding: 24, background: "#0F172A", minHeight: "100%" }}>
             <NotificationsPage

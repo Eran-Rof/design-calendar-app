@@ -10,6 +10,7 @@ import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { IpPlanningGridRow } from "../types/wholesale";
 import { S, PAL, ACTION_COLOR, CONFIDENCE_COLOR, METHOD_COLOR, METHOD_LABEL, formatQty, formatPeriodCode } from "../components/styles";
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { StatCell } from "../components/StatCell";
 import { BuyCell } from "../components/cells/BuyCell";
 import { IntCell } from "../components/cells/IntCell";
@@ -2136,17 +2137,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
             create a 0-width freeze line. */}
-        <select
-          value={freezeKey}
-          onChange={(e) => setFreezeKey(e.target.value)}
-          title="Pin leftmost columns through the chosen one when scrolling horizontally"
-          style={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
-        >
-          <option value="">No freeze</option>
-          {FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
-            <option key={k} value={k}>Freeze through {FREEZE_LABELS[k]}</option>
-          ))}
-        </select>
+        <div title="Pin leftmost columns through the chosen one when scrolling horizontally" style={{ minWidth: 180 }}>
+          <SearchableSelect
+            value={freezeKey || null}
+            onChange={(v) => setFreezeKey(v)}
+            inputStyle={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
+            options={[
+              { value: "", label: "No freeze" },
+              ...FREEZABLE_COLS.filter(k => !hiddenColumns.has(k)).map(k => (
+                { value: k, label: `Freeze through ${FREEZE_LABELS[k]}` }
+              )),
+            ]}
+          />
+        </div>
       </div>
 
       <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
@@ -2295,7 +2298,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   cursor: displayRows.length === 0 ? "not-allowed" : "pointer",
                 }}
               >
-                ⎘ Copy top row
+                Copy top row
               </button>
               <MultiSelectDropdown
                 compact
@@ -2636,9 +2639,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span>Rows per page:</span>
-              <select style={S.select} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-                {[100, 250, 500, 1000, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
+              <div style={{ minWidth: 90 }}>
+                <SearchableSelect
+                  value={String(pageSize)}
+                  onChange={(v) => setPageSize(Number(v))}
+                  inputStyle={S.select}
+                  options={[100, 250, 500, 1000, 2000].map((n) => ({ value: String(n), label: String(n) }))}
+                />
+              </div>
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage(0)}>« First</button>
               <button style={S.btnSecondary} disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>‹ Prev</button>
               <span>Page {page + 1} / {Math.max(1, Math.ceil(filtered.length / pageSize))}</span>

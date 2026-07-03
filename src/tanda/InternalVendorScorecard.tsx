@@ -66,7 +66,7 @@ export default function InternalVendorScorecard() {
   return (
     <div style={{ padding: 20, color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🏭 Vendor Scorecard</h2>
+        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>Vendor Scorecard</h2>
         <ExportButton rows={exportRows} filename="vendors" sheetName="Vendors" columns={exportColumns} />
       </div>
       <p style={{ margin: "0 0 16px", color: C.textMuted, fontSize: 13 }}>

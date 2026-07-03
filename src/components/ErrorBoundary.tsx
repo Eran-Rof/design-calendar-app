@@ -30,7 +30,6 @@ export default class ErrorBoundary extends Component<Props, State> {
     return (
       <div style={S.wrap}>
         <div style={S.card}>
-          <div style={S.icon}>⚠️</div>
           <div style={S.title}>Something went wrong</div>
           <div style={S.msg}>
             {this.props.appName ?? "The app"} ran into an unexpected error. Your data is safe — click below to reload.

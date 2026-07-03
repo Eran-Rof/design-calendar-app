@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS } from "../utils/supabase";
 import { S } from "../utils/styles";
+import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 
 // Internal-only (TandA) cross-vendor shipments view. Uses the anon key
@@ -68,15 +69,11 @@ export default function ShipmentsView() {
     })();
   }, []);
 
-  const statusOptions = useMemo(() => {
-    return Array.from(new Set(rows.map((r) => r.current_status).filter((s): s is string => !!s))).sort();
-  }, [rows]);
-
-  const visible = useMemo(() => {
+  // Cascading-filter helper: does a row pass the search box + the OTHER two
+  // filters (everything except the one whose option list we're computing)?
+  const matchesSearch = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (vendorFilter && r.vendor_id !== vendorFilter) return false;
-      if (statusFilter && r.current_status !== statusFilter) return false;
+    return (r: ShipmentRow) => {
       if (!q) return true;
       return (
         r.number.toLowerCase().includes(q) ||
@@ -84,8 +81,39 @@ export default function ShipmentsView() {
         (r.sealine_scac ?? "").toLowerCase().includes(q) ||
         (vendors[r.vendor_id] ?? "").toLowerCase().includes(q)
       );
+    };
+  }, [search, vendors]);
+
+  // #9 cascading — each filter's options narrow to the rows the OTHER active
+  // filters + the search box already leave on the table.
+  const vendorOptionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (statusFilter && r.current_status !== statusFilter) continue;
+      if (!matchesSearch(r)) continue;
+      ids.add(r.vendor_id);
+    }
+    return ids;
+  }, [rows, statusFilter, matchesSearch]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (vendorFilter && r.vendor_id !== vendorFilter) continue;
+      if (!matchesSearch(r)) continue;
+      if (r.current_status) set.add(r.current_status);
+    }
+    if (statusFilter) set.add(statusFilter); // keep the active selection clearable
+    return Array.from(set).sort();
+  }, [rows, vendorFilter, statusFilter, matchesSearch]);
+
+  const visible = useMemo(() => {
+    return rows.filter((r) => {
+      if (vendorFilter && r.vendor_id !== vendorFilter) return false;
+      if (statusFilter && r.current_status !== statusFilter) return false;
+      return matchesSearch(r);
     });
-  }, [rows, vendors, vendorFilter, statusFilter, search]);
+  }, [rows, vendorFilter, statusFilter, matchesSearch]);
 
   return (
     <div>
@@ -95,30 +123,32 @@ export default function ShipmentsView() {
             placeholder="Search number / PO / carrier / vendor…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
             style={{ ...S.inp, marginBottom: 0, flex: "1 1 260px", minWidth: 240 }}
           />
-          <select
-            value={vendorFilter}
-            onChange={(e) => setVendorFilter(e.target.value)}
-            style={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}
-          >
-            <option value="">All vendors</option>
-            {Object.entries(vendors)
-              .sort(([, a], [, b]) => a.localeCompare(b))
-              .map(([id, name]) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}
-          >
-            <option value="">All statuses</option>
-            {statusOptions.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <SearchableSelect
+            value={vendorFilter || null}
+            onChange={(v) => setVendorFilter(v)}
+            options={[
+              { value: "", label: "All vendors" },
+              ...Object.entries(vendors)
+                .filter(([id]) => vendorOptionIds.has(id) || id === vendorFilter)
+                .sort(([, a], [, b]) => a.localeCompare(b))
+                .map(([id, name]) => ({ value: id, label: name })),
+            ]}
+            placeholder="All vendors"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 220px", minWidth: 160 }}
+          />
+          <SearchableSelect
+            value={statusFilter || null}
+            onChange={(v) => setStatusFilter(v)}
+            options={[
+              { value: "", label: "All statuses" },
+              ...statusOptions.map((s) => ({ value: s, label: s })),
+            ]}
+            placeholder="All statuses"
+            inputStyle={{ ...S.inp, marginBottom: 0, flex: "0 1 180px", minWidth: 140 }}
+          />
           <div style={{ fontSize: 12, color: TH.textMuted, marginLeft: "auto" }}>
             {visible.length} of {rows.length}
           </div>

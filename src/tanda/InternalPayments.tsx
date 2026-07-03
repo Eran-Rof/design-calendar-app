@@ -4,6 +4,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
 import { fmtDateDisplay } from "../utils/tandaTypes";
+import { useSort, type SortDir } from "./hooks/useSort";
 
 interface Payment {
   id: string;
@@ -64,6 +65,20 @@ export default function InternalPayments() {
   }
   useEffect(() => { void load(); }, [entityId, status]);
 
+  // #5 Sortable columns — div-grid "table", so the useSort hook drives the
+  // order and a small clickable header cell renders the ▲▼ affordance.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:payments:sort",
+    accessors: {
+      vendor: (p) => p.vendor?.name || p.vendor_id,
+      amount: (p) => Number(p.amount),
+      method: (p) => p.method,
+      status: (p) => p.status,
+      initiated: (p) => p.initiated_at,
+      completed: (p) => p.completed_at,
+    },
+  });
+
   async function transition(id: string, action: "processing" | "completed" | "failed" | "cancelled") {
     if (!(await confirmDialog(`Mark payment ${action}?`))) return;
     const r = await fetch(`/api/internal/payments/${id}`, {
@@ -82,17 +97,21 @@ export default function InternalPayments() {
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Outbound payments register. Create, track, and transition through the status machine.</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={selectSt}>
-            {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectSt}>
-            <option value="">All</option>
-            <option value="initiated">Initiated</option>
-            <option value="processing">Processing</option>
-            <option value="completed">Completed</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div style={{ minWidth: 180 }}>
+            <SearchableSelect value={entityId || null} onChange={(v) => setEntityId(v)}
+              options={entities.map((e) => ({ value: e.id, label: e.name }))} inputStyle={selectSt} />
+          </div>
+          <div style={{ minWidth: 140 }}>
+            <SearchableSelect value={status || null} onChange={(v) => setStatus(v)}
+              options={[
+                { value: "", label: "All" },
+                { value: "initiated", label: "Initiated" },
+                { value: "processing", label: "Processing" },
+                { value: "completed", label: "Completed" },
+                { value: "failed", label: "Failed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]} placeholder="All" inputStyle={selectSt} />
+          </div>
           <button onClick={() => setCreateOpen(true)} style={btnPrimary}>+ New payment</button>
           <ExportButton
             rows={rows.map((p) => ({
@@ -124,9 +143,15 @@ export default function InternalPayments() {
       ) : (
         <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 120px 120px 1fr", padding: "10px 14px", background: C.bg, borderBottom: `1px solid ${C.cardBdr}`, fontSize: 11, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" }}>
-            <div>Vendor / Invoice</div><div>Amount</div><div>Method</div><div>Status</div><div>Initiated</div><div>Completed</div><div style={{ textAlign: "right" }}>Action</div>
+            <SortHeader label="Vendor / Invoice" k="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Amount" k="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Method" k="method" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Status" k="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Initiated" k="initiated" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <SortHeader label="Completed" k="completed" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} />
+            <div style={{ textAlign: "right" }}>Action</div>
           </div>
-          {rows.map((p) => (
+          {sortedRows.map((p) => (
             <div key={p.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 120px 100px 120px 120px 1fr", padding: "10px 14px", borderBottom: `1px solid ${C.cardBdr}`, fontSize: 13, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{p.vendor?.name || p.vendor_id}</div>
@@ -219,19 +244,17 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
       <div onClick={(e) => e.stopPropagation()} style={{ ...modal, width: 500 }}>
         <h3 style={{ margin: "0 0 14px", fontSize: 18 }}>New payment</h3>
         <Row label="Vendor">
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} style={inp}>
-            <option value="">Select…</option>
-            {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <SearchableSelect value={vendorId || null} onChange={(v) => setVendorId(v)}
+            options={[{ value: "", label: "Select…" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))]}
+            placeholder="Select…" inputStyle={inp} />
         </Row>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
           <Row label="Amount"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inp} /></Row>
           <Row label="Currency"><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} style={inp} /></Row>
         </div>
         <Row label="Method">
-          <select value={method} onChange={(e) => setMethod(e.target.value)} style={inp}>
-            {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <SearchableSelect value={method || null} onChange={(v) => setMethod(v)}
+            options={METHODS.map((m) => ({ value: m, label: m }))} inputStyle={inp} />
         </Row>
         <Row label="Invoice (optional)">
           <SearchableSelect
@@ -259,6 +282,26 @@ function CreatePaymentModal({ entityId, onClose, onCreated }: { entityId: string
   );
 }
 
+// Clickable sortable header cell for the div-grid "table" (mirrors SortableTh's
+// ▲▼ affordance without the <th> markup the grid layout can't use).
+function SortHeader({ label, k, activeKey, dir, onSort, align }: {
+  label: string; k: string; activeKey: string | null; dir: SortDir;
+  onSort: (key: string) => void; align?: "right";
+}) {
+  const active = activeKey === k;
+  const indicator = active ? (dir === "asc" ? " ▲" : " ▼") : " ▲";
+  return (
+    <div
+      onClick={() => onSort(k)}
+      title={`Sort by ${label}`}
+      style={{ cursor: "pointer", userSelect: "none", textAlign: align, ...(active ? { color: C.text } : null) }}
+    >
+      {label}
+      <span aria-hidden="true" style={{ opacity: active ? 1 : 0 }}>{indicator}</span>
+    </div>
+  );
+}
+
 function StatusChip({ status }: { status: string }) {
   const color = status === "completed" ? C.success
     : status === "failed" || status === "cancelled" ? C.danger
@@ -275,8 +318,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box" } as const;
-const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13 } as const;
+const inp = { width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.bg, color: C.text, fontSize: 13, boxSizing: "border-box", colorScheme: "dark" } as const;
+const selectSt = { padding: "6px 10px", background: C.card, border: `1px solid ${C.cardBdr}`, color: C.text, borderRadius: 6, fontSize: 13, colorScheme: "dark" } as const;
 const btnPrimary = { padding: "8px 14px", borderRadius: 6, border: "none", background: C.primary, color: "#FFFFFF", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnSecondary = { padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit" } as const;
 const btnMini = { padding: "3px 10px", borderRadius: 4, border: `1px solid ${C.cardBdr}`, background: C.card, color: C.text, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit" } as const;

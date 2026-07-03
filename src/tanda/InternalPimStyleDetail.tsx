@@ -19,6 +19,7 @@
 // Spec: docs/tangerine/P8-data-crm-architecture.md §5 + §6.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import SearchableSelect from "./components/SearchableSelect";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 
@@ -127,6 +128,7 @@ const btnSuccess: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const textareaStyle: React.CSSProperties = {
   ...inputStyle, fontFamily: "inherit", lineHeight: 1.5, resize: "vertical",
@@ -456,18 +458,16 @@ function AttributeRowEditor({
     if (def.value_type === "enum") {
       const opts = def.options?.options || [];
       return (
-        <select
+        <SearchableSelect
           value={draft == null ? "" : String(draft)}
-          onChange={(e) => {
-            const v = e.target.value || null;
+          onChange={(val) => {
+            const v = val || null;
             setDraft(v);
             void patch(v);
           }}
-          style={inputStyle as React.CSSProperties}
-        >
-          <option value="">— none —</option>
-          {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
+          options={[{ value: "", label: "— none —" }, ...opts.map((o) => ({ value: o, label: o }))]}
+          inputStyle={inputStyle as React.CSSProperties}
+        />
       );
     }
     if (def.value_type === "date") {
@@ -666,13 +666,12 @@ function DescriptionTab({
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <label style={{ fontSize: 12, color: C.textMuted }}>Locale</label>
-        <select
-          value={locale}
-          onChange={(e) => setLocale(e.target.value)}
-          style={{ ...inputStyle, maxWidth: 140 } as React.CSSProperties}
-        >
-          {LOCALE_OPTIONS.map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
+        <SearchableSelect
+          value={locale || null}
+          onChange={(v) => setLocale(v)}
+          options={LOCALE_OPTIONS.map((l) => ({ value: l, label: l }))}
+          inputStyle={{ ...inputStyle, maxWidth: 140 } as React.CSSProperties}
+        />
 
         <div style={{ flex: 1 }} />
 
@@ -1027,7 +1026,7 @@ function ImagesTab({
       {/* Shopify: link a product, then re-host its images into this style. */}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: C.textSub, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          🛍️ Shopify product images
+          Shopify product images
           {isLinked && (
             <span style={{ background: C.tangerine, color: "#000", borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>
               ✓ LINKED
@@ -1193,7 +1192,7 @@ function ImageTile({ img, onClick }: { img: ImageRow; onClick: () => void }) {
             style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
           />
         ) : (
-          <span style={{ color: C.textMuted, fontSize: 24 }}>🖼️</span>
+          <span style={{ color: C.textMuted, fontSize: 12 }}>No image</span>
         )}
         {img.is_primary && (
           <div style={{
@@ -1303,17 +1302,16 @@ function ImageDetailModal({
           </FieldBlock>
 
           <FieldBlock label="Image kind">
-            <select
+            <SearchableSelect
               value={kind}
-              onChange={(e) => {
-                const v = e.target.value as ImageRow["image_kind"];
+              onChange={(val) => {
+                const v = val as ImageRow["image_kind"];
                 setKind(v);
                 void withSave("Image kind", () => onPatch({ image_kind: v }));
               }}
-              style={inputStyle as React.CSSProperties}
-            >
-              {IMAGE_KIND_OPTIONS.map((k) => <option key={k} value={k}>{k}</option>)}
-            </select>
+              options={IMAGE_KIND_OPTIONS.map((k) => ({ value: k, label: k }))}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </FieldBlock>
 
           <FieldBlock label="Primary">

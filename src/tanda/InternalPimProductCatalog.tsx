@@ -138,6 +138,7 @@ const btnSecondary: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
@@ -536,15 +537,14 @@ export default function InternalPimProductCatalog() {
           />
         </div>
 
-        <select
-          value={publishFilter}
-          onChange={(e) => setPublishFilter(e.target.value)}
-          style={{ ...inputStyle, maxWidth: 280 } as React.CSSProperties}
-        >
-          {PUBLISH_FILTER_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <div style={{ width: 280, maxWidth: 280 }}>
+          <SearchableSelect
+            value={publishFilter || null}
+            onChange={(v) => setPublishFilter(v)}
+            options={PUBLISH_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            inputStyle={{ ...inputStyle, maxWidth: 280 } as React.CSSProperties}
+          />
+        </div>
 
         <ExportButton
           rows={filteredRows as unknown as Array<Record<string, unknown>>}
@@ -632,7 +632,7 @@ export default function InternalPimProductCatalog() {
                         }}
                         title={r.loaded ? "No primary image" : "Loading…"}
                       >
-                        {r.loaded ? "🖼️" : "…"}
+                        {r.loaded ? "No image" : "…"}
                       </div>
                     )}
                   </td>

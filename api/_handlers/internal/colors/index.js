@@ -58,7 +58,7 @@ export default async function handler(req, res) {
 
     let query = admin
       .from("color_master")
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, hex_b, sort_order, is_active, nrf_code, nrf_name")
       .eq("entity_id", entityId)
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
     const { data, error } = await admin
       .from("color_master")
       .insert(row)
-      .select("id, name, code, hex, sort_order, is_active")
+      .select("id, name, code, hex, hex_b, sort_order, is_active, nrf_code, nrf_name")
       .single();
 
     if (error) {
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
       if (error.code === "23505") {
         const { data: existing } = await admin
           .from("color_master")
-          .select("id, name, code, hex, sort_order, is_active")
+          .select("id, name, code, hex, hex_b, sort_order, is_active, nrf_code, nrf_name")
           .eq("entity_id", entityId)
           .ilike("name", v.data.name)
           .maybeSingle();
@@ -126,20 +126,30 @@ export function validateInsert(body) {
       return { error: "sort_order must be a non-negative integer" };
     }
   }
-  // Optional #RRGGBB swatch — accept with or without leading '#', else null.
+  // Optional #RRGGBB swatches (hex = Color A, hex_b = optional Color B for a
+  // two-tone swatch) — accept with or without leading '#', else null.
   let hex = null;
   if (body.hex != null && String(body.hex).trim() !== "") {
     const h = String(body.hex).trim().replace(/^#/, "");
     if (!/^[0-9a-fA-F]{6}$/.test(h)) return { error: "hex must be a 6-digit #RRGGBB value" };
     hex = `#${h.toLowerCase()}`;
   }
+  let hexB = null;
+  if (body.hex_b != null && String(body.hex_b).trim() !== "") {
+    const h = String(body.hex_b).trim().replace(/^#/, "");
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return { error: "hex_b must be a 6-digit #RRGGBB value" };
+    hexB = `#${h.toLowerCase()}`;
+  }
   return {
     data: {
       name:       String(body.name).trim(),
       code:       body.code != null && String(body.code).trim() !== "" ? String(body.code).trim() : null,
       hex,
+      hex_b:      hexB,
       sort_order: sortOrder,
       is_active:  true,
+      nrf_code:   body.nrf_code != null && String(body.nrf_code).trim() !== "" ? String(body.nrf_code).trim() : null,
+      nrf_name:   body.nrf_name != null && String(body.nrf_name).trim() !== "" ? String(body.nrf_name).trim() : null,
     },
   };
 }

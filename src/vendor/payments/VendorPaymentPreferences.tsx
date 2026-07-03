@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabaseVendor } from "../supabaseVendor";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 
 interface Preferences {
   preferred_currency: string;
@@ -94,9 +95,12 @@ export default function VendorPaymentPreferences() {
         </Row>
 
         <Row label="Preferred payment method">
-          <select value={prefs.preferred_payment_method} onChange={(e) => setPrefs({ ...prefs, preferred_payment_method: e.target.value as Preferences["preferred_payment_method"] })} style={inp}>
-            {METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={prefs.preferred_payment_method}
+            onChange={(v) => setPrefs({ ...prefs, preferred_payment_method: v as Preferences["preferred_payment_method"] })}
+            options={METHODS.map((m) => ({ value: m.value, label: m.label }))}
+            inputStyle={inp}
+          />
         </Row>
 
         <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 700, textTransform: "uppercase", marginBottom: 6, marginTop: 10 }}>FX handling</div>

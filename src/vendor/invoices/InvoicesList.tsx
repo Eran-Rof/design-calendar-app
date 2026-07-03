@@ -35,6 +35,13 @@ export default function InvoicesList() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   useEffect(() => {
     (async () => {
@@ -81,6 +88,36 @@ export default function InvoicesList() {
     return rows;
   }, [rows, filter]);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return visible;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const scalar = (r: InvoiceRow): string | number | null => {
+      switch (sortKey) {
+        case "invoice_number": return r.invoice_number || null;
+        case "type": return r.source || null;
+        case "submitted": return r.submitted_at || null;
+        case "due": return r.due_date || null;
+        case "amount": return typeof r.total === "number" ? r.total : null;
+        case "status": return r.status || null;
+        case "paid": return r.paid_at || null;
+        default: return null;
+      }
+    };
+    const arr = [...visible];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [visible, sortKey, sortDir]);
+
   if (loading) return <div style={{ color: "#FFFFFF" }}>Loading invoices…</div>;
 
   return (
@@ -113,19 +150,19 @@ export default function InvoicesList() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "hidden", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "170px 110px 120px 120px 140px 140px 1fr", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05 }}>
-          <div>Invoice #</div>
-          <div>Type</div>
-          <div>Submitted</div>
-          <div>Due</div>
-          <div style={{ textAlign: "right", paddingRight: 16 }}>Amount</div>
-          <div style={{ textAlign: "center" }}>Status</div>
-          <div style={{ textAlign: "right" }}>Paid</div>
+          <div onClick={() => toggleSort("invoice_number")} style={{ cursor: "pointer", userSelect: "none" }}>Invoice #{sortKey === "invoice_number" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("type")} style={{ cursor: "pointer", userSelect: "none" }}>Type{sortKey === "type" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("submitted")} style={{ cursor: "pointer", userSelect: "none" }}>Submitted{sortKey === "submitted" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("due")} style={{ cursor: "pointer", userSelect: "none" }}>Due{sortKey === "due" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("amount")} style={{ textAlign: "right", paddingRight: 16, cursor: "pointer", userSelect: "none" }}>Amount{sortKey === "amount" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ textAlign: "center", cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("paid")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Paid{sortKey === "paid" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
         </div>
-        {visible.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
             {rows.length === 0 ? "No invoices yet. Click 'Submit invoice' to start." : "No invoices in this view."}
           </div>
-        ) : visible.map((r) => {
+        ) : sorted.map((r) => {
           const c = STATUS_COLORS[r.status] ?? { bg: TH.surfaceHi, fg: TH.text };
           return (
             <Link

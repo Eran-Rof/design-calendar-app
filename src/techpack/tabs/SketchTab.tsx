@@ -59,7 +59,6 @@ export function SketchTab({ tp, updateSelected, uploadImage, setLightboxImg, sho
               onMouseEnter={e => (e.currentTarget.style.borderColor = "#3B82F6")}
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#334155")}
             >
-              <div style={{ fontSize: 36 }}>👔</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#6B7280" }}>Upload {label}</div>
               <div style={{ fontSize: 11, color: "#4B5563" }}>Click to browse</div>
             </div>
@@ -121,7 +120,7 @@ export function SketchTab({ tp, updateSelected, uploadImage, setLightboxImg, sho
                     <button
                       style={{ ...S.iconBtnTiny, marginTop: 4, flexShrink: 0 }}
                       onClick={() => removeCallout(c.id)}
-                    >🗑️</button>
+                    >Delete</button>
                   </div>
                 ))}
               </div>

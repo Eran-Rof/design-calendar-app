@@ -31,6 +31,7 @@ export type ModuleKey =
   | "adjustment_type_master"
   | "adjustment_reason_master"
   | "transfer_reason_master"
+  | "date_preset_master"
   | "warehouse_master"
   | "carrier_master"
   | "buyer_scope_master"
@@ -64,6 +65,7 @@ export type ModuleKey =
   | "ar_backfill"
   | "trial_balance"
   | "income_statement"
+  | "segment_pl"
   | "balance_sheet"
   | "cash_flow"
   | "year_end_close"
@@ -180,7 +182,10 @@ export const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] 
   // Customs → Broker → 3-Way Match → Recon → Bookkeeper → EDI chain is visible.
   // 🚚 is distinct from 📦 (Inventory) and every other section emoji.
   { section: "Procurement", emoji: "🚚", groups: ["Procurement"] },
-  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Manufacturing", "Shadow Mirror"] },
+  { section: "Inventory",   emoji: "📦", groups: ["Inventory", "Shadow Mirror"] },
+  // Operator item #1 — Manufacturing promoted to its own top-level section
+  // (was nested under Inventory; its masters were also under Master Data).
+  { section: "Manufacturing", emoji: "🛠️", groups: ["Manufacturing"] },
   // Chunk I item 8 — split the former combined "Sales & CRM" header into two
   // distinct top-level headers: "Sales" (order entry + sales channels) and
   // "Customers" (CRM pipeline + customer-service cases), reachable separately.
@@ -239,13 +244,14 @@ export const MODULES: ModuleDef[] = [
   { key: "season_master",        label: "Seasons Master",            emoji: "🍂", group: "Master Data" },
   { key: "color_master",         label: "Color Master",              emoji: "🎨", group: "Master Data" },
   { key: "fabric_mill_master",   label: "Fabric Mill Master",        emoji: "🏭", group: "Master Data" },
-  { key: "part_master",          label: "Part Master",               emoji: "🧩", group: "Master Data" },
-  { key: "service_item_master",  label: "Service Item Master",       emoji: "🛠️", group: "Master Data" },
-  { key: "part_type_master",     label: "Part Type Master",          emoji: "🏷️", group: "Master Data" },
+  { key: "part_master",          label: "Part Master",               emoji: "🧩", group: "Manufacturing" },
+  { key: "service_item_master",  label: "Service Item Master",       emoji: "🛠️", group: "Manufacturing" },
+  { key: "part_type_master",     label: "Part Type Master",          emoji: "🏷️", group: "Manufacturing" },
   { key: "rma_reason_master",    label: "RMA Reasons Master",        emoji: "↩️", group: "Master Data" },
   { key: "adjustment_type_master", label: "Adjustment Types Master", emoji: "⚙️", group: "Master Data" },
   { key: "adjustment_reason_master", label: "Adjustment Reason Master", emoji: "📋", group: "Master Data" },
   { key: "transfer_reason_master", label: "Transfer Reasons Master", emoji: "🔁", group: "Master Data" },
+  { key: "date_preset_master",   label: "Date Presets Master",       emoji: "📅", group: "Master Data" },
   { key: "warehouse_master",     label: "Warehouses Master",         emoji: "🏬", group: "Master Data" },
   { key: "carrier_master",      label: "Carrier Master",            emoji: "🚚", group: "Master Data" },
   { key: "buyer_scope_master",  label: "Buyer Scope Master",        emoji: "🛒", group: "Master Data" },
@@ -289,6 +295,8 @@ export const MODULES: ModuleDef[] = [
   { key: "trial_balance",     label: "Trial Balance",     emoji: "📊", group: "Accounting" },
   // P5-3: Income Statement (P&L) — revenue + COGS + opex with subtotals.
   { key: "income_statement",  label: "Income Statement",  emoji: "📈", group: "Accounting" },
+  // P26: Segment / Dimensional P&L — revenue + margin by brand × channel × warehouse × gender.
+  { key: "segment_pl",        label: "Segment P&L",       emoji: "📈", group: "Accounting" },
   // P5-4: Balance Sheet (assets / liabilities / equity as-of).
   { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
   // P5-5: Cash Flow Statement (indirect method).

@@ -445,6 +445,7 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                           placeholder="Search customers…"
                           value={custSearch}
                           onChange={e => setCustSearch(e.target.value)}
+                          onFocus={e => e.currentTarget.select()}
                           autoFocus
                           style={{ width: "100%", boxSizing: "border-box", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, padding: "6px 10px", color: "#F1F5F9", fontSize: 12, fontFamily: "inherit", outline: "none" }}
                         />

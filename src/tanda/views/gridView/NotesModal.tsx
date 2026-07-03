@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import type { XoroPO, Milestone } from "../../../utils/tandaTypes";
 import { fmtDateDisplay } from "../../../utils/tandaTypes";
+import SearchableSelect from "../../components/SearchableSelect";
 
 export interface NotesModalProps {
   po: XoroPO;
@@ -48,7 +49,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
   })();
 
   // Variant notes aggregated across all milestones — shown in the "all notes"
-  // modal (no filterPhase, no filterVariant) so the row-level 📝 includes them.
+  // modal (no filterPhase, no filterVariant) so the row-level notes icon includes them.
   const variantNotesFlat = (!isVariantMode && !filterPhase) ? ms.flatMap(m =>
     Object.entries(m.variant_notes || {}).flatMap(([vk, arr]) =>
       arr.map(ne => ({ ...ne, phase: m.phase, variant: vk, milestoneId: m.id }))
@@ -152,7 +153,7 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
                                     style={{ background: "#1A2B40", border: "1px solid #334155", color: "#93C5FD", cursor: "pointer", fontSize: 12, padding: "2px 7px", borderRadius: 4, lineHeight: 1, fontWeight: 600 }}
                                     onMouseEnter={e => { e.currentTarget.style.background = "#1E3A5F"; e.currentTarget.style.color = "#60A5FA"; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = "#1A2B40"; e.currentTarget.style.color = "#93C5FD"; }}
-                                  >✏</button>
+                                  >✎</button>
                                   <button
                                     onClick={() => handleDelete(i)}
                                     title="Delete note"
@@ -199,13 +200,14 @@ export function NotesModal({ po, ms, filterPhase, filterVariant, onClose, onAddN
         {/* Add note footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #1E293B", flexShrink: 0, background: "#080F1A", borderRadius: "0 0 10px 10px" }}>
           {!filterPhase && availableMs.length > 1 && (
-            <select
-              value={addPhase}
-              onChange={e => setAddPhase(e.target.value)}
-              style={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", marginBottom: 8, boxSizing: "border-box", outline: "none" }}
-            >
-              {availableMs.map(m => <option key={m.id} value={m.phase}>{m.phase}</option>)}
-            </select>
+            <div style={{ marginBottom: 8 }}>
+              <SearchableSelect
+                value={addPhase || null}
+                onChange={v => setAddPhase(v)}
+                options={availableMs.map(m => ({ value: m.phase, label: m.phase }))}
+                inputStyle={{ width: "100%", background: "#0F172A", border: "1px solid #334155", borderRadius: 6, color: "#D1D5DB", fontSize: 11, padding: "5px 8px", boxSizing: "border-box", outline: "none" }}
+              />
+            </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <textarea

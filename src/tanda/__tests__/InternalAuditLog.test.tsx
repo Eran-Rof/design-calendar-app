@@ -8,7 +8,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 
 import InternalAuditLog, {
   buildAuditLogQuery,
@@ -178,10 +178,14 @@ describe("<InternalAuditLog /> rendering", () => {
 
   it("offers every allowlisted source_table as an option", async () => {
     render(<InternalAuditLog />);
-    const sel = screen.getByTestId("audit-source-table") as HTMLSelectElement;
-    const values = Array.from(sel.options).map((o) => o.value);
+    // Themed SearchableSelect (combobox) — open it and read the listbox options.
+    const input = screen.getByTestId("audit-source-table").querySelector("input")!;
+    fireEvent.focus(input);
+    const optionTexts = within(screen.getByRole("listbox"))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
     for (const t of T11_SOURCE_TABLES) {
-      expect(values).toContain(t);
+      expect(optionTexts).toContain(t);
     }
   });
 

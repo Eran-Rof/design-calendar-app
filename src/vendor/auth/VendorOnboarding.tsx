@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { TH } from "../theme";
 import { supabaseVendor } from "../supabaseVendor";
 import { showAlert } from "../ui/AppDialog";
@@ -244,14 +245,19 @@ function CompanyInfoStep({ initial, onSubmit }: { initial: Record<string, unknow
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Tax ID (EIN / VAT) — optional"><input value={taxId} onChange={(e) => setTaxId(e.target.value)} style={inp} /></Field>
         <Field label="Business type">
-          <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} style={inp}>
-            <option value="">Select…</option>
-            <option value="corporation">Corporation</option>
-            <option value="llc">LLC</option>
-            <option value="partnership">Partnership</option>
-            <option value="sole_proprietor">Sole proprietor</option>
-            <option value="other">Other</option>
-          </select>
+          <SearchableSelect
+            value={businessType || null}
+            onChange={(v) => setBusinessType(v)}
+            placeholder="Select…"
+            options={[
+              { value: "corporation", label: "Corporation" },
+              { value: "llc", label: "LLC" },
+              { value: "partnership", label: "Partnership" },
+              { value: "sole_proprietor", label: "Sole proprietor" },
+              { value: "other", label: "Other" },
+            ]}
+            inputStyle={inp}
+          />
         </Field>
       </div>
       <Field label="Year founded"><input value={yearFounded} onChange={(e) => setYearFounded(e.target.value)} type="number" style={inp} /></Field>
@@ -302,11 +308,16 @@ function BankingStep({ onSubmit }: { onSubmit: (d: Record<string, unknown>) => P
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Account type">
-          <select value={accountType} onChange={(e) => setAccountType(e.target.value)} style={inp}>
-            <option value="checking">Checking</option>
-            <option value="savings">Savings</option>
-            <option value="wire">Wire</option>
-          </select>
+          <SearchableSelect
+            value={accountType}
+            onChange={(v) => setAccountType(v)}
+            options={[
+              { value: "checking", label: "Checking" },
+              { value: "savings", label: "Savings" },
+              { value: "wire", label: "Wire" },
+            ]}
+            inputStyle={inp}
+          />
         </Field>
         <Field label="Currency"><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} style={inp} /></Field>
       </div>
@@ -368,10 +379,15 @@ function TaxStep({ initial, onSubmit }: { initial: Record<string, unknown> | nul
       {collectTax && (
         <>
           <Field label="Classification">
-            <select value={classification} onChange={(e) => setClassification(e.target.value)} style={inp}>
-              <option value="W-9">W-9 (US entity)</option>
-              <option value="W-8BEN">W-8BEN (non-US entity)</option>
-            </select>
+            <SearchableSelect
+              value={classification}
+              onChange={(v) => setClassification(v)}
+              options={[
+                { value: "W-9", label: "W-9 (US entity)" },
+                { value: "W-8BEN", label: "W-8BEN (non-US entity)" },
+              ]}
+              inputStyle={inp}
+            />
           </Field>
           <Field label="Tax document (PDF)">
             <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} />

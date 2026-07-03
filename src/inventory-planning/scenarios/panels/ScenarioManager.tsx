@@ -48,6 +48,9 @@ import ScenarioAssumptionsPanel from "./ScenarioAssumptionsPanel";
 import ScenarioComparisonView from "./ScenarioComparisonView";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/components/TablePrefs";
+import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useSort } from "../../../tanda/hooks/useSort";
+import SortableTh from "../../../tanda/components/SortableTh";
 
 const SCENARIO_LIST_TABLE_KEY = "ip.scenario_manager";
 const SCENARIO_LIST_COLUMNS: ColumnDef[] = [
@@ -101,6 +104,18 @@ export default function ScenarioManager() {
 
   const selected = useMemo(() => scenarios.find((s) => s.id === selectedId) ?? null, [scenarios, selectedId]);
   const readOnly = selected ? isReadOnly(selected) : false;
+
+  // Additive per-column sort over the export history rows.
+  const { sorted: exportsSorted, sortKey: exportsSortKey, sortDir: exportsSortDir, onHeaderClick: exportsOnHeaderClick } = useSort(exports, {
+    persistKey: "ip:scenario_manager_exports:sort",
+    accessors: {
+      type: (e) => e.export_type,
+      status: (e) => e.export_status,
+      rows: (e) => e.row_count ?? 0,
+      file: (e) => e.file_name ?? "",
+      created: (e) => e.created_at,
+    },
+  });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -274,7 +289,7 @@ export default function ScenarioManager() {
       `Permanently DELETE scenario "${selected.scenario_name}" (${selected.status})?\n\n` +
       `This removes the scenario and its assumptions/approvals/exports. ` +
       `It cannot be undone. To keep a record instead, use Archive (close).`,
-      { title: "Delete scenario", confirmText: "Delete", icon: "🗑" },
+      { title: "Delete scenario", confirmText: "Delete" },
     );
     if (!ok) return;
     setBusy(true);
@@ -332,12 +347,13 @@ export default function ScenarioManager() {
         <div style={{ ...S.card, marginBottom: 12 }}>
           <div style={S.toolbar}>
             <strong style={{ color: PAL.text, fontSize: 14 }}>Scenario</strong>
-            <select style={S.select} value={selectedId ?? ""} onChange={(e) => setSelectedId(e.target.value)}>
-              <option value="">— pick —</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>{s.scenario_name} · {s.scenario_type} · {s.status}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              inputStyle={S.select}
+              value={selectedId}
+              onChange={(v) => setSelectedId(v)}
+              placeholder="— pick —"
+              options={scenarios.map((s) => ({ value: s.id, label: `${s.scenario_name} · ${s.scenario_type} · ${s.status}` }))}
+            />
             <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New scenario</button>
             {selected && (
               <>
@@ -348,7 +364,7 @@ export default function ScenarioManager() {
                   onClick={deleteSelected}
                   disabled={busy}
                   title="Permanently delete this scenario (or use Archive to close it without deleting)"
-                >🗑 Delete</button>
+                >Delete</button>
               </>
             )}
             {selected && (
@@ -448,15 +464,15 @@ export default function ScenarioManager() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    <th style={S.th}>Type</th>
-                    <th style={S.th}>Status</th>
-                    <th style={{ ...S.th, textAlign: "right" }}>Rows</th>
-                    <th style={S.th}>File</th>
-                    <th style={S.th}>Created</th>
+                    <SortableTh label="Type" sortKey="type" activeKey={exportsSortKey} dir={exportsSortDir} onSort={exportsOnHeaderClick} style={S.th} />
+                    <SortableTh label="Status" sortKey="status" activeKey={exportsSortKey} dir={exportsSortDir} onSort={exportsOnHeaderClick} style={S.th} />
+                    <SortableTh label="Rows" sortKey="rows" activeKey={exportsSortKey} dir={exportsSortDir} onSort={exportsOnHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} />
+                    <SortableTh label="File" sortKey="file" activeKey={exportsSortKey} dir={exportsSortDir} onSort={exportsOnHeaderClick} style={S.th} />
+                    <SortableTh label="Created" sortKey="created" activeKey={exportsSortKey} dir={exportsSortDir} onSort={exportsOnHeaderClick} style={S.th} />
                   </tr>
                 </thead>
                 <tbody>
-                  {exports.map((e) => (
+                  {exportsSorted.map((e) => (
                     <tr key={e.id}>
                       <td style={S.td}>{e.export_type}</td>
                       <td style={S.td}>{e.export_status}</td>
@@ -515,6 +531,19 @@ function ScenarioList({
 }) {
   const runNameById = new Map(runs.map((r) => [r.id, r.name]));
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(SCENARIO_LIST_TABLE_KEY, SCENARIO_LIST_COLUMNS);
+  // Additive per-column sort over the scenario rows. Status/base_run/created
+  // cells render looked-up or formatted values, so supply matching accessors.
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(scenarios, {
+    persistKey: "ip:scenario_manager:sort",
+    accessors: {
+      name: (s) => s.scenario_name,
+      type: (s) => s.scenario_type,
+      status: (s) => s.status,
+      base_run: (s) => (s.base_run_reference_id ? runNameById.get(s.base_run_reference_id) ?? "" : ""),
+      created: (s) => s.created_at,
+      note: (s) => s.note ?? "",
+    },
+  });
   return (
     <div style={S.card}>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
@@ -531,16 +560,16 @@ function ScenarioList({
         <table style={S.table}>
           <thead>
             <tr>
-              <th style={S.th} hidden={!visibleColumns.has("name")}>Name</th>
-              <th style={S.th} hidden={!visibleColumns.has("type")}>Type</th>
-              <th style={S.th} hidden={!visibleColumns.has("status")}>Status</th>
-              <th style={S.th} hidden={!visibleColumns.has("base_run")}>Base run</th>
-              <th style={S.th} hidden={!visibleColumns.has("created")}>Created</th>
-              <th style={S.th} hidden={!visibleColumns.has("note")}>Note</th>
+              <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("name")} />
+              <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("type")} />
+              <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("status")} />
+              <SortableTh label="Base run" sortKey="base_run" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("base_run")} />
+              <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("created")} />
+              <SortableTh label="Note" sortKey="note" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("note")} />
             </tr>
           </thead>
           <tbody>
-            {scenarios.map((s) => (
+            {sorted.map((s) => (
               <tr key={s.id}
                   style={{ cursor: "pointer", background: s.id === selectedId ? PAL.panelAlt : undefined }}
                   onClick={() => onSelect(s.id)}>
@@ -619,12 +648,13 @@ function NewScenarioModal({
           <div style={{ display: "grid", gap: 10 }}>
             <div>
               <label style={S.label}>Base planning run</label>
-              <select style={{ ...S.select, width: "100%" }} value={baseRunId} onChange={(e) => setBaseRunId(e.target.value)}>
-                <option value="">— pick —</option>
-                {runs.map((r) => (
-                  <option key={r.id} value={r.id}>{r.name} · {r.planning_scope} · {r.status}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                inputStyle={{ ...S.select, width: "100%" }}
+                value={baseRunId || null}
+                onChange={(v) => setBaseRunId(v)}
+                placeholder="— pick —"
+                options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))}
+              />
             </div>
             <div>
               <label style={S.label}>Scenario name</label>
@@ -632,11 +662,12 @@ function NewScenarioModal({
             </div>
             <div>
               <label style={S.label}>Type</label>
-              <select style={{ ...S.select, width: "100%" }} value={type} onChange={(e) => setType(e.target.value as IpScenarioType)}>
-                {(["what_if", "stretch", "conservative", "promo", "supply_delay", "override_review"] as const).map((t) => (
-                  <option key={t} value={t}>{t.replace(/_/g, " ")}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                inputStyle={{ ...S.select, width: "100%" }}
+                value={type}
+                onChange={(v) => setType(v as IpScenarioType)}
+                options={(["what_if", "stretch", "conservative", "promo", "supply_delay", "override_review"] as const).map((t) => ({ value: t, label: t.replace(/_/g, " ") }))}
+              />
             </div>
             <div>
               <label style={S.label}>Note</label>

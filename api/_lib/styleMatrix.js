@@ -53,9 +53,73 @@ export function sizeVariantsOf(raw) {
   return SIZE_VARIANTS[canon] || [String(raw).trim()];
 }
 
+// Column-ordering rank for a size label on the FALLBACK path (a style with no
+// explicit size_scale). Understands letter sizes — including the catalog's kids
+// age-range forms like "XS(5-6)" and the canonical XSMALL…3XLARGE labels — plus
+// numeric waist sizes. Returns a [tier, rank, tiebreak] tuple: letter sizes
+// (tier 0) order XS→…→5XL, numeric waists (tier 1) order by value, anything else
+// (tier 2) sorts last alphabetically. Without this the fallback kept raw SKU
+// insertion order, so kids styles rendered scrambled columns (XS, L, M, S, XL).
+const SIZE_TIER = {
+  XXSMALL: -2, XSMALL: -1, SMALL: 0, MEDIUM: 1, LARGE: 2,
+  XLARGE: 3, "2XLARGE": 4, "3XLARGE": 5, "4XLARGE": 6, "5XLARGE": 7,
+};
+export function sizeSortKey(size) {
+  const s = String(size ?? "").trim();
+  if (!s) return [3, Number.POSITIVE_INFINITY, ""];
+  const base = s.split(/[\s(]/)[0];            // "XS(5-6)" -> "XS"; "MEDIUM" -> "MEDIUM"
+  const canon = normalizeSize(base);           // "XS" -> "XSMALL"; canonical labels pass through
+  if (canon in SIZE_TIER) {
+    const lo = (s.match(/\((\d+)/) || [])[1];  // age-range low bound as a tiebreak
+    return [0, SIZE_TIER[canon], lo ? Number(lo) : 0];
+  }
+  if (/^\d+(\.\d+)?$/.test(s)) return [1, Number(s), 0]; // numeric waist
+  return [2, Number.POSITIVE_INFINITY, s.toUpperCase()];
+}
+// Comparator over size labels using sizeSortKey (stable within a tier).
+export function compareSizes(a, b) {
+  const ka = sizeSortKey(a), kb = sizeSortKey(b);
+  for (let i = 0; i < 3; i++) {
+    if (ka[i] < kb[i]) return -1;
+    if (ka[i] > kb[i]) return 1;
+  }
+  return 0;
+}
+
+// Color canonicalization — the SAME physical color arrives from different ingest
+// paths spelled differently: CASE ("Black" vs "BLACK"), abbreviation ("Light
+// Wash" vs "Lt Wash", "…with Tint" vs "…w Tint"), and punctuation/spacing
+// ("Navy/Peach" vs "NAVY/PEACH", "Forget-Me-Not"). The matrix groups rows by the
+// raw `color` string, so variants split into duplicate rows (e.g. one color's
+// size run spread across two rows). We map every spelling to ONE canonical,
+// display-friendly label: uppercase → expand known abbreviations (whole word) →
+// collapse punctuation/space → Title Case. DETERMINISTIC (independent of which
+// variants are present) so the frontend seed and the backend payload converge on
+// the same label. Presentation-only — ip_item_master is NOT mutated; SKUs keep
+// their real ids so saves still resolve to the existing row (no forking).
+// Mirror: src/tanda/colorCanon.ts — keep in sync.
+const COLOR_ABBREV = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH", BLCK: "BLACK" };
+export function canonColor(raw) {
+  if (raw == null) return raw;
+  const s = String(raw).trim();
+  if (!s) return s;
+  const words = s.toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim().split(" ");
+  return words
+    .map((w) => COLOR_ABBREV[w] || w)
+    .map((w) => (w ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(" ");
+}
+
 // Bucket name for inventory layers that carry no `wh=<Store>` token in `notes`
 // (color-grain opening_balance layers predate the by-size warehouse cutover).
 const WH_UNASSIGNED = "(unassigned)";
+
+// Bucket label for inventory layers that carry no lot_number (legacy / opening
+// balance stock received before lot tracking). Surfaced in the payload `lots`
+// list so the UI's lot filter can also isolate unlotted stock.
+export const NO_LOT = "(no lot)";
+// Normalize a layer's lot_number to the filter/label key (trim; null → NO_LOT).
+export function lotKeyOf(v) { const s = v == null ? "" : String(v).trim(); return s === "" ? NO_LOT : s; }
 
 // "Loose" SKU key — uppercase, strip every non-alphanumeric. Used ONLY to
 // reconcile the avg-cost grain mismatch (master "NAVY-CAMO" vs costing
@@ -74,6 +138,44 @@ function ppkStem(styleCode) {
 // Is this style_code a PPK (pack-grain) style? Canonical PPK gate: contains PPK.
 function isPpkStyle(styleCode) {
   return /PPK/i.test(String(styleCode ?? ""));
+}
+export { isPpkStyle };
+
+// Units-per-pack for a set of PPK style_codes, from the prepack_matrices master.
+// Returns Map<lower(ppk_style_code), unitsPerPack> where unitsPerPack = Σ
+// qty_per_pack across the matrix's sizes. Used by the size-less surfaces
+// (Inventory Snapshot + Sold/Purchased drills) to convert PACK quantities into
+// EACHES when "Explode PPK" is on: the snapshot has no size axis, so a per-size
+// explosion isn't meaningful there — multiplying each pack qty by its
+// units-per-pack yields the equivalent each-count for every lifecycle column.
+// PPK style_codes with no active matrix are simply omitted (caller leaves those
+// rows un-exploded, mirroring the matrix's "unmatched → not exploded" rule).
+export async function ppkUnitsPerPackByStyle(admin, entityId, styleCodes) {
+  const out = new Map();
+  const wanted = [...new Set((styleCodes || []).filter(Boolean).map((c) => String(c)))];
+  if (wanted.length === 0) return out;
+  const { data: matrices } = await admin
+    .from("prepack_matrices")
+    .select("id, ppk_style_code")
+    .eq("entity_id", entityId)
+    .eq("is_active", true)
+    .not("ppk_style_code", "is", null);
+  const wantedLower = new Set(wanted.map((c) => c.toLowerCase()));
+  const matched = (matrices || []).filter((m) => wantedLower.has(String(m.ppk_style_code).toLowerCase()));
+  if (matched.length === 0) return out;
+  const { data: comp } = await admin
+    .from("prepack_matrix_sizes")
+    .select("matrix_id, qty_per_pack")
+    .in("matrix_id", matched.map((m) => m.id));
+  const unitsByMatrix = new Map();
+  for (const r of comp || []) {
+    unitsByMatrix.set(r.matrix_id, (unitsByMatrix.get(r.matrix_id) || 0) + (Number(r.qty_per_pack) || 0));
+  }
+  for (const m of matched) {
+    const u = unitsByMatrix.get(m.id) || 0;
+    if (u > 0) out.set(String(m.ppk_style_code).toLowerCase(), u);
+  }
+  return out;
 }
 
 // Dedupe a list preserving first-seen order (drops falsy entries).
@@ -100,6 +202,15 @@ function dedupeOrdered(list) {
  */
 export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) {
   const explodePpk = opts.explodePpk === true;
+  // Lot filter (opt-in): when a non-empty list of lot keys is supplied, on-hand
+  // is summed only from inventory layers whose lot_number (or NO_LOT) is in the
+  // set. The payload's `lots` list is ALWAYS the full set of lots seen (computed
+  // regardless of the filter) so the UI dropdown stays populated. `lotsSeen`
+  // accumulates the full set across the base layers and any PPK-sibling layers.
+  const lotFilter = Array.isArray(opts.lotFilter) && opts.lotFilter.length
+    ? new Set(opts.lotFilter.map((s) => lotKeyOf(s)))
+    : null;
+  const lotsSeen = new Set();
   const { data: style } = await admin
     .from("style_master")
     .select("id, style_code, style_name, description, size_scale_id, brand_id, gender_code, attributes")
@@ -125,8 +236,13 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   if (sizes.length === 0) {
     const seen = new Set();
     for (const s of skus) { const sz = normalizeSize(s.size); if (sz && !seen.has(sz)) { seen.add(sz); sizes.push(sz); } }
+    // No scale to order by → sort into intuitive size order (XS→XL, kids
+    // age-ranges, numeric waists) instead of arbitrary SKU insertion order.
+    sizes.sort(compareSizes);
   }
-  let colors = [...new Set(skus.map((s) => s.color).filter(Boolean))];
+  // Canonicalize colors so spelling/case variants of one physical color collapse
+  // to a single row (see canonColor). Dedupe preserving first-seen order.
+  let colors = dedupeOrdered(skus.map((s) => canonColor(s.color)).filter(Boolean));
   let inseams = [...new Set(skus.map((s) => s.inseam).filter(Boolean))];
   const rises = [...new Set(skus.map((s) => s.rise).filter(Boolean))];
 
@@ -145,15 +261,14 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       .eq("entity_id", entityId)
       .in("id", declaredColorIds);
     const nameById = new Map((cmRows || []).map((r) => [r.id, r.name]));
-    // Align a declared color to an existing SKU color when they match
-    // case-insensitively, so the row uses the SKU's exact spelling and its cells
-    // resolve (catalog colors are inconsistently cased — "BLACK" vs "Black"). A
-    // declared color with no SKU yet keeps its (canonical) spelling = empty row.
-    const skuColorByLower = new Map(colors.map((c) => [c.toLowerCase(), c]));
+    // Align a declared color to an existing SKU color by canonical key, so the
+    // row reuses the (canonical) SKU spelling and its cells resolve. A declared
+    // color with no SKU yet contributes its own canonical spelling = empty row.
+    const skuColorByCanon = new Map(colors.map((c) => [canonColor(c), c]));
     const declaredNames = declaredColorIds
       .map((id) => nameById.get(id))
       .filter(Boolean)
-      .map((n) => skuColorByLower.get(n.toLowerCase()) || n);
+      .map((n) => skuColorByCanon.get(canonColor(n)) || canonColor(n));
     colors = dedupeOrdered([...declaredNames, ...colors]);
   }
   const declaredInseams = Array.isArray(attrs.inseams)
@@ -189,11 +304,14 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
   if (ids.length > 0) {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, received_at, notes, location_id")
+      .select("item_id, remaining_qty, received_at, notes, location_id, lot_number")
       .in("item_id", ids);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
-      if (q > 0) {
+      const lot = lotKeyOf(l.lot_number);
+      if (q > 0) lotsSeen.add(lot);                 // full lot list (filter-independent)
+      const included = !lotFilter || lotFilter.has(lot);
+      if (q > 0 && included) {
         onHand.set(l.item_id, (onHand.get(l.item_id) || 0) + q);
         const locName = l.location_id ? locNameById.get(l.location_id) : null;
         const m = (l.notes || "").match(/wh=(.+)$/);
@@ -203,13 +321,18 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
         if (!byWh) { byWh = {}; onHandByWh.set(l.item_id, byWh); }
         byWh[wh] = (byWh[wh] || 0) + q;
       }
-      if (l.received_at) {
+      if (included && l.received_at) {
         const prev = lastReceived.get(l.item_id);
         if (!prev || l.received_at > prev) lastReceived.set(l.item_id, l.received_at);
       }
     }
-    const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
-    for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+    // Available (M18 view) is item-level and not lot-aware. When a lot filter is
+    // active we deliberately leave `avail` empty so the UI shows only the
+    // lot-scoped on-hand rather than a whole-item available that would exceed it.
+    if (!lotFilter) {
+      const { data: av } = await admin.from("v_inventory_available").select("item_id, available_qty").in("item_id", ids);
+      for (const a of av || []) avail.set(a.item_id, Number(a.available_qty));
+    }
   }
 
   // Avg cost: ip_item_avg_cost is keyed by sku_code, storing dollars in avg_cost.
@@ -277,11 +400,28 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       onHand, onHandByWh, lastReceived, avgCostCentsBySku, avgCostCentsByLoose,
     });
   } else if (explodePpk && !isPpkStyle(style.style_code)) {
-    explode = await computePpkExplode(admin, entityId, style, whSeenAll);
+    explode = await computePpkExplode(admin, entityId, style, whSeenAll, lotFilter, lotsSeen);
   }
+
+  // ── Prepack pack-entry block (additive) ─────────────────────────────────────
+  // For a PPK (pack-grain) style, order entry types a single PACK count per
+  // color rather than per-size eaches. We surface the pack token (the entry
+  // column) and the per-size composition from the Prepack Matrix master so the
+  // UI can explode "N packs" into a size breakdown. Computed for every PPK style
+  // independent of explodePpk (that flag drives the inventory on-hand explode).
+  const prepack = isPpkStyle(style.style_code)
+    ? await computePrepackBlock(admin, entityId, style, skus)
+    : null;
 
   const warehouses = [...whSeenAll].filter((w) => w !== WH_UNASSIGNED).sort((a, b) => a.localeCompare(b));
   if (whSeenAll.has(WH_UNASSIGNED)) warehouses.push(WH_UNASSIGNED);
+
+  // Lot numbers present on this style's on-hand (base SKUs + any PPK-sibling
+  // packs), sorted; the NO_LOT bucket (unlotted stock) sorts last. Always the
+  // FULL set — independent of any active lot filter — so the UI dropdown keeps
+  // every choice selectable. Exposed as payload `lots` for the lot filter.
+  const lots = [...lotsSeen].filter((l) => l !== NO_LOT).sort((a, b) => a.localeCompare(b));
+  if (lotsSeen.has(NO_LOT)) lots.push(NO_LOT);
 
   // SELF-explode: the picked style IS a PPK and a matrix was found → return the
   // exploded sized matrix in place of the pack-token grid (no double count).
@@ -293,6 +433,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       inseams: [],
       rises: [],
       warehouses,
+      lots,
       explode: {
         enabled: true,
         self: true,
@@ -326,6 +467,7 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     inseams,
     rises,
     warehouses,
+    lots,
     // Additive: present only when explodePpk was requested. UI folds
     // explode.cells into the matrix and shows the indicator/unmatched note.
     explode: explode ? {
@@ -335,6 +477,9 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
       packs_unmatched: explode.unmatched,    // [{ ppk_style_code, color, pack_token, qty }]
       ppk_styles: explode.ppkStyles,         // distinct PPK sibling style_codes found
     } : (explodePpk ? { enabled: true, cells: [], packs_exploded: 0, packs_unmatched: [], ppk_styles: [] } : undefined),
+    // Additive: present only for PPK (pack-grain) styles. Order entry renders a
+    // single pack-count column + the per-size breakdown (explode) from this block.
+    prepack: prepack || undefined,
     skus: mergeSkusByCell(skus, { onHand, onHandByWh, avail, lastReceived, avgCostCentsBySku, avgCostCentsByLoose }),
   };
 }
@@ -354,7 +499,11 @@ function mergeSkusByCell(skus, maps) {
   const cells = new Map(); // `${color}|${size}|${inseam}` → merged sku (+ _primaryOnHand)
   for (const s of skus) {
     const size = normalizeSize(s.size);
-    const key = `${s.color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
+    // Canonical color so spelling/case variants of one physical color merge into
+    // ONE cell (their on-hand sums) and render under one row. The kept primary
+    // `id` is still a real SKU id, so SO/PO/AR saves resolve to the existing row.
+    const color = canonColor(s.color);
+    const key = `${color ?? ""}|${size ?? ""}|${s.inseam ?? ""}`;
     const oh = onHand.get(s.id) || 0;
     const av = avail.has(s.id) ? avail.get(s.id) : null;
     // Exact sku_code match first; fall back to the loose key so multi-word-color
@@ -370,7 +519,7 @@ function mergeSkusByCell(skus, maps) {
     const lr = lastReceived.has(s.id) ? lastReceived.get(s.id) : null;
     let cell = cells.get(key);
     if (!cell) {
-      cell = { ...s, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
+      cell = { ...s, color, size, on_hand_qty: 0, on_hand_by_wh: {}, available_qty: null, avg_cost_cents: null, last_received: null, _primaryOnHand: -1 };
       cells.set(key, cell);
     }
     // Primary (id + sku-level attrs) = the dup with the most on-hand; first wins ties.
@@ -428,7 +577,7 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
     const packs = onHand.get(ps.id) || 0;
     if (!(packs > 0)) continue;
     packsExploded += 1;
-    const color = ps.color || "—";
+    const color = canonColor(ps.color) || "—";
     if (!colorsSeen.includes(color)) colorsSeen.push(color);
     const byWh = onHandByWh.get(ps.id) || {};
     // Per-each cost = pack cost ÷ units per pack.
@@ -469,6 +618,93 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
 }
 
 /**
+ * Pick the prepack matrix for a PPK style, tolerant of the inseam-infix mis-keying
+ * in the master. The matrix can be keyed with an inseam baked into the code
+ * (e.g. `RYB059430PPK`) while the real style — in style_master + ip_item_master —
+ * is the style-grain `RYB0594PPK` (the `30` is an inseam present only on the matrix
+ * code; it exists nowhere in the catalog). Exact match is preferred; the tolerant
+ * fall-back matches when one PPK stem is a prefix of the other and the extra is a
+ * short digit run (the inseam).
+ *
+ * @param {string} styleCode        the PPK style being ordered (e.g. "RYB0594PPK")
+ * @param {string|null} skuPackToken the style's real pack token from its SKUs ("PPK24")
+ * @param {Array<{id,ppk_style_code,pack_token}>} matrices  active matrices
+ * @returns the chosen matrix row or null. Tie-break: same pack token first, then the
+ *   shortest (closest) inseam gap, then ppk_style_code order (deterministic).
+ */
+export function matchPrepackMatrix(styleCode, skuPackToken, matrices) {
+  const all = Array.isArray(matrices) ? matrices.filter((m) => m && m.ppk_style_code) : [];
+  if (all.length === 0) return null;
+  const lc = String(styleCode ?? "").toLowerCase();
+  const exact = all.find((m) => String(m.ppk_style_code).toLowerCase() === lc);
+  if (exact) return exact;
+  const myStem = ppkStem(styleCode); // strips trailing -?PPK\d* → "RYB0594PPK" → "RYB0594"
+  if (!myStem) return null;
+  const tok = skuPackToken ? String(skuPackToken).toLowerCase() : null;
+  const scored = [];
+  for (const m of all) {
+    const ms = ppkStem(m.ppk_style_code); // "RYB059430PPK" → "RYB059430"
+    if (!ms) continue;
+    let extra = null;
+    if (ms === myStem) extra = "";
+    else if (ms.startsWith(myStem)) extra = ms.slice(myStem.length);
+    else if (myStem.startsWith(ms)) extra = myStem.slice(ms.length);
+    if (extra == null || !/^\d{0,3}$/.test(extra)) continue; // only a short numeric (inseam) gap
+    scored.push({ m, extra });
+  }
+  if (scored.length === 0) return null;
+  scored.sort((a, b) =>
+    (Number(String(b.m.pack_token ?? "").toLowerCase() === tok) - Number(String(a.m.pack_token ?? "").toLowerCase() === tok))
+    || (a.extra.length - b.extra.length)
+    || String(a.m.ppk_style_code).localeCompare(String(b.m.ppk_style_code)));
+  return scored[0].m;
+}
+
+/**
+ * Build the order-entry PREPACK block for a PPK (pack-grain) style: the single
+ * pack token used as the entry column + the per-size composition (from the active
+ * prepack_matrices master) so the UI can explode "N packs" into per-size eaches.
+ * Returns { pack_token, pack_total, composition:[{size, qty_per_pack}], has_matrix }.
+ * `composition` is [] (has_matrix=false) when no active matrix is defined — the
+ * UI then still lets the operator enter packs but prompts to define a matrix.
+ */
+async function computePrepackBlock(admin, entityId, style, skus) {
+  const { data: matrices } = await admin
+    .from("prepack_matrices")
+    .select("id, ppk_style_code, pack_token")
+    .eq("entity_id", entityId)
+    .eq("is_active", true)
+    .not("ppk_style_code", "is", null);
+  // The style's real pack token (from its SKUs) — used both to resolve the right
+  // matrix and as the entry column so resolve-sku reuses the existing pack SKU.
+  const skuPackToken = skus.find((s) => /PPK/i.test(String(s.size ?? "")))?.size || null;
+  // Match tolerant of the inseam-infix mis-keying (RYB0594PPK ↔ RYB059430PPK).
+  const mine = matchPrepackMatrix(style.style_code, skuPackToken, matrices || []);
+  let composition = [];
+  if (mine) {
+    const { data: comp } = await admin
+      .from("prepack_matrix_sizes")
+      .select("size, qty_per_pack, inner_pack_qty, sort_order")
+      .eq("matrix_id", mine.id)
+      .order("sort_order", { ascending: true });
+    composition = (comp || [])
+      .map((r) => ({ size: normalizeSize(String(r.size)), qty_per_pack: Number(r.qty_per_pack) || 0, inner_pack_qty: Number(r.inner_pack_qty) || 0 }))
+      .filter((r) => r.size && r.qty_per_pack > 0);
+  }
+  // Entry column token: prefer the REAL pack SKU's size (so resolve-sku reuses
+  // the existing pack SKU instead of forking a new one), then the matrix token,
+  // then a digit-bearing PPK token parsed from the style_code, else "PACK".
+  const fromCode = String(style.style_code).match(/PPK\s*\d+/i);
+  const pack_token = (skuPackToken && String(skuPackToken).trim())
+    || (mine?.pack_token && String(mine.pack_token).trim())
+    || (fromCode ? fromCode[0].toUpperCase().replace(/\s+/g, "") : "PACK");
+  const compTotal = composition.reduce((a, r) => a + r.qty_per_pack, 0);
+  const tokDigits = String(pack_token).match(/(\d+)/);
+  const pack_total = compTotal > 0 ? compTotal : (tokDigits ? Number(tokDigits[1]) : null);
+  return { pack_token, pack_total, composition, has_matrix: composition.length > 0 };
+}
+
+/**
  * Compute the exploded per-size eaches contributed by a SIZED style's PPK
  * sibling packs. Returns { cells, packsExploded, unmatched, ppkStyles,
  * extraSizes, extraColors } and mutates `whSeenAll` to register any new
@@ -476,7 +712,7 @@ async function computeSelfPpkExplode(admin, entityId, style, packSkus, maps) {
  * them). Packs whose PPK style_code has no matrix in prepack_matrices are
  * reported in `unmatched` and NOT exploded.
  */
-async function computePpkExplode(admin, entityId, style, whSeenAll) {
+async function computePpkExplode(admin, entityId, style, whSeenAll, lotFilter = null, lotsSeen = null) {
   const stem = ppkStem(style.style_code);
   const empty = { cells: [], packsExploded: 0, unmatched: [], ppkStyles: [], extraSizes: [], extraColors: [] };
   if (!stem) return empty;
@@ -510,11 +746,14 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
   {
     const { data: layers } = await admin
       .from("inventory_layers")
-      .select("item_id, remaining_qty, notes, location_id")
+      .select("item_id, remaining_qty, notes, location_id, lot_number")
       .in("item_id", ppkIds);
     for (const l of layers || []) {
       const q = Number(l.remaining_qty);
       if (!(q > 0)) continue;
+      const lot = lotKeyOf(l.lot_number);
+      if (lotsSeen) lotsSeen.add(lot);              // sibling pack lots feed the full list
+      if (lotFilter && !lotFilter.has(lot)) continue;
       let rec = packOnHand.get(l.item_id);
       if (!rec) { rec = { total: 0, byWh: {} }; packOnHand.set(l.item_id, rec); }
       rec.total += q;
@@ -571,7 +810,7 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
       continue;
     }
     packsExploded += 1;
-    const color = ppk.color || "—";
+    const color = canonColor(ppk.color) || "—";
     extraColors.add(color);
     for (const { size: rawSize, qty_per_pack } of comp) {
       const size = normalizeSize(rawSize); // align pack sizes with the canonical grid columns
@@ -602,7 +841,11 @@ async function computePpkExplode(admin, entityId, style, whSeenAll) {
 export async function resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam }, opts = {}) {
   if (!style_id || !size) return { error: "style_id and size required" };
   const isApparel = opts.isApparel !== false; // default true; ingest passes false
-  const colorVal = color ? String(color).trim() : null;
+  // Store the CANONICAL color so a new SKU doesn't fork a spelling variant of an
+  // existing physical color (see canonColor). findExistingId() below also matches
+  // canonically, so an entry for "Skyfall Light Wash" reuses a legacy raw
+  // "SKYFALL - Lt Wash" row rather than creating a third.
+  const colorVal = color ? canonColor(String(color).trim()) : null;
   const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
   let inseamVal = inseam ? String(inseam).trim() : null;
 
@@ -637,12 +880,19 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // Reused on a 23505 below so a race / the logical-tuple UNIQUE index
   // (uq_ip_item_master_logical_sku) resolves to the existing row, not an error.
   async function findExistingId() {
-    let q = admin.from("ip_item_master").select("id, size, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
-    q = colorVal ? q.eq("color", colorVal) : q.is("color", null);
-    q = inseamVal ? q.eq("inseam", inseamVal) : q.is("inseam", null);
+    // Match by size-variant + inseam in the query, then filter to the CANONICAL
+    // color in JS (can't canonColor inside a PostgREST filter) so a canonical
+    // colorVal reuses whatever raw spelling the row was stored with. `colorVal`
+    // is already canonical (or null); compare against canonColor(row.color).
+    const q = admin.from("ip_item_master").select("id, color, size, inseam, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
     const { data: rows, error: e } = await q;
     if (e || !rows || !rows.length) return null;
-    return rows.slice().sort((a, b) =>
+    const wantInseam = inseamVal || null;
+    const matches = rows.filter((r) =>
+      ((canonColor(r.color) ?? null) === (colorVal ?? null)) &&
+      (((r.inseam ? String(r.inseam).trim() : null) || null) === wantInseam));
+    if (!matches.length) return null;
+    return matches.slice().sort((a, b) =>
       (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
       || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0].id;
   }
@@ -663,7 +913,13 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     // Flag is_apparel only when all five matrix dims are present (the CHECK
     // requires it); otherwise create a non-apparel partial SKU so the save
     // succeeds — it surfaces in the merchandiser-review list to be completed.
-    const apparelFinal = (isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal;
+    // NB: coerce to a real boolean with !!. `(isApparel || siblingApparel)`
+    // returns null when isApparel===false and siblingApparel===null (JS `||`
+    // yields the last falsy operand), and `null && …` stays null → a NOT-NULL
+    // violation on is_apparel. This bit the size-onhand ingest (isApparel:false)
+    // for styles with no dim-carrying sibling. !! makes null→false (the intended
+    // non-apparel value) without changing any valid true/false result.
+    const apparelFinal = !!((isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal);
     const { data: created, error } = await admin
       .from("ip_item_master")
       .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, length: lengthVal, fit: fitVal, is_apparel: apparelFinal })

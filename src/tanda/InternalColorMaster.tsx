@@ -27,6 +27,7 @@ const COLOR_COLUMNS: ColumnDef[] = [
   { key: "name",       label: "Name" },
   { key: "code",       label: "Code" },
   { key: "hex",        label: "Hex" },
+  { key: "nrf",        label: "NRF" },
   { key: "sort_order", label: "Sort" },
   { key: "is_active",  label: "Active" },
 ];
@@ -36,8 +37,11 @@ type Color = {
   name: string;
   code: string | null;
   hex: string | null;
+  hex_b: string | null;
   sort_order: number;
   is_active: boolean;
+  nrf_code: string | null;
+  nrf_name: string | null;
 };
 
 const C = {
@@ -63,6 +67,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -78,6 +83,31 @@ export default function InternalColorMaster() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Color | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [nrfBusy, setNrfBusy] = useState(false);
+  const [nrfMsg, setNrfMsg] = useState<string | null>(null);
+
+  // AI auto-match the NRF code for every color missing one. The server processes
+  // a capped slice per call + reports remaining; loop until done.
+  async function autoMatchNrf() {
+    if (nrfBusy) return;
+    if (!(await confirmDialog("Auto-match the NRF color code (AI) for every color that doesn't have one yet? This can take a minute."))) return;
+    setNrfBusy(true); setNrfMsg("Matching…");
+    try {
+      let total = 0;
+      for (let i = 0; i < 50; i++) {
+        const r = await fetch("/api/internal/colors/nrf-suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bulk: true }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+        total += Number(j.updated || 0);
+        setNrfMsg(`Matched ${total}… (${j.remaining ?? 0} left)`);
+        if (j.done || Number(j.updated || 0) === 0) break; // done, or AI returned nothing for the rest
+      }
+      notify(`NRF auto-match complete — ${total} color${total === 1 ? "" : "s"} updated.`, "success");
+      await load();
+    } catch (e: unknown) {
+      notify(`NRF auto-match failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally { setNrfBusy(false); setNrfMsg(null); }
+  }
 
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(
     COLORS_TABLE_KEY,
@@ -153,6 +183,9 @@ export default function InternalColorMaster() {
           Show inactive
         </label>
         <span style={{ fontSize: 12, color: C.textMuted }}>{rows.length} color{rows.length === 1 ? "" : "s"}</span>
+        <button onClick={() => void autoMatchNrf()} disabled={nrfBusy} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, opacity: nrfBusy ? 0.6 : 1 }} title="Use AI to assign the NRF standard color code to every color that doesn't have one">
+          {nrfBusy ? (nrfMsg || "Matching…") : "Auto-match NRF (AI)"}
+        </button>
         <ExportButton
           rows={rows as unknown as Array<Record<string, unknown>>}
           filename="colors"
@@ -161,6 +194,8 @@ export default function InternalColorMaster() {
             { key: "name",       header: "Name" },
             { key: "code",       header: "Code" },
             { key: "hex",        header: "Hex" },
+            { key: "nrf_code",   header: "NRF Code" },
+            { key: "nrf_name",   header: "NRF Name" },
             { key: "sort_order", header: "Sort", format: "number" },
             { key: "is_active",  header: "Active" },
           ] as ExportColumn<Record<string, unknown>>[]}
@@ -181,7 +216,7 @@ export default function InternalColorMaster() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -196,6 +231,7 @@ export default function InternalColorMaster() {
                 <th style={th} hidden={!isVisible("name")}>Name</th>
                 <th style={th} hidden={!isVisible("code")}>Code</th>
                 <th style={th} hidden={!isVisible("hex")}>Hex</th>
+                <th style={th} hidden={!isVisible("nrf")}>NRF</th>
                 <th style={th} hidden={!isVisible("sort_order")}>Sort</th>
                 <th style={th} hidden={!isVisible("is_active")}>Active</th>
                 <th style={{ ...th, width: 160 }}></th>
@@ -210,10 +246,11 @@ export default function InternalColorMaster() {
                   {...getRowProps(c)}
                   style={!c.is_active ? { opacity: 0.5 } : undefined}
                 >
-                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><ColorSwatch name={c.name} hex={c.hex} /></td>
+                  <td style={{ ...td, textAlign: "center" }} hidden={!isVisible("swatch")}><ColorSwatch name={c.name} hexA={c.hex} hexB={c.hex_b} /></td>
                   <td style={td} hidden={!isVisible("name")}>{c.name}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("code")}>{c.code || "—"}</td>
                   <td style={{ ...td, color: C.textSub, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("hex")}>{c.hex || "—"}</td>
+                  <td style={{ ...td, color: C.textSub }} hidden={!isVisible("nrf")}>{c.nrf_code ? `${c.nrf_code}${c.nrf_name ? ` ${c.nrf_name}` : ""}` : "—"}</td>
                   <td style={{ ...td, color: C.textSub }} hidden={!isVisible("sort_order")}>{c.sort_order}</td>
                   <td style={td} hidden={!isVisible("is_active")}>{c.is_active ? "yes" : "no"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
@@ -251,11 +288,42 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
     name:       color?.name ?? "",
     code:       color?.code ?? "",
     hex:        color?.hex ?? "",
+    hex_b:      color?.hex_b ?? "",
     sort_order: color?.sort_order != null ? String(color.sort_order) : "0",
     is_active:  color?.is_active ?? true,
+    nrf_code:   color?.nrf_code ?? "",
+    nrf_name:   color?.nrf_name ?? "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [nrfBusy, setNrfBusy] = useState(false);
+
+  // Ask AI for the NRF code from the current name (+ hex). Available whenever the
+  // operator changes the color name or swatch and wants the matching NRF code.
+  async function suggestNrf() {
+    const name = form.name.trim();
+    if (!name) { setErr("Enter a color name first."); return; }
+    setNrfBusy(true); setErr(null);
+    try {
+      // NRF maps to Color A only: for a two-tone "A/B" name send just the first
+      // token (e.g. "Black/Grey" → "Black") + hex A (form.hex).
+      const colorAName = name.split("/")[0].trim() || name;
+      const r = await fetch("/api/internal/colors/nrf-suggest", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: colorAName, hex: form.hex.trim() || undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      if (j.nrf_code) {
+        setForm((f) => ({ ...f, nrf_code: String(j.nrf_code), nrf_name: j.nrf_name ? String(j.nrf_name) : f.nrf_name }));
+        notify(`NRF ${j.nrf_code}${j.nrf_name ? ` ${j.nrf_name}` : ""}${j.confidence ? ` (${j.confidence})` : ""}`, "success");
+      } else {
+        notify(j.note || "AI couldn't determine an NRF code.", "info");
+      }
+    } catch (e: unknown) {
+      setErr(`NRF suggest failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setNrfBusy(false); }
+  }
 
   async function submit() {
     setSubmitting(true);
@@ -267,8 +335,11 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
         name:       form.name.trim(),
         code:       form.code.trim() === "" ? null : form.code.trim(),
         hex:        form.hex.trim() === "" ? null : form.hex.trim(),
+        hex_b:      form.hex_b.trim() === "" ? null : form.hex_b.trim(),
         sort_order: form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
         is_active:  form.is_active,
+        nrf_code:   form.nrf_code.trim() === "" ? null : form.nrf_code.trim(),
+        nrf_name:   form.nrf_name.trim() === "" ? null : form.nrf_name.trim(),
       };
       const r = await fetch(url, {
         method,
@@ -285,6 +356,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
   }
 
   const hexValid = form.hex.trim() === "" || /^#?[0-9a-fA-F]{6}$/.test(form.hex.trim());
+  const hexBValid = form.hex_b.trim() === "" || /^#?[0-9a-fA-F]{6}$/.test(form.hex_b.trim());
 
   return (
     <div
@@ -310,10 +382,10 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
                 placeholder="e.g. Charcoal Heather, or Grey/Black"
                 autoFocus
               />
-              <ColorSwatch name={form.name} hex={form.hex} size={26} />
+              <ColorSwatch name={form.name} hexA={form.hex} hexB={form.hex_b} size={26} />
             </div>
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-              Two-tone colourway? Use <strong>A/B</strong> (e.g. <em>Grey/Black</em>) — the square auto-splits half-and-half.
+              Two-tone colourway? Name it <strong>A/B</strong> (e.g. <em>Grey/Black</em>) and/or pick <strong>Color A</strong> + <strong>Color B</strong> below — the square splits half-and-half.
             </div>
           </Field>
           <Field label="Code">
@@ -325,14 +397,14 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               placeholder="optional"
             />
           </Field>
-          <Field label="Swatch (hex)">
+          <Field label="Color A (hex)">
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input
                 type="color"
                 value={/^#?[0-9a-fA-F]{6}$/.test(form.hex.trim()) ? (form.hex.trim().startsWith("#") ? form.hex.trim() : `#${form.hex.trim()}`) : "#000000"}
                 onChange={(e) => setForm({ ...form, hex: e.target.value })}
                 style={{ width: 34, height: 32, padding: 0, border: `1px solid ${C.cardBdr}`, borderRadius: 4, background: "#0b1220", cursor: "pointer" }}
-                title="Pick a swatch"
+                title="Pick Color A"
               />
               <input
                 type="text"
@@ -343,6 +415,31 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               />
             </div>
             {!hexValid && <div style={{ fontSize: 11, color: C.danger, marginTop: 4 }}>Use a 6-digit hex, e.g. #1A2B3C.</div>}
+          </Field>
+          <Field label="Color B (hex)">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="color"
+                value={/^#?[0-9a-fA-F]{6}$/.test(form.hex_b.trim()) ? (form.hex_b.trim().startsWith("#") ? form.hex_b.trim() : `#${form.hex_b.trim()}`) : "#ffffff"}
+                onChange={(e) => setForm({ ...form, hex_b: e.target.value })}
+                style={{ width: 34, height: 32, padding: 0, border: `1px solid ${C.cardBdr}`, borderRadius: 4, background: "#0b1220", cursor: "pointer" }}
+                title="Pick Color B (the second half of a two-tone swatch)"
+              />
+              <input
+                type="text"
+                value={form.hex_b}
+                onChange={(e) => setForm({ ...form, hex_b: e.target.value })}
+                style={{ ...inputStyle, borderColor: hexBValid ? C.cardBdr : C.danger }}
+                placeholder="#RRGGBB (optional — two-tone)"
+              />
+              {form.hex_b.trim() !== "" && (
+                <button type="button" onClick={() => setForm({ ...form, hex_b: "" })} style={{ ...btnSecondary, padding: "4px 8px" }} title="Clear Color B">✕</button>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              Optional. Set this to compose a half-and-half two-tone swatch (Color A / Color B).
+            </div>
+            {!hexBValid && <div style={{ fontSize: 11, color: C.danger, marginTop: 4 }}>Use a 6-digit hex, e.g. #1A2B3C.</div>}
           </Field>
           <Field label="Sort order">
             <input
@@ -365,6 +462,32 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
               is_active
             </label>
           </Field>
+          <Field label="NRF code">
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="text"
+                value={form.nrf_code}
+                onChange={(e) => setForm({ ...form, nrf_code: e.target.value })}
+                style={{ ...inputStyle, width: "6ch", textAlign: "center", fontFamily: "SFMono-Regular, Menlo, monospace" }}
+                placeholder="110"
+              />
+              <input
+                type="text"
+                value={form.nrf_name}
+                onChange={(e) => setForm({ ...form, nrf_name: e.target.value })}
+                style={inputStyle}
+                placeholder="NRF family (e.g. Black)"
+              />
+              <button type="button" onClick={() => void suggestNrf()} disabled={nrfBusy || !form.name.trim()}
+                style={{ ...btnSecondary, color: C.primary, borderColor: C.primary, whiteSpace: "nowrap" }}
+                title="Use AI to pick the NRF standard color code from this name + swatch">
+                {nrfBusy ? "…" : "Suggest"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+              Changed the name or swatch? Click <strong>Suggest</strong> for the matching NRF code.
+            </div>
+          </Field>
         </div>
 
         {err && (
@@ -375,7 +498,7 @@ function ColorFormModal({ mode, color, onClose, onSaved }: ModalProps) {
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={btnSecondary} disabled={submitting}>Cancel</button>
-          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !form.name.trim() || !hexValid}>
+          <button onClick={() => void submit()} style={btnPrimary} disabled={submitting || !form.name.trim() || !hexValid || !hexBValid}>
             {submitting ? "Saving…" : mode === "add" ? "Create" : "Save"}
           </button>
         </div>

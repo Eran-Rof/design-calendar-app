@@ -102,6 +102,13 @@ export default function POList() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: string) {
+    setSortKey((prev) => (prev === k ? (sortDir === "asc" ? k : null) : k));
+    setSortDir((prev) => (sortKey === k && prev === "asc" ? "desc" : "asc"));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -249,6 +256,41 @@ export default function POList() {
     return rows;
   }, [rows, ackIds, filter]);
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return visible;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const scalar = (r: PORow): string | number | null => {
+      const p = r.data ?? {};
+      const totals = poReceivedTotals(p);
+      switch (sortKey) {
+        case "po_number": return r.po_number || null;
+        case "issued": return p.DateOrder || null;
+        case "required": return r.date_expected_delivery || p.DateExpectedDelivery || null;
+        case "amount": return typeof p.TotalAmount === "number" ? p.TotalAmount : null;
+        case "received_on": return lastReceivedByPo.get(r.uuid_id) || null;
+        case "qty_rcv": return totals.qtyOrdered > 0 ? totals.qtyReceived : null;
+        case "qty_remain": return totals.qtyOrdered > 0 ? totals.qtyRemaining : null;
+        case "amt_received": return totals.qtyOrdered > 0 ? totals.amountReceived : null;
+        case "amt_remain": return totals.qtyOrdered > 0 ? totals.amountRemaining : null;
+        case "status": return (shippedPoIds.has(r.uuid_id) ? "Shipped/Invoiced" : p.StatusName) || null;
+        default: return null;
+      }
+    };
+    const arr = [...visible];
+    arr.sort((a, b) => {
+      const va = scalar(a);
+      const vb = scalar(b);
+      const aEmpty = va == null || va === "";
+      const bEmpty = vb == null || vb === "";
+      if (aEmpty && bEmpty) return 0;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
+    });
+    return arr;
+  }, [visible, sortKey, sortDir, lastReceivedByPo, shippedPoIds]);
+
   const stats = useMemo(() => {
     const open = rows.length;
     const pending = rows.filter((r) => !ackIds.has(r.po_number));
@@ -325,24 +367,24 @@ export default function POList() {
 
       <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflow: "auto", boxShadow: `0 1px 2px ${TH.shadow}` }}>
         <div style={{ display: "grid", gridTemplateColumns: "120px 100px 110px 110px 24px 110px 130px 110px 120px 120px 260px 170px", padding: "10px 14px", background: TH.surfaceHi, borderBottom: `1px solid ${TH.border}`, fontSize: 11, fontWeight: 700, color: TH.textMuted, textTransform: "uppercase", letterSpacing: 0.05, minWidth: 1554 }}>
-          <div>PO #</div>
-          <div>Issued</div>
-          <div>Required</div>
-          <div style={{ textAlign: "right" }}>Amount</div>
+          <div onClick={() => toggleSort("po_number")} style={{ cursor: "pointer", userSelect: "none" }}>PO #{sortKey === "po_number" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("issued")} style={{ cursor: "pointer", userSelect: "none" }}>Issued{sortKey === "issued" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("required")} style={{ cursor: "pointer", userSelect: "none" }}>Required{sortKey === "required" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("amount")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Amount{sortKey === "amount" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
           <div></div>
-          <div>Dt Rcvd</div>
-          <div style={{ textAlign: "right" }}>Qty Rcv / Ord</div>
-          <div style={{ textAlign: "right" }}>Qty Remain</div>
-          <div style={{ textAlign: "right" }}>Amt Received</div>
-          <div style={{ textAlign: "right" }}>Amt Remain</div>
-          <div style={{ textAlign: "center" }}>Status</div>
+          <div onClick={() => toggleSort("received_on")} style={{ cursor: "pointer", userSelect: "none" }}>Dt Rcvd{sortKey === "received_on" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("qty_rcv")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Qty Rcv / Ord{sortKey === "qty_rcv" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("qty_remain")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Qty Remain{sortKey === "qty_remain" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("amt_received")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Amt Received{sortKey === "amt_received" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("amt_remain")} style={{ textAlign: "right", cursor: "pointer", userSelect: "none" }}>Amt Remain{sortKey === "amt_remain" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
+          <div onClick={() => toggleSort("status")} style={{ textAlign: "center", cursor: "pointer", userSelect: "none" }}>Status{sortKey === "status" ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</div>
           <div style={{ textAlign: "center" }}>Acknowledge Date</div>
         </div>
-        {visible.length === 0 ? (
+        {sorted.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: TH.textMuted, fontSize: 13 }}>
             No POs in this view.
           </div>
-        ) : visible.map((r) => {
+        ) : sorted.map((r) => {
           const p = r.data ?? {};
           const ddp = r.date_expected_delivery || p.DateExpectedDelivery;
           const days = daysUntil(ddp);

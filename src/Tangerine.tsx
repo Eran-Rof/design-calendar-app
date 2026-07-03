@@ -37,6 +37,7 @@ import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
 import InternalMfgReports         from "./tanda/InternalMfgReports";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
+import InternalDatePresetMaster from "./tanda/InternalDatePresetMaster";
 import InternalAdjustmentReasonMaster from "./tanda/InternalAdjustmentReasonMaster";
 import InternalTransferReasonMaster from "./tanda/InternalTransferReasonMaster";
 import InternalWarehouseMaster     from "./tanda/InternalWarehouseMaster";
@@ -87,6 +88,7 @@ import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
+import InternalSegmentPL          from "./tanda/InternalSegmentPL";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
 import InternalCashFlow           from "./tanda/InternalCashFlow";
 import InternalYearEndClose       from "./tanda/InternalYearEndClose";
@@ -175,6 +177,7 @@ import InternalOnboarding             from "./tanda/InternalOnboarding";
 import InternalApiKeys                from "./tanda/InternalApiKeys";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
+import { appConfig } from "./config/env";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
@@ -190,6 +193,65 @@ import type { ModuleKey, GroupKey, ModuleDef, AppLink } from "./erp/modules";
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 type AuthState = "loading" | "signed_out" | "signed_in";
+
+// ── PLM-session fallback identity ────────────────────────────────────────────
+// The PLM launcher (PLM.tsx) signs the operator in once with username/password
+// and writes the user blob to sessionStorage.plm_user, which is cloned into the
+// app tab on launch. Tangerine's primary identity is a Microsoft-365 token, but
+// when an already-PLM-authenticated user opens Tangerine from the launcher and
+// has no MS token yet, we must NOT prompt them for a SECOND sign-in. Instead we
+// adopt the PLM session identity (default-true access; the /tangerine route
+// guard in main.tsx already blocked anyone with tangerine.access=false). The
+// MS-only features (Graph photo + per-user JWT provisioning) degrade exactly as
+// they already do when provisioning fails — both are best-effort/non-fatal, and
+// the internal API stays fail-open on the static deploy token. See
+// project_two_permission_systems + project_app_no_relogin_g.
+function readPlmSessionIdentity(): { email: string | null; name: string | null } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem("plm_user");
+    if (!raw) return null;
+    const u = JSON.parse(raw) as { email?: string; name?: string; username?: string };
+    if (!u) return null;
+    const email = (u.email || "").trim() || null;
+    const name = (u.name || "").trim() || (u.username || "").trim() || email;
+    // Require at least one human identifier so we don't "sign in" on a junk blob.
+    if (!email && !name) return null;
+    return { email, name: name || null };
+  } catch {
+    return null;
+  }
+}
+
+// Provision the MS→Supabase identity and cache the per-user app JWT. Shared by
+// the initial sign-in AND the P27 Phase 4 silent-refresh timer. Best-effort:
+// never throws (a provision blip must not break a working session — the
+// X-Auth-User-Id stopgap keeps per-user reads alive). Returns true on a mint.
+async function provisionWithMsToken(token: string): Promise<boolean> {
+  try {
+    const pr = await fetch("/api/internal/auth/provision", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ms_access_token: token }),
+    });
+    if (!pr.ok) {
+      console.warn("[Tangerine] auth provision non-OK:", pr.status, await pr.text().catch(() => ""));
+      return false;
+    }
+    const j = await pr.json();
+    if (j?.auth_user_id) {
+      setCachedAuthUserId(j.auth_user_id);
+      // Per-user JWT (present only when SUPABASE_JWT_SECRET is set server-side);
+      // internalApiAuth attaches it as Authorization: Bearer on /api/internal calls.
+      setCachedAuthJwt(j.access_token ?? null);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn("[Tangerine] auth provision failed (non-fatal):", e);
+    return false;
+  }
+}
 
 export default function Tangerine() {
   // Cross-cutter T4-4 — auto-landing redirect to operator's home_route.
@@ -213,6 +275,15 @@ export default function Tangerine() {
       return next;
     });
   };
+
+  // Publish the live NavDrawer width as a CSS var so descendant panels/modals
+  // can clear the drawer (`left: var(--tng-nav-offset)`) without threading the
+  // drawer state down as a prop — e.g. the Inventory Matrix drill modals, which
+  // otherwise centre over the full viewport and slide under the drawer (#24).
+  useEffect(() => {
+    const w = drawerCollapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
+    try { document.documentElement.style.setProperty("--tng-nav-offset", `${w}px`); } catch { /* noop */ }
+  }, [drawerCollapsed]);
 
   const [activeModule, setActiveModule] = useState<ModuleKey | null>(() => {
     if (typeof window === "undefined") return null;
@@ -286,17 +357,42 @@ export default function Tangerine() {
   // No token → render the branded login screen.
   useEffect(() => {
     let cancelled = false;
+    // Adopt the PLM-launcher session as Tangerine's identity when there is no
+    // usable MS token. Returns true if it signed the user in (so callers can
+    // stop), false if there is no PLM session either (→ show the MS login).
+    function fallbackToPlmSession(): boolean {
+      const plm = readPlmSessionIdentity();
+      // P27 Phase 3 — when the Suite SSO front door is ON, do NOT silently adopt
+      // the PLM session: require a Microsoft sign-in (it mints the per-user JWT +
+      // provisions identity by email). The signed-out screen still offers the PLM
+      // session as an explicit break-glass link, so an Entra outage can't lock
+      // anyone out. OFF (default) → today's no-relogin behavior is unchanged.
+      if (!plm || appConfig.suiteSsoFrontDoor) {
+        if (!cancelled) setAuthState("signed_out");
+        return false;
+      }
+      if (cancelled) return true;
+      setUserEmail(plm.email);
+      setUserName(plm.name);
+      setCachedAuthUserEmail(plm.email);
+      setCachedAuthUserName(plm.name);
+      setAuthState("signed_in");
+      return true;
+    }
     (async () => {
       const tokens = loadMsTokens();
       if (!tokens) {
-        if (!cancelled) setAuthState("signed_out");
+        // No MS token. A user who already signed into the PLM launcher should
+        // open Tangerine directly — fall back to that session instead of a
+        // redundant second (Microsoft) sign-in prompt.
+        fallbackToPlmSession();
         return;
       }
       try {
         const token = await getMsAccessToken();
         if (cancelled) return;
         if (!token) {
-          setAuthState("signed_out");
+          fallbackToPlmSession();
           return;
         }
         const r = await fetch("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName", {
@@ -331,43 +427,53 @@ export default function Tangerine() {
           } catch { /* initials fallback */ }
         })();
 
-        // Bridge MS OAuth → Supabase Auth. Best-effort: if the provision
-        // endpoint fails (network / server-side mis-config), surface a
-        // console warning but do NOT block the login — the operator can
-        // still paste their uuid manually as a fallback while we debug.
-        // First call creates auth.users + entity_users + links EB001;
-        // subsequent calls are idempotent (ON CONFLICT DO NOTHING).
-        try {
-          const pr = await fetch("/api/internal/auth/provision", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ ms_access_token: token }),
-          });
-          if (pr.ok) {
-            const provisioned = await pr.json();
-            if (!cancelled && provisioned?.auth_user_id) {
-              setCachedAuthUserId(provisioned.auth_user_id);
-              // P14 JWT phase — cache the per-user access token (present only
-              // when SUPABASE_JWT_SECRET is set server-side). internalApiAuth
-              // attaches it as Authorization: Bearer on every /api/internal
-              // call, giving the server a verifiable per-user identity. When
-              // absent (secret unset) we fall back to the cached-id stopgap.
-              setCachedAuthJwt(provisioned.access_token ?? null);
-            }
-          } else {
-            const detail = await pr.text().catch(() => "");
-            console.warn("[Tangerine] auth provision returned non-OK:", pr.status, detail);
-          }
-        } catch (provErr) {
-          console.warn("[Tangerine] auth provision failed (non-fatal):", provErr);
-        }
+        // Bridge MS OAuth → Supabase Auth. Best-effort: a provision blip must
+        // not block login (the X-Auth-User-Id stopgap keeps per-user reads
+        // alive). First call creates auth.users + entity_users + links the
+        // employee; subsequent calls are idempotent. The Phase 4 timer below
+        // re-runs this periodically so the 12h JWT never silently expires.
+        await provisionWithMsToken(token);
       } catch (err) {
         console.error("[Tangerine] auth check failed:", err);
-        if (!cancelled) setAuthState("signed_out");
+        // MS token present but Graph/enrichment failed — don't force a re-login
+        // if the operator already holds a PLM session; adopt it instead.
+        fallbackToPlmSession();
       }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // P27 Phase 4 — silent app-JWT refresh. The per-user JWT is a 12h token; if a
+  // tab stays open past expiry it 401s per-user endpoints (the original favorites
+  // / audit breakage) and RBAC can't verify the caller. While signed in WITH a
+  // Microsoft session, every few hours silently re-acquire the MS token (MSAL
+  // handles the refresh) and re-provision to mint a fresh JWT. No-op for PLM-only
+  // sessions (no MS token to refresh — those rely on the X-Auth-User-Id stopgap).
+  useEffect(() => {
+    if (authState !== "signed_in") return;
+    if (!loadMsTokens()) return;
+    const REFRESH_MS = 4 * 60 * 60 * 1000; // 4h ≪ the 12h JWT lifetime → always fresh
+    const id = setInterval(() => {
+      void (async () => {
+        const t = await getMsAccessToken();
+        if (t) await provisionWithMsToken(t);
+      })();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [authState]);
+
+  // P27 Phase 3 break-glass — adopt the PLM-launcher session as Tangerine identity
+  // without a Microsoft sign-in. Only surfaced on the login screen when the SSO
+  // front door is ON and a PLM session exists (e.g. an Entra outage).
+  function adoptPlmSession() {
+    const plm = readPlmSessionIdentity();
+    if (!plm) return;
+    setUserEmail(plm.email);
+    setUserName(plm.name);
+    setCachedAuthUserEmail(plm.email);
+    setCachedAuthUserName(plm.name);
+    setAuthState("signed_in");
+  }
 
   async function handleSignIn() {
     try {
@@ -381,12 +487,25 @@ export default function Tangerine() {
   }
 
   async function handleSignOut() {
-    if (!(await confirmDialog("Sign out of Tangerine?", { title: "Sign out", icon: "🚪", confirmText: "Sign out" }))) return;
+    if (!(await confirmDialog("Sign out? You'll return to the login screen.", { title: "Sign out", icon: "", confirmText: "Sign out" }))) return;
+    // Full sign-out across BOTH internal auth systems. Clearing only the MS
+    // tokens + cached JWT and reloading was a no-op refresh: the no-relogin
+    // path (see project_app_no_relogin_g) re-adopts the still-present PLM
+    // session (sessionStorage.plm_user) on mount and signs the user straight
+    // back in. So we must also drop the PLM session and leave Tangerine for the
+    // launcher, which shows the login form when there's no session.
     clearMsTokens();
-    // P14 JWT phase — drop the cached per-user token so a signed-out browser
-    // can't keep presenting it. (It also expires server-side after 12h.)
     setCachedAuthJwt(null);
-    window.location.reload();
+    setCachedAuthUserEmail(null);
+    setCachedAuthUserName(null);
+    setCachedAuthUserId(""); // empty → removes the cached id keys
+    try {
+      sessionStorage.removeItem("plm_user");
+      sessionStorage.removeItem("rof_notif_dismissed_internal");
+    } catch { /* ignore */ }
+    // Navigate away (not reload) → the PLM launcher at "/" with no session
+    // renders the sign-in form. A reload would re-enter via the fallback.
+    window.location.assign("/");
   }
 
   if (authState === "loading") {
@@ -398,7 +517,10 @@ export default function Tangerine() {
   }
 
   if (authState === "signed_out") {
-    return <LoginScreen onSignIn={handleSignIn} />;
+    // Break-glass only when the SSO front door is on AND a PLM session is present.
+    const plmBreakGlass = appConfig.suiteSsoFrontDoor && readPlmSessionIdentity() != null
+      ? adoptPlmSession : undefined;
+    return <LoginScreen onSignIn={handleSignIn} onUseLauncherSession={plmBreakGlass} />;
   }
 
   return (
@@ -442,7 +564,7 @@ export default function Tangerine() {
             cursor: "pointer", whiteSpace: "nowrap",
             ...(aiOpen ? { borderColor: "#7C3AED", color: "#c4b5fd" } : {}),
           }}
-        >✨ Ask AI</button>
+        >Ask AI</button>
         <BrandChannelSwitcher inline />
       </div>
 
@@ -478,6 +600,7 @@ export default function Tangerine() {
         {activeModule === "mfg_reports"           && <InternalMfgReports />}
         {activeModule === "rma_reason_master"    && <InternalRmaReasonMaster />}
         {activeModule === "adjustment_type_master" && <InternalAdjustmentTypeMaster />}
+        {activeModule === "date_preset_master" && <InternalDatePresetMaster />}
         {activeModule === "adjustment_reason_master" && <InternalAdjustmentReasonMaster />}
         {activeModule === "transfer_reason_master" && <InternalTransferReasonMaster />}
         {activeModule === "warehouse_master"     && <InternalWarehouseMaster />}
@@ -519,6 +642,7 @@ export default function Tangerine() {
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
         {activeModule === "income_statement"  && <InternalIncomeStatement />}
+        {activeModule === "segment_pl"        && <InternalSegmentPL />}
         {activeModule === "balance_sheet"     && <InternalBalanceSheet />}
         {activeModule === "cash_flow"         && <InternalCashFlow />}
         {activeModule === "year_end_close"    && <InternalYearEndClose />}
@@ -638,7 +762,7 @@ export default function Tangerine() {
 // "Sign in with Microsoft" button + a brief framing. Mirrors the rest of the
 // design-calendar-app suite: same MS OAuth flow, different branded entry.
 // ─────────────────────────────────────────────────────────────────────────────
-function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
+function LoginScreen({ onSignIn, onUseLauncherSession }: { onSignIn: () => void; onUseLauncherSession?: () => void }) {
   return (
     <div
       style={{
@@ -723,6 +847,19 @@ function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
         <p style={{ margin: "20px 0 0", fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
           Uses the same Microsoft 365 account that signs you into the other PLM-suite apps (Design Calendar, PO WIP, ATS, Tech Packs, GS1, Planning). The popup may be blocked by some browsers — allow pop-ups for this domain if it doesn't open.
         </p>
+
+        {onUseLauncherSession && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.cardBdr}`, textAlign: "center" }}>
+            <button
+              type="button"
+              onClick={onUseLauncherSession}
+              style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
+              title="Break-glass: continue with your existing launcher session instead of Microsoft (use only if Microsoft sign-in is unavailable)"
+            >
+              Continue with launcher session
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -787,7 +924,7 @@ function MenuSearch({ items, onSelect }: { items: SearchItem[]; onSelect: (k: Mo
         onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}
         onFocus={() => { if (q.trim()) setOpen(true); }}
         onKeyDown={onKeyDown}
-        placeholder="🔍 Find a panel…"
+        placeholder="Find a panel…"
         aria-label="Find a panel"
         style={{
           background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
@@ -1231,7 +1368,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
           >
-            <span>📈</span><span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+            <span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
           </a>
         )}
       </nav>
@@ -1255,7 +1392,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
           aria-haspopup="menu"
           aria-expanded={appsOpen}
         >
-          <span>🧩</span>
           <span>Apps</span>
           <span style={{ fontSize: 10 }}>{appsOpen ? "▴" : "▾"}</span>
         </button>
@@ -1402,8 +1538,8 @@ function HomeLanding({ onSelectModule }: { onSelectModule: (m: ModuleKey) => voi
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 18 }}>
           {vendorModules.map((m) => <ModuleCard key={m.key} module={m} onClick={() => onSelectModule(m.key)} />)}
           {/* External vendor-facing portal (separate Supabase auth) — open in a new tab. */}
-          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="🌐" sublabel="External · new tab" />
-          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="📝" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor" label="Vendor Portal" emoji="" sublabel="External · new tab" />
+          <ExternalLinkCard href="/vendor/onboarding" label="Vendor Onboarding" emoji="" sublabel="External · new tab" />
         </div>
       </Section>
 

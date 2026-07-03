@@ -57,11 +57,14 @@ export default async function handler(req, res) {
   if (!invoice) return res.status(404).json({ error: "Invoice not found" });
 
   if (req.method === "GET") {
+    // NB: invoice_line_items orders by `line_index` — there is NO `line_number`
+    // column on this table (ordering by it 500'd the Inventory Snapshot bill
+    // drill: "column invoice_line_items.line_number does not exist").
     const { data: lines, error: lErr } = await admin
       .from("invoice_line_items")
       .select("*")
       .eq("invoice_id", id)
-      .order("line_number", { ascending: true });
+      .order("line_index", { ascending: true });
     if (lErr) return res.status(500).json({ error: lErr.message });
     return res.status(200).json({ ...invoice, lines: lines || [] });
   }
@@ -106,7 +109,7 @@ export default async function handler(req, res) {
       if (v.data.lines.length > 0) {
         const lineRows = v.data.lines.map((ln, idx) => ({
           invoice_id: id,
-          line_number: idx + 1,
+          line_index: idx + 1, // invoice_line_items uses line_index, not line_number
           description: ln.description,
           expense_account_id: ln.expense_account_id,
           inventory_item_id: ln.inventory_item_id,

@@ -108,12 +108,13 @@ const inputStyle: React.CSSProperties = {
   padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
   // border-box so width:100% + padding stays inside the grid cell (else the
   // input bleeds into the adjacent column — CODE over NAME, SUBTYPE over PARENT).
-  boxSizing: "border-box",
+  boxSizing: "border-box", colorScheme: "dark",
 };
 const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -198,10 +199,15 @@ export default function InternalCOA() {
           ariaLabel="Search chart of accounts"
           wrapperStyle={{ maxWidth: 280 }}
         />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 200 }}>
-          <option value="">All types</option>
-          {TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <div style={{ width: 200 }}>
+          <SearchableSelect
+            value={typeFilter || null}
+            onChange={(v) => setTypeFilter(v)}
+            options={[{ value: "", label: "All types" }, ...TYPE_VALUES.map((t) => ({ value: t, label: t }))]}
+            placeholder="All types"
+            inputStyle={{ ...inputStyle, width: 200 }}
+          />
+        </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
           <input
             type="checkbox"
@@ -244,7 +250,7 @@ export default function InternalCOA() {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : rows.length === 0 ? (
@@ -464,19 +470,24 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
           </Field>
           <Field label="Account type">
             {mode === "add" ? (
-              <select value={form.account_type} onChange={(e) => onTypeChange(e.target.value)} style={inputStyle as React.CSSProperties}>
-                {TYPE_VALUES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              <SearchableSelect
+                value={form.account_type || null}
+                onChange={(v) => onTypeChange(v)}
+                options={TYPE_VALUES.map((t) => ({ value: t, label: t }))}
+                inputStyle={inputStyle as React.CSSProperties}
+              />
             ) : (
               <input type="text" value={form.account_type} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
           </Field>
           <Field label="Normal balance">
             {mode === "add" ? (
-              <select value={form.normal_balance} onChange={(e) => setForm({ ...form, normal_balance: e.target.value as "DEBIT" | "CREDIT" })} style={inputStyle as React.CSSProperties}>
-                <option value="DEBIT">DEBIT</option>
-                <option value="CREDIT">CREDIT</option>
-              </select>
+              <SearchableSelect
+                value={form.normal_balance || null}
+                onChange={(v) => setForm({ ...form, normal_balance: v as "DEBIT" | "CREDIT" })}
+                options={[{ value: "DEBIT", label: "DEBIT" }, { value: "CREDIT", label: "CREDIT" }]}
+                inputStyle={inputStyle as React.CSSProperties}
+              />
             ) : (
               <input type="text" value={form.normal_balance} disabled style={{ ...inputStyle, opacity: 0.5 }} />
             )}
@@ -507,10 +518,12 @@ function AccountFormModal({ mode, allAccounts, account, onClose, onSaved }: Moda
             />
           </Field>
           <Field label="Status">
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "active" | "inactive" })} style={inputStyle as React.CSSProperties}>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-            </select>
+            <SearchableSelect
+              value={form.status || null}
+              onChange={(v) => setForm({ ...form, status: v as "active" | "inactive" })}
+              options={[{ value: "active", label: "active" }, { value: "inactive", label: "inactive" }]}
+              inputStyle={inputStyle as React.CSSProperties}
+            />
           </Field>
           <Field label="Flags">
             <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: C.textSub }}>
@@ -656,7 +669,7 @@ function BrandAllocationEditor(
 
   return (
     <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>🏷️ Brand Allocation</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Brand Allocation</div>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8 }}>
         Pick the brand(s) this account serves. More than one opens a % split (must total 100%); a posting auto-splits into the brand sub-accounts.
       </div>

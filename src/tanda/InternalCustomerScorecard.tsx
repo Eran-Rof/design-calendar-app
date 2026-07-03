@@ -6,8 +6,8 @@
 // existing CustomerScorecard overlay (balance, purchases, margin, dilution,
 // commission, invoices, SOs, JE).
 //
-// Lives under the 🤝 Customers nav group as "Customer Scorecard". Reuses the
-// same component the 📊 button on each Customer Master row already opens, so
+// Lives under the Customers nav group as "Customer Scorecard". Reuses the
+// same component the drill button on each Customer Master row already opens, so
 // there is no duplicate scorecard logic — only an entry point.
 
 import { useEffect, useMemo, useState } from "react";
@@ -71,7 +71,7 @@ export default function InternalCustomerScorecard() {
   return (
     <div style={{ padding: 20, color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>🤝 Customer Scorecard</h2>
+        <h2 style={{ margin: "0 0 4px", fontSize: 20 }}>Customer Scorecard</h2>
         <ExportButton rows={exportRows} filename="customers" sheetName="Customers" columns={exportColumns} />
       </div>
       <p style={{ margin: "0 0 16px", color: C.textMuted, fontSize: 13 }}>

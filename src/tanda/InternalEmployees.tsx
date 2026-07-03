@@ -137,6 +137,7 @@ const th: React.CSSProperties = {
   background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
   textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
   textTransform: "uppercase", letterSpacing: 0.5,
+  position: "sticky", top: 0, zIndex: 2,
 };
 const td: React.CSSProperties = {
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
@@ -310,7 +311,7 @@ export default function InternalEmployees() {
 
       {err && <div style={{ background: "#7f1d1d", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -343,7 +344,7 @@ export default function InternalEmployees() {
                 <td style={{ ...td, color: C.textSub }} hidden={!isVisible("email")}>{e.email}</td>
                 <td style={td} hidden={!isVisible("title")}>{titleOf(e)}</td>
                 <td style={td} hidden={!isVisible("department")}>{deptOf(e)}</td>
-                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "🟢" : "⚪"}</td>
+                <td style={td} hidden={!isVisible("active")}>{e.is_active ? "Active" : "Inactive"}</td>
                 <td style={td}>
                   <button style={btnSecondary} onClick={() => setEditing(e)}>Edit</button>
                   &nbsp;

@@ -459,7 +459,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               fontSize: 12,
             }}
           >
-            ⚡ Auto-Generate
+            Auto-Generate
           </button>
           <button
             onClick={() => {
@@ -490,7 +490,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               marginBottom: 8,
             }}
           >
-            ⚡ Auto-Generate SKUs
+            Auto-Generate SKUs
           </div>
           <div style={{ fontSize: 12, color: TH.textMuted, marginBottom: 12 }}>
             System will generate style numbers, descriptions, colorways, and
@@ -586,7 +586,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
                   navigator.clipboard.writeText(url).then(() => alert("CAD link copied!")).catch(() => prompt("Copy link:", url));
                 }}
                 style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
-              >🔗 Copy Link</button>
+              >Copy Link</button>
               <button
                 onClick={() => {
                   const sel = skus.filter(s => selectedSkus.has(s.id));
@@ -594,7 +594,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
                   window.open(url, "_blank");
                 }}
                 style={{ padding: "4px 12px", borderRadius: 7, border: `1px solid ${TH.border}`, background: TH.surfaceHi, color: TH.text, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
-              >🖨️ Open CAD Page</button>
+              >Open CAD Page</button>
               <button
                 onClick={() => { setSelectedSkus(new Set()); setShowPrice(false); }}
                 style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${TH.border}`, background: "none", color: TH.textMuted, cursor: "pointer", fontFamily: "inherit", fontSize: 12 }}
@@ -656,9 +656,7 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
                   fontSize: 22,
                   flexShrink: 0,
                 }}
-              >
-                👕
-              </div>
+              />
             )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
@@ -732,22 +730,22 @@ function SkuManager({ skus = [], onChange, brand, category, availableSizes }) {
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                 {s.colorways && (
                   <span style={{ fontSize: 11, color: TH.textMuted }}>
-                    🎨 {s.colorways}
+                    {s.colorways}
                   </span>
                 )}
                 {s.fabric && (
                   <span style={{ fontSize: 11, color: TH.textMuted }}>
-                    🧵 {s.fabric}
+                    {s.fabric}
                   </span>
                 )}
                 {s.sizes?.length > 0 && (
                   <span style={{ fontSize: 11, color: TH.textMuted }}>
-                    📐 {s.sizes.join(", ")}
+                    {s.sizes.join(", ")}
                   </span>
                 )}
                 {s.units > 0 && (
                   <span style={{ fontSize: 11, color: TH.textMuted }}>
-                    📦 {s.units.toLocaleString()}
+                    {s.units.toLocaleString()}
                   </span>
                 )}
               </div>
