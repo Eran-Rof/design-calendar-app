@@ -139,8 +139,17 @@ export default async function handler(req, res) {
         customerStyleNumber = scn?.customer_style_number || null;
       }
     }
+    // M11 — linked conversion PO (number/status) when one has been created.
+    let conversionPo = null;
+    if (build.conversion_po_id) {
+      const { data: cpo } = await admin.from("purchase_orders")
+        .select("id, po_number, status, vendor_id, total_cents").eq("id", build.conversion_po_id).maybeSingle();
+      conversionPo = cpo || null;
+    }
     return res.status(200).json({
       ...build,
+      conversion_po_mode: build.conversion_po_mode || "procurement",
+      conversion_po: conversionPo,
       finished_item: fi || null,
       finished_style_id: styleId,
       finished_style: finishedStyle,

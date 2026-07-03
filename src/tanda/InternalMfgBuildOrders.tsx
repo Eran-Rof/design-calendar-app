@@ -39,6 +39,11 @@ type Build = {
   outputs?: BuildOutput[];
   customer_id?: string | null; customer_name?: string | null; customer_style_number?: string | null;
   components?: Component[]; rollup?: Rollup;
+  // M11 — conversion PO (outsourced CMT). mode drives GL: procurement (document
+  // only) or capitalize (AP bill capitalizes CMT into WIP).
+  conversion_po_id?: string | null;
+  conversion_po_mode?: "procurement" | "capitalize";
+  conversion_po?: { id: string; po_number: string | null; status: string; vendor_id: string | null; total_cents: number | null } | null;
 };
 
 const C = {
@@ -620,6 +625,7 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [convMode, setConvMode] = useState<"procurement" | "capitalize">("procurement");
   const styleThumbs = useStyleThumbs([build?.finished_style_id]);
   const finishedThumb = build?.finished_style_id ? (styleThumbs.get(build.finished_style_id)?.default ?? null) : null;
   const partThumbs = usePartThumbs((build?.components || []).filter((c) => c.component_kind === "part").map((c) => c.part_id ?? null));
@@ -681,6 +687,35 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     finally { setBusy(false); }
   }
 
+  // M11 — auto-create the conversion (outsourced-CMT) PO. Optional per-unit CMT
+  // charge; vendor defaults to the BOM's default conversion vendor server-side.
+  async function createConversionPo() {
+    const v = await promptDialog(
+      `Per-unit CMT charge for the conversion PO ($, optional — leave blank for a document-only PO)`,
+      { inputType: "number", defaultValue: "", placeholder: "0.00" },
+    );
+    if (v === null) return; // operator backed out
+    let unitCostCents: number | undefined;
+    const t = v.trim();
+    if (t !== "") {
+      const dollars = parseFloat(t);
+      if (!Number.isFinite(dollars) || dollars < 0) { notify("Enter a non-negative amount", "error"); return; }
+      unitCostCents = Math.round(dollars * 100);
+    }
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}/conversion-po`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: convMode, unit_cost_cents: unitCostCents }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Conversion PO created.", "success");
+      await load(); onChanged();
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
+    finally { setBusy(false); }
+  }
+
   async function capitalizeService(componentId: string, label: string, suggested: number | null) {
     const def = suggested != null ? (suggested / 100).toFixed(2) : "";
     const v = await promptDialog(`Conversion charge for "${label}" ($)`, { inputType: "number", defaultValue: def, placeholder: "0.00", required: true });
@@ -691,7 +726,11 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   }
 
   const status = build?.status;
-  const allServicesCapitalized = (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
+  // M11 — in 'capitalize' mode the CMT is capitalized into WIP by the conversion
+  // PO's AP bill, so the per-service Capitalize buttons are hidden and completion
+  // is not gated on manual capitalization (the receipt path skips that guard).
+  const capMode = build?.conversion_po_mode === "capitalize";
+  const allServicesCapitalized = capMode || (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
@@ -774,10 +813,11 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                       <td style={{ ...td, textAlign: "right", color: C.textMuted }} title={c.projected_unit_cost_cents != null ? `Projected unit ${money(c.projected_unit_cost_cents)}` : "No default cost on record"}>{c.projected_cost_cents != null ? money(c.projected_cost_cents) : "—"}</td>
                       <td style={{ ...td, textAlign: "right" }}>{money(c.actual_cost_cents)}</td>
                       <td style={{ ...td, textAlign: "right" }}>
-                        {c.component_kind === "service" && !c.service_capitalized && (status === "released" || status === "issued") && (
+                        {c.component_kind === "service" && !c.service_capitalized && !capMode && (status === "released" || status === "issued") && (
                           <button disabled={busy} onClick={() => void capitalizeService(c.id, c.component_label || c.component_code || "service", c.service_charge_cents)} style={btnSecondary}>Capitalize</button>
                         )}
                         {c.component_kind === "service" && c.service_capitalized && <span style={{ color: C.success, fontSize: 12 }}>✓ capitalized</span>}
+                        {c.component_kind === "service" && !c.service_capitalized && capMode && <span style={{ color: C.textMuted, fontSize: 11 }}>via conversion PO</span>}
                       </td>
                     </tr>
                   ))}
@@ -800,6 +840,35 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                   </table>
                 </div>
               )}
+
+              {/* M11 — conversion PO (outsourced CMT). Create a native draft PO to
+                  the conversion vendor; once linked, show its number/status/mode. */}
+              <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+                <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Conversion PO</div>
+                {build.conversion_po_id ? (
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+                    <span>PO <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }}>{build.conversion_po?.po_number || "(draft, unassigned #)"}</span></span>
+                    {build.conversion_po?.status && <span style={{ color: C.textMuted }}>● {build.conversion_po.status}</span>}
+                    <span style={{ padding: "2px 8px", borderRadius: 4, background: "#0b1220", border: `1px solid ${C.cardBdr}`, color: capMode ? C.warn : C.textSub, fontSize: 11 }}>
+                      {capMode ? "capitalize (AP bill → WIP)" : "procurement (document only)"}
+                    </span>
+                    {build.conversion_po?.total_cents != null && <span style={{ color: C.textMuted }}>{money(build.conversion_po.total_cents)}</span>}
+                  </div>
+                ) : (status === "draft" || status === "released" || status === "issued") ? (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <label style={{ fontSize: 12, color: C.textMuted }}>GL mode</label>
+                    <select value={convMode} onChange={(e) => setConvMode(e.target.value as "procurement" | "capitalize")} disabled={busy}
+                      style={{ background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13 }}>
+                      <option value="procurement">Procurement — document only (no GL)</option>
+                      <option value="capitalize">Capitalize — AP bill capitalizes CMT into WIP</option>
+                    </select>
+                    <button disabled={busy} onClick={() => void createConversionPo()} style={btnSecondary}>Create conversion PO</button>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Vendor defaults to the BOM's conversion vendor.</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: C.textMuted }}>No conversion PO.</div>
+                )}
+              </div>
 
               <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
                 <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Attachments</div>

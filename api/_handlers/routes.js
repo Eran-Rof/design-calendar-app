@@ -146,6 +146,7 @@ import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_build_orders_id from "./internal/build-orders/[id].js";
 import r_internal_build_orders_cancel from "./internal/build-orders/cancel.js";
 import r_internal_build_orders_complete from "./internal/build-orders/complete.js";
+import r_internal_build_orders_conversion_po from "./internal/build-orders/conversion-po.js";
 import r_internal_build_orders_index from "./internal/build-orders/index.js";
 import r_internal_build_orders_issue from "./internal/build-orders/issue.js";
 import r_internal_build_orders_release from "./internal/build-orders/release.js";
@@ -790,6 +791,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/:id/create-invoice", handler: r_internal_sales_orders_create_invoice },
   { pattern: "/api/internal/sales-orders/:id/record-payment", handler: r_internal_sales_orders_id_record_payment },
   { pattern: "/api/internal/workflow-executions/:id/approve", handler: r_internal_workflow_executions_id_approve },
+  { pattern: "/api/internal/build-orders/:id/conversion-po", handler: r_internal_build_orders_conversion_po },
   { pattern: "/api/internal/entities/:id/coa-copy-from-rof", handler: r_internal_entities_id_coa_copy },
   { pattern: "/api/internal/inventory-adjustments/:id/post", handler: r_internal_inventory_adjustments_post },
   { pattern: "/api/internal/workflow-executions/:id/reject", handler: r_internal_workflow_executions_id_reject },
