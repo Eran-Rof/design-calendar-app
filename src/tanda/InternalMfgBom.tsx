@@ -15,6 +15,8 @@ import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import QuickAddStyleModal from "./components/QuickAddStyleModal";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
+import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
 
 type ItemLite = { id: string; sku_code: string; style_code: string | null; description: string | null; color?: string | null; size?: string | null };
 type PartLite = { id: string; code: string; name: string; default_unit_cost_cents?: number | null };
@@ -330,6 +332,11 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
   const partCostById = useMemo(() => new Map(parts.map((p) => [p.id, p.default_unit_cost_cents ?? null])), [parts]);
   const svcCostById = useMemo(() => new Map(services.map((s) => [s.id, s.default_charge_cents ?? null])), [services]);
 
+  // Finished-good (style) + part component thumbnails.
+  const styleThumbs = useStyleThumbs([finishedStyleId]);
+  const finishedThumb = finishedStyleId ? (styleThumbs.get(finishedStyleId)?.default ?? null) : null;
+  const partThumbs = usePartThumbs(components.filter((c) => c.component_kind === "part").map((c) => c.part_id));
+
   // Unit cost per row: part -> master default; service -> override ?? master
   // charge; finished_style -> server-resolved avg cost (present on loaded rows).
   function unitCostOf(c: Component): number | null {
@@ -445,6 +452,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                 <div>
                   <Lbl>Finished style *</Lbl>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {finishedStyleId && <StyleThumb styleId={finishedStyleId} label={finishedStyleLabel} url={finishedThumb} size={44} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <StylePicker valueLabel={finishedStyleLabel} onChange={(id, label) => { setFinishedStyleId(id); setFinishedStyleLabel(label); }} />
                     </div>
@@ -506,6 +514,7 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                         <td style={td}>
                           {c.component_kind === "part" && (
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              {c.part_id && <PartThumb partId={c.part_id} url={partThumbs.get(c.part_id) ?? null} size={32} />}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <SearchableSelect value={c.part_id} onChange={(v) => updateComponent(i, { part_id: v })} options={partOptions} placeholder="Pick a part…" />
                               </div>

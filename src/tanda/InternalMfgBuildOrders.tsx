@@ -12,11 +12,14 @@ import QuickAddStyleModal from "./components/QuickAddStyleModal";
 import { EditableSizeMatrix, matrixCellKey, type EditableMatrixRow } from "../shared/matrix/EditableSizeMatrix";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
+import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
 
 type CustLite = { id: string; name: string; code?: string | null; customer_code?: string | null };
 type Component = {
   id: string;
   component_kind: "part" | "service" | "finished_style";
+  part_id?: string | null;
   qty_required: number; qty_consumed: number; actual_cost_cents: number;
   service_charge_cents: number | null; service_capitalized: boolean; service_vendor_name: string | null;
   component_code: string | null; component_label: string | null;
@@ -498,6 +501,8 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     else setCustStyleNumber("");
   }, [customer, styleCode, custStyleTouched]);
   const onPlanChange = useCallback((outputs: { color: string | null; size: string; qty: number }[], total: number, hasScale: boolean) => setPlan({ outputs, total, hasScale }), []);
+  const styleThumbs = useStyleThumbs([finishedStyleId]);
+  const finishedThumb = finishedStyleId ? (styleThumbs.get(finishedStyleId)?.default ?? null) : null;
 
   async function submit() {
     setSubmitting(true); setErr(null);
@@ -533,6 +538,7 @@ function NewBuildModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div style={{ marginBottom: 12 }}>
           <Lbl>Finished style *</Lbl>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {finishedStyleId && <StyleThumb styleId={finishedStyleId} label={pickedLabel} url={finishedThumb} size={44} />}
             <div style={{ flex: 1, minWidth: 0 }}>
               <StylePicker onChange={(id, label, sc) => { setFinishedStyleId(id); setPickedLabel(label); setStyleCode(sc); setDefaultColor(null); }} />
             </div>
@@ -613,6 +619,9 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const styleThumbs = useStyleThumbs([build?.finished_style_id]);
+  const finishedThumb = build?.finished_style_id ? (styleThumbs.get(build.finished_style_id)?.default ?? null) : null;
+  const partThumbs = usePartThumbs((build?.components || []).filter((c) => c.component_kind === "part").map((c) => c.part_id ?? null));
 
   async function load() {
     try {
@@ -687,11 +696,16 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, width: "min(940px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", color: C.text }}>
         <div style={{ padding: "18px 20px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <h3 style={{ margin: 0, fontSize: 18 }}>{build ? build.build_number : "Build"}{build?.status ? <span style={{ marginLeft: 10, fontSize: 13, color: STATUS_COLOR[build.status] }}>● {build.status}</span> : null}</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
+              {build?.finished_style_id && <StyleThumb styleId={build.finished_style_id} label={build.finished_item?.sku_code} url={finishedThumb} size={44} />}
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ margin: 0, fontSize: 18 }}>{build ? build.build_number : "Build"}{build?.status ? <span style={{ marginLeft: 10, fontSize: 13, color: STATUS_COLOR[build.status] }}>● {build.status}</span> : null}</h3>
+                {build?.finished_item && <div style={{ fontSize: 13, color: C.textSub, marginTop: 4 }}>{build.finished_item.sku_code} — {build.finished_item.description} · target {build.target_qty}</div>}
+              </div>
+            </div>
             <button onClick={onClose} style={btnSecondary}>Close</button>
           </div>
-          {build?.finished_item && <div style={{ fontSize: 13, color: C.textSub, marginTop: 4 }}>{build.finished_item.sku_code} — {build.finished_item.description} · target {build.target_qty}</div>}
           {build?.customer_name && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>For <span style={{ color: C.textSub }}>{build.customer_name}</span>{build.customer_style_number ? <> · cust style <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }}>{build.customer_style_number}</span></> : null}</div>}
         </div>
 
@@ -747,7 +761,12 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                   {(build.components || []).map((c) => (
                     <tr key={c.id}>
                       <td style={{ ...td, color: C.textSub }}>{KIND_LABEL[c.component_kind]}</td>
-                      <td style={td}><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? <span style={{ color: C.textSub }}> — {c.component_label}</span> : null}{c.component_kind === "service" && c.service_vendor_name ? <span style={{ color: C.textMuted, fontSize: 11 }}> · {c.service_vendor_name}</span> : null}</td>
+                      <td style={td}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {c.component_kind === "part" && c.part_id && <PartThumb partId={c.part_id} url={partThumbs.get(c.part_id) ?? null} label={c.component_code ?? undefined} size={28} />}
+                          <span><span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.component_code ?? "—"}</span>{c.component_label ? <span style={{ color: C.textSub }}> — {c.component_label}</span> : null}{c.component_kind === "service" && c.service_vendor_name ? <span style={{ color: C.textMuted, fontSize: 11 }}> · {c.service_vendor_name}</span> : null}</span>
+                        </div>
+                      </td>
                       <td style={{ ...td, textAlign: "right" }}>{c.qty_required}</td>
                       <td style={{ ...td, textAlign: "right", color: C.textSub }}>{c.component_kind === "service" ? "—" : c.qty_consumed}</td>
                       {/* #8 — projected cost from master defaults / avg cost, shown before capitalization. */}
