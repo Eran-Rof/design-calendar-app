@@ -13,7 +13,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
 import { notifyCompleteParty } from "./lib/notifyCompleteParty";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
-import { openOrderDocument } from "./orderDocument";
+import { openOrderDocument, downloadOrderExcel, type OrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -73,6 +73,8 @@ const dl: React.CSSProperties = { fontSize: 11, color: C.textMuted, textTransfor
 const inputStyle: React.CSSProperties = { background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`, padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { background: C.primary, color: "white", border: 0, padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
 const btnSecondary: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "8px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13 };
+// Dropdown item for the View → PDF / Excel menu (app dark palette).
+const viewMenuItem: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: "transparent", color: "#F1F5F9", border: 0, borderBottom: "1px solid #334155", padding: "9px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
 
 type PO = {
   id: string; po_number: string | null; vendor_id: string; brand_id: string | null;
@@ -660,6 +662,8 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   // Collapse the rich document header (boxes) down to just the vendor name once
   // the operator starts adding lines, so the size matrix has room. Toggleable.
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  // View button → PDF / Excel dropdown (mirrors the SO "Confirmation" menu).
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   // Line body is the shared size matrix (mode="po" → Unit Cost $, no margin/ATS).
   const bodyRef = useRef<LineMatrixBodyHandle>(null);
   const [seed, setSeed] = useState<{ sections: SeedSection[]; flat: FlatLine[] } | null>(null);
@@ -1082,8 +1086,10 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     setNotes((n) => (n && n.trim() ? `${n}\n${entry}` : entry));
   }
 
-  // Open the printable / downloadable PO document (logo + header + line items).
-  function openView() {
+  // Build the shared order-document model (logo + header + line items) that both
+  // the printable PDF view and the .xlsx export render from, so the two never
+  // diverge (same pattern as the Sales Order modal's buildOrderDoc).
+  function buildPoDoc(): OrderDocument {
     const fields: { label: string; value: string }[] = [];
     const add = (label: string, value: string | null | undefined) => { if (value && String(value).trim()) fields.push({ label, value: String(value) }); };
     add("Customer", customers.find((c) => c.id === customerId)?.name);
@@ -1102,7 +1108,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     add("Season", season);
     add("Channel", channels.find((c) => c.id === channelId)?.name);
     add("COO", coo);
-    openOrderDocument({
+    return {
       kind: "po",
       title: "Purchase Order",
       number: po?.po_number || "(draft)",
@@ -1113,8 +1119,12 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
       fields,
       data: bodyRef.current?.getDocumentData() || { styles: [], flats: [] },
       notes,
-    });
+    };
   }
+
+  // Open the printable PO document (View → PDF). autoPrint jumps straight to
+  // the browser print / save-as-PDF dialog.
+  function openView(autoPrint = false) { openOrderDocument({ ...buildPoDoc(), autoPrint }); }
 
   return (
     <div onClick={() => void requestClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
@@ -1329,7 +1339,21 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
 
         <div style={{ position: "sticky", bottom: -20, zIndex: 3, background: C.card, borderTop: `1px solid ${C.cardBdr}`, margin: "0 -20px -20px", padding: "12px 20px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
           <button onClick={() => void requestClose()} style={btnSecondary} disabled={submitting}>Close</button>
-          <button onClick={openView} style={btnSecondary} title="Open a printable / downloadable PO document">View</button>
+          {/* View → PDF / Excel dropdown. PDF is the existing printable document;
+              Excel downloads the same PO via the shared downloadOrderExcel helper
+              (branded ATS xlsx layout). App dark palette; caret ▾. */}
+          <span style={{ position: "relative", display: "inline-flex" }}>
+            <button type="button" onClick={() => setViewMenuOpen((o) => !o)} aria-haspopup="menu" aria-expanded={viewMenuOpen} style={btnSecondary} title="View this PO as a printable PDF or download it to Excel">View ▾</button>
+            {viewMenuOpen && (
+              <>
+                <div onClick={() => setViewMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+                <div role="menu" style={{ position: "absolute", bottom: "100%", left: 0, marginBottom: 6, zIndex: 91, background: "#1E293B", border: "1px solid #334155", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.45)", minWidth: 180, overflow: "hidden" }}>
+                  <button type="button" role="menuitem" onClick={() => { setViewMenuOpen(false); openView(true); }} style={viewMenuItem}>PDF</button>
+                  <button type="button" role="menuitem" onClick={() => { setViewMenuOpen(false); void downloadOrderExcel(buildPoDoc()); }} style={{ ...viewMenuItem, borderBottom: 0 }}>Excel</button>
+                </div>
+              </>
+            )}
+          </span>
 
           {/* Draft / new — the original save + issue flow. */}
           {(isNew || po?.status === "draft") && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
