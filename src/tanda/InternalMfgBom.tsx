@@ -17,6 +17,7 @@ import QuickAddStyleModal from "./components/QuickAddStyleModal";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type ItemLite = { id: string; sku_code: string; style_code: string | null; description: string | null; color?: string | null; size?: string | null };
 type PartLite = { id: string; code: string; name: string; default_unit_cost_cents?: number | null };
@@ -564,6 +565,13 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                     </tr>
                   </tfoot>
                 </table>
+                </div>
+              )}
+
+              {bomId && (
+                <div style={{ marginTop: 8, marginBottom: 12, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+                  <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Attachments</div>
+                  <DocumentAttachmentList contextTable="mfg_bom" contextId={bomId} kinds={["techpack", "spec", "approval", "other"]} />
                 </div>
               )}
 

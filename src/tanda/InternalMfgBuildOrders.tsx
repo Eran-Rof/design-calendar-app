@@ -14,6 +14,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type CustLite = { id: string; name: string; code?: string | null; customer_code?: string | null };
 type Component = {
@@ -799,6 +800,11 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
                   </table>
                 </div>
               )}
+
+              <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+                <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Attachments</div>
+                <DocumentAttachmentList contextTable="mfg_build_orders" contextId={build.id} kinds={["po", "packing_list", "qc", "other"]} />
+              </div>
 
               {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginTop: 12, fontSize: 12 }}>{err}</div>}
             </>

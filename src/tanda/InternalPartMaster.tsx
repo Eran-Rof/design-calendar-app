@@ -17,6 +17,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
+import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
 
 type Vendor = { id: string; name: string };
@@ -377,6 +378,13 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
           <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
             <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Images</div>
             <PartImagesManager partId={part.id} partLabel={part.code} />
+          </div>
+        )}
+
+        {mode === "edit" && part && (
+          <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Attachments</div>
+            <DocumentAttachmentList contextTable="part_master" contextId={part.id} kinds={["spec", "coa", "invoice", "other"]} />
           </div>
         )}
 
