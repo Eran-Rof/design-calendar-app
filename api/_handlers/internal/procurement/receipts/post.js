@@ -59,7 +59,9 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
     return res.status(409).json({ error: `Build ${build.build_number} is '${build.status}' — issue components (and capitalize services) before receiving the finished good.` });
   }
 
-  // All service charges must be capitalized so WIP is complete.
+  // All service charges must be capitalized so WIP is complete. (Conversion-PO
+  // 'capitalize' mode — where the CMT would be capitalized by the PO's AP bill
+  // instead — is not GL-wired yet, so this guard always applies for now.)
   const { data: comps } = await admin.from("mfg_build_components").select("component_kind, service_capitalized").eq("build_order_id", buildOrderId);
   const uncap = (comps || []).filter((c) => c.component_kind === "service" && !c.service_capitalized);
   if (uncap.length > 0) return res.status(409).json({ error: `Capitalize all ${uncap.length} service charge(s) on build ${build.build_number} before receiving.` });
