@@ -438,6 +438,24 @@ function colPriceCents(r: SnapshotRow, k: string): number | null {
 // merged totals because the merge is a plain sum of these same rows.
 type MergedRow = SnapshotRow & { _merged?: boolean; _components?: SnapshotRow[] };
 
+// Snapshot column key — the real SnapshotRow fields plus the DERIVED "Avg Mrgn %"
+// column (computed from avg sale − avg cost, not a stored field).
+type SnapColKey = keyof SnapshotRow | "avg_margin_pct";
+
+// Gross-margin fraction for a snapshot row: (avg sale − avg cost) / avg sale.
+// Null when the avg sale price is missing or zero (divide-by-zero guard) or the
+// avg cost is missing → the row's Avg Mrgn % renders blank. Cents in, fraction
+// out (e.g. 0.4215 → "42.15%").
+function marginFrac(saleCents: number | null | undefined, costCents: number | null | undefined): number | null {
+  if (saleCents == null || saleCents === 0 || costCents == null) return null;
+  return (saleCents - costCents) / saleCents;
+}
+// Percent display for the Avg Mrgn % cell — two decimals, blank ("—") when null.
+function fmtMarginPct(saleCents: number | null | undefined, costCents: number | null | undefined): string {
+  const m = marginFrac(saleCents, costCents);
+  return m == null ? "—" : `${(m * 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
+
 function openTab(url: string) { window.open(url, "_blank", "noopener"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
 // path is kept and only the query changes.
@@ -448,7 +466,7 @@ const lnkAlloc  = (code: string)    => `?m=sales_allocations&q=${encodeURICompon
 // ATS is a separate app at /ats; preselect the style via its search filter.
 const lnkATS    = (code: string, inclPo = false) => `/ats?style=${encodeURIComponent(code)}${inclPo ? "&incl_po=1" : ""}`;
 
-const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] = [
+const SNAP_COLS: { key: SnapColKey; label: string; numeric: boolean }[] = [
   { key: "style_code",  label: "Style",                  numeric: false },
   { key: "color",       label: "Color",                  numeric: false },
   { key: "description", label: "Name",                   numeric: false },
@@ -463,6 +481,7 @@ const SNAP_COLS: { key: keyof SnapshotRow; label: string; numeric: boolean }[] =
   { key: "category",    label: "Item Category",          numeric: false },
   { key: "in_transit",  label: "In Trnst",               numeric: true },
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
+  { key: "avg_margin_pct", label: "Avg Mrgn %",          numeric: true },
   { key: "sale_price_cents", label: "Avg Sale",          numeric: true },
 ];
 
@@ -623,9 +642,9 @@ function SnapshotView({
   rows: SnapshotRow[];
   loading: boolean;
   err: string | null;
-  sortKey: keyof SnapshotRow;
+  sortKey: SnapColKey;
   sortDir: "asc" | "desc";
-  onSort: (k: keyof SnapshotRow) => void;
+  onSort: (k: SnapColKey) => void;
   thumbs: Map<string, StyleThumbInfo>;
   onOpenSold: (r: SnapshotRow) => void;
   onOpenPurchased: (r: SnapshotRow) => void;
@@ -693,10 +712,17 @@ function SnapshotView({
   const sorted = useMemo(() => {
     const r = [...grouped];
     r.sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
       let c: number;
-      if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
-      else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      if (sortKey === "avg_margin_pct") {
+        // Derived column — sort by computed margin; rows with no margin sort low.
+        const am = marginFrac(a.sale_price_cents, a.avg_cost_cents);
+        const bm = marginFrac(b.sale_price_cents, b.avg_cost_cents);
+        c = (am ?? -Infinity) - (bm ?? -Infinity);
+      } else {
+        const av = a[sortKey as keyof SnapshotRow], bv = b[sortKey as keyof SnapshotRow];
+        if (typeof av === "number" || typeof bv === "number") c = num(av as number) - num(bv as number);
+        else c = String(av ?? "").localeCompare(String(bv ?? ""));
+      }
       return sortDir === "asc" ? c : -c;
     });
     return r;
@@ -769,7 +795,7 @@ function SnapshotView({
   // card background so scrolling rows don't show through the header. When the
   // Totals strip is on it occupies the top band, so the column header sticks
   // just below it (top: TOTALS_H).
-  const TOTALS_H = 92; // five stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Sale)
+  const TOTALS_H = 108; // six stacked lines (Qty / $ Cost / $ Wholesale / Avg Cost / Avg Mrgn / Avg Sale)
   const headerTop = showTotals ? TOTALS_H : 0;
   const thStick: React.CSSProperties = { ...thBase, position: "sticky", top: headerTop, zIndex: 2, background: C.card };
   // Totals strip cells — sticky at the very top, above the column header.
@@ -812,6 +838,7 @@ function SnapshotView({
                             <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[k])}</span>
                             <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
                             <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
+                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
                             <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
                           </div>
                         </th>
@@ -827,6 +854,7 @@ function SnapshotView({
                             <span style={{ color: C.textSub }}>$ Cost</span>
                             <span style={{ color: C.base }}>$ Wholesale</span>
                             <span style={{ color: C.green }}>Avg Cost</span>
+                            <span style={{ color: "#34D399" }}>Avg Mrgn</span>
                             <span style={{ color: "#93C5FD" }}>Avg Sale</span>
                           </div>
                         </th>
@@ -896,6 +924,7 @@ function SnapshotView({
                   {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(r.sale_price_cents, r.avg_cost_cents)}</td>}
                   {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                 </tr>
                 {/* Component drill — base-style eaches + PPK-pack contribution
@@ -927,6 +956,7 @@ function SnapshotView({
                       {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.category || "—"}</td>}
                       {show("in_transit") && <td style={tdNum}>{fmtQty(cr.in_transit)}</td>}
                       {show("avg_cost_cents") && <td style={tdNum}>{cr.avg_cost_cents != null ? (cr.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(cr.sale_price_cents, cr.avg_cost_cents)}</td>}
                       {show("sale_price_cents") && <td style={tdNum}>{cr.sale_price_cents != null ? (cr.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
                     </tr>
                   );
@@ -1328,9 +1358,9 @@ export default function InternalInventoryMatrix() {
   const [snapLots, setSnapLots] = useState<string[]>([]);
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapErr, setSnapErr] = useState<string | null>(null);
-  const [snapSortKey, setSnapSortKey] = useState<keyof SnapshotRow>("style_code");
+  const [snapSortKey, setSnapSortKey] = useState<SnapColKey>("style_code");
   const [snapSortDir, setSnapSortDir] = useState<"asc" | "desc">("asc");
-  const onSnapSort = (k: keyof SnapshotRow) => {
+  const onSnapSort = (k: SnapColKey) => {
     setSnapSortKey((prev) => { if (prev === k) { setSnapSortDir((d) => (d === "asc" ? "desc" : "asc")); return prev; } setSnapSortDir("asc"); return k; });
   };
   // Header date range — filters the Sold/Purchased columns AND seeds the drills.
@@ -2113,7 +2143,10 @@ export default function InternalInventoryMatrix() {
     () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
       key: c.key as string,
       header: c.label,
-      format: (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents" : (c.numeric ? "number" : undefined),
+      format: c.key === "avg_margin_pct" ? "percent"
+        : (c.key === "avg_cost_cents" || c.key === "sale_price_cents") ? "currency_cents"
+        : (c.numeric ? "number" : undefined),
+      ...(c.key === "avg_margin_pct" ? { digits: 2 } : {}),
     })),
     [snapHidden],
   );
@@ -2126,7 +2159,12 @@ export default function InternalInventoryMatrix() {
   // currency_cents, so the $-measure rows store cents in those two columns.
   const snapExportRows = useMemo<Array<Record<string, unknown>>>(
     () => {
-      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => ({ ...r }));
+      const data = rollupSnapshot(snapVisibleRows, mergePpk, snapCollapse).map((r) => {
+        // Derived Avg Mrgn % column — percent units (e.g. 42.15), blank when no
+        // margin; matches the on-screen column's percent format (2 decimals).
+        const m = marginFrac(r.sale_price_cents, r.avg_cost_cents);
+        return { ...r, avg_margin_pct: m == null ? "" : +(m * 100).toFixed(2) };
+      });
       if (!snapTotals || data.length === 0) return data;
       const qty: Record<string, number> = {};
       const cost: Record<string, number> = {};
@@ -2156,6 +2194,11 @@ export default function InternalInventoryMatrix() {
         mkRow("TOTAL — $ Cost", (k) => Math.round(cost[k])),
         mkRow("TOTAL — $ Wholesale", (k) => Math.round(whol[k])),
         mkRow("AVG — Cost / unit", (k) => (cQty[k] > 0 ? +(cost[k] / cQty[k]).toFixed(2) : 0)),
+        mkRow("AVG — Margin %", (k) => {
+          const s = pQty[k] > 0 ? whol[k] / pQty[k] : 0;
+          const c = cQty[k] > 0 ? cost[k] / cQty[k] : 0;
+          return s > 0 ? +(((s - c) / s) * 100).toFixed(2) : 0;
+        }),
         mkRow("AVG — Sale / unit", (k) => (pQty[k] > 0 ? +(whol[k] / pQty[k]).toFixed(2) : 0)),
       ];
     },
