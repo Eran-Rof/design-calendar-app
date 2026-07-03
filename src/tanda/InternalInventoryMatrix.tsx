@@ -481,8 +481,8 @@ const SNAP_COLS: { key: SnapColKey; label: string; numeric: boolean }[] = [
   { key: "category",    label: "Item Category",          numeric: false },
   { key: "in_transit",  label: "In Trnst",               numeric: true },
   { key: "avg_cost_cents", label: "Avrg Cost",           numeric: true },
+  { key: "sale_price_cents", label: "Avrg Sale",         numeric: true },
   { key: "avg_margin_pct", label: "Avg Mrgn %",          numeric: true },
-  { key: "sale_price_cents", label: "Avg Sale",          numeric: true },
 ];
 
 const SNAP_HIDE_KEY = "inv_snapshot_hidden_cols";
@@ -838,8 +838,8 @@ function SnapshotView({
                             <span style={{ color: C.textSub }}>{fmtUSD(totals.cost[k])}</span>
                             <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
                             <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
-                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
                             <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
+                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
                           </div>
                         </th>
                       );
@@ -854,8 +854,8 @@ function SnapshotView({
                             <span style={{ color: C.textSub }}>$ Cost</span>
                             <span style={{ color: C.base }}>$ Wholesale</span>
                             <span style={{ color: C.green }}>Avg Cost</span>
+                            <span style={{ color: "#93C5FD" }}>Avrg Sale</span>
                             <span style={{ color: "#34D399" }}>Avg Mrgn</span>
-                            <span style={{ color: "#93C5FD" }}>Avg Sale</span>
                           </div>
                         </th>
                       );
@@ -924,8 +924,8 @@ function SnapshotView({
                   {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{r.category || "—"}</td>}
                   {show("in_transit") && <td style={tdNum}>{fmtQty(r.in_transit)}</td>}
                   {show("avg_cost_cents") && <td style={tdNum}>{r.avg_cost_cents != null ? (r.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
-                  {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(r.sale_price_cents, r.avg_cost_cents)}</td>}
                   {show("sale_price_cents") && <td style={tdNum}>{r.sale_price_cents != null ? (r.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                  {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(r.sale_price_cents, r.avg_cost_cents)}</td>}
                 </tr>
                 {/* Component drill — base-style eaches + PPK-pack contribution
                     (per-unit), each linkable to its own style, summing back to
@@ -956,8 +956,8 @@ function SnapshotView({
                       {show("category") && <td style={{ ...tdTxt, color: C.textMuted }}>{cr.category || "—"}</td>}
                       {show("in_transit") && <td style={tdNum}>{fmtQty(cr.in_transit)}</td>}
                       {show("avg_cost_cents") && <td style={tdNum}>{cr.avg_cost_cents != null ? (cr.avg_cost_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
-                      {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(cr.sale_price_cents, cr.avg_cost_cents)}</td>}
                       {show("sale_price_cents") && <td style={tdNum}>{cr.sale_price_cents != null ? (cr.sale_price_cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</td>}
+                      {show("avg_margin_pct") && <td style={tdNum}>{fmtMarginPct(cr.sale_price_cents, cr.avg_cost_cents)}</td>}
                     </tr>
                   );
                 })}
