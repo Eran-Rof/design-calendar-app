@@ -127,6 +127,46 @@ describe("syncOnHandFromAtsSnapshot — happy path", () => {
     });
   });
 
+  it("dates the snapshot to the feed's latest Last Receipt Date (Xoro date), not today", async () => {
+    const upserts = [];
+    const admin = makeAdmin({
+      app_data: {
+        async maybeSingle() {
+          return {
+            data: {
+              value: JSON.stringify({
+                skus: [
+                  { sku: "STY01-RED-S", onHand: 10, onPO: 0, onSO: 0, lastReceiptDate: "2026-04-10" },
+                  { sku: "STY01-RED-M", onHand:  5, onPO: 0, onSO: 0, lastReceiptDate: "2026-06-22" }, // max
+                  { sku: "STY02-BLU-S", onHand:  3, onPO: 0, onSO: 0, lastReceiptDate: "2026-05-01" },
+                ],
+                sos: [],
+              }),
+            },
+            error: null,
+          };
+        },
+      },
+      ip_item_master: {
+        async select(state) {
+          if (state.filters.some(([op]) => op === "in")) {
+            return { data: [{ id: "sku-1", sku_code: "STY01-RED" }, { id: "sku-2", sku_code: "STY02-BLU" }], error: null };
+          }
+          return { data: [], error: null };
+        },
+      },
+      ip_inventory_snapshot: {
+        async upsert(state) { upserts.push(...state.upsertRows); return { data: null, error: null }; },
+      },
+    });
+
+    const r = await syncOnHandFromAtsSnapshot(admin);
+    expect(r.error).toBeNull();
+    expect(upserts).toHaveLength(2);
+    // Every snapshot row is dated to the LATEST receipt date across the feed.
+    expect(upserts.every((u) => u.snapshot_date === "2026-06-22")).toBe(true);
+  });
+
   it("resolves color-grain candidate to size-grain master row via ilike fallback", async () => {
     // Repro for the 2026-05-29 finding: post_master_data loads master
     // at size-grain (RYB1469OB-Black-SML/-MED/...) from CurrentProducts,

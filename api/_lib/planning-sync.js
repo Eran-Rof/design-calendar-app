@@ -118,7 +118,8 @@ export function buildDdpDateMap(milestoneRows) {
 //
 // Side effects (in order, all transactional within Supabase):
 //   1. Upsert ip_item_master stubs for any SKU not already present
-//   2. Bulk-upsert ip_inventory_snapshot rows for today's date
+//   2. Bulk-upsert ip_inventory_snapshot rows dated to the feed's latest
+//      "Last Receipt Date" (a Xoro date), not the import day
 //   3. On the first chunk only: rebuild ip_open_sales_orders from the
 //      `sos` array in the ATS snapshot, pruning lines no longer present
 export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit = 2000 } = {}) {
@@ -173,6 +174,22 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   result.ats_skus_total = allSkus.length;
   if (allSkus.length === 0) {
     return { ...result, error: "ATS snapshot has no SKU array", parsed_keys: Object.keys(parsed ?? {}) };
+  }
+
+  // Xoro-date policy: the ATS on-hand snapshot's as-of date is the LATEST
+  // "Last Receipt Date" reported in the feed (a Xoro-derived date), NOT the
+  // import day. Computed over the FULL feed so every chunk agrees on one
+  // snapshot_date — it's part of the ip_inventory_snapshot upsert key, so a
+  // per-chunk date would fragment the snapshot. `lastReceiptDate` is stored ISO
+  // (YYYY-MM-DD) by the ATS parser; guard on that shape. Falls back to today
+  // only if no row carries a parseable receipt date.
+  {
+    let maxReceipt = "";
+    for (const s of allSkus) {
+      const d = typeof s?.lastReceiptDate === "string" ? s.lastReceiptDate.trim() : "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d > maxReceipt) maxReceipt = d;
+    }
+    if (maxReceipt) result.snapshot_date = maxReceipt;
   }
 
   const skus = allSkus.slice(start, start + limit);
@@ -274,8 +291,9 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     result.auto_created_skus = missingCandidates.length;
   }
 
-  // Build snapshot rows.
-  const today = result.snapshot_date;
+  // Build snapshot rows. snapshot_date = the feed's latest Last Receipt Date
+  // (set above), not the import day.
+  const snapshotDate = result.snapshot_date;
   const rows = [];
   for (const c of candidates) {
     const skuId = itemMap.get(c.sku);
@@ -283,7 +301,7 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     rows.push({
       sku_id: skuId,
       warehouse_code: "DEFAULT",
-      snapshot_date: today,
+      snapshot_date: snapshotDate,
       qty_on_hand: c.onHand,
       qty_committed: c.onSo,
       qty_on_order: c.onPO,
