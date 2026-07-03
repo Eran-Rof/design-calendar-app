@@ -37,6 +37,8 @@ function dec(v) { return v == null ? "0" : (typeof v === "string" ? v : String(v
  *   @param {string}  [audit.source]              T10 source (default 'manual')
  *   @param {string}  [audit.correlation_id]
  *   @param {string}  [audit.created_by_user_id]
+ *   @param {string}  [audit.posting_date]        YYYY-MM-DD override; default = the
+ *                                                original entry's date (its period)
  * @returns {Promise<string|null>} the reversal JE id, or null if already reversed / not posted.
  */
 export async function reverseJeWithAudit(admin, jeId, audit = {}) {
@@ -75,11 +77,19 @@ export async function reverseJeWithAudit(admin, jeId, audit = {}) {
   }));
 
   // 1. Post the compensating entry WITH the audit reason (T11-safe POST).
+  //    Date the reversal into the ORIGINAL entry's period (its posting_date) so
+  //    the two net to zero IN the period they belong to, rather than dumping the
+  //    reversal into today's period. Callers may override via audit.posting_date.
+  //    (If the original period is hard-locked, gl_post_journal_entry rejects it —
+  //    the caller surfaces that and can retry with an open date.)
+  const postingDate = audit.posting_date && /^\d{4}-\d{2}-\d{2}$/.test(String(audit.posting_date))
+    ? String(audit.posting_date)
+    : original.posting_date;
   const payload = {
     entity_id: original.entity_id,
     basis: original.basis,
     journal_type: original.journal_type,
-    posting_date: new Date().toISOString().slice(0, 10),
+    posting_date: postingDate,
     source_module: original.source_module,
     source_table: original.source_table,
     source_id: original.source_id,

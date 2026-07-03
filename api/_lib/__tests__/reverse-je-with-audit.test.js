@@ -59,6 +59,8 @@ describe("reverseJeWithAudit", () => {
     expect(payload.audit_reason).toBe("operator cancelled build");
     expect(payload.source_table).toBe("mfg_build_issue");
     expect(payload.source_id).toBe("b1");
+    // Reversal is dated into the ORIGINAL entry's period, not today.
+    expect(payload.posting_date).toBe("2026-07-01");
     // debit ↔ credit swapped on each line.
     expect(payload.lines[0]).toMatchObject({ account_id: "wip", debit: "0", credit: "12.00" });
     expect(payload.lines[1]).toMatchObject({ account_id: "inv", debit: "12.00", credit: "0" });
