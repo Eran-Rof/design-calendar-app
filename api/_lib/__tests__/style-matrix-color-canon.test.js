@@ -15,6 +15,11 @@ describe("canonColor", () => {
     expect(canonColor("Buenos Aires - Light Wash")).toBe(canonColor("Buenos Aires - Lt Wash"));
   });
 
+  it("collapses the Combo↔Cbo abbreviation (the ROF-P001042 split)", () => {
+    expect(canonColor("Simple Sage Combo")).toBe(canonColor("Simple Sage Cbo"));
+    expect(canonColor("Simple Sage Cbo")).toBe("Simple Sage Combo");
+  });
+
   it("collapses with↔w and punctuation/spacing", () => {
     expect(canonColor("Open Sea - Light Wash w Tint")).toBe(canonColor("Open Sea - Lt Wash with Tint"));
     expect(canonColor("Navy/Peach")).toBe(canonColor("NAVY/PEACH"));
