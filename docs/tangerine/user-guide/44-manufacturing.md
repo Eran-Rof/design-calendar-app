@@ -71,9 +71,9 @@ The lifecycle:
    - **Auto customer.** If the resolved BOM is customer-specific, **Build for customer** is auto-filled with that customer.
    - **Availability under each size.** The plan matrix shows each finished size's **on-hand** underneath the cell (like SO entry), and a **component-availability** panel lists the BOM's parts with required-vs-on-hand and a **shortage warning** when you'd build beyond what's in stock (informational — it never blocks). *First version: parts show aggregate on-hand; per-size and on-PO are a follow-up.*
 2. **Release** — snapshots the style's active BOM into the build, scaling each component to `qty_per_unit × target × (1 + scrap%)`. Status → *released*.
-3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1305 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*. **Where you see the result:** the build's **WIP rollup** (Parts / Consumed styles / WIP total) and each row's *Consumed* + *Actual cost*; the **General Ledger** (journal entries on **1305 WIP** and the credited inventory accounts); the **part inventory** depleting; and **Manufacturing → Reports** (open WIP). Every posting now carries an **audit reason** (required by the ledger's audit policy) generated automatically per step.
-4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1305 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
-5. **Complete → finished goods** — moves the full accumulated WIP into finished-goods inventory: posts `DR <style inventory> / CR 1305 WIP` and creates the finished style's **FIFO layer at the real build cost** (`accumulated ÷ completed qty`), tagged `source_kind = manufacture`. Status → *completed*. (You must capitalize all service charges first.)
+3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1205 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*. **Where you see the result:** the build's **WIP rollup** (Parts / Consumed styles / WIP total) and each row's *Consumed* + *Actual cost*; the **General Ledger** (journal entries on **1205 WIP** and the credited inventory accounts); the **part inventory** depleting; and **Manufacturing → Reports** (open WIP). Every posting now carries an **audit reason** (required by the ledger's audit policy) generated automatically per step.
+4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1205 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
+5. **Complete → finished goods** — moves the full accumulated WIP into finished-goods inventory: posts `DR <style inventory> / CR 1205 WIP` and creates the finished style's **FIFO layer at the real build cost** (`accumulated ÷ completed qty`), tagged `source_kind = manufacture`. Status → *completed*. (You must capitalize all service charges first.)
 
 The build detail view shows a live **WIP rollup** — parts cost, consumed-style cost, service cost, WIP total, and the projected/finished unit cost. It also shows a **projected cost** per component from the masters **before anything is issued or capitalized**, so you can see the expected cost of the run up front (actual cost fills in as each step posts). **WIP is a control account** keyed by build order, so the WIP balance always reconciles per build. A build can be **cancelled** before completion; a completed build keeps its journal entries.
 
@@ -83,8 +83,8 @@ Press **Cancel build** in the build's footer.
 
 - A **draft** or **released** build (nothing posted yet) simply flips to *cancelled*.
 - An **issued** build has already drawn parts/styles into WIP and posted journal entries. Tangerine now **fully reverses** it rather than blocking you:
-  1. Reverses the **issue** journal entries (`DR 1305 WIP / CR inventory` → undone) on both the accrual and cash books.
-  2. Reverses every **capitalized service** entry (`DR 1305 WIP / CR 2000 AP` → undone).
+  1. Reverses the **issue** journal entries (`DR 1205 WIP / CR inventory` → undone) on both the accrual and cash books.
+  2. Reverses every **capitalized service** entry (`DR 1205 WIP / CR 2000 AP` → undone).
   3. **Returns the consumed units to inventory** — the parts go back to part inventory and any consumed finished styles back to style inventory, on the exact FIFO layers they were drawn from (the GL reversal only restores the *dollars*; this puts the *units* back).
   4. Zeroes the build's WIP, un-stamps the components, and sets status *cancelled*.
 
@@ -121,7 +121,7 @@ How it works:
 2. Cut a **conversion / subcontract PO** (a native Purchase Order) for the finished style — e.g. the print job that returns printed tees — and **link it to the build** (the build's *conversion PO* field).
 3. When the finished goods arrive, **receive them against that PO** and post the receipt as normal.
 
-On posting, Tangerine detects the build link and **completes the build automatically**: it skips the ordinary goods-receipt path (no GRNI / landed-cost layer at the PO's nominal price) and instead moves the build's accumulated WIP into finished-goods inventory at the **real build cost** — `DR <style inventory> / CR 1305 WIP` plus the finished FIFO layer at `accumulated ÷ received qty`. The build flips to *completed*, the received quantity becomes the completed quantity, and the receipt is stamped with the finished layer.
+On posting, Tangerine detects the build link and **completes the build automatically**: it skips the ordinary goods-receipt path (no GRNI / landed-cost layer at the PO's nominal price) and instead moves the build's accumulated WIP into finished-goods inventory at the **real build cost** — `DR <style inventory> / CR 1205 WIP` plus the finished FIFO layer at `accumulated ÷ received qty`. The build flips to *completed*, the received quantity becomes the completed quantity, and the receipt is stamped with the finished layer.
 
 Guards: the build must be *issued* and **all service charges capitalized** first (otherwise the receipt is rejected with a clear message), so the finished cost is never understated.
 
@@ -155,10 +155,10 @@ When the cut-make-trim is done **outside** (a contractor), the vendor's charge s
 
 **How the money moves (capitalize mode):**
 
-1. **Issue → WIP** (material provision). Releasing and issuing draws the base styles + parts you supply into WIP at FIFO cost — `DR 1305 WIP / CR inventory` — just like any build. You still own that material; it's now valued in WIP.
+1. **Issue → WIP** (material provision). Releasing and issuing draws the base styles + parts you supply into WIP at FIFO cost — `DR 1205 WIP / CR inventory` — just like any build. You still own that material; it's now valued in WIP.
 2. **Receive the finished goods** against the conversion PO. Tangerine **accrues the contractor's CMT** into WIP and completes the build in one step:
-   - `DR 1305 WIP / CR 2160 Accrued CMT` — the CMT (accepted qty × the conversion PO's unit charge) is capitalized. *(2160 is the CMT analogue of 2050 GR/IR — "CMT received, not yet invoiced.")*
-   - `DR <style inventory> / CR 1305 WIP` — the full WIP (your material **+** the CMT) becomes the finished-goods FIFO layer at real cost.
+   - `DR 1205 WIP / CR 2160 Accrued CMT` — the CMT (accepted qty × the conversion PO's unit charge) is capitalized. *(2160 is the CMT analogue of 2050 GR/IR — "CMT received, not yet invoiced.")*
+   - `DR <style inventory> / CR 1205 WIP` — the full WIP (your material **+** the CMT) becomes the finished-goods FIFO layer at real cost.
    - There's **no manual "Capitalize" step** in this mode — the services are capitalized by the receipt, and manual capitalization is disabled to prevent double-counting. Completion happens **via the receipt**, so the build detail's manual **Complete** button is intentionally disabled for capitalize-mode builds.
 3. **Enter the contractor's CMT bill** — on the build detail, **Enter CMT vendor bill (3-way match)**. This clears the accrual and books any price difference:
    - `DR 2160 Accrued CMT` = the value accrued at receipt,

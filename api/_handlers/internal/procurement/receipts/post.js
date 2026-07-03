@@ -77,7 +77,7 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
 
   let accum = Number(build.accumulated_cost_cents || 0);
 
-  // ── Capitalize mode: accrue the contractor CMT into WIP (DR 1305 WIP / CR 2160
+  // ── Capitalize mode: accrue the contractor CMT into WIP (DR 1205 WIP / CR 2160
   //    Accrued CMT) once, at finished-goods receipt. CMT = Σ(accepted qty ×
   //    conversion-PO unit cost). Idempotent on the build's cmt_accrual_je_id so a
   //    retried completion never double-accrues. The vendor CMT bill later clears

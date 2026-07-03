@@ -7,7 +7,7 @@
 // liability sits in 2160 Accrued CMT until the vendor's bill clears it (3-way
 // match — see mfgCmtInvoiceMatch).
 //
-//   DR 1305 WIP           (subledger=build_order, id=build_order_id)
+//   DR 1205 WIP           (subledger=build_order, id=build_order_id)
 //   CR 2160 Accrued CMT   (clearing — no subledger, mirrors 2050 GR/IR)
 //
 // Posted on BOTH bases, like every other manufacturing event (mfg_build_issue /

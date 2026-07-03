@@ -86,7 +86,7 @@ export default async function handler(req, res) {
   }
 
   // Mode: 'procurement' (document only, default) or 'capitalize' (subcontract —
-  // the CMT is accrued into WIP at finished-goods receipt: DR 1305 WIP / CR 2160
+  // the CMT is accrued into WIP at finished-goods receipt: DR 1205 WIP / CR 2160
   // Accrued CMT, then 3-way matched by the vendor CMT bill). See the
   // 20260951000000 migration + mfgCmtAccrued / mfgCmtInvoiceMatch rules.
   const mode = body.mode ? String(body.mode) : "procurement";

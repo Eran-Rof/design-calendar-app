@@ -6,7 +6,7 @@
 //          { finished_item_id (or bom_id), target_qty (required),
 //            bom_id?, location_id?, notes? }
 //        If bom_id is given, finished_item_id is taken from the BOM. Resolves
-//        the WIP account (1305). build_number auto-generated (BUILD-NNNNN).
+//        the WIP account (1205). build_number auto-generated (BUILD-NNNNN).
 //
 // Lifecycle: draft → /release → /issue → (/service…) → /complete.
 
@@ -136,8 +136,11 @@ export default async function handler(req, res) {
     let targetQty = plannedOutputs ? plannedOutputs.reduce((s, o) => s + o.qty, 0) : Number(body.target_qty);
     if (!Number.isFinite(targetQty) || targetQty <= 0) return res.status(400).json({ error: "target_qty must be > 0 (or enter a size matrix)" });
 
-    const wip = await accountByCode(admin, entityId, "1305");
-    if (!wip) return res.status(400).json({ error: "WIP account (code 1305) not found or not postable. Apply the M4 GL migration first." });
+    // WIP = 1205 'Work in Process'. (Code 1305 is 'Deposit Warehouse' in the
+    // regrouped COA — the original M4 seed collided with it; see migration
+    // 20260952000000.)
+    const wip = await accountByCode(admin, entityId, "1205");
+    if (!wip) return res.status(400).json({ error: "WIP account (code 1205 Work in Process) not found or not postable. Apply migration 20260952000000." });
 
     const buildRow = (code) => ({
       code_unused: undefined, // placeholder removed below
