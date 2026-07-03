@@ -26,7 +26,7 @@
 // to the FIFO-AR integration test pattern.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runNightlyMirror, defaultMirrorDate, isXoroFetchStale } from "../../cron/xoro-mirror-nightly.js";
+import { runNightlyMirror, defaultMirrorDate, isXoroFetchStale, enumerateDates, runMirrorRange, MAX_RANGE_DAYS } from "../../cron/xoro-mirror-nightly.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory supabase double
@@ -196,6 +196,66 @@ describe("defaultMirrorDate", () => {
   it("handles month rollover", () => {
     const v = defaultMirrorDate(new Date("2026-06-01T01:30:00Z"));
     expect(v).toBe("2026-05-31");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// enumerateDates + runMirrorRange (one-shot range backfill)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("enumerateDates", () => {
+  it("returns an inclusive list", () => {
+    expect(enumerateDates("2026-05-27", "2026-05-29")).toEqual(["2026-05-27", "2026-05-28", "2026-05-29"]);
+  });
+  it("single day → one entry", () => {
+    expect(enumerateDates("2026-05-27", "2026-05-27")).toEqual(["2026-05-27"]);
+  });
+  it("crosses a month boundary (DST-safe UTC)", () => {
+    expect(enumerateDates("2026-05-31", "2026-06-02")).toEqual(["2026-05-31", "2026-06-01", "2026-06-02"]);
+  });
+});
+
+describe("runMirrorRange", () => {
+  it("mirrors every date in the range and aggregates totals + JE ids", async () => {
+    const sb = makeSupabase();
+    const deps = makeDeps(); // ar=3, ap=2, inv=100 per date; summary posts 3 JEs per date
+    const out = await runMirrorRange(sb, { from: "2026-05-27", to: "2026-05-29", deps });
+    expect(out.status).toBe("complete");
+    expect(out.days).toBe(3);
+    expect(out.per_date).toHaveLength(3);
+    expect(out.per_date.every((d) => d.status === "complete")).toBe(true);
+    expect(out.totals.ar_upserted).toBe(9);   // 3 × 3 days
+    expect(out.totals.ap_upserted).toBe(6);    // 2 × 3
+    expect(out.totals.inventory_upserted).toBe(300); // 100 × 3
+    expect(out.totals.summary_jes_posted).toBe(9);   // 3 × 3
+    expect(out.je_ids).toHaveLength(9);
+  });
+
+  it("bypasses the stale-fetch guard (backfill mirrors historical data)", async () => {
+    // Fetch last completed 100h ago → the nightly would skip; the range must NOT.
+    const stale = new Date(Date.now() - 100 * 60 * 60 * 1000).toISOString();
+    const sb = makeSupabase({ xoroSyncLogs: [{ completed_at: stale }] });
+    const deps = makeDeps();
+    const out = await runMirrorRange(sb, { from: "2026-05-27", to: "2026-05-28", deps });
+    expect(out.per_date.every((d) => d.status === "complete")).toBe(true);
+    expect(deps.mirrorAr).toHaveBeenCalledTimes(2); // ran both dates, not skipped
+  });
+
+  it("emits no per-date notification (range would emit one)", async () => {
+    const sb = makeSupabase();
+    await runMirrorRange(sb, { from: "2026-05-27", to: "2026-05-28", deps: makeDeps() });
+    expect(sb.state.notificationEvents).toHaveLength(0);
+  });
+
+  it("rejects from > to", async () => {
+    await expect(runMirrorRange(makeSupabase(), { from: "2026-05-29", to: "2026-05-27" }))
+      .rejects.toThrow(/on or before/i);
+  });
+
+  it("rejects a range larger than the cap", async () => {
+    const from = "2026-01-01";
+    const to = "2026-12-31"; // way over MAX_RANGE_DAYS
+    await expect(runMirrorRange(makeSupabase(), { from, to })).rejects.toThrow(new RegExp(`max ${MAX_RANGE_DAYS}`));
   });
 });
 

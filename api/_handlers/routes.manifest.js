@@ -577,6 +577,7 @@ export default [
   ["/api/internal/crm/pipeline-report"                       , "./internal/crm/pipeline-report/index.js"],
   ["/api/internal/xoro-mirror/ar"                            , "./internal/xoro-mirror/ar.js"],
   ["/api/internal/xoro-mirror/summary-je"                    , "./internal/xoro-mirror/summary-je.js"],
+  ["/api/internal/xoro-mirror/backfill-range"               , "./internal/xoro-mirror/backfill-range.js"],
   ["/api/cron/xoro-mirror-nightly"                           , "../cron/xoro-mirror-nightly.js"],
   ["/api/cron/menu-usage-decay"                              , "../cron/menu-usage-decay.js"],
   ["/api/internal/pim/style-thumbs-by-code"                  , "./internal/pim/style-thumbs-by-code.js"],
