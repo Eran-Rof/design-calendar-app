@@ -38,6 +38,12 @@ export default async function handler(req, res) {
   const { data: build } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
   if (!build) return res.status(404).json({ error: "Build order not found" });
   if (!["released", "issued"].includes(build.status)) return res.status(409).json({ error: `Cannot capitalize a service while build is '${build.status}'.` });
+  // Double-count guard: a 'capitalize'-mode build accrues its CMT into WIP from
+  // the conversion PO at finished-goods receipt (mfg_cmt_accrued). Capitalizing a
+  // service manually here too would book the conversion charge into WIP twice.
+  if (build.conversion_po_mode === "capitalize") {
+    return res.status(409).json({ error: "This build capitalizes CMT via its conversion PO at receipt — manual service capitalization is disabled for 'capitalize' mode." });
+  }
 
   const { data: comp } = await admin.from("mfg_build_components").select("*").eq("id", body.component_id).eq("build_order_id", id).maybeSingle();
   if (!comp) return res.status(404).json({ error: "Service component not found on this build" });

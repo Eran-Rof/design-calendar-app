@@ -59,19 +59,67 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
     return res.status(409).json({ error: `Build ${build.build_number} is '${build.status}' — issue components (and capitalize services) before receiving the finished good.` });
   }
 
-  // All service charges must be capitalized so WIP is complete. (Conversion-PO
-  // 'capitalize' mode — where the CMT would be capitalized by the PO's AP bill
-  // instead — is not GL-wired yet, so this guard always applies for now.)
-  const { data: comps } = await admin.from("mfg_build_components").select("component_kind, service_capitalized").eq("build_order_id", buildOrderId);
-  const uncap = (comps || []).filter((c) => c.component_kind === "service" && !c.service_capitalized);
-  if (uncap.length > 0) return res.status(409).json({ error: `Capitalize all ${uncap.length} service charge(s) on build ${build.build_number} before receiving.` });
-
-  const accum = Number(build.accumulated_cost_cents || 0);
-  if (accum <= 0) return res.status(409).json({ error: "Build WIP cost is 0 — nothing to receive into finished goods." });
+  const capMode = build.conversion_po_mode === "capitalize";
 
   // Completed qty = accepted qty on the receipt (the finished good), else target.
   const completedQty = (lines || []).reduce((s, l) => s + Number(l.qty_accepted || 0), 0) || Number(build.target_qty);
   if (completedQty <= 0) return res.status(409).json({ error: "Receipt has no accepted quantity." });
+
+  // Procurement mode: every service charge must have been capitalized manually so
+  // WIP is complete before receiving. Capitalize (subcontract) mode instead
+  // ACCRUES the contractor CMT into WIP right here from the conversion PO — the
+  // manual per-service capitalization is disabled for that mode, so skip the gate.
+  if (!capMode) {
+    const { data: comps } = await admin.from("mfg_build_components").select("component_kind, service_capitalized").eq("build_order_id", buildOrderId);
+    const uncap = (comps || []).filter((c) => c.component_kind === "service" && !c.service_capitalized);
+    if (uncap.length > 0) return res.status(409).json({ error: `Capitalize all ${uncap.length} service charge(s) on build ${build.build_number} before receiving.` });
+  }
+
+  let accum = Number(build.accumulated_cost_cents || 0);
+
+  // ── Capitalize mode: accrue the contractor CMT into WIP (DR 1305 WIP / CR 2160
+  //    Accrued CMT) once, at finished-goods receipt. CMT = Σ(accepted qty ×
+  //    conversion-PO unit cost). Idempotent on the build's cmt_accrual_je_id so a
+  //    retried completion never double-accrues. The vendor CMT bill later clears
+  //    2160 (3-way match, POST /build-orders/:id/cmt-invoice). ────────────────
+  if (capMode && !build.cmt_accrual_je_id) {
+    const { data: poLines } = await admin.from("purchase_order_lines")
+      .select("id, unit_cost_cents").eq("purchase_order_id", rcpt.purchase_order_id);
+    const costByPol = new Map((poLines || []).map((p) => [p.id, Number(p.unit_cost_cents || 0)]));
+    const cmtCents = Math.round((lines || []).reduce(
+      (s, l) => s + Number(l.qty_accepted || 0) * (costByPol.get(l.purchase_order_line_id) || 0), 0));
+    if (cmtCents > 0) {
+      const accruedCmtAcct = await findPostableAccount(admin, rcpt.entity_id, "2160");
+      if (!accruedCmtAcct) return res.status(409).json({ error: "No postable Accrued CMT account (gl_accounts code 2160) — apply the 20260951000000 migration." });
+      let accrRes;
+      try {
+        accrRes = await postEvent(admin, {
+          kind: "mfg_cmt_accrued",
+          entity_id: rcpt.entity_id,
+          created_by_user_id: null,
+          reason: `Accrue conversion CMT ${build.build_number} (PO receipt)`,
+          data: {
+            build_order_id: buildOrderId,
+            posting_date: rcpt.receipt_date || new Date().toISOString().slice(0, 10),
+            wip_account_id: build.wip_account_id,
+            accrued_cmt_account_id: accruedCmtAcct,
+            cmt_cents: cmtCents,
+            build_number: build.build_number,
+          },
+        });
+      } catch (e) {
+        return res.status(400).json({ error: `CMT accrual failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+      const cmtJeId = accrRes.accrual_je_id || accrRes.cash_je_id || null;
+      accum += cmtCents;
+      await admin.from("mfg_build_orders").update({
+        accumulated_cost_cents: accum, cmt_accrued_cents: cmtCents, cmt_accrual_je_id: cmtJeId,
+        updated_at: new Date().toISOString(),
+      }).eq("id", buildOrderId);
+    }
+  }
+
+  if (accum <= 0) return res.status(409).json({ error: "Build WIP cost is 0 — nothing to receive into finished goods." });
 
   const finishedAcct = (await resolveInventoryAccount(admin, rcpt.entity_id, null))?.id || null;
   if (!finishedAcct) return res.status(409).json({ error: "No postable Inventory asset account for the finished style." });

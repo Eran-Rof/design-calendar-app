@@ -44,6 +44,11 @@ type Build = {
   conversion_po_id?: string | null;
   conversion_po_mode?: "procurement" | "capitalize";
   conversion_po?: { id: string; po_number: string | null; status: string; vendor_id: string | null; total_cents: number | null } | null;
+  // Subcontract CMT 3-way match: accrued into WIP at receipt (2160), cleared by
+  // the vendor CMT bill (DR 2160 / ±6320 / CR AP).
+  cmt_accrued_cents?: number | null;
+  cmt_invoice_id?: string | null;
+  cmt_invoice_je_id?: string | null;
 };
 
 const C = {
@@ -688,6 +693,9 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
 
   // M11 — auto-create the conversion (outsourced-CMT) PO. Optional per-unit CMT
   // charge; vendor defaults to the BOM's default conversion vendor server-side.
+  // The operator chooses the GL mode: capitalize (subcontract — the CMT accrues
+  // into WIP when the finished goods are received, then a vendor bill 3-way
+  // matches it) or procurement (document only, capitalize services manually).
   async function createConversionPo() {
     const v = await promptDialog(
       `Per-unit CMT charge for the conversion PO ($, optional — leave blank for a document-only PO)`,
@@ -701,15 +709,50 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
       if (!Number.isFinite(dollars) || dollars < 0) { notify("Enter a non-negative amount", "error"); return; }
       unitCostCents = Math.round(dollars * 100);
     }
+    // Only offer capitalize mode when there is a CMT charge to capitalize.
+    let mode: "procurement" | "capitalize" = "procurement";
+    if (unitCostCents && unitCostCents > 0) {
+      mode = (await confirmDialog(
+        `Capitalize this CMT into the finished-good cost?\n\nYes — subcontract: the CMT accrues into WIP when you receive the conversion PO's finished goods, and the vendor's bill is 3-way matched (DR 2160 Accrued CMT / ±6320 PO Variance / CR AP).\n\nNo — procurement: document only; capitalize services manually.`,
+      )) ? "capitalize" : "procurement";
+    }
     setBusy(true); setErr(null);
     try {
       const r = await fetch(`/api/internal/build-orders/${buildId}/conversion-po`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "procurement", unit_cost_cents: unitCostCents }),
+        body: JSON.stringify({ mode, unit_cost_cents: unitCostCents }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       notify(j.message || "Conversion PO created.", "success");
+      await load(); onChanged();
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
+    finally { setBusy(false); }
+  }
+
+  // Subcontract 3-way match — enter the contractor's CMT vendor bill for a
+  // capitalize-mode build. Clears 2160 Accrued CMT; any difference vs. the
+  // accrued value books to 6320 PO Variance.
+  async function enterCmtBill() {
+    const accrued = Number(build?.cmt_accrued_cents || 0);
+    const v = await promptDialog(
+      `Contractor CMT bill total ($) — accrued into WIP so far: $${(accrued / 100).toFixed(2)}`,
+      { inputType: "number", defaultValue: (accrued / 100).toFixed(2), placeholder: "0.00", required: true },
+    );
+    if (v === null) return;
+    const dollars = parseFloat(v);
+    if (!Number.isFinite(dollars) || dollars < 0) { notify("Enter a non-negative amount", "error"); return; }
+    const num = await promptDialog(`Vendor invoice number (optional)`, { defaultValue: "" });
+    if (num === null) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}/cmt-invoice`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ total_cents: Math.round(dollars * 100), invoice_number: num.trim() || undefined }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "CMT bill matched.", "success");
       await load(); onChanged();
     } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
     finally { setBusy(false); }
@@ -725,11 +768,11 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   }
 
   const status = build?.status;
-  // Conversion PO 'capitalize' mode (AP bill capitalizes CMT into WIP) is NOT
-  // wired to the GL yet, so it is disabled everywhere until that posting lands —
-  // completion always requires the services to be capitalized manually, and the
-  // Capitalize buttons always show. (The conversion_po_mode column is pre-staged.)
-  const capMode = false;
+  // Conversion PO 'capitalize' (subcontract) mode: the CMT accrues into WIP when
+  // the conversion PO's finished goods are received (DR 1305 WIP / CR 2160), so
+  // services are NOT capitalized manually and the build completes via that
+  // receipt (not the manual Complete button). Procurement mode = document only.
+  const capMode = build?.conversion_po_mode === "capitalize";
   const allServicesCapitalized = (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
 
   return (
@@ -846,13 +889,31 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
               <div style={{ marginTop: 16, borderTop: `1px solid ${C.cardBdr}`, paddingTop: 16 }}>
                 <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Conversion PO</div>
                 {build.conversion_po_id ? (
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
-                    <span>PO <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }}>{build.conversion_po?.po_number || "(draft, unassigned #)"}</span></span>
-                    {build.conversion_po?.status && <span style={{ color: C.textMuted }}>● {build.conversion_po.status}</span>}
-                    <span style={{ padding: "2px 8px", borderRadius: 4, background: "#0b1220", border: `1px solid ${C.cardBdr}`, color: capMode ? C.warn : C.textSub, fontSize: 11 }}>
-                      {capMode ? "capitalize (AP bill → WIP)" : "procurement (document only)"}
-                    </span>
-                    {build.conversion_po?.total_cents != null && <span style={{ color: C.textMuted }}>{money(build.conversion_po.total_cents)}</span>}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+                      <span>PO <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textSub }}>{build.conversion_po?.po_number || "(draft, unassigned #)"}</span></span>
+                      {build.conversion_po?.status && <span style={{ color: C.textMuted }}>● {build.conversion_po.status}</span>}
+                      <span style={{ padding: "2px 8px", borderRadius: 4, background: "#0b1220", border: `1px solid ${C.cardBdr}`, color: capMode ? C.warn : C.textSub, fontSize: 11 }}>
+                        {capMode ? "capitalize (CMT → WIP, 3-way matched)" : "procurement (document only)"}
+                      </span>
+                      {build.conversion_po?.total_cents != null && <span style={{ color: C.textMuted }}>{money(build.conversion_po.total_cents)}</span>}
+                    </div>
+                    {/* Subcontract 3-way match: once the finished goods are received the
+                        CMT is accrued into WIP (2160). Enter the vendor bill to clear it. */}
+                    {capMode && (
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
+                        {Number(build.cmt_accrued_cents || 0) > 0 && (
+                          <span style={{ color: C.textMuted }}>CMT accrued into WIP <span style={{ color: C.textSub }}>{money(build.cmt_accrued_cents)}</span></span>
+                        )}
+                        {build.cmt_invoice_je_id ? (
+                          <span style={{ color: C.success }}>✓ CMT vendor bill matched</span>
+                        ) : Number(build.cmt_accrued_cents || 0) > 0 ? (
+                          <button disabled={busy} onClick={() => void enterCmtBill()} style={btnSecondary}>Enter CMT vendor bill (3-way match)</button>
+                        ) : (
+                          <span style={{ color: C.textMuted }}>Receive the conversion PO's finished goods to accrue the CMT.</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (status === "draft" || status === "released" || status === "issued") ? (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -880,8 +941,10 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
           {status === "released" && <button disabled={busy} onClick={() => void act("issue")} style={btnPrimary}>Issue components → WIP</button>}
           {status === "issued" && (
             <button
-              disabled={busy || !allServicesCapitalized}
-              title={allServicesCapitalized ? "" : "Capitalize all service charges first"}
+              disabled={busy || capMode || !allServicesCapitalized}
+              title={capMode
+                ? "Capitalize-mode build: receive the conversion PO's finished goods to complete it — that accrues the CMT into WIP."
+                : (allServicesCapitalized ? "" : "Capitalize all service charges first")}
               onClick={async () => {
                 // Style-backed finished good → enter a color x size matrix so
                 // stock lands per size. Otherwise complete the single item.
