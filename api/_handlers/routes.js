@@ -22,6 +22,7 @@ import r_cron_shopify_refunds_backfill from "../cron/shopify-refunds-backfill.js
 import r_cron_walmart_orders_nightly from "../cron/walmart-orders-nightly.js";
 import r_cron_walmart_returns_daily from "../cron/walmart-returns-daily.js";
 import r_cron_walmart_settlements_weekly from "../cron/walmart-settlements-weekly.js";
+import r_cron_xoro_mirror_backfill_worker from "../cron/xoro-mirror-backfill-worker.js";
 import r_cron_xoro_mirror_nightly from "../cron/xoro-mirror-nightly.js";
 import r_webhooks_plaid from "../webhooks/plaid.js";
 import r_ai_ask_grid from "./ai/ask-grid.js";
@@ -573,6 +574,7 @@ import r_internal_workspaces_id_tasks_index from "./internal/workspaces/[id]/tas
 import r_internal_workspaces_index from "./internal/workspaces/index.js";
 import r_internal_xoro_mirror_ap from "./internal/xoro-mirror/ap.js";
 import r_internal_xoro_mirror_ar from "./internal/xoro-mirror/ar.js";
+import r_internal_xoro_mirror_backfill_job from "./internal/xoro-mirror/backfill-job.js";
 import r_internal_xoro_mirror_backfill_range from "./internal/xoro-mirror/backfill-range.js";
 import r_internal_xoro_mirror_inventory from "./internal/xoro-mirror/inventory.js";
 import r_internal_xoro_mirror_summary_je from "./internal/xoro-mirror/summary-je.js";
@@ -919,6 +921,7 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/style-thumbs-by-code", handler: r_internal_pim_style_thumbs_by_code },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: r_internal_style_matrix_resolve_sku },
   { pattern: "/api/internal/walmart/sync-settlements", handler: r_internal_walmart_sync_settlements },
+  { pattern: "/api/internal/xoro-mirror/backfill-job", handler: r_internal_xoro_mirror_backfill_job },
   { pattern: "/api/xoro/writeback/create-buy-request", handler: r_xoro_writeback_create_buy_request },
   { pattern: "/api/internal/analytics/early-payment", handler: r_internal_analytics_early_payment },
   { pattern: "/api/internal/analytics/health-scores", handler: r_internal_analytics_health_scores },
@@ -1151,6 +1154,7 @@ export const ROUTES = [
   { pattern: "/api/b2b/orders/:id", handler: r_b2b_orders_id },
   { pattern: "/api/internal/inventory-purchased-detail", handler: r_internal_inventory_purchased_detail },
   { pattern: "/api/internal/notification-preferences", handler: r_internal_notification_preferences_index },
+  { pattern: "/api/cron/xoro-mirror-backfill-worker", handler: r_cron_xoro_mirror_backfill_worker },
   { pattern: "/api/cron/customer-contact-reminders", handler: r_cron_customer_contact_reminders },
   { pattern: "/api/cron/walmart-settlements-weekly", handler: r_cron_walmart_settlements_weekly },
   { pattern: "/api/internal/customer-contact-notes", handler: r_internal_customer_contact_notes_index },
