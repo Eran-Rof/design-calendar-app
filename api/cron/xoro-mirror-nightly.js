@@ -423,15 +423,27 @@ async function runDomain(supabase, entity, mirror_date, domain, mirrorFn) {
     run_id: null,
   };
 
-  // Open the run row.
+  // Open the run row. UPSERT on the (entity_id, domain, mirror_date) unique key
+  // so a RE-RUN / BACKFILL of a date that already has a run row (e.g. a prior
+  // nightly that skipped on the stale guard) UPDATES that row and proceeds —
+  // rather than the INSERT hitting the unique constraint, failing the domain
+  // ('run_row_open_failed'), and never calling the mirror function. Reset the
+  // per-run fields so the re-run starts clean.
   const { data: runRow, error: runErr } = await supabase
     .from("xoro_mirror_runs")
-    .insert({
+    .upsert({
       entity_id: entity.id,
       domain,
       mirror_date,
       status: "running",
-    })
+      rows_upserted: 0,
+      rows_unchanged: 0,
+      rows_deleted: 0,
+      errors: [],
+      je_id: null,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+    }, { onConflict: "entity_id,domain,mirror_date" })
     .select("id")
     .maybeSingle();
   if (runErr || !runRow) {
@@ -497,12 +509,17 @@ async function runDomain(supabase, entity, mirror_date, domain, mirrorFn) {
 async function runSummaryJe(supabase, entity, mirror_date, postSummary) {
   const { data: runRow, error: runErr } = await supabase
     .from("xoro_mirror_runs")
-    .insert({
+    .upsert({
       entity_id: entity.id,
       domain: "summary_je",
       mirror_date,
       status: "running",
-    })
+      rows_upserted: 0,
+      errors: [],
+      je_id: null,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+    }, { onConflict: "entity_id,domain,mirror_date" })
     .select("id")
     .maybeSingle();
   if (runErr || !runRow) {
@@ -643,7 +660,21 @@ export async function runMirrorRange(supabase, opts = {}) {
     const jes = (r.summary_jes && Array.isArray(r.summary_jes.je_ids)) ? r.summary_jes.je_ids : [];
     out.totals.summary_jes_posted += (r.summary_jes && r.summary_jes.posted) || jes.length || 0;
     for (const id of jes) if (id) out.je_ids.push(id);
-    if (r.status !== "complete") out.status = "partial";
+    if (r.status !== "complete") {
+      out.status = "partial";
+      // Surface WHICH domains didn't complete so a caller/job doesn't read a
+      // silent zero-output run as success (e.g. a domain that failed to open its
+      // run row, or a stale-guard skip). Was previously invisible.
+      for (const dom of DOMAINS) {
+        const d = r[dom];
+        if (d && d.status && d.status !== "complete") {
+          out.errors.push({ mirror_date, domain: dom, status: d.status, errors: Array.isArray(d.errors) ? d.errors : [] });
+        }
+      }
+      if (r.summary_jes && r.summary_jes.status === "failed") {
+        out.errors.push({ mirror_date, domain: "summary_je", status: "failed", errors: r.summary_jes.errors || [] });
+      }
+    }
     out.per_date.push({
       mirror_date,
       status: r.status,
