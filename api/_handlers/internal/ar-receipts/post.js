@@ -168,6 +168,7 @@ export default async function handler(req, res) {
       kind: "ar_payment_received",
       entity_id: receipt.entity_id,
       created_by_user_id,
+      reason: `AR payment received ${receipt.reference ?? receipt.id}`,
       data: {
         receipt_id: receipt.id,
         customer_id: receipt.customer_id,

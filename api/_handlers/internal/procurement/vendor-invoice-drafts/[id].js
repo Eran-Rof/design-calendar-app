@@ -312,6 +312,7 @@ export default async function handler(req, res, params) {
             kind: "ap_invoice_grir_match",
             entity_id: entityId,
             created_by_user_id: null,
+            reason: `GR/IR match ${draft.vendor_invoice_number}`,
             data: {
               invoice_id: inv.id,
               vendor_id: draft.vendor_id,

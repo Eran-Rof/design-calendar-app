@@ -148,6 +148,7 @@ export default async function handler(req, res) {
   try {
     result = await postEvent(admin, {
       kind: "ar_credit_memo", entity_id: entityId, created_by_user_id,
+      reason: `Post credit memo ${cmNumber}`,
       data: {
         credit_memo_id: cm.id, customer_id: rma.customer_id, credit_memo_number: cmNumber,
         posting_date: today, original_invoice_id: rma.original_ar_invoice_id || undefined,
