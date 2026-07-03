@@ -85,7 +85,7 @@ export function composeLine(invoice_id, line_number, src) {
   return {
     ar_invoice_id: invoice_id,
     line_number,
-    description: src.description || null,
+    description: src.description || src.order_number || null, // no `description` col; fall back to order_number
     inventory_item_id: src.sku_id || null,
     quantity: src.qty != null ? Number(src.qty) : null,
     unit_price_cents: src.unit_price != null ? toCents(src.unit_price) : null,
@@ -209,7 +209,11 @@ export async function mirrorArForDate(supabase, entity_id, mirror_date) {
   try {
     const { data, error } = await supabase
       .from("ip_sales_history_wholesale")
-      .select("id, sku_id, customer_id, invoice_number, txn_date, qty, qty_units, unit_price, gross_amount, discount_amount, net_amount, description")
+      // NOTE: this table has NO `description` column (real columns: order_number,
+      // invoice_number, txn_type, net_amount, …). Selecting it made EVERY AR read
+      // fail ('column ... description does not exist') → 0 invoices mirrored.
+      // Select order_number instead and use it as the line descriptor.
+      .select("id, sku_id, customer_id, invoice_number, order_number, txn_date, qty, qty_units, unit_price, gross_amount, discount_amount, net_amount")
       .gte("txn_date", start)
       .lt("txn_date", end);
     if (error) {
