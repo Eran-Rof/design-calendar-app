@@ -146,6 +146,7 @@ import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_build_orders_id from "./internal/build-orders/[id].js";
 import r_internal_build_orders_cancel from "./internal/build-orders/cancel.js";
+import r_internal_build_orders_cmt_invoice from "./internal/build-orders/cmt-invoice.js";
 import r_internal_build_orders_complete from "./internal/build-orders/complete.js";
 import r_internal_build_orders_conversion_po from "./internal/build-orders/conversion-po.js";
 import r_internal_build_orders_index from "./internal/build-orders/index.js";
@@ -803,6 +804,7 @@ export const ROUTES = [
   { pattern: "/api/internal/approval-requests/:id/cancel", handler: r_internal_approval_requests_cancel },
   { pattern: "/api/internal/approval-requests/:id/decide", handler: r_internal_approval_requests_decide },
   { pattern: "/api/internal/bank-transactions/:id/ignore", handler: r_internal_bank_transactions_ignore },
+  { pattern: "/api/internal/build-orders/:id/cmt-invoice", handler: r_internal_build_orders_cmt_invoice },
   { pattern: "/api/internal/bank-recon-runs/:id/compute", handler: r_internal_bank_recon_runs_compute },
   { pattern: "/api/internal/diversity/:vendor_id/verify", handler: r_internal_diversity_vendor_id_verify },
   { pattern: "/api/internal/journal-entries/:id/reverse", handler: r_internal_journal_entries_reverse },

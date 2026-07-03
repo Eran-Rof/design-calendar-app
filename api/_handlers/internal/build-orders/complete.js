@@ -35,6 +35,13 @@ export default async function handler(req, res) {
   const { data: build } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
   if (!build) return res.status(404).json({ error: "Build order not found" });
   if (build.status !== "issued") return res.status(409).json({ error: `Build is '${build.status}', not issued — issue components / capitalize services first.` });
+  // Capitalize (subcontract) mode completes by RECEIVING the conversion PO's
+  // finished goods (which accrues the CMT into WIP first — see completeBuildFrom-
+  // Receipt). Manual completion would move WIP → finished goods without the CMT,
+  // under-costing the goods, so it is blocked here.
+  if (build.conversion_po_mode === "capitalize") {
+    return res.status(409).json({ error: "This is a 'capitalize'-mode build — complete it by receiving the conversion PO's finished goods (that accrues the CMT into WIP). Manual completion is disabled to avoid under-costing." });
+  }
   const accum = Number(build.accumulated_cost_cents || 0);
   if (accum <= 0) return res.status(400).json({ error: "Accumulated WIP cost is 0 — nothing to move to finished goods." });
 

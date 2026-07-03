@@ -34,6 +34,8 @@ import { partAdjustment } from "./rules/partAdjustment.js";
 import { mfgBuildIssue } from "./rules/mfgBuildIssue.js";
 import { mfgServiceCapitalized } from "./rules/mfgServiceCapitalized.js";
 import { mfgBuildComplete } from "./rules/mfgBuildComplete.js";
+import { mfgCmtAccrued } from "./rules/mfgCmtAccrued.js";
+import { mfgCmtInvoiceMatch } from "./rules/mfgCmtInvoiceMatch.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -74,6 +76,11 @@ const RULE_BY_KIND = {
   mfg_build_issue:       mfgBuildIssue,
   mfg_service_capitalized: mfgServiceCapitalized,
   mfg_build_complete:    mfgBuildComplete,
+  // Outsourced conversion (subcontracting): accrue the contractor CMT into WIP
+  // at finished-goods receipt (CR 2160 Accrued CMT), then 3-way match the vendor
+  // bill (DR 2160 / ±6320 PO Variance / CR AP). Both post on both bases.
+  mfg_cmt_accrued:       mfgCmtAccrued,
+  mfg_cmt_invoice_match: mfgCmtInvoiceMatch,
 };
 
 export class PostingError extends Error {

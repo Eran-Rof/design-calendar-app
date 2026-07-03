@@ -14,6 +14,7 @@ This chapter grows as the module ships in phases. The current state:
 | M4 — Build orders + WIP | Release → issue components into WIP → complete into finished goods | ✅ Shipped |
 | M5 — PO-driven completion | Receive the finished good against a conversion PO to close the build | ✅ Shipped |
 | M6 — Reports | Open WIP, completed-build cost, parts valuation | ✅ Shipped |
+| Subcontract — CMT 3-way match | Capitalize-mode conversion PO: accrue CMT into WIP at receipt (2160), clear it with the vendor bill (±6320 PO Variance) | ✅ Shipped |
 
 ## The two real-world flows this is built for
 
@@ -146,4 +147,24 @@ Every section exports to Excel. This closes out the module: masters → part inv
 
 **Attachments (files on any record).** Parts, services, BOMs, and builds each have an **Attachments** section (in their edit/detail view, once saved) — upload files with a *kind*, download them, and keep versions. It's the same shared, versioned document store used elsewhere in the suite (e.g. a BOM's tech pack, a build's packing list, a part's COA).
 
-**Auto-create a conversion PO.** From a build's detail, **Create conversion PO** drafts a native purchase order to the BOM's **conversion vendor** (the contractor) for the finished good, and links it to the build. Receiving that PO completes the build (the M5 path above). It's a **document only** — it posts no GL by itself. *(A future "capitalize" mode, where the contractor's AP bill capitalizes the CMT cost straight into WIP, is pre-staged but not enabled yet — completion still expects services to be capitalized the normal way.)*
+**Auto-create a conversion PO.** From a build's detail, **Create conversion PO** drafts a native purchase order to the BOM's **conversion vendor** (the contractor) for the finished good, and links it to the build. Receiving that PO completes the build (the M5 path above). When you enter a per-unit CMT charge, Tangerine asks whether to **capitalize** it — choosing *No* keeps the PO **document-only** (procurement mode, above); choosing *Yes* switches it to **subcontract (capitalize) mode**, below.
+
+## Outsourced conversion — the subcontract PO + 3-way match (best-in-class)
+
+When the cut-make-trim is done **outside** (a contractor), the vendor's charge should flow into the finished-good cost through the **conversion PO**, exactly the way goods receiving works — the PO is the commitment, the finished-goods receipt is where the cost lands, and the vendor's bill is 3-way matched. Choose **capitalize** mode when you create the conversion PO to get this flow.
+
+**How the money moves (capitalize mode):**
+
+1. **Issue → WIP** (material provision). Releasing and issuing draws the base styles + parts you supply into WIP at FIFO cost — `DR 1305 WIP / CR inventory` — just like any build. You still own that material; it's now valued in WIP.
+2. **Receive the finished goods** against the conversion PO. Tangerine **accrues the contractor's CMT** into WIP and completes the build in one step:
+   - `DR 1305 WIP / CR 2160 Accrued CMT` — the CMT (accepted qty × the conversion PO's unit charge) is capitalized. *(2160 is the CMT analogue of 2050 GR/IR — "CMT received, not yet invoiced.")*
+   - `DR <style inventory> / CR 1305 WIP` — the full WIP (your material **+** the CMT) becomes the finished-goods FIFO layer at real cost.
+   - There's **no manual "Capitalize" step** in this mode — the services are capitalized by the receipt, and manual capitalization is disabled to prevent double-counting. Completion happens **via the receipt**, so the build detail's manual **Complete** button is intentionally disabled for capitalize-mode builds.
+3. **Enter the contractor's CMT bill** — on the build detail, **Enter CMT vendor bill (3-way match)**. This clears the accrual and books any price difference:
+   - `DR 2160 Accrued CMT` = the value accrued at receipt,
+   - `DR/CR 6320 PO Variance` = bill total − accrued value (a price variance, either direction),
+   - `CR <AP>` = the bill total (vendor subledger).
+
+The result: the finished goods carry *your material + the actual CMT*, `2160` self-clears once billed, and any over/under-billing lands cleanly in **PO Variance** — no double count, and the vendor PO is the spine of the whole flow. **Procurement mode** (document-only) is unchanged for builds where you'd rather capitalize services by hand.
+
+*Follow-ups: vendor-supplied-trim PO lines (the contractor also supplies some inputs) and a per-vendor "material at subcontractor" inventory location are planned; today the base material is valued in WIP rather than a distinct off-site location.*

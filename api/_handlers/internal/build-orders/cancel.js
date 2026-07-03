@@ -83,8 +83,12 @@ export default async function handler(req, res) {
   const svcJeQ = svcCompIds.length
     ? admin.from("journal_entries").select("id").eq("source_table", "mfg_build_service").in("source_id", svcCompIds).eq("status", "posted")
     : Promise.resolve({ data: [] });
-  const [{ data: issueJes }, { data: svcJes }] = await Promise.all([issueJeQ, svcJeQ]);
-  const jeIds = [...(issueJes || []), ...(svcJes || [])].map((r) => r.id);
+  // Capitalize-mode: a CMT accrual (DR WIP / CR 2160) may have posted at receipt
+  // before completion failed, leaving the build 'issued'. Reverse it too.
+  const cmtJeQ = admin.from("journal_entries").select("id")
+    .eq("source_table", "mfg_cmt_accrual").eq("source_id", id).eq("status", "posted");
+  const [{ data: issueJes }, { data: svcJes }, { data: cmtJes }] = await Promise.all([issueJeQ, svcJeQ, cmtJeQ]);
+  const jeIds = [...(issueJes || []), ...(svcJes || []), ...(cmtJes || [])].map((r) => r.id);
 
   const reversedJeIds = [];
   try {
@@ -120,6 +124,8 @@ export default async function handler(req, res) {
     status: "cancelled",
     accumulated_cost_cents: 0,
     issue_je_id: null,
+    cmt_accrued_cents: 0,
+    cmt_accrual_je_id: null,
     updated_at: new Date().toISOString(),
     notes: build.notes ? `${build.notes}\n[cancelled] ${reason}` : `[cancelled] ${reason}`,
   };
