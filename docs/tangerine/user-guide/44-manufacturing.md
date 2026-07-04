@@ -131,6 +131,17 @@ Guards: the build must be *issued* and **all service charges capitalized** first
 
 Parts are stocked the proper way too — as a **vendor purchase**, not just opening-balance adjustments. In **Part Inventory**, **+ Receive purchase** (or **Buy** on a part row) opens a modal: pick the **part** and **vendor**, enter **quantity** and **unit cost**, optionally a bill number. On save it **creates a vendor bill and posts it** — `DR 1360 Inventory-Parts / CR Accounts Payable` — and stocks the part into its FIFO pool at the purchase cost. So the parts you'll consume in builds enter inventory at real purchase cost and leave a payable for the vendor, exactly like buying finished goods. (Built on the AP posting engine via a part line on the vendor bill.)
 
+### Buying parts via a Purchase Order + Receiving (shipped)
+
+For a full procurement paper trail — a PO you issue to the vendor, then receive against — parts now flow through the **native Purchase Order + Receiving** system, exactly like buying finished goods:
+
+1. **Procurement → Purchase Orders → New**, set **PO type = "Manufacturing part"**. The line grid switches to a **parts** picker (pick a part, quantity, unit cost) instead of the style size matrix — style SKUs are hidden.
+2. **Issue** the PO (assigns a PO number).
+3. **Procurement → Receiving** → pick the issued part PO, enter **Accepted** quantities, **Save draft** → **Post receipt**. This stocks each part into its FIFO pool (`part_inventory_layers`) and books the **GRNI**: `DR 1360 Inventory-Parts / CR 2050 GR/IR`.
+4. Back on the PO, **Enter part bill (3-way match)** — enter the vendor's actual invoice total. It clears the receipt's GR/IR and books any price difference to **6320 PO Variance**: `DR 2050 GR/IR · DR/CR 6320 PO Variance · CR AP`.
+
+So a part PO is bought, received, and 3-way matched exactly like a goods PO — GR/IR nets to zero once billed, price variance is captured, and parts land in inventory at real cost. *(P1 covers non-matrix parts; by-size "matrix parts" are a following phase.)*
+
 ## M6 — manufacturing reports (shipped)
 
 **Manufacturing → Mfg Reports** (`/tangerine?m=mfg_reports`) gives a read-only view over the whole module:
