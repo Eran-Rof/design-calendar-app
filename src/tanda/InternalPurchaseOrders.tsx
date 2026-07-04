@@ -16,7 +16,7 @@ import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatL
 import { openOrderDocument, downloadOrderExcel, type OrderDocument } from "./orderDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { notify, confirmDialog } from "../shared/ui/warn";
+import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import RowHistory from "./components/RowHistory";
@@ -726,8 +726,17 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Manufacturing-part PO (po_type='manufacturing_part'): lines pick PARTS, not
+  // style SKUs. Non-matrix (P1) — a simple part / qty / unit-cost grid.
+  type PartLine = { key: number; part_id: string; qty: string; unit: string };
+  const [parts, setParts] = useState<{ id: string; code: string; name: string; default_unit_cost_cents?: number | null; uom?: string | null }[]>([]);
+  const [partLines, setPartLines] = useState<PartLine[]>([{ key: 1, part_id: "", qty: "", unit: "" }]);
+  const partKey = useRef(2);
+  const isPartPo = poType === "manufacturing_part";
+
   useEffect(() => {
     fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
+    fetch("/api/internal/part-master?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setParts(Array.isArray(a) ? a : (a?.parts || a?.data || []))).catch(() => {});
     fetch("/api/internal/brands").then((r) => r.json()).then((d) => setBrands(Array.isArray(d.brands) ? d.brands : [])).catch(() => {});
     fetch("/api/internal/payment-terms?limit=200").then((r) => r.json()).then((a) => setPaymentTerms(Array.isArray(a) ? a : [])).catch(() => {});
     fetch("/api/internal/customer-master?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setCustomers(Array.isArray(a) ? a : [])).catch(() => {});
@@ -768,6 +777,13 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
       if (!full) return;
       // Populate the rich-header state from the full PO record + the rollup.
       setPoType(full.po_type || ""); setCustomerId(full.customer_id || "");
+      // Manufacturing-part PO → seed the part-line grid from its part lines.
+      if (full.po_type === "manufacturing_part") {
+        const pl: PartLine[] = (full.lines || []).filter((l: { part_id?: string | null }) => l.part_id)
+          .map((l: { part_id: string; qty_ordered: number; unit_cost_cents: number | null }, i: number) => ({ key: i + 1, part_id: l.part_id, qty: String(l.qty_ordered ?? ""), unit: l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "" }));
+        partKey.current = pl.length + 1;
+        setPartLines(pl.length ? pl : [{ key: 1, part_id: "", qty: "", unit: "" }]);
+      }
       setVendorContact(full.vendor_contact || ""); setVendorEmail(full.vendor_email || ""); setVendorRef(full.vendor_ref || "");
       setFactoryLocation(full.factory_location || ""); setCoo(full.coo || "");
       setRequestedDeliveryDate(full.requested_delivery_date || ""); setShipWindowStart(full.ship_window_start || ""); setShipWindowEnd(full.ship_window_end || "");
@@ -957,11 +973,20 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     setErr(null);
     if (!vendorId) { setErr("Pick a vendor."); return null; }
     if (cancelBeforeShip) { setErr("Cancel date can't be earlier than the Ship window start date."); return null; }
-    // The matrix body resolves every filled cell + flat line to a SKU. Map its
-    // generic unit_price_cents onto the PO's unit_cost_cents.
-    const resolved = (await bodyRef.current?.resolve()) || [];
-    const lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null, lot_number: r.lot_number ?? null }));
-    if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
+    // Manufacturing-part PO: lines carry part_id (not a style SKU). Otherwise the
+    // matrix body resolves every filled cell + flat line to a SKU; map its generic
+    // unit_price_cents onto the PO's unit_cost_cents.
+    let lines: Record<string, unknown>[];
+    if (isPartPo) {
+      lines = partLines
+        .filter((l) => l.part_id && Number(l.qty) > 0)
+        .map((l) => ({ part_id: l.part_id, qty_ordered: Number(l.qty), unit_cost_cents: Math.round(parseFloat(l.unit || "0") * 100) }));
+      if (lines.length === 0) { setErr("Add at least one part line with a quantity."); return null; }
+    } else {
+      const resolved = (await bodyRef.current?.resolve()) || [];
+      lines = resolved.map((r) => ({ inventory_item_id: r.inventory_item_id, qty_ordered: r.qty_ordered, unit_cost_cents: r.unit_price_cents, requested_ship_date: r.requested_ship_date ?? null, vendor_confirmed_ship_date: r.vendor_confirmed_ship_date ?? null, lot_number: r.lot_number ?? null }));
+      if (lines.length === 0) { setErr("Add at least one line with a quantity."); return null; }
+    }
     const body: Record<string, unknown> = {
       vendor_id: vendorId, brand_id: brandId || null,
       order_date: orderDate, expected_date: expectedDate || null,
@@ -1003,6 +1028,27 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   }
 
   // Status transitions (issued assigns the PO number; in_transit / received advance).
+  // Manufacturing-part PO 3-way match — enter the vendor's bill after receiving.
+  // Clears 2050 GR/IR; any difference vs. the received value goes to 6320 PPV.
+  const [partBilled, setPartBilled] = useState(false);
+  async function enterPartBill() {
+    const v = await promptDialog("Vendor bill total for this part PO ($)", { inputType: "number", required: true, placeholder: "0.00" });
+    if (v === null) return;
+    const dollars = parseFloat(v);
+    if (!Number.isFinite(dollars) || dollars < 0) { notify("Enter a non-negative amount", "error"); return; }
+    const num = await promptDialog("Vendor invoice number (optional)", { defaultValue: "" });
+    if (num === null) return;
+    setSubmitting(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po!.id}/part-bill`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ total_cents: Math.round(dollars * 100), invoice_number: num.trim() || undefined }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(j.message || "Part vendor bill matched.", "success");
+      setPartBilled(true); onSaved();
+    } catch (e) { const m = e instanceof Error ? e.message : String(e); setErr(m); notify(m, "error"); }
+    finally { setSubmitting(false); }
+  }
+
   async function transition(status: string) {
     setSubmitting(true); setErr(null);
     try {
@@ -1155,7 +1201,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <Field label="PO type">
               <SearchableSelect value={poType || null} onChange={(v) => setPoType(v)} disabled={!editable}
-                options={[{ value: "", label: "(select)" }, ...([["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
+                options={[{ value: "", label: "(select)" }, ...([["stock", "Stock"], ["replenishment", "Replenishment"], ["made_to_order", "Made-to-order"], ["sample", "Sample"], ["drop_ship", "Drop-ship"], ["manufacturing_part", "Manufacturing part"]] as [string, string][]).map(([v, l]) => ({ value: v, label: l }))]}
                 placeholder="(select)" inputStyle={inputStyle as React.CSSProperties} />
             </Field>
             <Field label="Customer">
@@ -1310,23 +1356,64 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
           </div>
         )}
 
-        {/* Line body — the shared size matrix, exactly like the Sales Order modal
-            (mode="po": Unit Cost $ column, no margin / availability). Default-open. */}
-        <div style={{ marginTop: 12, marginBottom: 12 }}>
-          <LineMatrixBody
-            key={seedKey}
-            ref={bodyRef}
-            mode="po"
-            editable={editable}
-            items={items}
-            seed={seed}
-            showOnHand={false}
-            showLineDates
-            lineDateDefault={requestedDeliveryDate}
-            onAddLine={() => setHeaderCollapsed(true)}
-            onVendorConfirmedChange={logVendorConfirmedChange}
-          />
-        </div>
+        {/* Line body. A Manufacturing-part PO buys PARTS (non-matrix, P1) — a
+            simple part / qty / unit-cost grid. Every other PO type uses the
+            shared style size matrix (mode="po"). */}
+        {isPartPo ? (
+          <div style={{ marginTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Parts</div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>
+                <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, color: C.textMuted, borderBottom: `1px solid ${C.cardBdr}` }}>Part</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 11, color: C.textMuted, borderBottom: `1px solid ${C.cardBdr}`, width: 110 }}>Qty</th>
+                <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 11, color: C.textMuted, borderBottom: `1px solid ${C.cardBdr}`, width: 140 }}>Unit cost $</th>
+                <th style={{ padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, width: 40 }} />
+              </tr></thead>
+              <tbody>
+                {partLines.map((pl) => (
+                  <tr key={pl.key}>
+                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                      <SearchableSelect value={pl.part_id || null} disabled={!editable}
+                        onChange={(v) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, part_id: v || "", unit: x.unit || (() => { const p = parts.find((pp) => pp.id === v); return p && p.default_unit_cost_cents != null ? (p.default_unit_cost_cents / 100).toFixed(2) : ""; })() } : x))}
+                        options={parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` }))}
+                        placeholder="Pick a part" inputStyle={inputStyle as React.CSSProperties} />
+                    </td>
+                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                      <input value={pl.qty} disabled={!editable} inputMode="numeric" placeholder="0"
+                        onChange={(e) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, qty: e.target.value } : x))}
+                        style={{ ...(inputStyle as React.CSSProperties), textAlign: "right" }} />
+                    </td>
+                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                      <input value={pl.unit} disabled={!editable} inputMode="decimal" placeholder="0.00"
+                        onChange={(e) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, unit: e.target.value } : x))}
+                        style={{ ...(inputStyle as React.CSSProperties), textAlign: "right" }} />
+                    </td>
+                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}`, textAlign: "center" }}>
+                      {editable && partLines.length > 1 && <button type="button" title="Remove line" onClick={() => setPartLines((ls) => ls.filter((x) => x.key !== pl.key))} style={btnSecondary}>✕</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {editable && <button type="button" onClick={() => { const k = partKey.current++; setPartLines((ls) => [...ls, { key: k, part_id: "", qty: "", unit: "" }]); }} style={{ ...btnSecondary, marginTop: 8 }}>+ Add part line</button>}
+          </div>
+        ) : (
+          <div style={{ marginTop: 12, marginBottom: 12 }}>
+            <LineMatrixBody
+              key={seedKey}
+              ref={bodyRef}
+              mode="po"
+              editable={editable}
+              items={items}
+              seed={seed}
+              showOnHand={false}
+              showLineDates
+              lineDateDefault={requestedDeliveryDate}
+              onAddLine={() => setHeaderCollapsed(true)}
+              onVendorConfirmedChange={logVendorConfirmedChange}
+            />
+          </div>
+        )}
 
         {/* Audit trail — who changed which field, when (T11 row_changes). */}
         {!isNew && po && (
@@ -1367,6 +1454,12 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
             <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">Receive…</button>
           )}
+          {/* Manufacturing-part PO — enter the vendor's bill (3-way match) once the
+              parts have been received. Clears 2050 GR/IR; variance → 6320 PPV. */}
+          {isPartPo && !editMode && po?.id && (po?.status === "received" || po?.status === "in_transit") && !partBilled && (
+            <button onClick={() => void enterPartBill()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} disabled={submitting} title="Enter the vendor's AP bill for this part PO and 3-way match it (clears GR/IR)">Enter part bill (3-way match)</button>
+          )}
+          {isPartPo && partBilled && <span style={{ fontSize: 12, color: C.success, alignSelf: "center" }}>✓ part bill matched</span>}
           {/* Cancel a live (issued / in-transit) PO — kept for history, releases
               its open-PO commitments; reversible via Reinstate. */}
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && (

@@ -23,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createLayer } from "../../../../_lib/inventory/fifo.js";
+import { createPartLayer } from "../../../../_lib/inventory/partFifo.js";
 import { postEvent } from "../../../../_lib/accounting/posting/index.js";
 // Reuse the SAME inventory-account resolver the adjustments + AP-invoice flows
 // use, so the receipt JE debits the same asset account (1300 is a non-postable
@@ -168,6 +169,102 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
   });
 }
 
+// Manufacturing parts (P1) — receive a 'manufacturing_part' PO into part
+// inventory. Each accepted line stocks its part_id into part_inventory_layers
+// (source_kind='po_receipt') and the GRNI JE books DR 1360 Inventory-Parts
+// (subledger=part) / CR 2050 GR/IR. The vendor bill later clears 2050 (3-way
+// match — POST /purchase-orders/:id/part-bill).
+async function receivePartLines(admin, res, { receiptId, rcpt, lines, partByPol, vendorId }) {
+  if (!vendorId) return res.status(409).json({ error: "Parent PO has no vendor — cannot post the part receipt GRNI JE." });
+  const partsAcctId = await findPostableAccount(admin, rcpt.entity_id, "1360");
+  const grirAcctId = await findPostableAccount(admin, rcpt.entity_id, "2050");
+  if (!partsAcctId) return res.status(409).json({ error: "No postable Inventory-Parts account (gl_accounts code 1360)." });
+  if (!grirAcctId) return res.status(409).json({ error: "No postable GR/IR Clearing account (gl_accounts code 2050) — apply the 20260717120000 migration." });
+
+  const { data: locs } = await admin.from("inventory_locations")
+    .select("id, name, kind, is_active").eq("entity_id", rcpt.entity_id).eq("is_active", true);
+  const locList = locs || [];
+  const loc = locList.find((l) => /warehouse|main|own/i.test(`${l.kind || ""} ${l.name || ""}`)) || locList[0];
+  const locationId = loc?.id || null; // part_inventory_layers.location_id is nullable
+
+  // One part FIFO layer per accepted line; accumulate the goods cost per part.
+  const layerResults = [];
+  const goodsByPart = new Map(); // part_id → cents
+  let goodsTotalCents = 0;
+  for (const l of lines) {
+    const qty = Number(l.qty_accepted || 0);
+    const partId = partByPol.get(l.purchase_order_line_id);
+    if (qty <= 0 || !partId) continue;
+    const unit = Math.round(Number(l.unit_cost_cents || 0));
+    try {
+      const { layer } = await createPartLayer(admin, {
+        entity_id: rcpt.entity_id, part_id: partId, qty, unit_cost_cents: unit,
+        source_kind: "po_receipt", location_id: locationId,
+        received_at: rcpt.receipt_date ? `${rcpt.receipt_date}T00:00:00Z` : undefined,
+        notes: `PO part receipt ${receiptId}`,
+      });
+      await admin.from("tanda_po_receipt_lines").update({ inventory_layer_id: layer.id, landed_unit_cost_cents: unit }).eq("id", l.id);
+      const lineCents = unit * qty;
+      goodsByPart.set(partId, (goodsByPart.get(partId) || 0) + lineCents);
+      goodsTotalCents += lineCents;
+      layerResults.push({ line_id: l.id, layer_id: layer.id, part_id: partId, qty, unit_cost_cents: unit });
+    } catch (e) {
+      return res.status(500).json({ error: `Part layer creation failed for line ${l.id}: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+  if (goodsTotalCents <= 0) return res.status(409).json({ error: "Receipt has no accepted part quantity/cost to stock." });
+
+  let jeId = null;
+  try {
+    const result = await postEvent(admin, {
+      kind: "part_inventory_receipt", entity_id: rcpt.entity_id, created_by_user_id: null,
+      reason: `Part goods receipt (GRNI) ${receiptId}`,
+      data: {
+        receipt_id: receiptId, vendor_id: vendorId, receipt_date: rcpt.receipt_date,
+        part_inventory_account_id: partsAcctId, gr_ir_account_id: grirAcctId,
+        lines: [...goodsByPart.entries()].map(([part_id, c]) => ({ part_id, amount: centsToStr(c) })),
+        goods_amount: centsToStr(goodsTotalCents),
+      },
+    });
+    jeId = result.accrual_je_id;
+  } catch (e) {
+    return res.status(500).json({ error: `Part receipt GRNI JE failed: ${e instanceof Error ? e.message : String(e)}` });
+  }
+
+  await admin.from("tanda_po_receipts").update({ status: "posted", je_id: jeId }).eq("id", receiptId);
+
+  // Roll receipt qty onto the PO lines + recompute header status (mirrors the
+  // style path so a part PO reaches 'received'/'in_transit' the same way).
+  if (rcpt.purchase_order_id) {
+    const { data: poLines } = await admin.from("purchase_order_lines")
+      .select("id, qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const recvByLine = new Map();
+    for (const l of lines) recvByLine.set(l.purchase_order_line_id, (recvByLine.get(l.purchase_order_line_id) || 0) + Number(l.qty_received || 0));
+    for (const pl of poLines || []) {
+      const add = recvByLine.get(pl.id) || 0;
+      if (add <= 0) continue;
+      const newRecv = Number(pl.qty_received || 0) + add;
+      const fully = newRecv >= Number(pl.qty_ordered || 0);
+      await admin.from("purchase_order_lines")
+        .update({ qty_received: newRecv, ...(fully && pl.status !== "cancelled" ? { status: "received" } : {}) }).eq("id", pl.id);
+    }
+    const { data: after } = await admin.from("purchase_order_lines")
+      .select("qty_ordered, qty_received, status").eq("purchase_order_id", rcpt.purchase_order_id);
+    const active = (after || []).filter((l) => l.status !== "cancelled");
+    const allRecv = active.length > 0 && active.every((l) => Number(l.qty_received || 0) >= Number(l.qty_ordered || 0));
+    const anyRecv = active.some((l) => Number(l.qty_received || 0) > 0);
+    const newStatus = allRecv ? "received" : (anyRecv ? "in_transit" : null);
+    if (newStatus) await admin.from("purchase_orders").update({ status: newStatus }).eq("id", rcpt.purchase_order_id).neq("status", "cancelled");
+  }
+
+  return res.status(200).json({
+    receipt_id: receiptId, status: "posted", part_receipt: true,
+    part_layers_created: layerResults.length, je_id: jeId, goods_cost_cents: goodsTotalCents,
+    message: `Part receipt posted — ${layerResults.length} part layer(s) stocked into inventory (DR 1360 / CR 2050), GRNI JE posted.`,
+    layers: layerResults,
+  });
+}
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -198,15 +295,16 @@ export default async function handler(req, res) {
   const { data: rollups } = await admin.from("tanda_po_receipt_rollups").select("*").eq("receipt_id", id);
   if (!lines || lines.length === 0) return res.status(409).json({ error: "Receipt has no lines." });
 
-  // PO line item ids (the SKU each receipt line stocks).
+  // PO line item ids (the SKU or PART each receipt line stocks).
   const polIds = [...new Set(lines.map((l) => l.purchase_order_line_id).filter(Boolean))];
-  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id, lot_number").in("id", polIds);
+  const { data: polRows } = await admin.from("purchase_order_lines").select("id, inventory_item_id, part_id, lot_number").in("id", polIds);
   const itemByPol = new Map((polRows || []).map((p) => [p.id, p.inventory_item_id]));
+  const partByPol = new Map((polRows || []).map((p) => [p.id, p.part_id || null]));
   // Carry the PO line's lot onto the receipt's inventory layer so on-hand stock
   // is lot-identified for lot-aware allocation (Scenario 5).
   const lotByPol = new Map((polRows || []).map((p) => [p.id, p.lot_number || null]));
 
-  const { data: po } = await admin.from("purchase_orders").select("id, vendor_id").eq("id", rcpt.purchase_order_id).maybeSingle();
+  const { data: po } = await admin.from("purchase_orders").select("id, vendor_id, po_type").eq("id", rcpt.purchase_order_id).maybeSingle();
   const vendorId = po?.vendor_id || null;
 
   // ── Manufacturing (M5): a conversion-PO receipt COMPLETES a build ───────────
@@ -221,6 +319,14 @@ export default async function handler(req, res) {
   }
   if (buildOrderId) {
     return completeBuildFromReceipt(admin, res, { receiptId: id, rcpt, lines, buildOrderId });
+  }
+
+  // ── Manufacturing parts: a 'manufacturing_part' PO stocks PART inventory ─────
+  // (part_inventory_layers / 1360) rather than style inventory. Any line with a
+  // part_id routes here; a manufacturing_part PO carries only part lines.
+  const isPartReceipt = po?.po_type === "manufacturing_part" || (polRows || []).some((p) => p.part_id);
+  if (isPartReceipt) {
+    return receivePartLines(admin, res, { receiptId: id, rcpt, lines, partByPol, vendorId });
   }
 
   // GL accounts for the goods-receipt GRNI JE (step 5).

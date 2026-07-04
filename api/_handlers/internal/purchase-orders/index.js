@@ -41,8 +41,8 @@ const SELECT_COLS =
   "id, entity_id, brand_id, vendor_id, po_number, order_date, expected_date, status, " +
   "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " + PO_HEADER_COLS;
 
-// Enum guards mirror the CHECK constraints in 20260863000000.
-const PO_TYPES = ["stock", "replenishment", "made_to_order", "sample", "drop_ship"];
+// Enum guards mirror the CHECK constraints in 20260863000000 / 20260954000000.
+const PO_TYPES = ["stock", "replenishment", "made_to_order", "sample", "drop_ship", "manufacturing_part"];
 const SHIP_METHODS = ["sea", "air", "ground"];
 
 // Normalize the rich-header fields off a body into a column patch (shared by
@@ -95,6 +95,10 @@ export function validateInsert(body) {
     normLines.push({
       line_number: ln++,
       inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
+      // Manufacturing-part line: stocks a part_master part into part inventory
+      // (1360) on receipt instead of a style SKU. Mutually exclusive with
+      // inventory_item_id (a line is a style SKU OR a part).
+      part_id: l.part_id && UUID_RE.test(String(l.part_id)) ? l.part_id : null,
       description: l.description ? String(l.description).trim() : null,
       qty_ordered: qty,
       unit_cost_cents: unit,

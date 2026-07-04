@@ -413,6 +413,7 @@ import r_internal_procurement_vendor_invoice_drafts_id from "./internal/procurem
 import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procurement/vendor-invoice-drafts/index.js";
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
+import r_internal_purchase_orders_part_bill from "./internal/purchase-orders/part-bill.js";
 import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/split-by-lot.js";
 import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
@@ -801,6 +802,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-adjustments/:id/post", handler: r_internal_inventory_adjustments_post },
   { pattern: "/api/internal/workflow-executions/:id/reject", handler: r_internal_workflow_executions_id_reject },
   { pattern: "/api/internal/bank-transactions/:id/unmatch", handler: r_internal_bank_transactions_unmatch },
+  { pattern: "/api/internal/purchase-orders/:id/part-bill", handler: r_internal_purchase_orders_part_bill },
   { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: r_internal_sales_returns_id_credit_memo },
   { pattern: "/api/internal/scorecards/:vendor_id/history", handler: r_internal_scorecards_vendor_id_history },
   { pattern: "/api/vendor/virtual-cards/:id/confirm-spent", handler: r_vendor_virtual_cards_id_confirm_spent },

@@ -36,6 +36,7 @@ import { mfgServiceCapitalized } from "./rules/mfgServiceCapitalized.js";
 import { mfgBuildComplete } from "./rules/mfgBuildComplete.js";
 import { mfgCmtAccrued } from "./rules/mfgCmtAccrued.js";
 import { mfgCmtInvoiceMatch } from "./rules/mfgCmtInvoiceMatch.js";
+import { partInventoryReceipt } from "./rules/partInventoryReceipt.js";
 
 import { checkBalanced } from "./guards/balanced.js";
 import { checkPeriodOpen } from "./guards/periodOpen.js";
@@ -81,6 +82,8 @@ const RULE_BY_KIND = {
   // bill (DR 2160 / ±6320 PO Variance / CR AP). Both post on both bases.
   mfg_cmt_accrued:       mfgCmtAccrued,
   mfg_cmt_invoice_match: mfgCmtInvoiceMatch,
+  // Manufacturing parts received via a native PO → part inventory (1360)/GR-IR.
+  part_inventory_receipt: partInventoryReceipt,
 };
 
 export class PostingError extends Error {

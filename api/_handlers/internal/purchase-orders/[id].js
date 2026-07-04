@@ -126,9 +126,19 @@ export default async function handler(req, res, params) {
       const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, inseam, sku_code").in("id", itemIds);
       skuById = new Map((skus || []).map((s) => [s.id, s]));
     }
+    // Manufacturing-part lines (part_id set) — decorate with the part code/name so
+    // the PO modal + Receiving show a label instead of a bare id.
+    const partIds = [...new Set((lines || []).map((l) => l.part_id).filter(Boolean))];
+    let partById = new Map();
+    if (partIds.length) {
+      const { data: parts } = await admin.from("part_master").select("id, code, name, uom").in("id", partIds);
+      partById = new Map((parts || []).map((p) => [p.id, p]));
+    }
     const decorated = (lines || []).map((l) => {
       const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
-      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null };
+      const p = l.part_id ? partById.get(l.part_id) : null;
+      return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null,
+        part_code: p?.code ?? null, part_name: p?.name ?? null, part_uom: p?.uom ?? null };
     });
     const rollup = await computeLogisticsRollup(admin, lines || []);
     return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup });
@@ -203,6 +213,7 @@ export default async function handler(req, res, params) {
         norm.push({
           purchase_order_id: id, line_number: ln++,
           inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
+          part_id: l.part_id && UUID_RE.test(String(l.part_id)) ? l.part_id : null,
           description: l.description ? String(l.description).trim() : null,
           qty_ordered: qty, unit_cost_cents: unit, line_total_cents: Math.round(qty * unit),
           requested_ship_date: dre.test(l.requested_ship_date || "") ? l.requested_ship_date : null,
