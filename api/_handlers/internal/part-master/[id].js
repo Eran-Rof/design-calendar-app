@@ -18,6 +18,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MUTABLE_FIELDS = new Set([
   "name", "part_type", "uom", "default_vendor_id", "default_unit_cost_cents",
   "is_size_scaled", "fabric_code_id", "notes", "sort_order", "is_active",
+  "is_matrix", "size_scale_id",
 ]);
 const LOCKED_FIELDS = new Set(["code", "entity_id", "id"]);
 
@@ -161,11 +162,18 @@ export function validatePatch(body) {
     }
   }
 
-  for (const b of ["is_active", "is_size_scaled"]) {
+  for (const b of ["is_active", "is_size_scaled", "is_matrix"]) {
     if (b in out && typeof out[b] !== "boolean") {
       out[b] = out[b] === "true" || out[b] === 1;
     }
   }
+  if ("size_scale_id" in out) {
+    if (out.size_scale_id == null || out.size_scale_id === "") out.size_scale_id = null;
+    else if (!UUID_RE.test(String(out.size_scale_id))) return { error: "size_scale_id must be a uuid" };
+  }
+  // A matrix part is implicitly size-scaled; a matrix part with no scale keeps null.
+  if (out.is_matrix === true) out.is_size_scaled = true;
+  if (out.is_matrix === false) out.size_scale_id = null;
 
   return { data: out };
 }
