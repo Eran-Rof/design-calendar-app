@@ -6,7 +6,7 @@
 // write-off) through the part FIFO engine and GL. Parts are kept separate from
 // style inventory — this view never shows style SKUs.
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -14,6 +14,7 @@ import SearchableSelect, { type SearchableSelectOption } from "./components/Sear
 
 type PartLite = { id: string; code: string; name: string };
 type Account = { id: string; code: string; name: string; is_postable: boolean };
+type OnHandChild = { part_id: string; code: string | null; size: string | null; on_hand_qty: number; avg_unit_cost_cents: number; value_cents: number };
 type OnHandRow = {
   part_id: string;
   code: string | null;
@@ -24,6 +25,8 @@ type OnHandRow = {
   value_cents: number;
   avg_unit_cost_cents: number;
   layer_count: number;
+  is_matrix?: boolean;
+  children?: OnHandChild[];
 };
 
 const C = {
@@ -50,6 +53,7 @@ export default function InternalPartInventory() {
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [includeZero, setIncludeZero] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // matrix parents whose sizes are shown
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustPart, setAdjustPart] = useState<string>("");
   const [purchaseOpen, setPurchaseOpen] = useState(false);
@@ -161,21 +165,51 @@ export default function InternalPartInventory() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.part_id} style={r.on_hand_qty === 0 ? { opacity: 0.55 } : undefined}>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{r.code ?? "—"}</td>
-                  <td style={td}>{r.name}</td>
+              {rows.map((r) => {
+                const isMatrix = !!r.is_matrix;
+                const open = expanded.has(r.part_id);
+                return (
+                <Fragment key={r.part_id}>
+                <tr style={r.on_hand_qty === 0 ? { opacity: 0.55 } : undefined}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>
+                    {isMatrix && (
+                      <button onClick={() => setExpanded((s) => { const n = new Set(s); n.has(r.part_id) ? n.delete(r.part_id) : n.add(r.part_id); return n; })}
+                        title="Show sizes" style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 11, marginRight: 4 }}>{open ? "▾" : "▸"}</button>
+                    )}
+                    {r.code ?? "—"}
+                  </td>
+                  <td style={td}>{r.name}{isMatrix && <span style={{ color: C.textMuted, fontSize: 11 }}> · by size ({(r.children || []).length})</span>}</td>
                   <td style={{ ...td, color: C.textSub }}>{r.part_type ?? "—"}</td>
                   <td style={{ ...td, textAlign: "right" }}>{r.on_hand_qty.toLocaleString()} {r.uom ?? ""}</td>
                   <td style={{ ...td, textAlign: "right", color: C.textSub }}>{fmtMoney(r.avg_unit_cost_cents)}</td>
                   <td style={{ ...td, textAlign: "right" }}>{fmtMoney(r.value_cents)}</td>
                   <td style={{ ...td, textAlign: "right", color: C.textSub }}>{r.layer_count}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <button onClick={() => { setPurchasePart(r.part_id); setPurchaseOpen(true); }} style={btnSecondary}>Buy</button>
-                    <button onClick={() => { setAdjustPart(r.part_id); setAdjustOpen(true); }} style={{ ...btnSecondary, marginLeft: 6 }}>Adjust</button>
+                    {/* Matrix parents hold no stock of their own — buy/adjust happen per size (via the size rows or a part PO). */}
+                    {!isMatrix && <>
+                      <button onClick={() => { setPurchasePart(r.part_id); setPurchaseOpen(true); }} style={btnSecondary}>Buy</button>
+                      <button onClick={() => { setAdjustPart(r.part_id); setAdjustOpen(true); }} style={{ ...btnSecondary, marginLeft: 6 }}>Adjust</button>
+                    </>}
                   </td>
                 </tr>
-              ))}
+                {isMatrix && open && (r.children || []).map((c) => (
+                  <tr key={c.part_id} style={{ background: "#0b1220" }}>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", paddingLeft: 28, color: C.textSub }}>{c.code ?? "—"}</td>
+                    <td style={{ ...td, color: C.textSub }}>size {c.size ?? "—"}</td>
+                    <td style={td} />
+                    <td style={{ ...td, textAlign: "right" }}>{c.on_hand_qty.toLocaleString()} {r.uom ?? ""}</td>
+                    <td style={{ ...td, textAlign: "right", color: C.textSub }}>{fmtMoney(c.avg_unit_cost_cents)}</td>
+                    <td style={{ ...td, textAlign: "right" }}>{fmtMoney(c.value_cents)}</td>
+                    <td style={td} />
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <button onClick={() => { setPurchasePart(c.part_id); setPurchaseOpen(true); }} style={btnSecondary}>Buy</button>
+                      <button onClick={() => { setAdjustPart(c.part_id); setAdjustOpen(true); }} style={{ ...btnSecondary, marginLeft: 6 }}>Adjust</button>
+                    </td>
+                  </tr>
+                ))}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}
