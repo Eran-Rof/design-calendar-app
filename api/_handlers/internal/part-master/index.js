@@ -66,6 +66,9 @@ export default async function handler(req, res) {
       .from("part_master")
       .select("*")
       .eq("entity_id", entityId)
+      // Per-size CHILD rows (parent_part_id set) are internal to a matrix part —
+      // the list shows parents + non-matrix parts, not the exploded per-size rows.
+      .is("parent_part_id", null)
       .order("sort_order", { ascending: true })
       .order("code", { ascending: true });
 
@@ -149,12 +152,20 @@ export function validateInsert(body) {
   const isSizeScaled = body.is_size_scaled == null ? false :
     typeof body.is_size_scaled === "boolean" ? body.is_size_scaled :
       body.is_size_scaled === "true" || body.is_size_scaled === 1;
+  // Matrix (by-size) part — a size-scaled PARENT whose per-size children hold the
+  // inventory (P2). A matrix part is implicitly size-scaled.
+  const isMatrix = body.is_matrix === true || body.is_matrix === "true" || body.is_matrix === 1;
+  if (body.size_scale_id != null && body.size_scale_id !== "" && !UUID_RE.test(String(body.size_scale_id))) {
+    return { error: "size_scale_id must be a uuid" };
+  }
 
   const data = {
     name:           String(body.name).trim(),
     part_type:      partType,
     uom:            body.uom != null && String(body.uom).trim() ? String(body.uom).trim() : "each",
-    is_size_scaled: isSizeScaled,
+    is_size_scaled: isSizeScaled || isMatrix,
+    is_matrix:      isMatrix,
+    size_scale_id:  isMatrix && body.size_scale_id ? String(body.size_scale_id) : null,
     sort_order:     sortOrder,
     is_active:      isActive,
     default_unit_cost_cents: cost.value,

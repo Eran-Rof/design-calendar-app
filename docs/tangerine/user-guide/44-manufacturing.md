@@ -140,7 +140,15 @@ For a full procurement paper trail — a PO you issue to the vendor, then receiv
 3. **Procurement → Receiving** → pick the issued part PO, enter **Accepted** quantities, **Save draft** → **Post receipt**. This stocks each part into its FIFO pool (`part_inventory_layers`) and books the **GRNI**: `DR 1360 Inventory-Parts / CR 2050 GR/IR`.
 4. Back on the PO, **Enter part bill (3-way match)** — enter the vendor's actual invoice total. It clears the receipt's GR/IR and books any price difference to **6320 PO Variance**: `DR 2050 GR/IR · DR/CR 6320 PO Variance · CR AP`.
 
-So a part PO is bought, received, and 3-way matched exactly like a goods PO — GR/IR nets to zero once billed, price variance is captured, and parts land in inventory at real cost. *(P1 covers non-matrix parts; by-size "matrix parts" are a following phase.)*
+So a part PO is bought, received, and 3-way matched exactly like a goods PO — GR/IR nets to zero once billed, price variance is captured, and parts land in inventory at real cost.
+
+### Matrix (by-size) parts (shipped — definition)
+
+Some parts come in sizes — a blank tee is S/M/L/XL. A **matrix part** models that exactly like a **style with per-size SKUs**: one parent part you pick on BOMs/POs, plus a per-size row behind it that carries the inventory for each size.
+
+In **Part Master**, tick **"Matrix part (by-size)"** and choose a **size scale** (the same Size Scale master styles use) — its sizes appear as chips. Once saved, the **Per-size rows** window (the "matrix data entry window", copied from styles master) lets you **Create size variants**: it materializes one child part per size (code `PART-NNNNN-<SIZE>`), each with its own FIFO inventory and on-hand shown right there. The parent itself holds no stock; the size rows do. Non-matrix parts are unchanged.
+
+*(Buying matrix parts by-size on a PO and per-size on-hand in Part Inventory is the next phase; the per-size rows already stock and cost exactly like any part.)*
 
 ## M6 — manufacturing reports (shipped)
 

@@ -345,6 +345,8 @@ import r_internal_part_adjustments_index from "./internal/part-adjustments/index
 import r_internal_part_inventory_index from "./internal/part-inventory/index.js";
 import r_internal_part_master_id from "./internal/part-master/[id].js";
 import r_internal_part_master_index from "./internal/part-master/index.js";
+import r_internal_part_matrix_index from "./internal/part-matrix/index.js";
+import r_internal_part_matrix_resolve_part_size from "./internal/part-matrix/resolve-part-size.js";
 import r_internal_part_purchases_index from "./internal/part-purchases/index.js";
 import r_internal_part_thumbs from "./internal/part-thumbs.js";
 import r_internal_part_types_id from "./internal/part-types/[id].js";
@@ -902,6 +904,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/sustainability-trend", handler: r_internal_analytics_sustainability_trend },
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: r_internal_planning_sync_tangerine_supply },
   { pattern: "/api/internal/sales-orders/parse-customer-po", handler: r_internal_sales_orders_parse_customer_po },
+  { pattern: "/api/internal/part-matrix/resolve-part-size", handler: r_internal_part_matrix_resolve_part_size },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: r_internal_planning_link_planning_vendor },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
@@ -1289,6 +1292,7 @@ export const ROUTES = [
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
   { pattern: "/api/internal/mfg-reports", handler: r_internal_mfg_reports_index },
   { pattern: "/api/internal/part-master", handler: r_internal_part_master_index },
+  { pattern: "/api/internal/part-matrix", handler: r_internal_part_matrix_index },
   { pattern: "/api/internal/part-thumbs", handler: r_internal_part_thumbs },
   { pattern: "/api/internal/phase-notes", handler: r_internal_phase_notes_index },
   { pattern: "/api/internal/price-lists", handler: r_internal_price_lists_index },

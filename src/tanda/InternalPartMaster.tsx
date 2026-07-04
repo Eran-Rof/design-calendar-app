@@ -33,6 +33,8 @@ type Part = {
   default_vendor_id: string | null;
   default_unit_cost_cents: number | null;
   is_size_scaled: boolean;
+  is_matrix?: boolean;
+  size_scale_id?: string | null;
   fabric_code_id: string | null;
   notes: string | null;
   is_active: boolean;
@@ -259,6 +261,58 @@ interface ModalProps {
   onSaved: () => void;
 }
 
+// The by-size "matrix data entry window" (mirrors styles master): shows a matrix
+// part's per-size child rows with on-hand, and materializes them from the chosen
+// size scale via /part-matrix/resolve-part-size.
+function PartMatrixWindow({ partId, scaleSizes, savedScaleId, formScaleId }: { partId: string; scaleSizes: string[]; savedScaleId: string | null; formScaleId: string | null }) {
+  const [children, setChildren] = useState<{ id: string; size: string | null; code: string; on_hand_qty: number; avg_cost_cents: number | null }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const mth: React.CSSProperties = { textAlign: "left", padding: "4px 8px", fontSize: 10, color: C.textMuted, borderBottom: `1px solid ${C.cardBdr}`, textTransform: "uppercase", letterSpacing: 0.5 };
+  const mtd: React.CSSProperties = { padding: "4px 8px", fontSize: 12, color: C.text, borderBottom: `1px solid ${C.cardBdr}` };
+  const btn: React.CSSProperties = { background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12 };
+
+  async function load() {
+    try { const r = await fetch(`/api/internal/part-matrix?part_id=${partId}`); if (r.ok) { const j = await r.json(); setChildren(Array.isArray(j.children) ? j.children : []); } } catch { /* ignore */ }
+  }
+  useEffect(() => { void load(); }, [partId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function createVariants() {
+    if (!scaleSizes.length) { setMsg("Pick a size scale first."); return; }
+    setBusy(true); setMsg(null);
+    try {
+      let created = 0;
+      for (const sz of scaleSizes) {
+        const r = await fetch("/api/internal/part-matrix/resolve-part-size", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ part_id: partId, size: sz }) });
+        if (r.ok) { const j = await r.json(); if (j.created) created++; }
+      }
+      setMsg(`${created} new size row(s) created.`);
+      await load();
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const scaleUnsaved = formScaleId !== savedScaleId;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Per-size rows</div>
+        <button type="button" disabled={busy || scaleUnsaved || !scaleSizes.length} onClick={() => void createVariants()} title={scaleUnsaved ? "Save the size scale first" : ""} style={btn}>{busy ? "…" : "Create size variants"}</button>
+      </div>
+      {scaleUnsaved && <div style={{ fontSize: 11, color: C.warn, marginBottom: 6 }}>Save the part to apply the size scale, then create the size rows.</div>}
+      {children.length === 0 ? <div style={{ fontSize: 12, color: C.textMuted }}>No size rows yet — pick a scale, save, then Create size variants.</div> : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={mth}>Size</th><th style={mth}>Code</th><th style={{ ...mth, textAlign: "right" }}>On hand</th><th style={{ ...mth, textAlign: "right" }}>Avg cost</th></tr></thead>
+          <tbody>{children.map((c) => (
+            <tr key={c.id}><td style={mtd}>{c.size || "—"}</td><td style={{ ...mtd, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{c.code}</td><td style={{ ...mtd, textAlign: "right" }}>{c.on_hand_qty}</td><td style={{ ...mtd, textAlign: "right" }}>{c.avg_cost_cents != null ? `$${(c.avg_cost_cents / 100).toFixed(2)}` : "—"}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
+      {msg && <div style={{ fontSize: 11, color: C.textSub, marginTop: 6 }}>{msg}</div>}
+    </div>
+  );
+}
+
 function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, onSaved }: ModalProps) {
   const [form, setForm] = useState({
     name:            part?.name ?? "",
@@ -267,6 +321,8 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
     default_vendor_id: part?.default_vendor_id ?? "",
     default_unit_cost: part?.default_unit_cost_cents != null ? (part.default_unit_cost_cents / 100).toString() : "",
     is_size_scaled:  part?.is_size_scaled ?? false,
+    is_matrix:       part?.is_matrix ?? false,
+    size_scale_id:   part?.size_scale_id ?? "",
     fabric_code_id:  part?.fabric_code_id ?? "",
     notes:           part?.notes ?? "",
     sort_order:      part?.sort_order != null ? String(part.sort_order) : "0",
@@ -274,6 +330,15 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sizeScales, setSizeScales] = useState<{ id: string; code: string; name: string; sizes: string[] }[]>([]);
+  useEffect(() => {
+    fetch("/api/internal/size-scales").then((r) => r.ok ? r.json() : []).then((a) => setSizeScales(Array.isArray(a) ? a : (a?.data || []))).catch(() => {});
+  }, []);
+  const scaleSizes = useMemo(() => (sizeScales.find((s) => s.id === form.size_scale_id)?.sizes || []).filter(Boolean), [sizeScales, form.size_scale_id]);
+  const scaleOptions: SearchableSelectOption[] = useMemo(
+    () => [{ value: "", label: "— pick a size scale —" }, ...sizeScales.map((s) => ({ value: s.id, label: `${s.code} — ${s.name} (${(s.sizes || []).join("/")})` }))],
+    [sizeScales],
+  );
 
   const vendorOptions: SearchableSelectOption[] = useMemo(
     () => [{ value: "", label: "— none —" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))],
@@ -305,7 +370,9 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
         uom:             form.uom.trim() || "each",
         default_vendor_id: form.default_vendor_id || null,
         default_unit_cost_cents: costStr === "" ? null : Math.round(parseFloat(costStr) * 100),
-        is_size_scaled:  form.is_size_scaled,
+        is_size_scaled:  form.is_size_scaled || form.is_matrix,
+        is_matrix:       form.is_matrix,
+        size_scale_id:   form.is_matrix ? (form.size_scale_id || null) : null,
         fabric_code_id:  form.part_type === "fabric" ? (form.fabric_code_id || null) : null,
         notes:           form.notes.trim() || null,
         sort_order:      form.sort_order.trim() === "" ? 0 : parseInt(form.sort_order, 10),
@@ -352,12 +419,28 @@ function PartFormModal({ mode, part, vendors, fabricCodes, partTypes, onClose, o
               <SearchableSelect value={form.fabric_code_id} onChange={(v) => setForm({ ...form, fabric_code_id: v })} options={fabricOptions} placeholder="— none —" />
             </Field>
           )}
-          <Field label="Size-scaled">
-            <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
-              <input type="checkbox" checked={form.is_size_scaled} onChange={(e) => setForm({ ...form, is_size_scaled: e.target.checked })} />
-              tracked per size (e.g. blank tees)
-            </label>
-          </Field>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Matrix part (by-size)">
+              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSub, fontSize: 13 }}>
+                <input type="checkbox" checked={form.is_matrix} onChange={(e) => setForm({ ...form, is_matrix: e.target.checked })} />
+                tracked per size like a style — pick a size scale, then stock &amp; consume per size (e.g. blank tees in S/M/L)
+              </label>
+            </Field>
+            {form.is_matrix && (
+              <div style={{ marginTop: 8, padding: 12, background: "#0b1220", borderRadius: 8, border: `1px solid ${C.cardBdr}` }}>
+                <Field label="Size scale">
+                  <SearchableSelect value={form.size_scale_id} onChange={(v) => setForm({ ...form, size_scale_id: v })} options={scaleOptions} placeholder="— pick a size scale —" />
+                </Field>
+                {scaleSizes.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {scaleSizes.map((sz) => <span key={sz} style={{ padding: "2px 8px", borderRadius: 4, background: C.card, border: `1px solid ${C.cardBdr}`, fontSize: 12, color: C.textSub }}>{sz}</span>)}
+                  </div>
+                )}
+                {mode === "edit" && part && <PartMatrixWindow partId={part.id} scaleSizes={scaleSizes} savedScaleId={part.size_scale_id ?? null} formScaleId={form.size_scale_id || null} />}
+                {mode === "add" && <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted }}>Save the part first, then create its per-size rows here.</div>}
+              </div>
+            )}
+          </div>
           <Field label="Sort order">
             <input type="number" min="0" step="1" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} style={inputStyle} placeholder="0" />
           </Field>

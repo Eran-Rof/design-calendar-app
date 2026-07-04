@@ -367,6 +367,8 @@ export default [
   ["/api/internal/fabric-mills/:id"                           , "./internal/fabric-mills/[id].js"],
   ["/api/internal/fabric-mills"                               , "./internal/fabric-mills/index.js"],
   // Manufacturing module (M1) — Part Master + Service Item Master.
+  ["/api/internal/part-matrix/resolve-part-size"             , "./internal/part-matrix/resolve-part-size.js"],
+  ["/api/internal/part-matrix"                               , "./internal/part-matrix/index.js"],
   ["/api/internal/part-master/:id"                            , "./internal/part-master/[id].js"],
   ["/api/internal/part-master"                                , "./internal/part-master/index.js"],
   ["/api/internal/part-types/:id"                             , "./internal/part-types/[id].js"],
