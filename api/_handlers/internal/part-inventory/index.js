@@ -48,10 +48,11 @@ export default async function handler(req, res) {
   const q = (url.searchParams.get("q") || "").trim().toLowerCase();
   const includeZero = url.searchParams.get("include_zero") === "true";
 
-  // Parts (active) for labels.
+  // Parts (active) for labels. Matrix info (is_matrix / parent_part_id / size)
+  // lets a matrix part's per-size CHILD rows roll up under their parent.
   const { data: parts, error: pErr } = await admin
     .from("part_master")
-    .select("id, code, name, part_type, uom, is_active")
+    .select("id, code, name, part_type, uom, is_active, is_matrix, parent_part_id, size")
     .eq("entity_id", entityId);
   if (pErr) return res.status(500).json({ error: pErr.message });
   const partById = new Map((parts || []).map((p) => [p.id, p]));
@@ -74,17 +75,35 @@ export default async function handler(req, res) {
     agg.set(l.part_id, cur);
   }
 
-  const rows = [];
-  for (const [partId, a] of agg.entries()) {
-    const p = partById.get(partId);
-    rows.push(buildRow(partId, p, a));
+  const zeroAgg = { qty: 0, value_cents: 0, layer_count: 0 };
+  // Group a matrix part's per-size CHILD rows under their parent; they do not
+  // appear as standalone top-level rows.
+  const childrenByParent = new Map(); // parentId → [child row + size]
+  for (const p of parts || []) {
+    if (!p.parent_part_id) continue;
+    const a = agg.get(p.id) || zeroAgg;
+    if (a.qty <= 0 && !includeZero) continue;
+    const arr = childrenByParent.get(p.parent_part_id) || [];
+    arr.push({ ...buildRow(p.id, p, a), size: p.size });
+    childrenByParent.set(p.parent_part_id, arr);
   }
-  if (includeZero) {
-    for (const p of parts || []) {
-      if (!p.is_active) continue;
-      if (agg.has(p.id)) continue;
-      rows.push(buildRow(p.id, p, { qty: 0, value_cents: 0, layer_count: 0 }));
+
+  const rows = [];
+  for (const p of parts || []) {
+    if (p.parent_part_id) continue;               // children handled above
+    if (p.is_matrix) {
+      const kids = (childrenByParent.get(p.id) || []).sort((x, y) => String(x.size || "").localeCompare(String(y.size || "")));
+      const sum = kids.reduce((acc, k) => ({ qty: acc.qty + k.on_hand_qty, value_cents: acc.value_cents + k.value_cents, layer_count: acc.layer_count + k.layer_count }), { ...zeroAgg });
+      if (sum.qty > 0 || includeZero) rows.push({ ...buildRow(p.id, p, sum), is_matrix: true, children: kids });
+    } else {
+      const a = agg.get(p.id) || zeroAgg;
+      if (a.qty > 0 || (includeZero && p.is_active)) rows.push({ ...buildRow(p.id, p, a), is_matrix: false });
     }
+  }
+  // A layer for a part not in the master (shouldn't happen) — surface it flat.
+  for (const [partId, a] of agg.entries()) {
+    if (partById.has(partId)) continue;
+    rows.push(buildRow(partId, null, a));
   }
 
   let out = rows;

@@ -727,12 +727,31 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   const [err, setErr] = useState<string | null>(null);
 
   // Manufacturing-part PO (po_type='manufacturing_part'): lines pick PARTS, not
-  // style SKUs. Non-matrix (P1) — a simple part / qty / unit-cost grid.
-  type PartLine = { key: number; part_id: string; qty: string; unit: string };
-  const [parts, setParts] = useState<{ id: string; code: string; name: string; default_unit_cost_cents?: number | null; uom?: string | null }[]>([]);
+  // style SKUs. A non-matrix part uses a single qty; a matrix (by-size) part
+  // enters a qty per size (P2b) that resolves to per-size child parts on save.
+  type PartLine = { key: number; part_id: string; qty: string; unit: string; is_matrix?: boolean; sizes?: string[]; sizeQty?: Record<string, string> };
+  type PartOpt = { id: string; code: string; name: string; default_unit_cost_cents?: number | null; uom?: string | null; is_matrix?: boolean };
+  const [parts, setParts] = useState<PartOpt[]>([]);
   const [partLines, setPartLines] = useState<PartLine[]>([{ key: 1, part_id: "", qty: "", unit: "" }]);
   const partKey = useRef(2);
   const isPartPo = poType === "manufacturing_part";
+
+  // Pick a part into a line. For a MATRIX part, fetch its sizes and switch the
+  // row into by-size entry; otherwise a single qty.
+  async function pickPart(rowKey: number, partId: string) {
+    const p = parts.find((pp) => pp.id === partId) || null;
+    const unitDefault = p && p.default_unit_cost_cents != null ? (p.default_unit_cost_cents / 100).toFixed(2) : "";
+    setPartLines((ls) => ls.map((x) => x.key === rowKey ? { ...x, part_id: partId || "", unit: x.unit || unitDefault, is_matrix: !!p?.is_matrix, sizes: [], sizeQty: p?.is_matrix ? {} : undefined, qty: p?.is_matrix ? "" : x.qty } : x));
+    if (p?.is_matrix) {
+      try {
+        const r = await fetch(`/api/internal/part-matrix?part_id=${partId}`);
+        if (r.ok) { const j = await r.json(); const sizes = Array.isArray(j.sizes) ? j.sizes.map(String) : []; setPartLines((ls) => ls.map((x) => x.key === rowKey ? { ...x, sizes } : x)); }
+      } catch { /* ignore */ }
+    }
+  }
+  function setSizeQty(rowKey: number, size: string, val: string) {
+    setPartLines((ls) => ls.map((x) => x.key === rowKey ? { ...x, sizeQty: { ...(x.sizeQty || {}), [size]: val } } : x));
+  }
 
   useEffect(() => {
     fetch("/api/internal/items?limit=5000").then((r) => r.ok ? r.json() : []).then((a) => setItems(Array.isArray(a) ? a : [])).catch(() => {});
@@ -777,12 +796,35 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
       if (!full) return;
       // Populate the rich-header state from the full PO record + the rollup.
       setPoType(full.po_type || ""); setCustomerId(full.customer_id || "");
-      // Manufacturing-part PO → seed the part-line grid from its part lines.
+      // Manufacturing-part PO → seed the part-line grid. Per-size CHILD lines
+      // (part_parent_id set) regroup into a by-size MATRIX row per parent; other
+      // part lines seed as flat rows.
       if (full.po_type === "manufacturing_part") {
-        const pl: PartLine[] = (full.lines || []).filter((l: { part_id?: string | null }) => l.part_id)
-          .map((l: { part_id: string; qty_ordered: number; unit_cost_cents: number | null }, i: number) => ({ key: i + 1, part_id: l.part_id, qty: String(l.qty_ordered ?? ""), unit: l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "" }));
-        partKey.current = pl.length + 1;
-        setPartLines(pl.length ? pl : [{ key: 1, part_id: "", qty: "", unit: "" }]);
+        type SLine = { part_id: string; qty_ordered: number; unit_cost_cents: number | null; part_parent_id?: string | null; part_size?: string | null };
+        const rows: PartLine[] = [];
+        const parentRow = new Map<string, PartLine>();
+        let k = 1;
+        for (const l of ((full.lines || []) as SLine[])) {
+          if (!l.part_id) continue;
+          const unit = l.unit_cost_cents != null ? (l.unit_cost_cents / 100).toFixed(2) : "";
+          if (l.part_parent_id) {
+            let row = parentRow.get(l.part_parent_id);
+            if (!row) { row = { key: k++, part_id: l.part_parent_id, qty: "", unit, is_matrix: true, sizes: [], sizeQty: {} }; parentRow.set(l.part_parent_id, row); rows.push(row); }
+            if (l.part_size) row.sizeQty![l.part_size] = String(l.qty_ordered ?? "");
+            if (!row.unit && unit) row.unit = unit;
+          } else {
+            rows.push({ key: k++, part_id: l.part_id, qty: String(l.qty_ordered ?? ""), unit });
+          }
+        }
+        partKey.current = k;
+        setPartLines(rows.length ? rows : [{ key: 1, part_id: "", qty: "", unit: "" }]);
+        // Load each matrix row's full size list (so unfilled sizes are enterable too).
+        for (const row of rows) {
+          if (!row.is_matrix) continue;
+          fetch(`/api/internal/part-matrix?part_id=${row.part_id}`).then((r) => r.ok ? r.json() : null).then((j) => {
+            if (j?.sizes) setPartLines((ls) => ls.map((x) => x.key === row.key ? { ...x, sizes: (j.sizes as unknown[]).map(String) } : x));
+          }).catch(() => {});
+        }
       }
       setVendorContact(full.vendor_contact || ""); setVendorEmail(full.vendor_email || ""); setVendorRef(full.vendor_ref || "");
       setFactoryLocation(full.factory_location || ""); setCoo(full.coo || "");
@@ -978,9 +1020,25 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     // unit_price_cents onto the PO's unit_cost_cents.
     let lines: Record<string, unknown>[];
     if (isPartPo) {
-      lines = partLines
-        .filter((l) => l.part_id && Number(l.qty) > 0)
-        .map((l) => ({ part_id: l.part_id, qty_ordered: Number(l.qty), unit_cost_cents: Math.round(parseFloat(l.unit || "0") * 100) }));
+      const out: Record<string, unknown>[] = [];
+      for (const l of partLines) {
+        if (!l.part_id) continue;
+        const unitCents = Math.round(parseFloat(l.unit || "0") * 100);
+        if (l.is_matrix) {
+          // Resolve each filled size cell to its per-size CHILD part → one line each.
+          for (const sz of l.sizes || []) {
+            const q = Number(l.sizeQty?.[sz] || 0);
+            if (q <= 0) continue;
+            const rr = await fetch("/api/internal/part-matrix/resolve-part-size", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ part_id: l.part_id, size: sz }) });
+            if (!rr.ok) { setErr(`Could not resolve size ${sz}: ${(await rr.json().catch(() => ({}))).error || rr.status}`); return null; }
+            const jj = await rr.json();
+            out.push({ part_id: jj.id, qty_ordered: q, unit_cost_cents: unitCents });
+          }
+        } else if (Number(l.qty) > 0) {
+          out.push({ part_id: l.part_id, qty_ordered: Number(l.qty), unit_cost_cents: unitCents });
+        }
+      }
+      lines = out;
       if (lines.length === 0) { setErr("Add at least one part line with a quantity."); return null; }
     } else {
       const resolved = (await bodyRef.current?.resolve()) || [];
@@ -1370,29 +1428,54 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
                 <th style={{ padding: "6px 8px", borderBottom: `1px solid ${C.cardBdr}`, width: 40 }} />
               </tr></thead>
               <tbody>
-                {partLines.map((pl) => (
-                  <tr key={pl.key}>
-                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                {partLines.map((pl) => {
+                  const matrixTotal = pl.is_matrix ? Object.values(pl.sizeQty || {}).reduce((s, v) => s + (Number(v) || 0), 0) : 0;
+                  return (
+                  <Fragment key={pl.key}>
+                  <tr>
+                    <td style={{ padding: "4px 8px", borderBottom: pl.is_matrix ? "none" : `1px solid ${C.cardBdr}` }}>
                       <SearchableSelect value={pl.part_id || null} disabled={!editable}
-                        onChange={(v) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, part_id: v || "", unit: x.unit || (() => { const p = parts.find((pp) => pp.id === v); return p && p.default_unit_cost_cents != null ? (p.default_unit_cost_cents / 100).toFixed(2) : ""; })() } : x))}
-                        options={parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` }))}
+                        onChange={(v) => void pickPart(pl.key, v || "")}
+                        options={parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}${p.is_matrix ? " · by size" : ""}` }))}
                         placeholder="Pick a part" inputStyle={inputStyle as React.CSSProperties} />
                     </td>
-                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
-                      <input value={pl.qty} disabled={!editable} inputMode="numeric" placeholder="0"
-                        onChange={(e) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, qty: e.target.value } : x))}
-                        style={{ ...(inputStyle as React.CSSProperties), textAlign: "right" }} />
+                    <td style={{ padding: "4px 8px", borderBottom: pl.is_matrix ? "none" : `1px solid ${C.cardBdr}`, textAlign: "right" }}>
+                      {pl.is_matrix
+                        ? <span style={{ fontSize: 12, color: C.textMuted }}>{matrixTotal} <span style={{ fontSize: 10 }}>by size ↓</span></span>
+                        : <input value={pl.qty} disabled={!editable} inputMode="numeric" placeholder="0"
+                            onChange={(e) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, qty: e.target.value } : x))}
+                            style={{ ...(inputStyle as React.CSSProperties), textAlign: "right" }} />}
                     </td>
-                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                    <td style={{ padding: "4px 8px", borderBottom: pl.is_matrix ? "none" : `1px solid ${C.cardBdr}` }}>
                       <input value={pl.unit} disabled={!editable} inputMode="decimal" placeholder="0.00"
                         onChange={(e) => setPartLines((ls) => ls.map((x) => x.key === pl.key ? { ...x, unit: e.target.value } : x))}
                         style={{ ...(inputStyle as React.CSSProperties), textAlign: "right" }} />
                     </td>
-                    <td style={{ padding: "4px 8px", borderBottom: `1px solid ${C.cardBdr}`, textAlign: "center" }}>
+                    <td style={{ padding: "4px 8px", borderBottom: pl.is_matrix ? "none" : `1px solid ${C.cardBdr}`, textAlign: "center" }}>
                       {editable && partLines.length > 1 && <button type="button" title="Remove line" onClick={() => setPartLines((ls) => ls.filter((x) => x.key !== pl.key))} style={btnSecondary}>✕</button>}
                     </td>
                   </tr>
-                ))}
+                  {pl.is_matrix && (
+                    <tr>
+                      <td colSpan={4} style={{ padding: "0 8px 8px 24px", borderBottom: `1px solid ${C.cardBdr}` }}>
+                        {pl.sizes && pl.sizes.length > 0 ? (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {pl.sizes.map((sz) => (
+                              <label key={sz} style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: C.textMuted }}>
+                                {sz}
+                                <input value={pl.sizeQty?.[sz] ?? ""} disabled={!editable} inputMode="numeric" placeholder="0"
+                                  onChange={(e) => setSizeQty(pl.key, sz, e.target.value)}
+                                  style={{ ...(inputStyle as React.CSSProperties), width: 56, textAlign: "right", padding: "4px 6px" }} />
+                              </label>
+                            ))}
+                          </div>
+                        ) : <span style={{ fontSize: 11, color: C.warn }}>This matrix part has no sizes yet — assign a size scale in Part Master.</span>}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
             {editable && <button type="button" onClick={() => { const k = partKey.current++; setPartLines((ls) => [...ls, { key: k, part_id: "", qty: "", unit: "" }]); }} style={{ ...btnSecondary, marginTop: 8 }}>+ Add part line</button>}

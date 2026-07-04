@@ -148,7 +148,11 @@ Some parts come in sizes — a blank tee is S/M/L/XL. A **matrix part** models t
 
 In **Part Master**, tick **"Matrix part (by-size)"** and choose a **size scale** (the same Size Scale master styles use) — its sizes appear as chips. Once saved, the **Per-size rows** window (the "matrix data entry window", copied from styles master) lets you **Create size variants**: it materializes one child part per size (code `PART-NNNNN-<SIZE>`), each with its own FIFO inventory and on-hand shown right there. The parent itself holds no stock; the size rows do. Non-matrix parts are unchanged.
 
-*(Buying matrix parts by-size on a PO and per-size on-hand in Part Inventory is the next phase; the per-size rows already stock and cost exactly like any part.)*
+**Buy a matrix part by size on a PO.** On a **Manufacturing part** PO, pick a matrix part (marked *· by size*) — the line expands into a **size row** where you enter a quantity per size and a single unit cost. On save, each filled size resolves to its per-size child part, so the PO carries one line per size; receiving stocks each size into its own FIFO pool exactly like any part.
+
+**Per-size on-hand.** In **Part Inventory**, a matrix part shows as one row with a **▸ expander**; open it to see on-hand, average cost, and value **per size**. (The parent itself holds no stock — the size rows do; Buy/Adjust act on a specific size.)
+
+*(Next: size-matched BOM consumption in builds — a size-M garment consuming a size-M blank.)*
 
 ## M6 — manufacturing reports (shipped)
 
