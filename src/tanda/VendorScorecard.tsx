@@ -31,7 +31,10 @@ function openRecordInNewTab(module: "purchase_orders" | "ap_invoices" | "journal
   const url = new URL(window.location.origin + "/tangerine");
   url.searchParams.set("m", module);
   url.searchParams.set("q", q);
-  window.open(url.toString(), "_blank", "noopener");
+  // No `noopener`: same-origin /tangerine drill. `noopener` gives the new tab an
+  // empty sessionStorage, dropping the PLM session so Tangerine re-prompts for a
+  // Microsoft sign-in. Keeping the opener lets it inherit the session.
+  window.open(url.toString(), "_blank");
 }
 
 const C = {
