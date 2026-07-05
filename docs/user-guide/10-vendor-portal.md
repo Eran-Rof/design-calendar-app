@@ -200,6 +200,8 @@ Each row shows the title, style, style name, quantity, category, due date, and a
 
 Use the **Shipments** tab to submit advance shipping notices (ASNs) with carrier and tracking details, upload your packing list and bill of lading, and track shipment status. You can create a shipment, attach documents, and create an invoice directly from a shipment.
 
+Submitting an ASN also **marks the PO as in transit on the Ring of Fire side** — the buyer sees an **✈ in transit** indicator (with your ETA) next to the PO's status in Tangerine, carrying your carrier, tracking/BOL, ASN reference and the per-line quantities you're shipping. It does **not** change received quantities — the goods are still formally received when they arrive.
+
 ### Invoices
 
 The **Invoices** tab shows summary cards (**Total invoices · Outstanding · Paid**) and the invoice list, filterable with **All / Open / Paid**.
