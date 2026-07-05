@@ -147,6 +147,9 @@ export default async function handler(req, res) {
     skipped_tombstoned: 0,
     user_archived_preserved: 0,
     buyer_po_preserved: 0,
+    native_reconcile_received: 0,
+    native_reconcile_cancelled: 0,
+    native_reconcile_ambiguous: 0,
     per_status: [],
     errors: [],
   };
@@ -438,6 +441,67 @@ export default async function handler(req, res) {
       upsertedRowCount += chunk.length;
     }
     result.upserted = upsertedRowCount;
+
+    // 8. Reconcile the NATIVE purchase_orders table with Xoro's terminal state.
+    //    The internal PO grid reads native `purchase_orders`; the Xoro import
+    //    stamped their status once and NOTHING demotes them when Xoro later
+    //    receives/closes the PO (it archives in tanda_pos, but the native copy
+    //    stays draft/issued/in_transit) — so the grid over-reports open POs and
+    //    value (observed: 248 native-active vs 132 truly active in Xoro, a
+    //    $7.5M phantom-open overstatement). Each run, demote every [xoro-import]
+    //    native PO that is still active but whose tanda_pos counterpart is
+    //    ARCHIVED, to its true terminal status:
+    //      • Received/Closed/Partially Received, or any line QtyReceived>0 → 'received'
+    //      • Cancelled/Void                                               → 'cancelled'
+    //      • archived Open/Released with no receipt + not cancelled-named  → LEAVE
+    //        (ambiguous: could be a user-archived-but-open PO) and report the count.
+    //    Never touches app-native POs (no [xoro-import] tag) or already-terminal
+    //    rows. Best-effort: wrapped so a failure here never fails the tanda_pos sync.
+    try {
+      const { data: nativeActive, error: naErr } = await admin
+        .from("purchase_orders")
+        .select("id, po_number, notes")
+        .in("status", ["draft", "issued", "in_transit"]);
+      if (naErr) throw naErr;
+      const candidates = (nativeActive || []).filter(
+        (p) => p.po_number && String(p.notes || "").includes("[xoro-import]"),
+      );
+      if (candidates.length) {
+        const nums = candidates.map((p) => p.po_number);
+        const tandaByNum = new Map();
+        for (let i = 0; i < nums.length; i += 500) {
+          const { data } = await admin
+            .from("tanda_pos")
+            .select("po_number, data")
+            .in("po_number", nums.slice(i, i + 500));
+          for (const r of data || []) tandaByNum.set(r.po_number, r.data);
+        }
+        const toReceived = [], toCancelled = [];
+        for (const p of candidates) {
+          const d = tandaByNum.get(p.po_number);
+          if (!d || d._archived !== true) continue; // still active in Xoro (or unknown) → leave
+          const st = String(d.StatusName || "").toLowerCase();
+          const items = Array.isArray(d.Items) ? d.Items : [];
+          const anyReceived = items.some((i) => Number(i.QtyReceived ?? 0) > 0);
+          if (st.includes("cancel") || st.includes("void")) toCancelled.push(p.id);
+          else if (anyReceived || st.includes("receiv") || st.includes("closed")) toReceived.push(p.id);
+          else result.native_reconcile_ambiguous++; // archived but no receipt signal — leave for review
+        }
+        for (const [ids, status] of [[toReceived, "received"], [toCancelled, "cancelled"]]) {
+          for (let i = 0; i < ids.length; i += 200) {
+            const { error } = await admin
+              .from("purchase_orders")
+              .update({ status })
+              .in("id", ids.slice(i, i + 200));
+            if (error) result.errors.push(`native reconcile ${status}: ${error.message}`);
+          }
+        }
+        result.native_reconcile_received = toReceived.length;
+        result.native_reconcile_cancelled = toCancelled.length;
+      }
+    } catch (e) {
+      result.errors.push(`native reconcile failed: ${String(e?.message || e)}`);
+    }
 
     return res.status(200).json(result);
   } catch (e) {
