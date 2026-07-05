@@ -146,6 +146,11 @@ const DEFAULT_PO_STATUSES = ["draft", "issued", "in_transit"];
 
 export default function InternalPurchaseOrders() {
   const [rows, setRows] = useState<PO[]>([]);
+  // Guards against a fetch race: rapidly toggling the status multi-select fires
+  // several load()s; without sequencing a slower earlier response can land last
+  // and clobber the newest filter (e.g. "in transit only" briefly showing, then
+  // reverting to all statuses). Only the latest request's result is applied.
+  const loadSeqRef = useRef(0);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -247,6 +252,7 @@ export default function InternalPurchaseOrders() {
   }, [totalsScope, rows, filteredRows]);
 
   async function load() {
+    const seq = ++loadSeqRef.current;
     setLoading(true); setErr(null);
     try {
       const params = new URLSearchParams();
@@ -257,9 +263,11 @@ export default function InternalPurchaseOrders() {
       params.set("limit", String(PO_LIST_LIMIT));
       const r = await fetch(`/api/internal/purchase-orders?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setRows(await r.json() as PO[]);
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
+      const data = await r.json() as PO[];
+      if (seq !== loadSeqRef.current) return; // superseded by a newer load — drop this stale result
+      setRows(data);
+    } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
+    finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
   const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo);
   function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
