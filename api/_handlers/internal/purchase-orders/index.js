@@ -182,6 +182,19 @@ async function enrichInTransit(admin, rows) {
 //                        SO grid's Sell − Cost convention. null when sell is absent.
 // styleFilter (style_code, case-insensitive) scopes ALL aggregates to just that
 // style's lines — mirrors the grid's style search so the numbers match the view.
+// Prepack (PPK) pack size from a size/style/sku token, e.g. "PPK18" → 18. A PPK
+// line's qty is PACKS and its unit_cost is per-PACK; exploding by the pack size
+// puts cost/qty on the same per-UNIT grain as the sell + standard cost, so the
+// Avg PO Price + margin don't blow up (a $214/pack line vs a $16/unit sell →
+// −1248% before, sane after). Non-PPK tokens → 1 (no change).
+function extractPpk(v) {
+  if (!v) return null;
+  const m = String(v).match(/PPK[\s_-]*(\d+)/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 async function enrichPricing(admin, rows, styleFilter) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const poIds = rows.map((r) => r.id);
@@ -217,7 +230,7 @@ async function enrichPricing(admin, rows, styleFilter) {
   const skuById = new Map();
   for (const slice of chunkIds(itemIds, 200)) {
     const { data: skus } = await admin
-      .from("ip_item_master").select("id, style_id, style_code, sku_code").in("id", slice);
+      .from("ip_item_master").select("id, style_id, style_code, sku_code, size").in("id", slice);
     for (const s of skus || []) skuById.set(s.id, s);
   }
   const styleNeedle = styleFilter ? String(styleFilter).trim().toLowerCase() : null;
@@ -231,7 +244,7 @@ async function enrichPricing(admin, rows, styleFilter) {
     const sku = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
     if (styleNeedle && !(sku?.style_code && String(sku.style_code).toLowerCase() === styleNeedle)) continue;
     const arr = linesByPo.get(l.purchase_order_id) || [];
-    arr.push({ ...l, style_id: sku?.style_id || null, sku_code: sku?.sku_code || null });
+    arr.push({ ...l, style_id: sku?.style_id || null, sku_code: sku?.sku_code || null, style_code: sku?.style_code || null, size: sku?.size || null });
     linesByPo.set(l.purchase_order_id, arr);
     if (sku?.style_id) allStyleIds.add(sku.style_id);
     if (sku?.sku_code) allSkuCodes.add(sku.sku_code);
@@ -341,18 +354,27 @@ async function enrichPricing(admin, rows, styleFilter) {
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
       const poPrice = Number(l.unit_cost_cents) || 0;
+      // Remaining-to-ship $ uses the PO's own pack-grain qty × cost (a real $
+      // total, grain-agnostic like Total) — do NOT explode it.
       const openQty = Math.max(0, qty - (Number(l.qty_received) || 0));
       remainingCents += openQty * poPrice;
       if (qty <= 0) continue;
+      // PPK prepack lines carry qty = PACKS and unit_cost = per-PACK. Explode by
+      // the pack size so cost/qty land on the same per-UNIT grain as the sell +
+      // standard cost (whose SKU size is "PPKnn"). effQty = total UNITS; the total
+      // $ (poPrice × packs) is unchanged, so Avg PO Price = total$ ÷ units = the
+      // real per-unit price (a $214/pack line reads $11.90/unit, not $214).
+      const ppk = extractPpk(l.size) || extractPpk(l.style_code) || extractPpk(l.sku_code) || 1;
+      const effQty = qty * ppk;
       // Exclude UNLINKED (no resolved SKU) lines from Avg PO Price. Some Xoro POs
       // carry pack-priced aggregate lines with no SKU (unit_cost = the ~24× pack
       // price against a unit-level qty), which otherwise blow up the per-unit
       // average and produce nonsense margins (e.g. −1,762%). Orphan lines can't be
       // per-unit-validated anyway (std-cost + sell below also require a SKU).
-      if (l.sku_code || l.style_id) { priceNum += poPrice * qty; priceDen += qty; }
+      if (l.sku_code || l.style_id) { priceNum += poPrice * qty; priceDen += effQty; }
       else { unlinkedCostLines += 1; }
       const std = stdCostForSku(l.sku_code);
-      if (std != null) { stdNum += std * qty; stdDen += qty; }
+      if (std != null) { stdNum += std * effQty; stdDen += effQty; }
       // Sell resolution order: customer price → brand-default list → recent
       // ACTUAL sell (SO/invoice/Xoro) → standard unit price → provisional (21%
       // placeholder). Each layer covers a wider set of styles; the provisional
@@ -365,7 +387,7 @@ async function enrichPricing(admin, rows, styleFilter) {
       }
       if (sell == null) sell = stdSellForSku(l.sku_code);
       if (sell == null && l.style_id) { const pv = provisionalByStyle.get(l.style_id); if (pv != null) sell = pv; }
-      if (sell != null) { sellNum += sell * qty; sellDen += qty; }
+      if (sell != null) { sellNum += sell * effQty; sellDen += effQty; }
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
     r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
