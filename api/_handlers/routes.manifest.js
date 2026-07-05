@@ -271,6 +271,8 @@ export default [
   ["/api/internal/sales-orders"                              , "./internal/sales-orders/index.js"],
   ["/api/internal/purchase-orders/:id/split-by-lot"          , "./internal/purchase-orders/split-by-lot.js"],
   ["/api/internal/purchase-orders/:id/part-bill"             , "./internal/purchase-orders/part-bill.js"],
+  ["/api/internal/purchase-orders/:id/shipments/:sid"        , "./internal/purchase-orders/shipments.js"],
+  ["/api/internal/purchase-orders/:id/shipments"             , "./internal/purchase-orders/shipments.js"],
   ["/api/internal/purchase-orders/:id"                       , "./internal/purchase-orders/[id].js"],
   ["/api/internal/purchase-orders"                           , "./internal/purchase-orders/index.js"],
   ["/api/internal/allocations/rules"                         , "./internal/allocations/rules.js"],
