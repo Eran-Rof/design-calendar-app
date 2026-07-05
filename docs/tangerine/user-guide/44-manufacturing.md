@@ -152,7 +152,9 @@ In **Part Master**, tick **"Matrix part (by-size)"** and choose a **size scale**
 
 **Per-size on-hand.** In **Part Inventory**, a matrix part shows as one row with a **▸ expander**; open it to see on-hand, average cost, and value **per size**. (The parent itself holds no stock — the size rows do; Buy/Adjust act on a specific size.)
 
-*(Next: size-matched BOM consumption in builds — a size-M garment consuming a size-M blank.)*
+### Size-matched BOM consumption (shipped)
+
+When a BOM lists a **matrix part** (a blank that comes in sizes, shown *· by size* in the picker), a build consumes it **size-for-size**: a build producing 3× size-M and 7× size-L garments consumes 3 size-M blanks and 7 size-L blanks — not an aggregate. It happens automatically at **Release**: each per-size line of the build's plan expands into its own component against the matching-size child part (qty = qty/unit × that size's produced qty × scrap). If a BOM has a matrix part but the build has no size plan, Release asks you to add one. Non-matrix parts are unchanged. This closes the loop: define a matrix part → buy it by size → and now **consume it by size** in builds.
 
 ## M6 — manufacturing reports (shipped)
 
