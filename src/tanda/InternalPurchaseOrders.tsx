@@ -207,6 +207,10 @@ export default function InternalPurchaseOrders() {
   // loaded dataset (ignores the client-side date window). Server search/status/
   // vendor filters always bound `rows`, so "All" = everything currently loaded.
   const [totalsScope, setTotalsScope] = useState<"filtered" | "all">("filtered");
+  // Remaining-to-Ship rollup — a planning breakdown of the open commitment by
+  // expected-delivery month (receiving / cash-outflow pipeline) or by vendor.
+  const [rollupOpen, setRollupOpen] = useState(false);
+  const [rollupBy, setRollupBy] = useState<"month" | "vendor">("month");
 
   const vendorName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -276,6 +280,30 @@ export default function InternalPurchaseOrders() {
     const marginPct = sell != null && marginCents != null && sell > 0 ? (marginCents / sell) * 100 : null;
     return { count: src.length, totalCents, remainingCents, avgCost, avgPoPrice, sell, marginCents, marginPct };
   }, [totalsScope, rows, filteredRows]);
+
+  // Remaining-to-Ship rollup — group the currently-filtered POs by expected
+  // month (YYYY-MM, chronological) or vendor (by size), summing the open
+  // commitment so the buyer sees the receiving / cash-outflow pipeline.
+  const rollup = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; count: number; remaining: number }>();
+    for (const po of filteredRows) {
+      let key: string, label: string;
+      if (rollupBy === "vendor") { key = vendorName[po.vendor_id] || "(no vendor)"; label = key; }
+      else {
+        const ym = (po.expected_date || "").slice(0, 7);
+        key = ym || "9999-99"; // undated sinks to the bottom of the chronological sort
+        label = ym ? new Date(`${ym}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "No date";
+      }
+      const g = groups.get(key) || { key, label, count: 0, remaining: 0 };
+      g.count += 1; g.remaining += Number(po.remaining_to_ship_cents ?? 0);
+      groups.set(key, g);
+    }
+    const arr = [...groups.values()];
+    arr.sort(rollupBy === "vendor" ? (a, b) => b.remaining - a.remaining : (a, b) => a.key.localeCompare(b.key));
+    const max = arr.reduce((m, g) => Math.max(m, g.remaining), 0);
+    const total = arr.reduce((s, g) => s + g.remaining, 0);
+    return { rows: arr, max, total };
+  }, [filteredRows, rollupBy, vendorName]);
 
   async function load() {
     const seq = ++loadSeqRef.current;
@@ -446,8 +474,53 @@ export default function InternalPurchaseOrders() {
               {s === "filtered" ? "Filtered rows" : "All rows"}
             </button>
           ))}
+          <button type="button" onClick={() => setRollupOpen((o) => !o)}
+            style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12, ...(rollupOpen ? { color: C.text, borderColor: C.primary, background: "#0b1220" } : null) }}
+            title="Break Remaining-to-Ship down by expected month or vendor (the receiving / cash-outflow pipeline)">
+            📊 Remaining-to-ship rollup {rollupOpen ? "▾" : "▸"}
+          </button>
         </div>
       </div>
+
+      {/* Remaining-to-Ship rollup — planning breakdown of the open commitment. */}
+      {rollupOpen && (
+        <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 14, marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Remaining to ship by {rollupBy === "month" ? "expected month" : "vendor"} <span style={{ color: C.textMuted, fontWeight: 400 }}>· {rollup.rows.length} group{rollup.rows.length === 1 ? "" : "s"} · {fmtCents(rollup.total)} open{anyFilter ? " (filtered)" : ""}</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textMuted }}>
+              <span>Group by:</span>
+              {(["month", "vendor"] as const).map((b) => (
+                <button key={b} type="button" onClick={() => setRollupBy(b)}
+                  style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12, ...(rollupBy === b ? { color: C.text, borderColor: C.primary, background: "#0b1220" } : null) }}>
+                  {b === "month" ? "Expected month" : "Vendor"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rollup.rows.length === 0 ? <div style={{ color: C.textMuted, fontSize: 13 }}>No open POs in the current view.</div> : (
+            <div style={{ maxHeight: 300, overflow: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <tbody>
+                  {rollup.rows.map((g) => (
+                    <tr key={g.key}>
+                      <td style={{ padding: "5px 10px 5px 0", whiteSpace: "nowrap", color: C.text }}>{g.label}</td>
+                      <td style={{ padding: "5px 10px", color: C.textMuted, textAlign: "right", fontVariantNumeric: "tabular-nums", width: 70 }}>{g.count} PO{g.count === 1 ? "" : "s"}</td>
+                      <td style={{ padding: "5px 0", width: "55%" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 8, background: "#0b1220", borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ width: `${rollup.max > 0 ? (g.remaining / rollup.max) * 100 : 0}%`, height: "100%", background: C.primary, borderRadius: 4 }} />
+                          </div>
+                          <span style={{ width: 120, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmtCents(g.remaining)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {styleScope && <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Cost, PO price, sell &amp; margin scoped to style <b style={{ color: C.text }}>{styleScope}</b></div>}
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
