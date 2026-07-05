@@ -118,7 +118,10 @@ function Metric({ label, value, caption, onClick, drillLabel }: { label: string;
   );
 }
 
-function openTab(url: string) { window.open(url, "_blank", "noopener"); }
+// No `noopener`: same-origin /tangerine drill. `noopener` gives the new tab an empty
+// sessionStorage, dropping the PLM session so Tangerine re-prompts for a Microsoft
+// sign-in. Keeping the opener lets it inherit the session (same as NavDrawer new-tab).
+function openTab(url: string) { window.open(url, "_blank"); }
 const fmtMoneyNum = (n: number | null | undefined) =>
   n == null ? "—" : Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 

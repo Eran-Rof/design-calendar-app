@@ -456,7 +456,12 @@ function fmtMarginPct(saleCents: number | null | undefined, costCents: number | 
   return m == null ? "—" : `${(m * 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 }
 
-function openTab(url: string) { window.open(url, "_blank", "noopener"); }
+// NOTE: no `noopener`. These are same-origin Tangerine deep-links, and Tangerine
+// adopts its identity from the opener tab's sessionStorage ("plm_user"). `noopener`
+// starts the new tab with an EMPTY sessionStorage, so the drill tab loses the PLM
+// session and Tangerine falls back to a fresh Microsoft sign-in prompt. Keeping the
+// opener link lets the new tab inherit the session (same as NavDrawer's new-tab).
+function openTab(url: string) { window.open(url, "_blank"); }
 // Same-app (Tangerine) module deep-links — relative so the current /tangerine
 // path is kept and only the query changes.
 const lnkMatrix = (styleId: string) => `?m=inventory_matrix&style_id=${encodeURIComponent(styleId)}`;
@@ -774,7 +779,7 @@ function SnapshotView({
 
   // Quantity cell — opens a URL in a new tab.
   const QtyLink = ({ v, url }: { v: number; url: string }) => (
-    <a href={url} target="_blank" rel="noopener noreferrer"
+    <a href={url} target="_blank" rel="noreferrer"
        onClick={(e) => { e.preventDefault(); openTab(url); }}
        style={{ color: C.base, textDecoration: "none", cursor: "pointer", fontFamily: "monospace" }}>{fmtQty(v)}</a>
   );
