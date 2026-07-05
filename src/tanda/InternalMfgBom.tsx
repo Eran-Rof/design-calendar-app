@@ -20,7 +20,7 @@ import { usePartThumbs, PartThumb } from "../shared/ui/PartThumb";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 
 type ItemLite = { id: string; sku_code: string; style_code: string | null; description: string | null; color?: string | null; size?: string | null };
-type PartLite = { id: string; code: string; name: string; default_unit_cost_cents?: number | null };
+type PartLite = { id: string; code: string; name: string; default_unit_cost_cents?: number | null; is_matrix?: boolean };
 type ServiceLite = { id: string; code: string; name: string; default_charge_cents?: number | null };
 type VendorLite = { id: string; name: string };
 
@@ -328,7 +328,9 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
     () => [{ value: "", label: "— none —" }, ...vendors.map((v) => ({ value: v.id, label: v.name }))],
     [vendors],
   );
-  const partOptions: SearchableSelectOption[] = useMemo(() => parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}` })), [parts]);
+  // A matrix (by-size) part is size-matched at build release: a size-M output
+  // consumes the size-M child. Flag it in the picker.
+  const partOptions: SearchableSelectOption[] = useMemo(() => parts.map((p) => ({ value: p.id, label: `${p.code} — ${p.name}${p.is_matrix ? " · by size" : ""}` })), [parts]);
   const svcOptions: SearchableSelectOption[] = useMemo(() => services.map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })), [services]);
   const partCostById = useMemo(() => new Map(parts.map((p) => [p.id, p.default_unit_cost_cents ?? null])), [parts]);
   const svcCostById = useMemo(() => new Map(services.map((s) => [s.id, s.default_charge_cents ?? null])), [services]);
@@ -522,6 +524,9 @@ function BomEditor({ bomId, onClose, onSaved }: { bomId: string | null; onClose:
                               <button type="button" style={{ ...btnSecondary, whiteSpace: "nowrap", padding: "6px 8px" }} title="Create a new part without leaving the BOM"
                                 onClick={() => { if (!isAdmin) { notify("Only admins can add parts. Ask an admin, or pick an existing part.", "error"); return; } setAddPartOpen(i); }}>+ New</button>
                             </div>
+                          )}
+                          {c.component_kind === "part" && c.part_id && parts.find((p) => p.id === c.part_id)?.is_matrix && (
+                            <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>size-matched — each produced size consumes the matching-size child</div>
                           )}
                           {c.component_kind === "service" && (
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
