@@ -416,6 +416,7 @@ import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procu
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
 import r_internal_purchase_orders_part_bill from "./internal/purchase-orders/part-bill.js";
+import r_internal_purchase_orders_shipments from "./internal/purchase-orders/shipments.js";
 import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/split-by-lot.js";
 import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
@@ -773,6 +774,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/comp/ly", handler: r_internal_costing_comp_ly },
   { pattern: "/api/internal/costing/comp/t3", handler: r_internal_costing_comp_t3 },
   { pattern: "/api/internal/inventory-cycle-counts/:id/lines/:line_id", handler: r_internal_inventory_cycle_counts_lines },
+  { pattern: "/api/internal/purchase-orders/:id/shipments/:sid", handler: r_internal_purchase_orders_shipments },
   { pattern: "/api/internal/parts/:part_id/images/:image_id", handler: r_internal_parts_part_id_images_image_id },
   { pattern: "/api/internal/vendors/:id/preferred/:pref_id", handler: r_internal_vendors_id_preferred_pref_id },
   { pattern: "/api/internal/workspaces/:id/tasks/:task_id", handler: r_internal_workspaces_id_tasks_task_id },
@@ -805,6 +807,7 @@ export const ROUTES = [
   { pattern: "/api/internal/workflow-executions/:id/reject", handler: r_internal_workflow_executions_id_reject },
   { pattern: "/api/internal/bank-transactions/:id/unmatch", handler: r_internal_bank_transactions_unmatch },
   { pattern: "/api/internal/purchase-orders/:id/part-bill", handler: r_internal_purchase_orders_part_bill },
+  { pattern: "/api/internal/purchase-orders/:id/shipments", handler: r_internal_purchase_orders_shipments },
   { pattern: "/api/internal/sales-returns/:id/credit-memo", handler: r_internal_sales_returns_id_credit_memo },
   { pattern: "/api/internal/scorecards/:vendor_id/history", handler: r_internal_scorecards_vendor_id_history },
   { pattern: "/api/vendor/virtual-cards/:id/confirm-spent", handler: r_vendor_virtual_cards_id_confirm_spent },

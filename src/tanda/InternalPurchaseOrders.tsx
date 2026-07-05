@@ -93,6 +93,9 @@ type PO = {
   //                             cost. The open commitment (ties to Xoro's
   //                             "$ Remaining to Ship"), vs Total = ordered value.
   remaining_to_ship_cents?: number | null;
+  // In-transit OVERLAY (po_shipments) — a separate dimension from `status`; a PO
+  // can be "issued · in transit" or "partially received · in transit".
+  in_transit?: boolean; transit_eta?: string | null; transit_shipments?: number;
 };
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
@@ -146,6 +149,15 @@ const STATUS_COLORS: Record<string, string> = {
 // Human-readable status label — drops the underscore ("in_transit" → "in transit")
 // for every place the raw status is shown (filter options, grid chip, modal).
 const statusLabel = (s: string) => s.replace(/_/g, " ");
+// In-transit OVERLAY chip — rendered next to the lifecycle status when the PO
+// has ≥1 active shipment (po_shipments). A PO reads e.g. "issued · ✈ in transit".
+function InTransitChip({ po }: { po: Pick<PO, "in_transit" | "transit_eta"> }) {
+  if (!po.in_transit) return null;
+  const eta = po.transit_eta ? fmtDateDisplay(po.transit_eta) : null;
+  return (
+    <span title={eta ? `In transit · ETA ${eta}` : "In transit (shipment on the way)"} style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: C.warn, border: `1px solid ${C.warn}`, borderRadius: 4, padding: "0 5px", whiteSpace: "nowrap", verticalAlign: "middle" }}>✈ in transit{eta ? ` · ${eta}` : ""}</span>
+  );
+}
 // Default status filter — the live/actionable set the buyer works from.
 const DEFAULT_PO_STATUSES = ["draft", "issued", "partially_received"];
 
@@ -162,6 +174,9 @@ export default function InternalPurchaseOrders() {
   // Multi-select status filter (model after the SO grid). Defaults to the live
   // set (draft / issued / in-transit); empty = all statuses.
   const [statusFilters, setStatusFilters] = useState<string[]>(DEFAULT_PO_STATUSES);
+  // In-transit overlay filter (client-side) — show only POs with an active
+  // shipment. It's an overlay, not a lifecycle status, so it filters separately.
+  const [inTransitOnly, setInTransitOnly] = useState(false);
   // Grid-level EXPLODE PPK toggle — one control drives every row expander
   // (moved out of the individual detail rows). Persisted, shared with the tab.
   const [explodePpk, setExplodePpk] = useState<boolean>(readExplodePpk);
@@ -202,16 +217,19 @@ export default function InternalPurchaseOrders() {
   // Apply the date-range window client-side on the selected date field. A row
   // with no value on that field is dropped while a bound is set (can't place it).
   const filteredRows = useMemo(() => {
-    if (!dateFrom && !dateTo) return rows;
+    if (!dateFrom && !dateTo && !inTransitOnly) return rows;
     return rows.filter((po) => {
-      const v = (po[dateField] || "") as string;
-      if (!v) return false;
-      const d = v.slice(0, 10);
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
+      if (inTransitOnly && !po.in_transit) return false; // in-transit overlay is a client-side filter (not a status)
+      if (dateFrom || dateTo) {
+        const v = (po[dateField] || "") as string;
+        if (!v) return false;
+        const d = v.slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+      }
       return true;
     });
-  }, [rows, dateField, dateFrom, dateTo]);
+  }, [rows, dateField, dateFrom, dateTo, inTransitOnly]);
 
   // Universal per-column sort (tri-state asc → desc → off, persisted). Computed
   // columns (vendor name, margin) read through accessors; the rest map 1:1.
@@ -277,8 +295,8 @@ export default function InternalPurchaseOrders() {
     } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
     finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
-  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo);
-  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); }
+  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo || inTransitOnly);
+  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); setInTransitOnly(false); }
   // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
   // initializers above seeded from them, so leaving and returning to this panel
   // starts unfiltered instead of silently re-applying a stale search that can
@@ -362,6 +380,12 @@ export default function InternalPurchaseOrders() {
           title="Filter by one or more statuses"
           minWidth={180}
         />
+        {/* In-transit overlay filter — separate from status (a PO can be issued
+            OR partially received AND in transit). */}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: inTransitOnly ? C.warn : C.textSub, cursor: "pointer", whiteSpace: "nowrap" }} title="Show only POs with an active shipment in transit">
+          <input type="checkbox" checked={inTransitOnly} onChange={(e) => setInTransitOnly(e.target.checked)} style={{ accentColor: C.warn, cursor: "pointer", width: 13, height: 13 }} />
+          ✈ In transit only
+        </label>
         <div style={{ width: 240 }}>
           <SearchableSelect value={vendorFilter || null} onChange={(v) => setVendorFilter(v)}
             options={[{ value: "", label: "All vendors" }, ...vendors.map((v) => ({ value: v.id, label: v.name, searchHaystack: `${v.name} ${v.code || ""}` }))]}
@@ -465,7 +489,7 @@ export default function InternalPurchaseOrders() {
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(po.order_date)}</td>
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("cancel_date")}>{po.cancel_date ? fmtDateDisplay(po.cancel_date) : "—"}</td>
-                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span></td>
+                <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span><InTransitChip po={po} /></td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost">{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_po_price")} title="This PO's actual unit price">{po.avg_po_price_cents != null ? fmtCents(po.avg_po_price_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
@@ -656,6 +680,162 @@ function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
   );
 }
 
+// ── In-transit overlay editor ────────────────────────────────────────────────
+type Shipment = {
+  id: string; status: string; source: string; ship_method: string | null;
+  carrier: string | null; tracking_number: string | null; asn_ref: string | null;
+  shipped_date: string | null; eta: string | null; notes: string | null;
+  lines: { id: string; purchase_order_line_id: string; qty_in_transit: number }[];
+};
+type POLineLite = { id: string; description: string | null; qty_ordered: number; qty_received: number | null; sku_code?: string | null };
+const SHIP_METHOD_OPTS = ["", "sea", "air", "ground"];
+
+// Shipments = the in-transit OVERLAY for one PO. A PO carries zero-or-more
+// shipments (carrier / method / ETA + per-line qty on the way); it reads
+// "in transit" while any is still status 'in_transit'. Buyer-entered here.
+function ShipmentsModal({ poId, poNumber, onClose, onChanged }: { poId: string; poNumber: string | null; onClose: () => void; onChanged: () => void }) {
+  const [ships, setShips] = useState<Shipment[]>([]);
+  const [lines, setLines] = useState<POLineLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Shipment | null>(null); // null = list view
+  // Editable form fields (shared new/edit).
+  const [f, setF] = useState<{ ship_method: string; carrier: string; tracking_number: string; asn_ref: string; shipped_date: string; eta: string; notes: string }>({ ship_method: "", carrier: "", tracking_number: "", asn_ref: "", shipped_date: "", eta: "", notes: "" });
+  const [qty, setQty] = useState<Record<string, string>>({}); // po_line_id → qty in transit
+
+  async function reload() {
+    setLoading(true); setErr(null);
+    try {
+      const [sr, pr] = await Promise.all([
+        fetch(`/api/internal/purchase-orders/${poId}/shipments`).then((r) => r.ok ? r.json() : []),
+        fetch(`/api/internal/purchase-orders/${poId}`).then((r) => r.ok ? r.json() : null),
+      ]);
+      setShips(Array.isArray(sr) ? sr : []);
+      setLines(Array.isArray(pr?.lines) ? pr.lines : []);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void reload(); /* eslint-disable-next-line */ }, [poId]);
+
+  function openForm(s: Shipment | null) {
+    setEditing(s ?? ({ id: "", status: "in_transit", source: "buyer", ship_method: null, carrier: null, tracking_number: null, asn_ref: null, shipped_date: null, eta: null, notes: null, lines: [] } as Shipment));
+    setF({
+      ship_method: s?.ship_method ?? "", carrier: s?.carrier ?? "", tracking_number: s?.tracking_number ?? "",
+      asn_ref: s?.asn_ref ?? "", shipped_date: s?.shipped_date ?? "", eta: s?.eta ?? "", notes: s?.notes ?? "",
+    });
+    const q: Record<string, string> = {};
+    if (s) for (const l of s.lines) q[l.purchase_order_line_id] = String(l.qty_in_transit);
+    else for (const l of lines) { const rem = Number(l.qty_ordered) - Number(l.qty_received || 0); if (rem > 0) q[l.id] = String(rem); } // default new = remaining
+    setQty(q);
+  }
+
+  async function save() {
+    if (!editing) return;
+    setBusy(true); setErr(null);
+    const payload = {
+      ship_method: f.ship_method || null, carrier: f.carrier || null, tracking_number: f.tracking_number || null,
+      asn_ref: f.asn_ref || null, shipped_date: f.shipped_date || null, eta: f.eta || null, notes: f.notes || null,
+      lines: Object.entries(qty).map(([purchase_order_line_id, v]) => ({ purchase_order_line_id, qty_in_transit: Number(v) || 0 })).filter((l) => l.qty_in_transit > 0),
+    };
+    const isNew = !editing.id;
+    const url = isNew ? `/api/internal/purchase-orders/${poId}/shipments` : `/api/internal/purchase-orders/${poId}/shipments/${editing.id}`;
+    try {
+      const r = await fetch(url, { method: isNew ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setEditing(null); await reload(); onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+  async function patchStatus(s: Shipment, status: string) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${poId}/shipments/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await reload(); onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  async function remove(s: Shipment) {
+    if (!(await confirmDialog("Delete this shipment record? This does not change received quantities."))) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${poId}/shipments/${s.id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await reload(); onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  const shipColor: Record<string, string> = { in_transit: C.warn, arrived: C.success, cancelled: C.danger };
+  const inp: React.CSSProperties = { ...inputStyle };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 120, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflow: "auto" }} onClick={onClose}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 12, width: "min(760px, 95vw)", maxHeight: "90vh", overflow: "auto", padding: 20, color: C.text }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 18 }}>🚚 Shipments · <span style={{ color: C.textMuted }}>{poNumber || "(draft)"}</span></h3>
+          <button onClick={onClose} style={btnSecondary}>Close</button>
+        </div>
+        {err && <div style={{ color: C.danger, marginBottom: 10, fontSize: 13 }}>{err}</div>}
+        {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : editing ? (
+          <div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <label style={dl}>Method<select value={f.ship_method} onChange={(e) => setF({ ...f, ship_method: e.target.value })} style={inp}>{SHIP_METHOD_OPTS.map((m) => <option key={m} value={m}>{m ? m[0].toUpperCase() + m.slice(1) : "—"}</option>)}</select></label>
+              <label style={dl}>Carrier<input value={f.carrier} onChange={(e) => setF({ ...f, carrier: e.target.value })} style={inp} placeholder="Maersk…" /></label>
+              <label style={dl}>Tracking / BOL<input value={f.tracking_number} onChange={(e) => setF({ ...f, tracking_number: e.target.value })} style={inp} /></label>
+              <label style={dl}>ASN ref<input value={f.asn_ref} onChange={(e) => setF({ ...f, asn_ref: e.target.value })} style={inp} /></label>
+              <label style={dl}>Shipped date<input type="date" value={f.shipped_date} onChange={(e) => setF({ ...f, shipped_date: e.target.value })} style={{ ...inp, colorScheme: "dark" }} /></label>
+              <label style={dl}>ETA<input type="date" value={f.eta} onChange={(e) => setF({ ...f, eta: e.target.value })} style={{ ...inp, colorScheme: "dark" }} /></label>
+            </div>
+            <label style={dl}>Notes<input value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} style={{ ...inp, marginBottom: 12 }} /></label>
+            <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "6px 0" }}>Quantities on the way</div>
+            <div style={{ maxHeight: 240, overflow: "auto", border: `1px solid ${C.cardBdr}`, borderRadius: 6 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr style={{ position: "sticky", top: 0 }}><th style={{ ...th, position: "sticky", top: 0 }}>Line</th><th style={{ ...th, textAlign: "right" }}>Ordered</th><th style={{ ...th, textAlign: "right" }}>Received</th><th style={{ ...th, textAlign: "right" }}>Remaining</th><th style={{ ...th, textAlign: "right" }}>In transit</th></tr></thead>
+                <tbody>
+                  {lines.map((l) => { const rem = Number(l.qty_ordered) - Number(l.qty_received || 0); return (
+                    <tr key={l.id}>
+                      <td style={td}>{l.sku_code || l.description || "—"}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{Number(l.qty_ordered).toLocaleString()}</td>
+                      <td style={{ ...td, textAlign: "right" }}>{Number(l.qty_received || 0).toLocaleString()}</td>
+                      <td style={{ ...td, textAlign: "right", color: C.textMuted }}>{rem.toLocaleString()}</td>
+                      <td style={{ ...td, textAlign: "right" }}><input value={qty[l.id] ?? ""} onChange={(e) => setQty({ ...qty, [l.id]: e.target.value.replace(/[^0-9]/g, "") })} style={{ ...inp, width: 80, textAlign: "right", padding: "4px 6px" }} placeholder="0" /></td>
+                    </tr>
+                  ); })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+              <button onClick={() => setEditing(null)} style={btnSecondary} disabled={busy}>Cancel</button>
+              <button onClick={() => void save()} style={btnPrimary} disabled={busy}>{busy ? "Saving…" : editing.id ? "Save shipment" : "Add shipment"}</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {ships.length === 0 ? <div style={{ color: C.textMuted, padding: "12px 0" }}>No shipments recorded. Add one to mark this PO in transit.</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {ships.map((s) => (
+                  <div key={s.id} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}><span style={{ color: shipColor[s.status] || C.text }}>● {statusLabel(s.status)}</span> {s.ship_method ? `· ${s.ship_method}` : ""} {s.carrier ? `· ${s.carrier}` : ""} {s.source === "vendor_asn" ? "· vendor ASN" : ""}</div>
+                      <div style={{ fontSize: 12, color: C.textMuted }}>{s.eta ? `ETA ${fmtDateDisplay(s.eta)}` : "no ETA"} · {s.lines.reduce((a, l) => a + Number(l.qty_in_transit), 0).toLocaleString()} units · {s.lines.length} line{s.lines.length === 1 ? "" : "s"}{s.tracking_number ? ` · ${s.tracking_number}` : ""}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => openForm(s)} style={{ ...btnSecondary, padding: "4px 10px" }} disabled={busy}>Edit</button>
+                      {s.status === "in_transit" && <button onClick={() => void patchStatus(s, "arrived")} style={{ ...btnSecondary, padding: "4px 10px", color: C.success, borderColor: "#065f46" }} disabled={busy} title="Mark this shipment arrived (clears the in-transit overlay for it)">Arrived</button>}
+                      {s.status === "in_transit" && <button onClick={() => void patchStatus(s, "cancelled")} style={{ ...btnSecondary, padding: "4px 10px", color: C.warn }} disabled={busy}>Cancel</button>}
+                      <button onClick={() => void remove(s)} style={{ ...btnSecondary, padding: "4px 10px", color: C.danger, borderColor: "#7f1d1d" }} disabled={busy}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 14 }}><button onClick={() => openForm(null)} style={btnPrimary} disabled={busy}>+ Add shipment</button></div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null; vendors: Vendor[]; onClose: () => void; onSaved: () => void }) {
   const isNew = po === null;
   // Item 1 — on-the-fly "+ New vendor / + New customer" rows are merged in front
@@ -747,6 +927,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   const [countries, setCountries] = useState<{ iso2?: string; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [shipmentsOpen, setShipmentsOpen] = useState(false);
 
   // Manufacturing-part PO (po_type='manufacturing_part'): lines pick PARTS, not
   // style SKUs. A non-matrix part uses a single qty; a matrix (by-size) part
@@ -1301,6 +1482,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
                 {po?.status && (
                   <span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span>
                 )}
+                {po && <InTransitChip po={po as PO} />}
               </div>
             </Field>
           </div>
@@ -1553,7 +1735,11 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
 
           {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
           {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}
-          {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>Mark in-transit</button>}
+          {/* Shipments (in-transit overlay) — a PO can carry one or more shipments
+              (carrier / ETA / per-line qty on the way) ON TOP of its lifecycle
+              status, so it reads "issued · in transit" / "partially received ·
+              in transit". Buyer-entered here; a vendor ASN sets them later. */}
+          {isRevisable && !editMode && po?.id && <button onClick={() => setShipmentsOpen(true)} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting} title="Record shipments in transit (carrier, ETA, per-line quantities on the way)">🚚 Shipments…</button>}
           {/* "Received" is no longer a manual flip — it's set when a goods receipt
               is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
           {isRevisable && !editMode && (po?.status === "issued" || po?.status === "partially_received" || po?.status === "in_transit") && po?.id && (
@@ -1580,6 +1766,11 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
           {isRevisable && editMode && <button onClick={() => void saveDraft()} style={btnPrimary} disabled={submitting}>{submitting ? "Saving…" : "Save revision"}</button>}
         </div>
       </div>
+
+      {/* In-transit overlay editor — shipments (carrier / ETA / per-line qty). */}
+      {shipmentsOpen && po?.id && (
+        <ShipmentsModal poId={po.id} poNumber={po.po_number} onClose={() => setShipmentsOpen(false)} onChanged={onSaved} />
+      )}
 
       {/* Item 1 — on-the-fly "+ New vendor / + New customer" popups. */}
       {quickAddVendor && (

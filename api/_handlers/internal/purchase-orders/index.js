@@ -131,6 +131,34 @@ export function validateInsert(body) {
 // PostgREST's ~16KB header limit (uuids ≈ 39 chars each → 200 ≈ 8KB).
 function chunkIds(arr, n) { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; }
 
+// In-transit OVERLAY: a PO is "in transit" while it has ≥1 shipment still in
+// status 'in_transit' (a separate dimension from its lifecycle status — see
+// po_shipments). Decorate each row with in_transit (bool), transit_eta (the
+// earliest active-shipment ETA) and transit_shipments (count). Best-effort:
+// swallow errors (e.g. table not yet migrated) so the grid never 500s on it.
+async function enrichInTransit(admin, rows) {
+  if (!rows.length) return rows;
+  for (const r of rows) { r.in_transit = false; r.transit_eta = null; r.transit_shipments = 0; }
+  try {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const slice of chunkIds([...byId.keys()], 200)) {
+      const { data } = await admin
+        .from("po_shipments")
+        .select("purchase_order_id, eta")
+        .eq("status", "in_transit")
+        .in("purchase_order_id", slice);
+      for (const s of data || []) {
+        const r = byId.get(s.purchase_order_id);
+        if (!r) continue;
+        r.in_transit = true;
+        r.transit_shipments += 1;
+        if (s.eta && (r.transit_eta == null || s.eta < r.transit_eta)) r.transit_eta = s.eta;
+      }
+    }
+  } catch { /* table missing / transient — leave overlay defaults */ }
+  return rows;
+}
+
 // ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
 // Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
@@ -419,6 +447,7 @@ export default async function handler(req, res) {
     // The search RPC can't express a multi-status set, so narrow it client-side.
     if (q && statuses.length > 1) { const set = new Set(statuses); headers = headers.filter((h) => set.has(h.status)); }
     const enriched = await enrichPricing(admin, headers, styleScope);
+    await enrichInTransit(admin, enriched);
     return res.status(200).json(enriched);
   }
 
