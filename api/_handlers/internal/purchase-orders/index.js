@@ -17,7 +17,7 @@ import { resolvePricesForCustomer } from "../../../_lib/pricing/engine.js";
 export const config = { maxDuration: 20 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
+const STATUSES = ["draft", "issued", "partially_received", "in_transit", "received", "cancelled"];
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -173,7 +173,7 @@ async function enrichPricing(admin, rows, styleFilter) {
     for (let from = 0; ; from += LINE_PAGE) {
       const { data } = await admin
         .from("purchase_order_lines")
-        .select("purchase_order_id, inventory_item_id, qty_ordered, unit_cost_cents")
+        .select("purchase_order_id, inventory_item_id, qty_ordered, qty_received, unit_cost_cents")
         .in("purchase_order_id", slice)
         .order("purchase_order_id", { ascending: true })
         .order("line_number", { ascending: true })
@@ -304,11 +304,18 @@ async function enrichPricing(admin, rows, styleFilter) {
     // (standard/catalog cost, only over lines that actually have one).
     let priceNum = 0, priceDen = 0, stdNum = 0, stdDen = 0, sellNum = 0, sellDen = 0;
     let unlinkedCostLines = 0;
+    // Remaining-to-ship $ = Σ max(0, qty_ordered − qty_received) × this PO's unit
+    // cost. Ties to Xoro's "$ Remaining to Ship" (open commitment), unlike Total
+    // which is the full ordered value. Uses every line (SKU-linked or not) since
+    // it's the PO's own cost × its own open qty.
+    let remainingCents = 0;
     const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
-      if (qty <= 0) continue;
       const poPrice = Number(l.unit_cost_cents) || 0;
+      const openQty = Math.max(0, qty - (Number(l.qty_received) || 0));
+      remainingCents += openQty * poPrice;
+      if (qty <= 0) continue;
       // Exclude UNLINKED (no resolved SKU) lines from Avg PO Price. Some Xoro POs
       // carry pack-priced aggregate lines with no SKU (unit_cost = the ~24× pack
       // price against a unit-level qty), which otherwise blow up the per-unit
@@ -334,6 +341,7 @@ async function enrichPricing(admin, rows, styleFilter) {
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
     r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
+    r.remaining_to_ship_cents = Math.round(remainingCents);
     // Flag POs that carry unlinked (SKU-less) cost lines — typically the Xoro
     // pack-priced aggregate lines excluded above; their qty/value are real but
     // their per-unit price is unreliable, so the Total may still be inflated.
