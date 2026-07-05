@@ -1344,7 +1344,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                         <a
                           key={m.key}
                           href={`?m=${m.key}`}
-                          rel="noopener"
+                          rel="noreferrer"
                           role="menuitem"
                           onClick={(e) => {
                             // Modifier / non-primary clicks → let the browser open a
@@ -1359,7 +1359,9 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
                             setHoveredKey(null);
                             if (isModalOpen()) {
                               // Preserve the open modal in this tab — open elsewhere.
-                              window.open(`?m=${m.key}`, "_blank", "noopener");
+                              // No `noopener`: same-origin Tangerine route; noopener would
+                              // give the new tab an empty sessionStorage and re-prompt MS login.
+                              window.open(`?m=${m.key}`, "_blank");
                             } else {
                               onSelectModule(m.key); // normal same-tab navigation
                             }

@@ -117,7 +117,10 @@ export default function RfqListView() {
   // Falls back to the RFQ edit view for rows without a linked project.
   const onOpenProject = (r: RfqListRow) => {
     if (r.source_costing_project_id) {
-      window.open(`/costing?project=${r.source_costing_project_id}`, "_blank", "noopener");
+      // No `noopener`: same-origin Costing route. noopener starts the new tab with
+      // an empty sessionStorage, dropping the PLM session (unscopes the notifications
+      // bell / user footer). Keeping the opener lets the tab inherit the session.
+      window.open(`/costing?project=${r.source_costing_project_id}`, "_blank");
     } else {
       navigate("rfq-edit", r.id);
     }

@@ -598,7 +598,7 @@ export function NavDrawer({
           <div style={{ padding:"0 4px" }}>
             <div style={{ height:1, background:C.border, margin:"5px 0" }} />
             <a
-              href="/planning/wholesale" target="_blank" rel="noopener"
+              href="/planning/wholesale" target="_blank" rel="noreferrer"
               title="Inventory Planning (opens in new tab)"
               style={{ display:"flex", alignItems:"center", gap:8, padding: collapsed ? "7px 0" : "5px 10px", borderRadius:5, textDecoration:"none", color:C.textMuted, fontSize:13, whiteSpace:"nowrap", justifyContent: collapsed ? "center" : "flex-start", transition:"background 0.1s,color 0.1s" }}
               onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = C.bgRow; }}
@@ -642,7 +642,7 @@ export function NavDrawer({
               <div style={{ fontSize:11, color:C.textMuted, textTransform:"uppercase", letterSpacing:1, marginBottom:8, padding:"0 4px" }}>Suite Apps</div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:4 }}>
                 {SUITE_APPS.map(a => (
-                  <a key={a.href} href={a.href} target="_blank" rel="noopener"
+                  <a key={a.href} href={a.href} target="_blank" rel="noreferrer"
                     style={{ display:"flex", alignItems:"center", gap:7, padding:"6px 8px", borderRadius:7, textDecoration:"none", color:C.text, background:"transparent", transition:"background 0.12s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
