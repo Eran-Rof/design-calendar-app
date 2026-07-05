@@ -206,13 +206,15 @@ function ReceiptModal({ receipt, initialPoId, onClose, onSaved }: { receipt: Rec
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load issued + in-transit POs (merge), expense/asset GL accounts, vendors.
+  // Load POs with goods still to receive — issued, partially received, and
+  // (legacy) in-transit — expense/asset GL accounts, vendors.
   useEffect(() => {
     Promise.all([
       fetch("/api/internal/purchase-orders?status=issued&limit=500").then((r) => r.ok ? r.json() : []),
+      fetch("/api/internal/purchase-orders?status=partially_received&limit=500").then((r) => r.ok ? r.json() : []),
       fetch("/api/internal/purchase-orders?status=in_transit&limit=500").then((r) => r.ok ? r.json() : []),
-    ]).then(([a, b]) => {
-      const merged = [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])] as PO[];
+    ]).then(([a, b, c]) => {
+      const merged = [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : []), ...(Array.isArray(c) ? c : [])] as PO[];
       setPos(merged);
     }).catch(() => {});
     fetch("/api/internal/gl-accounts?limit=1000").then((r) => r.ok ? r.json() : []).then((a) => {

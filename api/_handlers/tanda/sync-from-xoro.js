@@ -461,7 +461,7 @@ export default async function handler(req, res) {
       const { data: nativeActive, error: naErr } = await admin
         .from("purchase_orders")
         .select("id, po_number, notes")
-        .in("status", ["draft", "issued", "in_transit"]);
+        .in("status", ["draft", "issued", "partially_received", "in_transit"]);
       if (naErr) throw naErr;
       const candidates = (nativeActive || []).filter(
         (p) => p.po_number && String(p.notes || "").includes("[xoro-import]"),

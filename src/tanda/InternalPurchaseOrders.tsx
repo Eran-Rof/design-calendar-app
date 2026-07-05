@@ -52,6 +52,7 @@ const PO_COLUMNS: ColumnDef[] = [
   { key: "margin_pct",    label: "Margin %" },
   { key: "margin_amt",    label: "Margin $" },
   { key: "total",         label: "Total" },
+  { key: "remaining_ship", label: "Remaining to ship" },
 ];
 // colSpan for full-width rows = every column + the leading expander cell.
 const PO_COL_TOTAL = PO_COLUMNS.length + 1;
@@ -88,6 +89,10 @@ type PO = {
   //                        client-side too for the sort/totals accessors).
   avg_cost_cents?: number | null; avg_po_price_cents?: number | null; sell_cents?: number | null;
   margin_cents?: number | null; margin_pct?: number | null;
+  //   remaining_to_ship_cents — Σ max(0, qty_ordered − qty_received) × PO unit
+  //                             cost. The open commitment (ties to Xoro's
+  //                             "$ Remaining to Ship"), vs Total = ordered value.
+  remaining_to_ship_cents?: number | null;
 };
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
@@ -134,15 +139,15 @@ function requestedInDcFromCancel(cancelIso: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${chosen.getFullYear()}-${pad(chosen.getMonth() + 1)}-${pad(chosen.getDate())}`;
 }
-const STATUSES = ["draft", "issued", "in_transit", "received", "cancelled"];
+const STATUSES = ["draft", "issued", "partially_received", "in_transit", "received", "cancelled"];
 const STATUS_COLORS: Record<string, string> = {
-  draft: C.textMuted, issued: C.primary, in_transit: C.warn, received: C.success, cancelled: C.danger,
+  draft: C.textMuted, issued: C.primary, partially_received: "#14B8A6", in_transit: C.warn, received: C.success, cancelled: C.danger,
 };
 // Human-readable status label — drops the underscore ("in_transit" → "in transit")
 // for every place the raw status is shown (filter options, grid chip, modal).
 const statusLabel = (s: string) => s.replace(/_/g, " ");
 // Default status filter — the live/actionable set the buyer works from.
-const DEFAULT_PO_STATUSES = ["draft", "issued", "in_transit"];
+const DEFAULT_PO_STATUSES = ["draft", "issued", "partially_received"];
 
 export default function InternalPurchaseOrders() {
   const [rows, setRows] = useState<PO[]>([]);
@@ -220,6 +225,7 @@ export default function InternalPurchaseOrders() {
       margin_pct: (po: PO) => poMarginPct(po),
       margin_amt: (po: PO) => poMarginCents(po),
       total: (po: PO) => Number(po.total_cents ?? 0),
+      remaining_ship: (po: PO) => Number(po.remaining_to_ship_cents ?? 0),
     },
   });
 
@@ -232,9 +238,11 @@ export default function InternalPurchaseOrders() {
   const totals = useMemo(() => {
     const src = totalsScope === "all" ? rows : filteredRows;
     let totalCents = 0;
+    let remainingCents = 0;
     let costNum = 0, costDen = 0, priceNum = 0, priceDen = 0, sellNum = 0, sellDen = 0;
     for (const po of src) {
       totalCents += Number(po.total_cents ?? 0);
+      remainingCents += Number(po.remaining_to_ship_cents ?? 0);
       // Weight the avg-cost / PO-price / sell by the PO total $ as a proxy for
       // line volume (the per-unit averages are all we have at the grid grain).
       const w = Math.abs(Number(po.total_cents ?? 0)) || 1;
@@ -248,7 +256,7 @@ export default function InternalPurchaseOrders() {
     // Margin follows the row convention: Sell − Avg PO Price.
     const marginCents = sell != null && avgPoPrice != null ? sell - avgPoPrice : null;
     const marginPct = sell != null && marginCents != null && sell > 0 ? (marginCents / sell) * 100 : null;
-    return { count: src.length, totalCents, avgCost, avgPoPrice, sell, marginCents, marginPct };
+    return { count: src.length, totalCents, remainingCents, avgCost, avgPoPrice, sell, marginCents, marginPct };
   }, [totalsScope, rows, filteredRows]);
 
   async function load() {
@@ -296,6 +304,7 @@ export default function InternalPurchaseOrders() {
       margin_pct: poMarginPct(po),
       margin_amt: (() => { const m = poMarginCents(po); return m != null ? m / 100 : ""; })(),
       total: Number(po.total_cents ?? 0) / 100,
+      remaining_ship: Number(po.remaining_to_ship_cents ?? 0) / 100,
     }));
     // #23 — append the on-screen Totals row to the export so the spreadsheet
     // carries the same footer the grid shows (honours the Filtered/All scope).
@@ -312,6 +321,7 @@ export default function InternalPurchaseOrders() {
       margin_pct: totals.marginPct,
       margin_amt: totals.marginCents != null ? totals.marginCents / 100 : "",
       total: totals.totalCents / 100,
+      remaining_ship: totals.remainingCents / 100,
     });
     return body;
   }, [sortedRows, vendorName, totals, totalsScope]);
@@ -328,6 +338,7 @@ export default function InternalPurchaseOrders() {
     { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
     { key: "margin_amt", header: "Margin $", format: "number" },
     { key: "total", header: "Total", format: "number" },
+    { key: "remaining_ship", header: "Remaining to Ship", format: "number" },
   ];
 
   return (
@@ -432,6 +443,7 @@ export default function InternalPurchaseOrders() {
             <SortableTh label="Margin %" sortKey="margin_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_pct")} title="Sort by margin % — (sell − avg PO price) / sell" />
             <SortableTh label="Margin $" sortKey="margin_amt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_amt")} title="Sell − avg PO price" />
             <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+            <SortableTh label="Remaining to ship" sortKey="remaining_ship" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("remaining_ship")} />
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={PO_COL_TOTAL}>Loading…</td></tr>}
@@ -460,6 +472,7 @@ export default function InternalPurchaseOrders() {
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")} title="(sell − avg PO price) / sell">{fmtPct(mPct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")} title="sell − avg PO price">{mCents != null ? fmtCents(mCents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("total")}>{fmtCents(po.total_cents)}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("remaining_ship")} title="Open commitment: Σ (ordered − received) × PO cost">{fmtCents(po.remaining_to_ship_cents ?? 0)}</td>
               </tr>
               {isOpen && (
                 <tr>
@@ -492,6 +505,7 @@ export default function InternalPurchaseOrders() {
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginPct == null ? C.text : totals.marginPct >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_pct")} title="Weighted margin % across the totalled rows">{fmtPct(totals.marginPct)}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginCents == null ? C.text : totals.marginCents >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_amt")} title="Weighted margin $ (sell − PO price)">{totals.marginCents != null ? fmtCents(totals.marginCents) : "—"}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("total")}>{fmtCents(totals.totalCents)}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("remaining_ship")} title="Open commitment (ties to Xoro $ Remaining to Ship)">{fmtCents(totals.remainingCents)}</td>
               </tr>
             </tfoot>
           )}
@@ -1542,18 +1556,18 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
           {isRevisable && !editMode && po?.status === "issued" && <button onClick={() => void transition("in_transit")} style={{ ...btnSecondary, color: C.warn, borderColor: "#92400e" }} disabled={submitting}>Mark in-transit</button>}
           {/* "Received" is no longer a manual flip — it's set when a goods receipt
               is POSTED (FIFO layers + GR/IR JE). 📥 Receive opens Receiving for this PO. */}
-          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && po?.id && (
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "partially_received" || po?.status === "in_transit") && po?.id && (
             <button onClick={() => window.open(`?m=receiving&po=${encodeURIComponent(po.id)}`, "_blank", "noopener")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting} title="Open Receiving to record a goods receipt (posts inventory + GR/IR) — that's what marks the PO received">Receive…</button>
           )}
           {/* Manufacturing-part PO — enter the vendor's bill (3-way match) once the
               parts have been received. Clears 2050 GR/IR; variance → 6320 PPV. */}
-          {isPartPo && !editMode && po?.id && (po?.status === "received" || po?.status === "in_transit") && !partBilled && (
+          {isPartPo && !editMode && po?.id && (po?.status === "received" || po?.status === "partially_received" || po?.status === "in_transit") && !partBilled && (
             <button onClick={() => void enterPartBill()} style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }} disabled={submitting} title="Enter the vendor's AP bill for this part PO and 3-way match it (clears GR/IR)">Enter part bill (3-way match)</button>
           )}
           {isPartPo && partBilled && <span style={{ fontSize: 12, color: C.success, alignSelf: "center" }}>✓ part bill matched</span>}
           {/* Cancel a live (issued / in-transit) PO — kept for history, releases
               its open-PO commitments; reversible via Reinstate. */}
-          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "in_transit") && (
+          {isRevisable && !editMode && (po?.status === "issued" || po?.status === "partially_received" || po?.status === "in_transit") && (
             <button onClick={() => void cancelPo()} style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} disabled={submitting} title="Cancel this purchase order (moves to cancelled, kept for history)">Cancel PO</button>
           )}
           {/* Reinstate a cancelled PO — status returns to issued (keeps its PO #). */}

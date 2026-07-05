@@ -256,12 +256,14 @@ function parseItemNumber(item) {
 }
 
 // ── PO status map (Xoro StatusName -> purchase_orders.status) ──────────────--
-// enum: draft | issued | in_transit | received | cancelled
+// enum: draft | issued | partially_received | in_transit | received | cancelled
+// (in_transit is a shipment overlay, not an order-lifecycle status; Xoro
+//  "Partially Received" maps to partially_received, never in_transit).
 function mapPoStatus(xoroStatus) {
   const s = norm(xoroStatus);
   if (s === "open") return "draft";
   if (s === "released") return "issued";
-  if (s.includes("partial")) return "in_transit";
+  if (s.includes("partial")) return "partially_received";
   if (s === "received" || s === "closed") return "received";
   if (s === "cancelled" || s === "canceled" || s === "void" || s === "voided") return "cancelled";
   return "issued";

@@ -119,7 +119,7 @@ export function DashboardView({
         {/* Key Stats Grid */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <StatCard label="Total POs" value={dashPOs.length} color="#3B82F6" icon="" onClick={() => setView("list")} />
-          <StatCard label="Total Value" value={fmtCurrency(dashTotalValue)} color="#10B981" icon="" onClick={() => setView("list")} />
+          <StatCard label="Remaining to Ship" value={fmtCurrency(dashTotalValue)} color="#10B981" icon="" onClick={() => setView("list")} />
           <StatCard label="Overdue POs" value={dashOverduePOs} color="#EF4444" icon="" onClick={() => { setFilterStatus("All"); setView("list"); }} />
           <StatCard label="Due This Week" value={dashDueThisWeekPOs} color="#F59E0B" icon="" onClick={() => setView("list")} />
           <StatCard label="Overdue Milestones" value={dashOverdueMilestones.length} color="#EF4444" icon="" onClick={() => setView("timeline")} />
