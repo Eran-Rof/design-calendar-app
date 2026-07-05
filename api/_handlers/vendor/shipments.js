@@ -125,6 +125,44 @@ export default async function handler(req, res) {
     if (liErr) return send(201, { ...ship, line_items_error: liErr.message });
   }
 
+  // Bridge to the native in-transit OVERLAY: creating this ASN marks the
+  // matching native PO "in transit" via a po_shipments record (source=
+  // 'vendor_asn'), so the Tangerine PO grid shows the ✈ chip + ETA. Best-effort
+  // and fully try-wrapped — the ASN itself already succeeded, so a missing table
+  // (pre-migration) or any mapping gap must NEVER fail the vendor's submit.
+  try {
+    const { data: nativePo } = await admin
+      .from("purchase_orders").select("id").eq("po_number", po.po_number).limit(1).maybeSingle();
+    if (nativePo?.id) {
+      const { data: overlay } = await admin.from("po_shipments").insert({
+        purchase_order_id: nativePo.id,
+        source: "vendor_asn",
+        status: "in_transit",
+        carrier: carrier || null,
+        tracking_number: number ? String(number).trim().toUpperCase() : null,
+        asn_ref: asn_number.trim(),
+        shipped_date: ship_date || null,
+        eta: estimated_delivery || null,
+        notes: notes ? String(notes).trim() : null,
+      }).select("id").single();
+      if (overlay?.id) {
+        // Map only line_items whose po_line_item_id is a NATIVE line of this PO
+        // (native-PO submits carry purchase_order_lines ids directly). Xoro-line
+        // ids won't match → header-only overlay, which still lights the chip.
+        const lineIds = [...new Set((line_items || []).map((l) => l.po_line_item_id).filter(Boolean))];
+        if (lineIds.length) {
+          const { data: nativeLines } = await admin
+            .from("purchase_order_lines").select("id").eq("purchase_order_id", nativePo.id).in("id", lineIds);
+          const valid = new Set((nativeLines || []).map((r) => r.id));
+          const ovLines = (line_items || [])
+            .filter((l) => valid.has(l.po_line_item_id) && (Number(l.quantity_shipped) || 0) > 0)
+            .map((l) => ({ shipment_id: overlay.id, purchase_order_line_id: l.po_line_item_id, qty_in_transit: Number(l.quantity_shipped) || 0 }));
+          if (ovLines.length) await admin.from("po_shipment_lines").insert(ovLines);
+        }
+      }
+    }
+  } catch { /* overlay bridge is best-effort — never block the ASN */ }
+
   // Internal notification
   try {
     const { emails } = await resolveInternalRecipients(admin, "shipment", { event: "asn_submitted" });
