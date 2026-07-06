@@ -975,6 +975,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const isPpkStyle = /PPK/i.test(form.style_code || "");
   const [ppkMatrixOpen, setPpkMatrixOpen] = useState(false);
   const [ppkMatrix, setPpkMatrix] = useState<PrepackMatrix | null>(null);
+  // Add-case prefill (pack token + laid-out sizes) derived from the PPK-needed
+  // view, so a brand-new matrix opens with its Pack Token and size columns
+  // ready rather than blank. Null when editing an existing matrix or when the
+  // style isn't in the needed view (operator types them by hand).
+  const [ppkPrefill, setPpkPrefill] = useState<Partial<PrepackMatrix> | null>(null);
   const [ppkMatrixLoading, setPpkMatrixLoading] = useState(false);
   // Look up any existing matrix for the current PPK style_code (exact match) so
   // the button reads Edit vs Add and opening it prefills the existing sizes
@@ -991,6 +996,33 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         : null;
     } catch { return null; }
   }, [form.style_code]);
+  // Derive the add-case prefill from v_prepack_ppk_needed (pack token + master
+  // name + the sized-sibling sizes). Prefers the assigned size scale's ordered
+  // sizes when present. Returns null if the style isn't listed (e.g. no sized
+  // sibling) so the operator just fills the popup by hand.
+  const loadPpkPrefill = useCallback(async (): Promise<Partial<PrepackMatrix> | null> => {
+    const code = form.style_code.trim();
+    if (!code) return null;
+    try {
+      const r = await fetch("/api/internal/prepack-matrices/needed");
+      if (!r.ok) return null;
+      const list = (await r.json()) as Array<{
+        ppk_style_code: string; style_name?: string; pack_token?: string | null;
+        sizes?: string[]; scale_sizes?: string[];
+      }>;
+      const hit = Array.isArray(list)
+        ? list.find((x) => (x.ppk_style_code || "").toLowerCase() === code.toLowerCase())
+        : null;
+      if (!hit) return null;
+      const sizeList = (hit.scale_sizes && hit.scale_sizes.length ? hit.scale_sizes : hit.sizes) || [];
+      return {
+        ppk_style_code: code,
+        name: hit.style_name || "",
+        pack_token: hit.pack_token || "",
+        sizes: sizeList.map((sz) => ({ size: sz, qty_per_pack: 0, inner_pack_qty: 0 })),
+      } as Partial<PrepackMatrix>;
+    } catch { return null; }
+  }, [form.style_code]);
   // Refresh the existing-matrix status whenever the (PPK) style code changes so
   // the button label is correct before it's ever clicked.
   useEffect(() => {
@@ -1004,6 +1036,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     setPpkMatrixLoading(true);
     const existing = await loadPpkMatrix();
     setPpkMatrix(existing);
+    // Only derive a prefill for the ADD case — editing loads the real matrix.
+    setPpkPrefill(existing ? null : await loadPpkPrefill());
     setPpkMatrixLoading(false);
     setPpkMatrixOpen(true);
   }
@@ -2296,9 +2330,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       {ppkMatrixOpen && (
         <MatrixFormModal
           mode={ppkMatrix ? "edit" : "add"}
-          matrix={ppkMatrix ?? undefined}
+          matrix={(ppkMatrix ?? ppkPrefill ?? undefined) as PrepackMatrix | undefined}
           initialPpk={form.style_code}
-          initialPackToken={ppkMatrix?.pack_token ?? undefined}
+          initialPackToken={(ppkMatrix?.pack_token ?? ppkPrefill?.pack_token) ?? undefined}
           onClose={() => setPpkMatrixOpen(false)}
           onSaved={() => {
             setPpkMatrixOpen(false);

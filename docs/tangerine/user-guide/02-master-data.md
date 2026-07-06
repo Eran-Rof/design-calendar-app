@@ -86,7 +86,8 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 For a **prepack style** — one whose Style Number contains **PPK** (e.g. `RYB059430PPK`) — a **Prepack matrix** row appears just below **Size Scale** in the edit modal. It opens the **exact same entry window** used by the Prepack Matrices master (📦 Inventory → Prepack Matrices), so you can define the pack's per-size garment composition without leaving Style Master.
 
 - The button reads **+ Add prepack matrix** when none exists yet, or **Edit prepack matrix (PPKM-…)** when one is already defined for this style.
-- Click it to open the composition popup: enter the number of **inner packs** per size × **Units / Inner Pack**, and the **carton total** must match the pack token (e.g. `PPK24` = 24). You can pick a **Size scale** to lay out the columns, or add sizes by hand.
+- For a **new** matrix the popup opens **pre-filled** — the **Pack Token** (e.g. `PPK24`) and the sized-sibling **size columns** are derived from inventory automatically, so you usually just fill in the quantities. (You can still change the token or add/remove sizes.)
+- Enter the number of **inner packs** per size × **Units / Inner Pack**; the **carton total** must match the pack token (e.g. `PPK24` = 24). You can also pick a **Size scale** to re-lay the columns, or add sizes by hand.
 - **Save** closes only the popup — **the Style Master form stays open**, so you keep editing the style. The composition is what the Inventory Matrix **Explode PPK** toggle uses to convert packs on-hand into sized eaches on the sized sibling style.
 
 The button appears only for PPK styles; non-prepack styles never see it.
