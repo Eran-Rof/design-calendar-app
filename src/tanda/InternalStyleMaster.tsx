@@ -72,6 +72,7 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
+import { MatrixFormModal, type PrepackMatrix } from "./InternalPrepackMatrix";
 
 // Universal Column Visibility primitive (Operator ask #1, 2026-05-30).
 // Style Master is the demo panel; the other Tangerine panels are swept in
@@ -965,6 +966,48 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     () => normalizeStoredPack((style?.attributes as Record<string, unknown> | undefined)?.size_scale_pack),
   );
 
+  // Prepack-matrix editor (PPK styles only). A prepack style's per-size garment
+  // composition lives in prepack_matrices, keyed by the PPK style_code. We reuse
+  // the SAME entry window as the Prepack Matrices master (MatrixFormModal) as a
+  // popup so the operator can define it inline; saving it closes only the popup
+  // and leaves this style form open. The canonical PPK grain gate is style_code
+  // containing "PPK" (see project_ppk_grain_rule_CANONICAL).
+  const isPpkStyle = /PPK/i.test(form.style_code || "");
+  const [ppkMatrixOpen, setPpkMatrixOpen] = useState(false);
+  const [ppkMatrix, setPpkMatrix] = useState<PrepackMatrix | null>(null);
+  const [ppkMatrixLoading, setPpkMatrixLoading] = useState(false);
+  // Look up any existing matrix for the current PPK style_code (exact match) so
+  // the button reads Edit vs Add and opening it prefills the existing sizes
+  // rather than clobbering them on the POST upsert.
+  const loadPpkMatrix = useCallback(async (): Promise<PrepackMatrix | null> => {
+    const code = form.style_code.trim();
+    if (!code) return null;
+    try {
+      const r = await fetch(`/api/internal/prepack-matrices?q=${encodeURIComponent(code)}&include_inactive=true`);
+      if (!r.ok) return null;
+      const list = (await r.json()) as PrepackMatrix[];
+      return Array.isArray(list)
+        ? (list.find((m) => (m.ppk_style_code || "").toLowerCase() === code.toLowerCase()) ?? null)
+        : null;
+    } catch { return null; }
+  }, [form.style_code]);
+  // Refresh the existing-matrix status whenever the (PPK) style code changes so
+  // the button label is correct before it's ever clicked.
+  useEffect(() => {
+    if (!isPpkStyle) { setPpkMatrix(null); return; }
+    let alive = true;
+    void loadPpkMatrix().then((m) => { if (alive) setPpkMatrix(m); });
+    return () => { alive = false; };
+  }, [isPpkStyle, loadPpkMatrix]);
+
+  async function openPpkMatrix() {
+    setPpkMatrixLoading(true);
+    const existing = await loadPpkMatrix();
+    setPpkMatrix(existing);
+    setPpkMatrixLoading(false);
+    setPpkMatrixOpen(true);
+  }
+
   // Declared COLORS — the colors this style is offered in, stored as an array of
   // color_master ids in attributes.color_ids. These drive the SO/PO size-matrix
   // rows (api/_lib/styleMatrix.js merges them with the SKU-derived colors) so a
@@ -1653,6 +1696,26 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             </div>
           </Field>
 
+          {/* Prepack matrix — PPK styles only. Opens the SAME entry window as the
+              Prepack Matrices master (MatrixFormModal) as a popup; on save the
+              popup closes and this style form stays open. */}
+          {isPpkStyle && (
+            <Field label="Prepack matrix">
+              <button
+                type="button"
+                onClick={() => void openPpkMatrix()}
+                disabled={ppkMatrixLoading}
+                style={{ ...btnSecondary, whiteSpace: "nowrap", opacity: ppkMatrixLoading ? 0.6 : 1 }}
+                title="Define this prepack's per-size garment composition (1 pack = the size quantities)"
+              >
+                {ppkMatrixLoading ? "Loading…" : ppkMatrix ? `Edit prepack matrix (${ppkMatrix.code})` : "+ Add prepack matrix"}
+              </button>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
+                This style is a prepack (PPK){ppkMatrix ? " — a matrix is defined." : " — define its per-size composition so the Inventory Matrix can explode packs into sized eaches."}
+              </div>
+            </Field>
+          )}
+
           {/* Rise (style_master.rise) — denim HIGH/MID/LOW; blank = n/a. */}
           <Field label="Rise">
             <SearchableSelect
@@ -2224,6 +2287,25 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
             </div>
           </div>
         </div>
+      )}
+
+      {/* Prepack-matrix popup — the IDENTICAL entry window used by the Prepack
+          Matrices master. Prefilled with this style's PPK code (and the existing
+          matrix when one exists). Saving closes only this popup; the style form
+          stays open so the operator keeps working. */}
+      {ppkMatrixOpen && (
+        <MatrixFormModal
+          mode={ppkMatrix ? "edit" : "add"}
+          matrix={ppkMatrix ?? undefined}
+          initialPpk={form.style_code}
+          initialPackToken={ppkMatrix?.pack_token ?? undefined}
+          onClose={() => setPpkMatrixOpen(false)}
+          onSaved={() => {
+            setPpkMatrixOpen(false);
+            notify("Prepack matrix saved.", "success");
+            void loadPpkMatrix().then(setPpkMatrix);
+          }}
+        />
       )}
     </div>
   );
