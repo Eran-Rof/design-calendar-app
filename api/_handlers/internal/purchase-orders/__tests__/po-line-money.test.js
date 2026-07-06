@@ -79,6 +79,29 @@ describe("computePoLineMoney — grain normalization", () => {
     expect(sell).toBe(1000);
   });
 
+  it("mixed garment+PPK style: per-EACH std cost/sell on a PPK line stays per-each (ROF-P001068)", () => {
+    // RYO0659FP jacket: a PPK18 line @ $213.30/pack, but ip_item_avg_cost stores
+    // its cost PER-EACH ($11.85 = $213.30/18) and recent sell per-each ($15.48).
+    // Anchoring to the line's own per-each cost keeps them per-each — NOT $11.85/18
+    // = $0.66 cost / $0.86 sell (the −1278% margin bug).
+    const { avgPo, avgCost, sell } = aggregate([
+      [{ qty_ordered: 203, unit_cost_cents: 21330, ppk: 18, sku_code: "RYO0659FP-SLATE", style_id: "s1", style_code: "RYO0659FP" },
+       { stdCost: 1185, recentSell: 1548 }],
+    ]);
+    expect(avgPo).toBe(1185);   // $213.30/pack ÷ 18 = $11.85/each
+    expect(avgCost).toBe(1185); // per-each std cost stays $11.85, not $0.66
+    expect(sell).toBe(1548);    // per-each sell stays $15.48, not $0.86
+  });
+
+  it("no std cost → structural fallback: pure-PPK style_code is per-PACK", () => {
+    // No std to anchor on; style_code carries PPK → treat brand list as per-pack.
+    const { sell } = aggregate([
+      [{ qty_ordered: 10, unit_cost_cents: 17160, ppk: 24, sku_code: "Z-PPK24", style_id: "s1", style_code: "RYB1533PPK" },
+       { stdCost: null, brandPrice: 21600 }], // $216/pack → $9/each
+    ]);
+    expect(sell).toBe(900);
+  });
+
   it("mixed PO (PPK pack line + loose line): blends correctly at per-each grain", () => {
     const { avgPo, avgCost } = aggregate([
       [{ qty_ordered: 10, unit_cost_cents: 17160, ppk: 24, sku_code: "A-PPK24", style_id: "s1" }, { stdCost: 17160 }],
