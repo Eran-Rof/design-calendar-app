@@ -899,12 +899,19 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   const existingId = await findExistingId();
   if (existingId) return { id: existingId, created: false };
 
-  // Need the style_code if not supplied.
-  let sc = style_code;
-  if (!sc) {
+  // style_code for the new SKU. ALWAYS prefer the CANONICAL code from style_master
+  // (by style_id) over the caller's string — a REST/import feed can hand us a
+  // mis-cased BasePartNumber (e.g. "rbb0185" vs the catalog "RBB0185"), and
+  // inheriting it strands the SKU from its style (style_master matches are
+  // case-sensitive) → the size matrix can't resolve it ("Style rbb0185 not
+  // found"). style_id is authoritative, so the master's casing wins. Fallback
+  // (no style_id) uppercases the supplied code to keep style codes canonical.
+  let sc = style_code || null;
+  if (style_id) {
     const { data: st } = await admin.from("style_master").select("style_code").eq("id", style_id).maybeSingle();
-    sc = st?.style_code || null;
+    if (st?.style_code) sc = st.style_code;
   }
+  if (sc && !style_id) sc = String(sc).trim().toUpperCase();
 
   const base = [SKU_SAFE(sc), SKU_SAFE(colorVal), SKU_SAFE(canonSize), inseamVal ? SKU_SAFE(inseamVal) : ""].filter(Boolean).join("-");
   // sku_code is globally UNIQUE — retry with a numeric suffix on collision.
