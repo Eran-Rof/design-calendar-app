@@ -975,6 +975,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   const isPpkStyle = /PPK/i.test(form.style_code || "");
   const [ppkMatrixOpen, setPpkMatrixOpen] = useState(false);
   const [ppkMatrix, setPpkMatrix] = useState<PrepackMatrix | null>(null);
+  // Add-case prefill (pack token + laid-out sizes) derived from the PPK-needed
+  // view, so a brand-new matrix opens with its Pack Token and size columns
+  // ready rather than blank. Null when editing an existing matrix or when the
+  // style isn't in the needed view (operator types them by hand).
+  const [ppkPrefill, setPpkPrefill] = useState<Partial<PrepackMatrix> | null>(null);
   const [ppkMatrixLoading, setPpkMatrixLoading] = useState(false);
   // Look up any existing matrix for the current PPK style_code (exact match) so
   // the button reads Edit vs Add and opening it prefills the existing sizes
@@ -991,6 +996,33 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
         : null;
     } catch { return null; }
   }, [form.style_code]);
+  // Derive the add-case prefill from v_prepack_ppk_needed (pack token + master
+  // name + the sized-sibling sizes). Prefers the assigned size scale's ordered
+  // sizes when present. Returns null if the style isn't listed (e.g. no sized
+  // sibling) so the operator just fills the popup by hand.
+  const loadPpkPrefill = useCallback(async (): Promise<Partial<PrepackMatrix> | null> => {
+    const code = form.style_code.trim();
+    if (!code) return null;
+    try {
+      const r = await fetch("/api/internal/prepack-matrices/needed");
+      if (!r.ok) return null;
+      const list = (await r.json()) as Array<{
+        ppk_style_code: string; style_name?: string; pack_token?: string | null;
+        sizes?: string[]; scale_sizes?: string[];
+      }>;
+      const hit = Array.isArray(list)
+        ? list.find((x) => (x.ppk_style_code || "").toLowerCase() === code.toLowerCase())
+        : null;
+      if (!hit) return null;
+      const sizeList = (hit.scale_sizes && hit.scale_sizes.length ? hit.scale_sizes : hit.sizes) || [];
+      return {
+        ppk_style_code: code,
+        name: hit.style_name || "",
+        pack_token: hit.pack_token || "",
+        sizes: sizeList.map((sz) => ({ size: sz, qty_per_pack: 0, inner_pack_qty: 0 })),
+      } as Partial<PrepackMatrix>;
+    } catch { return null; }
+  }, [form.style_code]);
   // Refresh the existing-matrix status whenever the (PPK) style code changes so
   // the button label is correct before it's ever clicked.
   useEffect(() => {
@@ -1004,6 +1036,8 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     setPpkMatrixLoading(true);
     const existing = await loadPpkMatrix();
     setPpkMatrix(existing);
+    // Only derive a prefill for the ADD case — editing loads the real matrix.
+    setPpkPrefill(existing ? null : await loadPpkPrefill());
     setPpkMatrixLoading(false);
     setPpkMatrixOpen(true);
   }
@@ -1546,11 +1580,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxWidth: "92vw", minWidth: 0, maxHeight: "90vh", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{title}</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, minWidth: 0 }}>
           <Field label="Style Number">
             {mode === "add" ? (
               <input
@@ -1705,13 +1739,13 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 type="button"
                 onClick={() => void openPpkMatrix()}
                 disabled={ppkMatrixLoading}
-                style={{ ...btnSecondary, whiteSpace: "nowrap", opacity: ppkMatrixLoading ? 0.6 : 1 }}
+                style={{ ...btnSecondary, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: ppkMatrixLoading ? 0.6 : 1 }}
                 title="Define this prepack's per-size garment composition (1 pack = the size quantities)"
               >
-                {ppkMatrixLoading ? "Loading…" : ppkMatrix ? `Edit prepack matrix (${ppkMatrix.code})` : "+ Add prepack matrix"}
+                {ppkMatrixLoading ? "Loading…" : ppkMatrix ? "Edit prepack matrix" : "+ Add prepack matrix"}
               </button>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                This style is a prepack (PPK){ppkMatrix ? " — a matrix is defined." : " — define its per-size composition so the Inventory Matrix can explode packs into sized eaches."}
+                This style is a prepack (PPK){ppkMatrix ? <> — matrix <strong style={{ color: C.textSub }}>{ppkMatrix.code}</strong> is defined.</> : " — define its per-size composition so the Inventory Matrix can explode packs into sized eaches."}
               </div>
             </Field>
           )}
@@ -1771,11 +1805,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code · Duty % · +Tariff % · COO">
+          <Field label="HTS code · Duty % · +Tariff % · COO" span>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {coo.map((row, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <input
                       type="text"
                       value={row.hts_code}
@@ -2296,9 +2330,9 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
       {ppkMatrixOpen && (
         <MatrixFormModal
           mode={ppkMatrix ? "edit" : "add"}
-          matrix={ppkMatrix ?? undefined}
+          matrix={(ppkMatrix ?? ppkPrefill ?? undefined) as PrepackMatrix | undefined}
           initialPpk={form.style_code}
-          initialPackToken={ppkMatrix?.pack_token ?? undefined}
+          initialPackToken={(ppkMatrix?.pack_token ?? ppkPrefill?.pack_token) ?? undefined}
           onClose={() => setPpkMatrixOpen(false)}
           onSaved={() => {
             setPpkMatrixOpen(false);
@@ -2311,9 +2345,14 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, span }: { label: string; children: React.ReactNode; span?: boolean }) {
+  // minWidth:0 lets this grid item shrink below its content's intrinsic width
+  // (grid items default to min-width:auto), so wide inner content truncates
+  // instead of forcing the whole two-column grid — and the modal — off-screen.
+  // `span` makes an inherently-wide field (e.g. the HTS/COO row) take the full
+  // grid width instead of squeezing into one column.
   return (
-    <div>
+    <div style={{ minWidth: 0, gridColumn: span ? "1 / -1" : undefined }}>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
     </div>
