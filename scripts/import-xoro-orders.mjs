@@ -402,6 +402,21 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     const exTarget = expandedKey(itemNumber);
     const exHit = family.find((r) => expandedKey(r.sku_code) === exTarget);
     if (exHit) { out = { id: exHit.id, created: false, reason: "loose-expanded" }; skuCache.set(itemNumber, out); return out; }
+    // 3c) PREPACK (PPK) lines. Xoro's ItemNumber ends in the pack SIZE segment
+    //     ("…-PPK24"), but the catalog pack SKU keeps the pack size in the `size`
+    //     COLUMN and OMITS it from sku_code (sku RYB153330PPK-SEAWEED-DARKWASH,
+    //     size PPK24). That trailing "-PPK24" makes 3/3b miss by exactly the size
+    //     token, so real prepacks import null-linked (then #matrix/cost break —
+    //     they're the "Other lines" the PO grid can't fold in or cost per-each).
+    //     Retry the loose/expanded match with the pack-size segment stripped,
+    //     restricted to a family row whose OWN size is a PPK token so a pack line
+    //     never binds to a loose per-size SKU. (Backfilled existing lines 2026-07-06.)
+    if (/PPK/i.test(p.size || "")) {
+      const noSize = p.color ? `${p.style_code}-${p.color}` : p.style_code;
+      const lt = looseKey(noSize), et = expandedKey(noSize);
+      const packHit = family.find((r) => /PPK/i.test(r.size || "") && (looseKey(r.sku_code) === lt || expandedKey(r.sku_code) === et));
+      if (packHit) { out = { id: packHit.id, created: false, reason: "loose-ppk" }; skuCache.set(itemNumber, out); return out; }
+    }
   }
   // 3.5) AUTO-CREATE a missing SIZED SKU under an ON-MASTER family (sibling
   //      inherit). The prior code minted is_apparel=false rows unconditionally,
