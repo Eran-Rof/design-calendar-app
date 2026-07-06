@@ -208,22 +208,24 @@ function extractPpk(v) {
 //     line has qty = PACKS and unit_cost = per-PACK; a loose line has qty =
 //     EACHES and unit_cost = per-EACH. ppk = units-per-pack (1 for loose), and
 //     eaches = qty × ppk.
-//   • EVERY reference value — COST (ip_item_avg_cost) AND SELL (customer / brand
-//     list / sales history / SKU std / provisional) — is keyed by the line's own
-//     SKU or STYLE, whose grain MATCHES the line's grain: a PPK (pack) style's
-//     brand list / customer price / recent sell / std / provisional are all per
-//     PACK (a PPK60 pack's avg_cost IS $324 and its brand list IS $390 — the pack
-//     price), a loose style's are per-EACH. So every $ total is `value × qty`
-//     (native × native), NEVER `value × eaches`.
-//   • Every column then divides its dollar total by eaches.
+//   • Reference values (COST from ip_item_avg_cost, SELL from customer / brand /
+//     history / SKU std / provisional) are stored at an INCONSISTENT grain for
+//     PPK skus: per-PACK for a PURE prepack style (RCB1869NBDPPK avg_cost = $324)
+//     but per-EACH for a MIXED garment+pack style (RYO0659FP avg_cost = $11.85 =
+//     $213.30/pack ÷ 18). There is no grain tag, so we DETECT it per line by
+//     anchoring to the line's OWN per-each cost (poEach = poPrice ÷ ppk, whose
+//     grain we know): whichever of {std, std÷ppk} is closer to poEach is the per-
+//     each std, and that same grain decision is applied to SELL. No std cost →
+//     fall back to the structural signal (a pure prepack has PPK in its style_code).
+//   • Every value is normalized to per-each, then weighted by eaches and divided
+//     by eaches — so all columns are directly comparable per garment.
 //
-// THE RECURRING BUG this encodes away: resolved cost + sell were multiplied by
-// `eaches` while the values themselves were per-PACK, so a $324/pack cost read as
-// $324/EACH and a $390/pack brand list read as $390/EACH (both inflated ×ppk) →
-// nonsense margins (~98%) and Sell (e.g. $65.66). Normalizing here — once, in a
-// pure tested helper — is why it stops repeating.
+// THE RECURRING BUG this encodes away: reference cost/sell were multiplied by the
+// WRONG factor for the stored grain — a $324/pack cost read as $324/EACH (×ppk
+// high → margin ~98%, Sell $65.66), or a per-EACH $11.85 cost read as $0.66 (÷ppk
+// low → margin −1278%). Anchoring to the known PO-cost grain fixes both directions.
 //
-// `line` carries qty_ordered, unit_cost_cents, ppk, sku_code, style_id.
+// `line` carries qty_ordered, unit_cost_cents, ppk, sku_code, style_id, style_code.
 // `refs` carries the resolved reference cents (or null): stdCost, custPrice,
 // brandPrice, recentSell, stdSell, provisional.
 // Returns per-line { eaches, linked, priceCents, costCents, sellCents } dollar
@@ -235,20 +237,27 @@ export function computePoLineMoney(line, refs = {}) {
   const ppk = Number(line.ppk) > 0 ? Number(line.ppk) : 1;
   const eaches = qty * ppk;
   const linked = !!(line.sku_code || line.style_id);
+  const poEach = poPrice / ppk; // the line's per-each cost — grain we KNOW.
 
-  // Avg PO Price $ total = per-pack price × packs = real dollars (linked lines
-  // only — SKU-less pack-priced aggregate lines can't be per-unit-validated).
-  const priceCents = linked ? poPrice * qty : 0;
-  // Avg cost $ total = std cost where the SKU resolves one, else the PO's OWN
-  // price. Both are per-PACK for a PPK line → weight by qty (native), not eaches.
-  const costCents = linked ? (refs.stdCost != null ? refs.stdCost : poPrice) * qty : 0;
+  // Reference grain: is the resolved reference stored per-EACH or per-PACK? Anchor
+  // to poEach — whichever of {std, std÷ppk} sits closer is the per-each std, and
+  // tells us how to normalize SELL from the same tables. `<=` breaks ties toward
+  // per-each (correct for loose lines, where ppk = 1 and the two are identical).
+  const std = refs.stdCost != null ? Number(refs.stdCost) : null;
+  const refPerEach = std != null
+    ? Math.abs(std - poEach) <= Math.abs(std / ppk - poEach)
+    : !/PPK/i.test(String(line.style_code || ""));
+  const toEach = (v) => (refPerEach ? Number(v) : Number(v) / ppk); // → per-each
 
-  // Sell — first hit wins (customer → brand list → recent sale → SKU std →
-  // provisional). Every source is keyed by the line's style/SKU, so its grain
-  // matches the line's: per-PACK for a PPK style, per-EACH for a loose one. The $
-  // total is therefore always `sell × qty` (native × native) — the same qty
-  // weighting cost uses — NEVER × eaches. (An earlier version weighted the brand /
-  // customer price by eaches, reading a pack style's $390/pack list as $390/EACH.)
+  // Avg PO Price — the PO's own per-each cost (linked lines only; SKU-less pack
+  // aggregate lines can't be per-unit-validated).
+  const priceCents = linked ? poEach * eaches : 0; // = poPrice × qty
+  // Avg cost — per-each std where the SKU resolves one, else the PO's own price.
+  const costEach = std != null ? toEach(std) : poEach;
+  const costCents = linked ? costEach * eaches : 0;
+
+  // Sell — first hit wins (customer → brand → recent sale → SKU std → provisional),
+  // normalized to per-each with the SAME reference grain, then weighted by eaches.
   let sell = null;
   if (line.style_id) {
     if (refs.custPrice != null) sell = refs.custPrice;
@@ -257,7 +266,7 @@ export function computePoLineMoney(line, refs = {}) {
   }
   if (sell == null && refs.stdSell != null) sell = refs.stdSell;
   if (sell == null && line.style_id && refs.provisional != null) sell = refs.provisional;
-  const sellCents = sell == null ? null : sell * qty;
+  const sellCents = sell == null ? null : toEach(sell) * eaches;
 
   return { eaches, linked, priceCents, costCents, sellCents };
 }

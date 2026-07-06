@@ -892,6 +892,14 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // Qty column. Only offered when editable and the style has a usable pack
         // for these sizes.
         const sizesList = s.payload?.sizes || [];
+        // Sizes to RENDER on screen: the garment scale PLUS any size actually
+        // ordered that the scale doesn't carry — e.g. a PPK pack token on a SIZED
+        // garment+pack style with no prepack definition. Without this those cells
+        // render blank even though the qty is set (mirrors the PO-document fix).
+        // Prepack styles (pp) use the pack-token column and are unaffected.
+        const orderedOffScale = new Set<string>();
+        for (const [k, v] of Object.entries(s.qty)) { if ((v || 0) > 0) { const sz = k.split("__")[1]; if (sz && !sizesList.includes(sz)) orderedOffScale.add(sz); } }
+        const displaySizes = orderedOffScale.size ? [...sizesList, ...orderedOffScale] : sizesList;
         // The pack ratio may be flat or per-inseam (Style Master → Scale).
         // Resolve it for the row's inseam (rowKey = `color|inseam`) so each inseam
         // row distributes by its own pack; a flat pack applies to every inseam.
@@ -1051,7 +1059,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             {s.payload && !pp && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
             {s.payload && !pp && s.payload.sizes.length > 0 && (
               <EditableSizeMatrix
-                rows={rows} sizes={s.payload.sizes}
+                rows={rows} sizes={displaySizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}
                 onHandTitle={atsMode ? `ATS${atsAsOfDate ? ` (${fmtDateDisplay(atsAsOfDate)})` : ""}` : "on-hand"}
