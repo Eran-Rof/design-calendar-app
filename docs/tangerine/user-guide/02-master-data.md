@@ -81,6 +81,16 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 
 **Auto-assign scales from sales history.** A **🎯 From sales history** button (on the Style Master toolbar) backfills the size scale for any **unscaled** style by reading the sizes the style has **actually sold** (from sales orders and AR invoices), most-sold first, and matching them to a scale. It only fills styles with no scale yet — it never overwrites a scale you've set — so it's safe to run any time.
 
+### Prepack matrix (PPK styles only)
+
+For a **prepack style** — one whose Style Number contains **PPK** (e.g. `RYB059430PPK`) — a **Prepack matrix** row appears just below **Size Scale** in the edit modal. It opens the **exact same entry window** used by the Prepack Matrices master (📦 Inventory → Prepack Matrices), so you can define the pack's per-size garment composition without leaving Style Master.
+
+- The button reads **+ Add prepack matrix** when none exists yet, or **Edit prepack matrix (PPKM-…)** when one is already defined for this style.
+- Click it to open the composition popup: enter the number of **inner packs** per size × **Units / Inner Pack**, and the **carton total** must match the pack token (e.g. `PPK24` = 24). You can pick a **Size scale** to lay out the columns, or add sizes by hand.
+- **Save** closes only the popup — **the Style Master form stays open**, so you keep editing the style. The composition is what the Inventory Matrix **Explode PPK** toggle uses to convert packs on-hand into sized eaches on the sized sibling style.
+
+The button appears only for PPK styles; non-prepack styles never see it.
+
 How it's used downstream: in a Sales Order or Purchase Order size matrix, every row (color, or color × inseam) gains a **Qty** column (between the lead columns and the first size). Type one total there — e.g. `1200` — and press **Enter** or **Tab**: Tangerine splits it across the sizes in that **row's** stored proportion (the matching inseam's curve when the style has inseams), then **rounds each size up to a full carton of 24**. Because of the round-up the grand total can land a little above the number you typed — that's expected. Sizes with a zero pack ratio stay empty. If a style has no Scale set, the matrix Qty box is disabled (with a tooltip pointing back here).
 
 ### Pack / logistics (PO roll-ups)

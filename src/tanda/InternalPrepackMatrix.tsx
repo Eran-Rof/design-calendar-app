@@ -61,7 +61,7 @@ const COLUMNS: ColumnDef[] = [
 
 // qty_per_pack = Qty Per Box (carton units for the size); inner_pack_qty = # inner packs of that size.
 type SizeRow = { size: string; qty_per_pack: number; inner_pack_qty?: number; sort_order?: number };
-type PrepackMatrix = {
+export type PrepackMatrix = {
   id: string;
   entity_id: string;
   code: string;
