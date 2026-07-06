@@ -198,6 +198,64 @@ function extractPpk(v) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ── PO grid money: per-line grain-normalized contribution ────────────────────
+// CANONICAL GRAIN RULE — read this before touching any weighting below. Every
+// money column (Avg PO Price / Avg cost / Sell) is a PER-EACH average:
+//
+//     column = Σ(dollars) / Σ(eaches)
+//
+//   • A line's qty + unit_cost are at the line's NATIVE grain. A PPK prepack
+//     line has qty = PACKS and unit_cost = per-PACK; a loose line has qty =
+//     EACHES and unit_cost = per-EACH. ppk = units-per-pack (1 for loose), and
+//     eaches = qty × ppk.
+//   • Reference COST (ip_item_avg_cost, keyed by SKU) and the SKU-keyed /
+//     sales-history / provisional SELL are stored at the SKU's OWN grain → per
+//     PACK for a PPK SKU (a PPK60 pack's avg_cost IS $324, the pack price). Their
+//     dollar total is `value × qty` (native × native), NOT `value × eaches`.
+//   • Garment-level SELL (customer price, brand-default list) is per-EACH; its
+//     dollar total is `value × eaches`.
+//   • Every column then divides its dollar total by eaches.
+//
+// THE RECURRING BUG this encodes away: resolved std cost + sell were multiplied
+// by `eaches` while the values themselves were per-PACK, so a $324/pack cost read
+// as $324/EACH (inflated ×ppk) and margin came out ~98%. Normalizing here — once,
+// in a pure tested helper — is why it stops repeating.
+//
+// `line` carries qty_ordered, unit_cost_cents, ppk, sku_code, style_id.
+// `refs` carries the resolved reference cents (or null): stdCost, custPrice,
+// brandPrice, recentSell, stdSell, provisional.
+// Returns per-line { eaches, linked, priceCents, costCents, sellCents } dollar
+// totals (cents) to be summed by the caller, or null for a zero-qty line.
+export function computePoLineMoney(line, refs = {}) {
+  const qty = Number(line.qty_ordered) || 0;
+  if (qty <= 0) return null;
+  const poPrice = Number(line.unit_cost_cents) || 0;
+  const ppk = Number(line.ppk) > 0 ? Number(line.ppk) : 1;
+  const eaches = qty * ppk;
+  const linked = !!(line.sku_code || line.style_id);
+
+  // Avg PO Price $ total = per-pack price × packs = real dollars (linked lines
+  // only — SKU-less pack-priced aggregate lines can't be per-unit-validated).
+  const priceCents = linked ? poPrice * qty : 0;
+  // Avg cost $ total = std cost where the SKU resolves one, else the PO's OWN
+  // price. Both are per-PACK for a PPK line → weight by qty (native), not eaches.
+  const costCents = linked ? (refs.stdCost != null ? refs.stdCost : poPrice) * qty : 0;
+
+  // Sell — first hit wins; per-EACH sources (customer / brand list) weight by
+  // eaches, native/per-PACK sources (sales history, SKU std, provisional) by qty.
+  let sell = null, sellPerEach = false;
+  if (line.style_id) {
+    if (refs.custPrice != null) { sell = refs.custPrice; sellPerEach = true; }
+    else if (refs.brandPrice != null) { sell = refs.brandPrice; sellPerEach = true; }
+    else if (refs.recentSell != null) { sell = refs.recentSell; sellPerEach = false; }
+  }
+  if (sell == null && refs.stdSell != null) { sell = refs.stdSell; sellPerEach = false; }
+  if (sell == null && line.style_id && refs.provisional != null) { sell = refs.provisional; sellPerEach = false; }
+  const sellCents = sell == null ? null : (sellPerEach ? sell * eaches : sell * qty);
+
+  return { eaches, linked, priceCents, costCents, sellCents };
+}
+
 async function enrichPricing(admin, rows, styleFilter) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const poIds = rows.map((r) => r.id);
@@ -356,51 +414,30 @@ async function enrichPricing(admin, rows, styleFilter) {
     const custPrices = customerByPo.has(r.id) ? customerPriceCache.get(customerByPo.get(r.id)) : null;
     for (const l of myLines) {
       const qty = Number(l.qty_ordered) || 0;
-      const poPrice = Number(l.unit_cost_cents) || 0;
-      // Remaining-to-ship $ uses the PO's own pack-grain qty × cost (a real $
-      // total, grain-agnostic like Total) — do NOT explode it.
       const openQty = Math.max(0, qty - (Number(l.qty_received) || 0));
-      remainingCents += openQty * poPrice;
-      if (qty <= 0) continue;
-      // PPK prepack lines carry qty = PACKS and unit_cost = per-PACK. Explode by
-      // the pack size so cost/qty land on the same per-UNIT grain as the sell +
-      // standard cost (whose SKU size is "PPKnn"). effQty = total UNITS; the total
-      // $ (poPrice × packs) is unchanged, so Avg PO Price = total$ ÷ units = the
-      // real per-unit price (a $214/pack line reads $11.90/unit, not $214).
+      // Remaining-to-ship $ uses the PO's own native-grain qty × cost (a real $
+      // total, grain-agnostic like Total) — do NOT explode it.
+      remainingCents += openQty * (Number(l.unit_cost_cents) || 0);
+      // ppk = units-per-pack for this line (1 for loose). Every money column is
+      // normalized to PER-EACH in computePoLineMoney (see the CANONICAL GRAIN
+      // RULE above it) so a PPK pack cost/sell can't leak in at pack grain.
       const ppk = extractPpk(l.size) || extractPpk(l.style_code) || extractPpk(l.sku_code) || 1;
-      const effQty = qty * ppk;
-      // Exclude UNLINKED (no resolved SKU) lines from Avg PO Price. Some Xoro POs
-      // carry pack-priced aggregate lines with no SKU (unit_cost = the ~24× pack
-      // price against a unit-level qty), which otherwise blow up the per-unit
-      // average and produce nonsense margins (e.g. −1,762%). Orphan lines can't be
-      // per-unit-validated anyway (std-cost + sell below also require a SKU).
-      if (l.sku_code || l.style_id) {
-        priceNum += poPrice * qty; priceDen += effQty;
-        // Avg cost = the style's STANDARD/catalog cost where the SKU resolves
-        // one, else THIS PO's own per-unit line price (poPrice is per-pack,
-        // effQty is units, so poPrice·qty ÷ effQty = the per-unit price — the
-        // same grain as std cost). A SKU-linked line always carries a real
-        // cost, so falling back to the PO price means Avg cost is populated
-        // wherever Avg PO Price is: a new colorway not yet in the standard-cost
-        // table (e.g. RYB1619 SANDLOT/MELTFIELD) no longer shows a blank cost.
-        // Unlinked (SKU-less) pack lines stay excluded from both.
-        const std = stdCostForSku(l.sku_code);
-        stdNum += std != null ? std * effQty : poPrice * qty;
-        stdDen += effQty;
-      } else { unlinkedCostLines += 1; }
-      // Sell resolution order: customer price → brand-default list → recent
-      // ACTUAL sell (SO/invoice/Xoro) → standard unit price → provisional (21%
-      // placeholder). Each layer covers a wider set of styles; the provisional
-      // is only used for never-sold styles with no price on file.
-      let sell = null;
-      if (l.style_id) {
-        if (custPrices && custPrices.get(l.style_id) != null) sell = custPrices.get(l.style_id);
-        else if (brandDefaultByStyle.get(l.style_id) != null) sell = brandDefaultByStyle.get(l.style_id);
-        else if (recentSellByStyle.get(l.style_id) != null) sell = recentSellByStyle.get(l.style_id);
-      }
-      if (sell == null) sell = stdSellForSku(l.sku_code);
-      if (sell == null && l.style_id) { const pv = provisionalByStyle.get(l.style_id); if (pv != null) sell = pv; }
-      if (sell != null) { sellNum += sell * effQty; sellDen += effQty; }
+      const m = computePoLineMoney({ ...l, ppk }, {
+        stdCost: stdCostForSku(l.sku_code),
+        custPrice: custPrices && l.style_id ? custPrices.get(l.style_id) ?? null : null,
+        brandPrice: l.style_id ? brandDefaultByStyle.get(l.style_id) ?? null : null,
+        recentSell: l.style_id ? recentSellByStyle.get(l.style_id) ?? null : null,
+        stdSell: stdSellForSku(l.sku_code),
+        provisional: l.style_id ? provisionalByStyle.get(l.style_id) ?? null : null,
+      });
+      if (!m) continue; // zero-qty line
+      // SKU-less pack-priced aggregate lines (Xoro prepack rows) can't be per-unit
+      // validated → excluded from Avg PO Price + Avg cost (their per-unit price
+      // otherwise blows up the average / margin). Their $ still count in Total.
+      if (!m.linked) { unlinkedCostLines += 1; continue; }
+      priceNum += m.priceCents; priceDen += m.eaches;
+      stdNum += m.costCents; stdDen += m.eaches;
+      if (m.sellCents != null) { sellNum += m.sellCents; sellDen += m.eaches; }
     }
     r.avg_po_price_cents = priceDen > 0 ? Math.round(priceNum / priceDen) : null;
     r.avg_cost_cents = stdDen > 0 ? Math.round(stdNum / stdDen) : null;
