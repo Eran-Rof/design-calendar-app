@@ -162,11 +162,14 @@ async function enrichInTransit(admin, rows) {
 // ── List enrichment: per-PO Avg cost, Avg PO Price, Sell, Margin ─────────────
 // Decorates each PO header row with qty-weighted, per-line aggregates so the
 // grid can show them without N round-trips:
-//   avg_cost_cents     — Σ(std_cost·qty) / Σ(qty). STANDARD/catalog cost from
+//   avg_cost_cents     — Σ(cost·qty) / Σ(qty). STANDARD/catalog cost from
 //                        ip_item_avg_cost (keyed by sku_code, exact then loose)
-//                        — the same source the Inventory Snapshot + SO grid use.
-//                        Lets the operator compare standard cost vs the actual
-//                        negotiated PO price (PO variance).
+//                        — the same source the Inventory Snapshot + SO grid use —
+//                        with the PO's OWN line price as the per-unit fallback for
+//                        any SKU-linked line whose colorway isn't in the cost
+//                        table yet, so Avg cost is never blank where Avg PO Price
+//                        isn't. Lets the operator compare standard cost vs the
+//                        actual negotiated PO price (PO variance).
 //   avg_po_price_cents — Σ(unit_cost_cents·qty) / Σ(qty) across the PO's OWN
 //                        lines. The actual price this PO pays the vendor.
 //   sell_cents         — Σ(resolved_sell·qty) / Σ(qty). Sell is resolved per style:
@@ -371,10 +374,20 @@ async function enrichPricing(admin, rows, styleFilter) {
       // price against a unit-level qty), which otherwise blow up the per-unit
       // average and produce nonsense margins (e.g. −1,762%). Orphan lines can't be
       // per-unit-validated anyway (std-cost + sell below also require a SKU).
-      if (l.sku_code || l.style_id) { priceNum += poPrice * qty; priceDen += effQty; }
-      else { unlinkedCostLines += 1; }
-      const std = stdCostForSku(l.sku_code);
-      if (std != null) { stdNum += std * effQty; stdDen += effQty; }
+      if (l.sku_code || l.style_id) {
+        priceNum += poPrice * qty; priceDen += effQty;
+        // Avg cost = the style's STANDARD/catalog cost where the SKU resolves
+        // one, else THIS PO's own per-unit line price (poPrice is per-pack,
+        // effQty is units, so poPrice·qty ÷ effQty = the per-unit price — the
+        // same grain as std cost). A SKU-linked line always carries a real
+        // cost, so falling back to the PO price means Avg cost is populated
+        // wherever Avg PO Price is: a new colorway not yet in the standard-cost
+        // table (e.g. RYB1619 SANDLOT/MELTFIELD) no longer shows a blank cost.
+        // Unlinked (SKU-less) pack lines stay excluded from both.
+        const std = stdCostForSku(l.sku_code);
+        stdNum += std != null ? std * effQty : poPrice * qty;
+        stdDen += effQty;
+      } else { unlinkedCostLines += 1; }
       // Sell resolution order: customer price → brand-default list → recent
       // ACTUAL sell (SO/invoice/Xoro) → standard unit price → provisional (21%
       // placeholder). Each layer covers a wider set of styles; the provisional

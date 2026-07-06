@@ -46,8 +46,8 @@ const PO_COLUMNS: ColumnDef[] = [
   { key: "expected_date", label: "Expected" },
   { key: "cancel_date",   label: "Cancel date" },
   { key: "status",        label: "Status" },
-  { key: "avg_cost",      label: "Avg cost" },
   { key: "avg_po_price",  label: "Avg PO Price" },
+  { key: "avg_cost",      label: "Avg cost" },
   { key: "sell_price",    label: "Sell price" },
   { key: "margin_pct",    label: "Margin %" },
   { key: "margin_amt",    label: "Margin $" },
@@ -378,8 +378,8 @@ export default function InternalPurchaseOrders() {
     { key: "expected_date", header: "Expected" },
     { key: "cancel_date", header: "Cancel Date" },
     { key: "status", header: "Status" },
-    { key: "avg_cost", header: "Avg Cost", format: "number" },
     { key: "avg_po_price", header: "Avg PO Price", format: "number" },
+    { key: "avg_cost", header: "Avg Cost", format: "number" },
     { key: "sell_price", header: "Sell Price", format: "number" },
     { key: "margin_pct", header: "Margin %", format: "percent", digits: 1 },
     { key: "margin_amt", header: "Margin $", format: "number" },
@@ -534,8 +534,8 @@ export default function InternalPurchaseOrders() {
             <SortableTh label="Expected" sortKey="expected_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("expected_date")} />
             <SortableTh label="Cancel date" sortKey="cancel_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("cancel_date")} />
             <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("status")} />
-            <SortableTh label="Avg cost" sortKey="avg_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost (ip_item_avg_cost)" />
             <SortableTh label="Avg PO Price" sortKey="avg_po_price" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_po_price")} title="What this PO actually pays the vendor (qty-weighted)" />
+            <SortableTh label="Avg cost" sortKey="avg_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost (PO price where the colorway isn't in the cost table)" />
             <SortableTh label="Sell price" sortKey="sell_price" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("sell_price")} />
             <SortableTh label="Margin %" sortKey="margin_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_pct")} title="Sort by margin % — (sell − avg PO price) / sell" />
             <SortableTh label="Margin $" sortKey="margin_amt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_amt")} title="Sell − avg PO price" />
@@ -563,8 +563,8 @@ export default function InternalPurchaseOrders() {
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("cancel_date")}>{po.cancel_date ? fmtDateDisplay(po.cancel_date) : "—"}</td>
                 <td style={td} hidden={!isVisible("status")}><span style={{ color: STATUS_COLORS[po.status] || C.text, fontWeight: 600 }}>● {statusLabel(po.status)}</span><InTransitChip po={po} /></td>
-                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost">{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_po_price")} title="This PO's actual unit price">{po.avg_po_price_cents != null ? fmtCents(po.avg_po_price_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
+                <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("avg_cost")} title="Standard / catalog cost (PO price where the colorway isn't in the cost table)">{po.avg_cost_cents != null ? fmtCents(po.avg_cost_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("sell_price")}>{po.sell_cents != null ? fmtCents(po.sell_cents) : <span style={{ color: C.textMuted }}>—</span>}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_pct")} title="(sell − avg PO price) / sell">{fmtPct(mPct)}</td>
                 <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: marginColor }} hidden={!isVisible("margin_amt")} title="sell − avg PO price">{mCents != null ? fmtCents(mCents) : <span style={{ color: C.textMuted }}>—</span>}</td>
@@ -574,7 +574,7 @@ export default function InternalPurchaseOrders() {
               {isOpen && (
                 <tr>
                   <td style={{ padding: 0, background: "#0b1220", borderBottom: `1px solid ${C.cardBdr}` }} colSpan={PO_COL_TOTAL}>
-                    <PoRowDetail poId={po.id} explode={explodePpk} />
+                    <PoRowDetail poId={po.id} explode={explodePpk} status={po.status} />
                   </td>
                 </tr>
               )}
@@ -596,8 +596,8 @@ export default function InternalPurchaseOrders() {
                 <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("expected_date")} />
                 <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("cancel_date")} />
                 <td style={{ ...td, background: "#0b1220", borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("status")} />
-                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_cost")} title="Total-weighted average standard cost">{totals.avgCost != null ? fmtCents(totals.avgCost) : "—"}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_po_price")} title="Total-weighted average PO price">{totals.avgPoPrice != null ? fmtCents(totals.avgPoPrice) : "—"}</td>
+                <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("avg_cost")} title="Total-weighted average standard cost">{totals.avgCost != null ? fmtCents(totals.avgCost) : "—"}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}` }} hidden={!isVisible("sell_price")} title="Total-weighted average sell price">{totals.sell != null ? fmtCents(totals.sell) : "—"}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginPct == null ? C.text : totals.marginPct >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_pct")} title="Weighted margin % across the totalled rows">{fmtPct(totals.marginPct)}</td>
                 <td style={{ ...td, background: "#0b1220", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, borderTop: `2px solid ${C.cardBdr}`, color: totals.marginCents == null ? C.text : totals.marginCents >= 0 ? C.success : C.danger }} hidden={!isVisible("margin_amt")} title="Weighted margin $ (sell − PO price)">{totals.marginCents != null ? fmtCents(totals.marginCents) : "—"}</td>
@@ -630,7 +630,8 @@ export default function InternalPurchaseOrders() {
 // qty is packs, so Σ qty·unit is the same).
 type PoDetailLine = {
   style_code: string | null; color: string | null; size: string | null;
-  sku_code: string | null; qty_ordered: number; unit_cost_cents: number; lot_number: string | null;
+  sku_code: string | null; qty_ordered: number; qty_received: number | null;
+  unit_cost_cents: number; lot_number: string | null; description: string | null;
 };
 // Apparel-ish size rank so grids read XS,S,M,L,XL… then numerics then alpha.
 const SIZE_RANK: Record<string, number> = { XXS: 0, XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, "2XL": 6, XXXL: 7, "3XL": 7, "4XL": 8 };
@@ -644,9 +645,13 @@ function sizeSort(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
+function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean; status: string }) {
   const [lines, setLines] = useState<PoDetailLine[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Qty view — mirrors the PO WIP matrix's itemQty logic: a partially-received
+  // PO defaults to REMAINING (ordered − received), toggleable to the ORIGINAL
+  // ordered qty. Harmless for non-partial POs (received = 0 → the two agree).
+  const [qtyView, setQtyView] = useState<"remaining" | "original">("remaining");
   useEffect(() => {
     let cancel = false;
     setLines(null); setErr(null);
@@ -661,13 +666,30 @@ function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
   if (lines == null) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>Loading line detail…</div>;
   if (lines.length === 0) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>No lines on this purchase order.</div>;
 
-  // Group by style → color → size (qty + Σ qty·unit for a weighted cost).
+  // A partial receipt exists → offer the Remaining/Original toggle. Driven by
+  // real per-line receipts OR the header status, so it shows even if one lags.
+  const hasReceipts = status === "partially_received" || lines.some((l) => (Number(l.qty_received) || 0) > 0);
+  // Effective (packs) qty for a line under the current view.
+  const effLineQty = (l: PoDetailLine) => {
+    const ord = Number(l.qty_ordered) || 0;
+    if (qtyView === "original") return ord;
+    return Math.max(0, ord - (Number(l.qty_received) || 0));
+  };
+
+  // Split into matrix-able lines (real style + size → color×size grid) and
+  // unlinked lines (SKU-less pack / aggregate lines — no size to place in a
+  // matrix, e.g. Xoro prepack rows). Unlinked lines get their own list below
+  // instead of scattering as broken single-cell "matrix" rows.
+  const matrixLines = lines.filter((l) => l.style_code && l.size);
+  const unlinkedLines = lines.filter((l) => !(l.style_code && l.size));
+
+  // Group matrix lines by style → color → size (qty + Σ qty·unit for a weighted cost).
   type Cell = { qty: number; costNum: number };
   const byStyle = new Map<string, { sizes: Set<string>; colors: Map<string, Map<string, Cell>>; lots: Set<string> }>();
-  for (const l of lines) {
-    const style = l.style_code || l.sku_code || "—";
+  for (const l of matrixLines) {
+    const style = l.style_code as string;
     const color = l.color || "—";
-    const size = l.size || "—";
+    const size = l.size as string;
     let s = byStyle.get(style);
     if (!s) { s = { sizes: new Set(), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
     s.sizes.add(size);
@@ -675,7 +697,7 @@ function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
     let cm = s.colors.get(color);
     if (!cm) { cm = new Map(); s.colors.set(color, cm); }
     const cell = cm.get(size) || { qty: 0, costNum: 0 };
-    const qty = Number(l.qty_ordered) || 0;
+    const qty = effLineQty(l);
     const unit = Number(l.unit_cost_cents) || 0;
     cell.qty += qty; cell.costNum += qty * unit;
     cm.set(size, cell);
@@ -684,12 +706,26 @@ function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
   const mult = (style: string, size: string) => (explode ? (extractPpk(size) ?? extractPpk(style) ?? 1) : 1);
   const ppkOf = (style: string, size: string) => (extractPpk(size) ?? extractPpk(style) ?? 1);
   const miniTh: React.CSSProperties = { ...th, position: "static" };
+  const remainingView = qtyView === "remaining" && hasReceipts;
 
   return (
     <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
         <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>
+        {remainingView && <span style={{ color: "#14B8A6", fontSize: 10 }}>· remaining to ship</span>}
+        {hasReceipts && (
+          <div style={{ marginLeft: "auto", display: "inline-flex", border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}
+            title="Show the quantity still to ship (ordered − received) or the original ordered quantity">
+            {(["remaining", "original"] as const).map((v) => (
+              <button key={v} type="button" onClick={() => setQtyView(v)}
+                style={{ padding: "3px 10px", fontSize: 11, fontWeight: qtyView === v ? 700 : 400, cursor: "pointer", border: "none",
+                  background: qtyView === v ? "#14B8A6" : "transparent", color: qtyView === v ? "#04211d" : C.textMuted }}>
+                {v === "remaining" ? "Remaining" : "Original"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {[...byStyle.entries()].map(([style, s]) => {
         const sizes = [...s.sizes].sort(sizeSort);
@@ -749,6 +785,50 @@ function PoRowDetail({ poId, explode }: { poId: string; explode: boolean }) {
           </div>
         );
       })}
+
+      {/* Unlinked / prepack lines — SKU-less rows (no size to place in a matrix,
+          e.g. Xoro pack-priced aggregate lines). Shown as a plain list so they're
+          visible and correct rather than scattered as broken single-cell rows. */}
+      {unlinkedLines.length > 0 && (
+        <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
+            <span style={{ color: C.warn, fontWeight: 700, fontSize: 12 }}>Unlinked lines</span>
+            <span style={{ color: C.textMuted, fontSize: 11 }}>no size matrix — pack / aggregate lines with no per-size SKU</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr>
+                <th style={miniTh}>Description</th>
+                <th style={{ ...miniTh, textAlign: "center" }}>Qty</th>
+                <th style={{ ...miniTh, textAlign: "right" }}>PO unit $</th>
+                <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
+              </tr></thead>
+              <tbody>
+                {unlinkedLines.map((l, i) => {
+                  const q = effLineQty(l);
+                  const unit = Number(l.unit_cost_cents) || 0;
+                  return (
+                    <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                      <td style={{ ...td, borderBottom: "none" }}>{l.description || l.sku_code || "—"}</td>
+                      <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 700 }}>{q.toLocaleString()}</td>
+                      <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{fmtCents(unit)}</td>
+                      <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(q * unit))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
+                  <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }}>Total</td>
+                  <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 800 }}>{unlinkedLines.reduce((s, l) => s + effLineQty(l), 0).toLocaleString()}</td>
+                  <td style={{ ...td, borderBottom: "none" }} />
+                  <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(unlinkedLines.reduce((s, l) => s + effLineQty(l) * (Number(l.unit_cost_cents) || 0), 0)))}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
