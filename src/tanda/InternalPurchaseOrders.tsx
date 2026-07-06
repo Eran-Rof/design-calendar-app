@@ -652,6 +652,10 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   // PO defaults to REMAINING (ordered − received), toggleable to the ORIGINAL
   // ordered qty. Harmless for non-partial POs (received = 0 → the two agree).
   const [qtyView, setQtyView] = useState<"remaining" | "original">("remaining");
+  // Issued/Received/Open breakdown: when on, each color renders THREE stacked
+  // lines — Issued (ordered), Received, and Open (remaining to ship) — instead of
+  // the single qty-view line. Only offered when the PO has receipts.
+  const [showBreakdown, setShowBreakdown] = useState(false);
   useEffect(() => {
     let cancel = false;
     setLines(null); setErr(null);
@@ -683,8 +687,10 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   const matrixLines = lines.filter((l) => l.style_code && l.size);
   const unlinkedLines = lines.filter((l) => !(l.style_code && l.size));
 
-  // Group matrix lines by style → color → size (qty + Σ qty·unit for a weighted cost).
-  type Cell = { qty: number; costNum: number };
+  // Group matrix lines by style → color → size. Each cell tracks Issued (ordered),
+  // Received, and Open (remaining) qty + their $ so any of the three views renders
+  // from one accumulation.
+  type Cell = { ordered: number; received: number; remaining: number; orderedCost: number; receivedCost: number; remainingCost: number };
   const byStyle = new Map<string, { sizes: Set<string>; colors: Map<string, Map<string, Cell>>; lots: Set<string> }>();
   for (const l of matrixLines) {
     const style = l.style_code as string;
@@ -696,10 +702,13 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
     if (l.lot_number) s.lots.add(l.lot_number);
     let cm = s.colors.get(color);
     if (!cm) { cm = new Map(); s.colors.set(color, cm); }
-    const cell = cm.get(size) || { qty: 0, costNum: 0 };
-    const qty = effLineQty(l);
+    const cell = cm.get(size) || { ordered: 0, received: 0, remaining: 0, orderedCost: 0, receivedCost: 0, remainingCost: 0 };
+    const ord = Number(l.qty_ordered) || 0;
+    const rec = Number(l.qty_received) || 0;
+    const open = Math.max(0, ord - rec);
     const unit = Number(l.unit_cost_cents) || 0;
-    cell.qty += qty; cell.costNum += qty * unit;
+    cell.ordered += ord; cell.received += rec; cell.remaining += open;
+    cell.orderedCost += ord * unit; cell.receivedCost += rec * unit; cell.remainingCost += open * unit;
     cm.set(size, cell);
   }
   // Explode multiplier for a size (1 when off or non-PPK).
@@ -708,29 +717,59 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   const miniTh: React.CSSProperties = { ...th, position: "static" };
   const remainingView = qtyView === "remaining" && hasReceipts;
 
+  // Metric rows to render per color. Breakdown ON → three lines (Issued/Received/
+  // Open); OFF → one line following the Remaining/Original toggle. `q` is qty,
+  // `ext` is $ (cents); cellColor / totalColor tint the size cells + row total.
+  type Metric = { key: string; label: string | null; q: (c: Cell) => number; ext: (c: Cell) => number; cellColor: string; totalColor: string };
+  const metrics: Metric[] = showBreakdown
+    ? [
+        { key: "issued", label: "Issued", q: (c) => c.ordered, ext: (c) => c.orderedCost, cellColor: C.textSub, totalColor: C.textSub },
+        { key: "received", label: "Received", q: (c) => c.received, ext: (c) => c.receivedCost, cellColor: "#60A5FA", totalColor: "#60A5FA" },
+        { key: "open", label: "Open", q: (c) => c.remaining, ext: (c) => c.remainingCost, cellColor: "#14B8A6", totalColor: "#14B8A6" },
+      ]
+    : [
+        {
+          key: "single", label: null,
+          q: (c) => (qtyView === "original" ? c.ordered : c.remaining),
+          ext: (c) => (qtyView === "original" ? c.orderedCost : c.remainingCost),
+          cellColor: C.text, totalColor: C.warn,
+        },
+      ];
+
   return (
     <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
         <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>
-        {remainingView && <span style={{ color: "#14B8A6", fontSize: 10 }}>· remaining to ship</span>}
+        {!showBreakdown && remainingView && <span style={{ color: "#14B8A6", fontSize: 10 }}>· remaining to ship</span>}
+        {showBreakdown && <span style={{ color: C.textMuted, fontSize: 10 }}>· <span style={{ color: C.textSub }}>issued</span> / <span style={{ color: "#60A5FA" }}>received</span> / <span style={{ color: "#14B8A6" }}>open</span></span>}
         {hasReceipts && (
-          <div style={{ marginLeft: "auto", display: "inline-flex", border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}
-            title="Show the quantity still to ship (ordered − received) or the original ordered quantity">
-            {(["remaining", "original"] as const).map((v) => (
-              <button key={v} type="button" onClick={() => setQtyView(v)}
-                style={{ padding: "3px 10px", fontSize: 11, fontWeight: qtyView === v ? 700 : 400, cursor: "pointer", border: "none",
-                  background: qtyView === v ? "#14B8A6" : "transparent", color: qtyView === v ? "#04211d" : C.textMuted }}>
-                {v === "remaining" ? "Remaining" : "Original"}
-              </button>
-            ))}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            {!showBreakdown && (
+              <div style={{ display: "inline-flex", border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}
+                title="Show the quantity still to ship (ordered − received) or the original ordered quantity">
+                {(["remaining", "original"] as const).map((v) => (
+                  <button key={v} type="button" onClick={() => setQtyView(v)}
+                    style={{ padding: "3px 10px", fontSize: 11, fontWeight: qtyView === v ? 700 : 400, cursor: "pointer", border: "none",
+                      background: qtyView === v ? "#14B8A6" : "transparent", color: qtyView === v ? "#04211d" : C.textMuted }}>
+                    {v === "remaining" ? "Remaining" : "Original"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Show/hide the per-color Issued / Received / Open (remaining-to-ship) breakdown. */}
+            <button type="button" onClick={() => setShowBreakdown((v) => !v)}
+              title="Show each color as three lines: Issued (original PO qty), Received, and Open (remaining to ship)"
+              style={{ padding: "3px 10px", fontSize: 11, fontWeight: showBreakdown ? 700 : 400, cursor: "pointer",
+                border: `1px solid ${showBreakdown ? "#14B8A6" : C.cardBdr}`, borderRadius: 6,
+                background: showBreakdown ? "rgba(20,184,166,0.12)" : "transparent", color: showBreakdown ? "#14B8A6" : C.textMuted }}>
+              {showBreakdown ? "⊟ Issued / Received / Open" : "⊞ Issued / Received / Open"}
+            </button>
           </div>
         )}
       </div>
       {[...byStyle.entries()].map(([style, s]) => {
         const sizes = [...s.sizes].sort(sizeSort);
-        let styleQty = 0, styleExt = 0;
-        for (const cm of s.colors.values()) for (const [sz, cell] of cm) { styleQty += cell.qty * mult(style, sz); styleExt += cell.costNum; }
         return (
           <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
@@ -747,38 +786,54 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
                   <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
                 </tr></thead>
                 <tbody>
-                  {[...s.colors.entries()].map(([color, cm]) => {
-                    let rowPacks = 0, rowExt = 0, rowUnits = 0, rowQtyDisp = 0;
-                    for (const [sz, cell] of cm) {
-                      rowPacks += cell.qty;
-                      rowExt += cell.costNum;
-                      rowUnits += cell.qty * ppkOf(style, sz);
-                      rowQtyDisp += cell.qty * mult(style, sz);
-                    }
-                    const avgPackUnit = rowPacks > 0 ? rowExt / rowPacks : 0;
-                    const perEach = rowUnits > 0 ? rowExt / rowUnits : avgPackUnit;
-                    const unitDisp = explode ? perEach : avgPackUnit;
+                  {[...s.colors.entries()].map(([color, cm]) => (
+                    <Fragment key={color}>
+                      {metrics.map((m, mi) => {
+                        let rowPacks = 0, rowExt = 0, rowUnits = 0, rowQtyDisp = 0;
+                        for (const [sz, cell] of cm) {
+                          const q = m.q(cell);
+                          rowPacks += q;
+                          rowExt += m.ext(cell);
+                          rowUnits += q * ppkOf(style, sz);
+                          rowQtyDisp += q * mult(style, sz);
+                        }
+                        const avgPackUnit = rowPacks > 0 ? rowExt / rowPacks : 0;
+                        const perEach = rowUnits > 0 ? rowExt / rowUnits : avgPackUnit;
+                        const unitDisp = explode ? perEach : avgPackUnit;
+                        const firstMetric = mi === 0;
+                        return (
+                          <tr key={m.key} style={{ borderTop: firstMetric ? `1px solid ${C.cardBdr}` : "none" }}>
+                            <td style={{ ...td, borderBottom: "none", paddingTop: firstMetric ? undefined : 1, paddingBottom: mi === metrics.length - 1 ? undefined : 1 }}>
+                              {firstMetric && <span>{color}</span>}
+                              {m.label && <span style={{ marginLeft: firstMetric ? 8 : 0, fontSize: 10, color: m.cellColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{m.label}</span>}
+                            </td>
+                            {sizes.map((sz) => {
+                              const cell = cm.get(sz);
+                              const v = cell ? m.q(cell) * mult(style, sz) : null;
+                              return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: v ? m.cellColor : C.cardBdr }}>{cell && v != null ? v.toLocaleString() : "—"}</td>;
+                            })}
+                            <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.totalColor, fontWeight: 700 }}>{rowQtyDisp.toLocaleString()}</td>
+                            <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{firstMetric ? fmtCents(Math.round(unitDisp)) : ""}</td>
+                            <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(rowExt))}</td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </tbody>
+                <tfoot>
+                  {metrics.map((m, mi) => {
+                    let tQty = 0, tExt = 0;
+                    for (const cm of s.colors.values()) for (const [sz, cell] of cm) { tQty += m.q(cell) * mult(style, sz); tExt += m.ext(cell); }
                     return (
-                      <tr key={color} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
-                        <td style={{ ...td, borderBottom: "none" }}>{color}</td>
-                        {sizes.map((sz) => {
-                          const cell = cm.get(sz);
-                          return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: cell ? C.text : C.cardBdr }}>{cell ? (cell.qty * mult(style, sz)).toLocaleString() : "—"}</td>;
-                        })}
-                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 700 }}>{rowQtyDisp.toLocaleString()}</td>
-                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{fmtCents(Math.round(unitDisp))}</td>
-                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(rowExt))}</td>
+                      <tr key={m.key} style={{ borderTop: mi === 0 ? `2px solid ${C.cardBdr}` : "none" }}>
+                        <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={sizes.length + 1}>{m.label ? `${m.label} total` : "Style total"}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.totalColor, fontWeight: 800 }}>{tQty.toLocaleString()}</td>
+                        <td style={{ ...td, borderBottom: "none" }} />
+                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(tExt))}</td>
                       </tr>
                     );
                   })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
-                    <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={sizes.length + 1}>Style total</td>
-                    <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 800 }}>{styleQty.toLocaleString()}</td>
-                    <td style={{ ...td, borderBottom: "none" }} />
-                    <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(styleExt))}</td>
-                  </tr>
                 </tfoot>
               </table>
             </div>
