@@ -59,14 +59,24 @@ describe("computePoLineMoney — grain normalization", () => {
     expect(sell).toBe(900);
   });
 
-  it("per-EACH sell source (brand list) is weighted by eaches, not qty, on a PPK line", () => {
-    // 10 packs of PPK24 @ $171.60/pack ($7.15/each); brand list $9/each.
+  it("brand list on a PPK line is per-PACK → per-each (weighted by qty, not eaches)", () => {
+    // A PPK (pack) style's brand-list price IS the pack price. 10 packs of PPK24 @
+    // $171.60/pack; brand list $216/pack → $9/each. Weighting by eaches would have
+    // read $216 as $216/EACH (the P001133 $65.66 bug).
     const { avgPo, sell } = aggregate([
       [{ qty_ordered: 10, unit_cost_cents: 17160, ppk: 24, sku_code: "X-PPK24", style_id: "s1" },
-       { stdCost: 17160, brandPrice: 900 }],
+       { stdCost: 17160, brandPrice: 21600 }],
     ]);
     expect(avgPo).toBe(715);   // $171.60/pack ÷ 24 = $7.15/each
-    expect(sell).toBe(900);    // brand list stays $9/each (not $9×24 or $9÷24)
+    expect(sell).toBe(900);    // $216/pack ÷ 24 = $9/each (NOT $216/each)
+  });
+
+  it("customer price on a PPK line is per-PACK too (weighted by qty)", () => {
+    const { sell } = aggregate([
+      [{ qty_ordered: 10, unit_cost_cents: 17160, ppk: 24, sku_code: "X-PPK24", style_id: "s1" },
+       { stdCost: 17160, custPrice: 24000 }], // $240/pack → $10/each
+    ]);
+    expect(sell).toBe(1000);
   });
 
   it("mixed PO (PPK pack line + loose line): blends correctly at per-each grain", () => {

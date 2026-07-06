@@ -208,18 +208,20 @@ function extractPpk(v) {
 //     line has qty = PACKS and unit_cost = per-PACK; a loose line has qty =
 //     EACHES and unit_cost = per-EACH. ppk = units-per-pack (1 for loose), and
 //     eaches = qty × ppk.
-//   • Reference COST (ip_item_avg_cost, keyed by SKU) and the SKU-keyed /
-//     sales-history / provisional SELL are stored at the SKU's OWN grain → per
-//     PACK for a PPK SKU (a PPK60 pack's avg_cost IS $324, the pack price). Their
-//     dollar total is `value × qty` (native × native), NOT `value × eaches`.
-//   • Garment-level SELL (customer price, brand-default list) is per-EACH; its
-//     dollar total is `value × eaches`.
+//   • EVERY reference value — COST (ip_item_avg_cost) AND SELL (customer / brand
+//     list / sales history / SKU std / provisional) — is keyed by the line's own
+//     SKU or STYLE, whose grain MATCHES the line's grain: a PPK (pack) style's
+//     brand list / customer price / recent sell / std / provisional are all per
+//     PACK (a PPK60 pack's avg_cost IS $324 and its brand list IS $390 — the pack
+//     price), a loose style's are per-EACH. So every $ total is `value × qty`
+//     (native × native), NEVER `value × eaches`.
 //   • Every column then divides its dollar total by eaches.
 //
-// THE RECURRING BUG this encodes away: resolved std cost + sell were multiplied
-// by `eaches` while the values themselves were per-PACK, so a $324/pack cost read
-// as $324/EACH (inflated ×ppk) and margin came out ~98%. Normalizing here — once,
-// in a pure tested helper — is why it stops repeating.
+// THE RECURRING BUG this encodes away: resolved cost + sell were multiplied by
+// `eaches` while the values themselves were per-PACK, so a $324/pack cost read as
+// $324/EACH and a $390/pack brand list read as $390/EACH (both inflated ×ppk) →
+// nonsense margins (~98%) and Sell (e.g. $65.66). Normalizing here — once, in a
+// pure tested helper — is why it stops repeating.
 //
 // `line` carries qty_ordered, unit_cost_cents, ppk, sku_code, style_id.
 // `refs` carries the resolved reference cents (or null): stdCost, custPrice,
@@ -241,17 +243,21 @@ export function computePoLineMoney(line, refs = {}) {
   // price. Both are per-PACK for a PPK line → weight by qty (native), not eaches.
   const costCents = linked ? (refs.stdCost != null ? refs.stdCost : poPrice) * qty : 0;
 
-  // Sell — first hit wins; per-EACH sources (customer / brand list) weight by
-  // eaches, native/per-PACK sources (sales history, SKU std, provisional) by qty.
-  let sell = null, sellPerEach = false;
+  // Sell — first hit wins (customer → brand list → recent sale → SKU std →
+  // provisional). Every source is keyed by the line's style/SKU, so its grain
+  // matches the line's: per-PACK for a PPK style, per-EACH for a loose one. The $
+  // total is therefore always `sell × qty` (native × native) — the same qty
+  // weighting cost uses — NEVER × eaches. (An earlier version weighted the brand /
+  // customer price by eaches, reading a pack style's $390/pack list as $390/EACH.)
+  let sell = null;
   if (line.style_id) {
-    if (refs.custPrice != null) { sell = refs.custPrice; sellPerEach = true; }
-    else if (refs.brandPrice != null) { sell = refs.brandPrice; sellPerEach = true; }
-    else if (refs.recentSell != null) { sell = refs.recentSell; sellPerEach = false; }
+    if (refs.custPrice != null) sell = refs.custPrice;
+    else if (refs.brandPrice != null) sell = refs.brandPrice;
+    else if (refs.recentSell != null) sell = refs.recentSell;
   }
-  if (sell == null && refs.stdSell != null) { sell = refs.stdSell; sellPerEach = false; }
-  if (sell == null && line.style_id && refs.provisional != null) { sell = refs.provisional; sellPerEach = false; }
-  const sellCents = sell == null ? null : (sellPerEach ? sell * eaches : sell * qty);
+  if (sell == null && refs.stdSell != null) sell = refs.stdSell;
+  if (sell == null && line.style_id && refs.provisional != null) sell = refs.provisional;
+  const sellCents = sell == null ? null : sell * qty;
 
   return { eaches, linked, priceCents, costCents, sellCents };
 }
