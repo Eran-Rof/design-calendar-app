@@ -711,9 +711,21 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // actually ordered; fall back to appearance order if no payload yet. For a
         // prepack the single column is the pack token (cells are PACK counts).
         const pp = s.payload?.prepack || null;
-        const sizes = pp
-          ? [pp.pack_token]
-          : (s.payload?.sizes?.length ? s.payload.sizes.filter((sz) => sizesSeen.has(sz)) : [...sizesSeen]);
+        let sizes;
+        if (pp) {
+          sizes = [pp.pack_token];
+        } else if (s.payload?.sizes?.length) {
+          // Scale sizes that were ordered, PLUS any ordered size the scale doesn't
+          // carry — e.g. a PPK pack token (PPK18) on a SIZED style (a jacket with
+          // both garment sizes AND a prepack, and no prepack definition yet). Those
+          // extra sizes would otherwise be filtered out and their qty dropped from
+          // the document (a PO that reads $0 even though the lines carry qty).
+          const inScale = s.payload.sizes.filter((sz) => sizesSeen.has(sz));
+          const extra = [...sizesSeen].filter((sz) => !s.payload!.sizes.includes(sz));
+          sizes = inScale.length || extra.length ? [...inScale, ...extra] : [...sizesSeen];
+        } else {
+          sizes = [...sizesSeen];
+        }
         styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()], imageUrl: showImages ? thumbUrlFor(s.styleId) : null });
         // For a PPK style WITH a defined matrix, also emit the pack composition
         // (inner + carton units per size) + the per-color pack counts so the
