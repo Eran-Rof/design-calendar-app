@@ -1580,11 +1580,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxHeight: "90vh", overflowY: "auto", color: C.text }}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: 24, width: "min(92vw, 760px)", maxWidth: "92vw", minWidth: 0, maxHeight: "90vh", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box", color: C.text }}
       >
         <h3 style={{ margin: "0 0 16px", fontSize: 18 }}>{title}</h3>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, minWidth: 0 }}>
           <Field label="Style Number">
             {mode === "add" ? (
               <input
@@ -1739,13 +1739,13 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
                 type="button"
                 onClick={() => void openPpkMatrix()}
                 disabled={ppkMatrixLoading}
-                style={{ ...btnSecondary, whiteSpace: "nowrap", opacity: ppkMatrixLoading ? 0.6 : 1 }}
+                style={{ ...btnSecondary, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: ppkMatrixLoading ? 0.6 : 1 }}
                 title="Define this prepack's per-size garment composition (1 pack = the size quantities)"
               >
-                {ppkMatrixLoading ? "Loading…" : ppkMatrix ? `Edit prepack matrix (${ppkMatrix.code})` : "+ Add prepack matrix"}
+                {ppkMatrixLoading ? "Loading…" : ppkMatrix ? "Edit prepack matrix" : "+ Add prepack matrix"}
               </button>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>
-                This style is a prepack (PPK){ppkMatrix ? " — a matrix is defined." : " — define its per-size composition so the Inventory Matrix can explode packs into sized eaches."}
+                This style is a prepack (PPK){ppkMatrix ? <> — matrix <strong style={{ color: C.textSub }}>{ppkMatrix.code}</strong> is defined.</> : " — define its per-size composition so the Inventory Matrix can explode packs into sized eaches."}
               </div>
             </Field>
           )}
@@ -1805,11 +1805,11 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
               </div>
             )}
           </Field>
-          <Field label="HTS code · Duty % · +Tariff % · COO">
+          <Field label="HTS code · Duty % · +Tariff % · COO" span>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {coo.map((row, idx) => (
                 <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <input
                       type="text"
                       value={row.hts_code}
@@ -2345,9 +2345,14 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, span }: { label: string; children: React.ReactNode; span?: boolean }) {
+  // minWidth:0 lets this grid item shrink below its content's intrinsic width
+  // (grid items default to min-width:auto), so wide inner content truncates
+  // instead of forcing the whole two-column grid — and the modal — off-screen.
+  // `span` makes an inherently-wide field (e.g. the HTS/COO row) take the full
+  // grid width instead of squeezing into one column.
   return (
-    <div>
+    <div style={{ minWidth: 0, gridColumn: span ? "1 / -1" : undefined }}>
       <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       {children}
     </div>
