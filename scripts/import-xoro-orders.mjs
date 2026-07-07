@@ -416,6 +416,23 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
       const lt = looseKey(noSize), et = expandedKey(noSize);
       const packHit = family.find((r) => /PPK/i.test(r.size || "") && (looseKey(r.sku_code) === lt || expandedKey(r.sku_code) === et));
       if (packHit) { out = { id: packHit.id, created: false, reason: "loose-ppk" }; skuCache.set(itemNumber, out); return out; }
+      // GRAIN GUARDRAIL (Phase 4): no SIZED pack row, but a COLOR-ONLY row (size
+      // null) for this colour exists — the "color-only rows stale" gap. Bind to it
+      // AND stamp the pack size from the ItemNumber so the line CARRIES GRAIN
+      // (per-each) instead of importing grain-less (the class Phase 1 backfilled:
+      // the grid otherwise reads such a line at PACK grain, e.g. $127/each). Guard:
+      // never overwrite an existing sibling already at that (style, colour, size).
+      const colorOnly = family.find((r) => !r.size && (looseKey(r.sku_code) === lt || expandedKey(r.sku_code) === et));
+      if (colorOnly) {
+        const packSize = String(p.size).trim().toUpperCase();
+        if (opts.apply) {
+          const dup = family.find((r) => r.id !== colorOnly.id && r.style_id === colorOnly.style_id
+            && expandedColorKey(r.color) === expandedColorKey(colorOnly.color) && String(r.size || "").toUpperCase() === packSize);
+          if (!dup) await pgPatch("ip_item_master", `id=eq.${colorOnly.id}`, { size: packSize });
+        }
+        out = { id: colorOnly.id, created: false, reason: "ppk-promote-size" };
+        skuCache.set(itemNumber, out); return out;
+      }
     }
   }
   // 3.5) AUTO-CREATE a missing SIZED SKU under an ON-MASTER family (sibling
@@ -602,6 +619,7 @@ async function importPOs(refs) {
   console.log(`  UNRESOLVED SKUs (distinct ${skuUnresolved.size}). first 15: ${[...skuUnresolved].slice(0, 15).join(", ") || "none"}`);
   console.log(`  sample mapped POs:`);
   for (const s of samples) console.log("   ", JSON.stringify(s));
+  if (APPLY) console.log(`\n  ➜ INGEST GUARDRAIL: run \`npm run audit:pos\` now to confirm no PO grid invariant regressed (unlinked / grain / size / case).`);
 }
 
 // ── SO source preview (lossy, opt-in) ────────────────────────────────────--
