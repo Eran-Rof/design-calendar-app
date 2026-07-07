@@ -711,9 +711,13 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // actually ordered; fall back to appearance order if no payload yet. For a
         // prepack the single column is the pack token (cells are PACK counts).
         const pp = s.payload?.prepack || null;
+        // Same rule as the on-screen render: treat as a prepack only when the order
+        // is at pack grain (a cell at the pack token). A prepack-defined style cut
+        // per garment SIZE renders by its actual sizes so the document isn't blank.
+        const ppActive = (pp && (sizesSeen.size === 0 || sizesSeen.has(pp.pack_token))) ? pp : null;
         let sizes;
-        if (pp) {
-          sizes = [pp.pack_token];
+        if (ppActive) {
+          sizes = [ppActive.pack_token];
         } else if (s.payload?.sizes?.length) {
           // Scale sizes that were ordered, PLUS any ordered size the scale doesn't
           // carry — e.g. a PPK pack token (PPK18) on a SIZED style (a jacket with
@@ -730,15 +734,15 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // For a PPK style WITH a defined matrix, also emit the pack composition
         // (inner + carton units per size) + the per-color pack counts so the
         // document can render the full garment explode (confirmation requirement).
-        if (pp && pp.has_matrix && pp.composition.length) {
+        if (ppActive && ppActive.has_matrix && ppActive.composition.length) {
           const colors = [...rowMap.values()]
-            .map((r) => ({ color: r.color || "—", packs: r.qtyBySize[pp.pack_token] || 0 }))
+            .map((r) => ({ color: r.color || "—", packs: r.qtyBySize[ppActive.pack_token] || 0 }))
             .filter((c) => c.packs > 0);
           if (colors.length) {
             prepacks.push({
               style: code,
-              packToken: pp.pack_token,
-              sizes: pp.composition.map((c) => ({ size: c.size, inner: Number(c.inner_pack_qty) || 0, carton: Number(c.qty_per_pack) || 0 })),
+              packToken: ppActive.pack_token,
+              sizes: ppActive.composition.map((c) => ({ size: c.size, inner: Number(c.inner_pack_qty) || 0, carton: Number(c.qty_per_pack) || 0 })),
               colors,
             });
           }
@@ -874,32 +878,37 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // color (single pack-token column), not per-size eaches. The backend
         // returns a `prepack` block (pack token + composition) for any PPK style.
         const pp = s.payload?.prepack || null;
-        // Item 12 — units per pack: the matrix composition total when defined,
-        // else the digits in the pack token (PPK24 → 24). Drives the per-each
-        // price → pack price auto-calc. 0 ⇒ unknown ⇒ no per-each column.
-        const packSize = pp ? (Number(pp.pack_total) || parseInt(pp.pack_token.match(/\d+/)?.[0] || "0", 10) || 0) : 0;
-        // Sizes that drive cell keys / locked-row filtering: the single pack token
-        // for a prepack, else the garment size scale.
-        const entrySizes = pp ? [pp.pack_token] : (s.payload?.sizes || []);
+        const sizesList = s.payload?.sizes || [];
+        // Sizes the order ACTUALLY uses (every cell carrying qty). Drives the grain
+        // decision + which rows/columns show, so an order entered at off-scale or
+        // off-grain sizes is never filtered to a blank grid.
+        const orderedSizes = new Set<string>();
+        for (const [k, v] of Object.entries(s.qty)) { if ((v || 0) > 0) { const sz = k.split("__")[1]; if (sz) orderedSizes.add(sz); } }
+        // Render as a PREPACK (single pack-token column) only when the order is at
+        // pack grain: nothing entered yet (editable) OR ≥1 line at the pack token.
+        // A prepack-DEFINED style ordered per garment SIZE (e.g. RBB0185-03SFPPK at
+        // 10/12/14 — data the vendor cut per size, not as PPK48 packs) falls back to
+        // a normal size matrix so those qtys show instead of a blank pack column.
+        const ppActive = (pp && (orderedSizes.size === 0 || orderedSizes.has(pp.pack_token))) ? pp : null;
+        // Item 12 — units per pack: matrix composition total, else the pack-token
+        // digits (PPK24 → 24). Drives the per-each ↔ pack price auto-calc.
+        const packSize = ppActive ? (Number(ppActive.pack_total) || parseInt(ppActive.pack_token.match(/\d+/)?.[0] || "0", 10) || 0) : 0;
+        // Size columns: the pack token for an active prepack, else the garment scale
+        // PLUS any ordered size the scale doesn't carry (off-scale kids sizes on an
+        // adult-waist scale, or per-size lines on a prepack-defined style). Without
+        // this those cells render blank though the qty is set.
+        const orderedOffScale = [...orderedSizes].filter((sz) => !sizesList.includes(sz));
+        const displaySizes = ppActive ? [ppActive.pack_token] : (orderedOffScale.length ? [...sizesList, ...orderedOffScale] : sizesList);
+        // entrySizes drives locked-row visibility — MUST include the ordered sizes,
+        // else a row whose qty is entirely off-scale / off-grain filters away (the
+        // whole PO reads blank in the modal though the grid total is correct).
+        const entrySizes = ppActive ? [ppActive.pack_token] : displaySizes;
         const allRows = rowsFor(s.payload);
-        // When locked (a confirmed order viewed read-only) show ONLY the color
-        // rows that carry a quantity — the order, not the whole scale. Editable
-        // (draft or "Add styles" mode) shows every color so any can be filled.
+        // When locked (a confirmed order viewed read-only) show ONLY the color rows
+        // that carry a quantity. Editable ("Add styles") shows every color.
         const rows = editable ? allRows : allRows.filter((r) => entrySizes.some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
         const onHand: Record<string, number> = {};
-        if (!pp && showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
-        // Per-style pack ratio (from Style Master → Scale) powers the quick-fill
-        // Qty column. Only offered when editable and the style has a usable pack
-        // for these sizes.
-        const sizesList = s.payload?.sizes || [];
-        // Sizes to RENDER on screen: the garment scale PLUS any size actually
-        // ordered that the scale doesn't carry — e.g. a PPK pack token on a SIZED
-        // garment+pack style with no prepack definition. Without this those cells
-        // render blank even though the qty is set (mirrors the PO-document fix).
-        // Prepack styles (pp) use the pack-token column and are unaffected.
-        const orderedOffScale = new Set<string>();
-        for (const [k, v] of Object.entries(s.qty)) { if ((v || 0) > 0) { const sz = k.split("__")[1]; if (sz && !sizesList.includes(sz)) orderedOffScale.add(sz); } }
-        const displaySizes = orderedOffScale.size ? [...sizesList, ...orderedOffScale] : sizesList;
+        if (!ppActive && showAvail && (showOnHand || atsMode) && s.payload) for (const r of rows) { const [color, inseam] = r.key.split("|"); for (const sz of s.payload.sizes) { const sk = s.payload.skus.find((k) => skuCellKey(k.color, k.size, k.inseam || null) === skuCellKey(color || null, sz, inseam || null)); if (!sk) continue; const v = atsMode ? (atsByItem[sk.id] ?? 0) : sk.on_hand_qty; if (v != null) onHand[matrixCellKey(r.key, sz)] = Math.max(0, Number(v) || 0); } }
         // The pack ratio may be flat or per-inseam (Style Master → Scale).
         // Resolve it for the row's inseam (rowKey = `color|inseam`) so each inseam
         // row distributes by its own pack; a flat pack applies to every inseam.
@@ -908,12 +917,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         const packUsableFor = (rk: string) => editable && hasUsablePack(sizesList, packForRow(rk));
         // Per-color pack counts for the prepack explode preview (cell = pack token).
         const packsByRow: Record<string, number> = {};
-        if (pp) for (const r of rows) packsByRow[r.key] = s.qty[matrixCellKey(r.key, pp.pack_token)] || 0;
+        if (ppActive) for (const r of rows) packsByRow[r.key] = s.qty[matrixCellKey(r.key, ppActive.pack_token)] || 0;
         // Carton check (Phase C): a carton is packed per color×size SKU, so flag
         // each cell whose qty is a positive non-multiple of the carton size. Skipped
         // for prepacks — those cells are PACK counts, not eaches (no carton rule).
         const partialCells: { label: string; qty: number }[] = [];
-        if (!pp) for (const r of rows) for (const sz of sizesList) {
+        if (!ppActive) for (const r of rows) for (const sz of sizesList) {
           const q = s.qty[matrixCellKey(r.key, sz)] || 0;
           if (isPartialCarton(q)) partialCells.push({ label: `${r.color || "—"} ${sz}`, qty: q });
         }
@@ -987,27 +996,27 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             {/* PREPACK (pack-grain) entry: a single PACKS column per color, plus a
                 per-size breakdown ("explode") from the Prepack Matrix master. The
                 order line stores PACKS; the explode is for display. */}
-            {s.payload && pp && (
+            {s.payload && ppActive && (
               <>
                 <div style={{ fontSize: 12, color: C.textSub, margin: "2px 2px 8px", lineHeight: 1.5, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
-                  {pp.has_matrix
+                  {ppActive.has_matrix
                     ? <button type="button" onClick={() => togglePackComp(s.id)} style={{ ...btnSecondary, fontSize: 11, padding: "2px 8px" }}>
-                        {packCompHidden.has(s.id) ? `▸ Show ${pp.pack_token} pack composition` : `▾ Hide ${pp.pack_token} pack composition`}
+                        {packCompHidden.has(s.id) ? `▸ Show ${ppActive.pack_token} pack composition` : `▾ Hide ${ppActive.pack_token} pack composition`}
                       </button>
                     : <>
                         <span style={{ color: C.warn }}>No size breakdown is defined for this prepack — packs will be ordered without an explode.</span>
                         {/* Item 10 — add the matrix inline without leaving the order. */}
                         <button type="button"
-                          onClick={() => { const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""; if (s.styleId && code) setPrepackAddFor({ sectionId: s.id, styleId: s.styleId, styleCode: code, packToken: pp.pack_token }); }}
+                          onClick={() => { const code = s.payload?.style?.style_code || styles.find((st) => st.id === s.styleId)?.style_code || ""; if (s.styleId && code) setPrepackAddFor({ sectionId: s.id, styleId: s.styleId, styleCode: code, packToken: ppActive.pack_token }); }}
                           style={{ ...btnSecondary, color: C.warn, borderColor: C.warn, fontSize: 11, padding: "2px 8px" }}>
                           + Add prepack matrix
                         </button>
                       </>}
                 </div>
                 {/* Prepack PPKxx = inner pack × N = carton (from the Prepack Matrices). */}
-                {pp.has_matrix && !packCompHidden.has(s.id) && <PrepackCompositionView composition={pp.composition} />}
+                {ppActive.has_matrix && !packCompHidden.has(s.id) && <PrepackCompositionView composition={ppActive.composition} />}
                 <EditableSizeMatrix
-                  rows={rows} sizes={[pp.pack_token]}
+                  rows={rows} sizes={[ppActive.pack_token]}
                   qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
                   unit={{
                     label: `${moneyLabel} / pack`, placeholder: "0.00", values: s.unit,
@@ -1043,21 +1052,22 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                     highlightWhenDiffersFrom: headerCustomerPo,
                   } : undefined}
                 />
-                {pp.has_matrix && (
+                {ppActive.has_matrix && (
                   <div style={{ marginTop: 8 }}>
                     <button type="button" onClick={() => setExplodeOpen(s.id, s.explodeOpen === false)} style={{ ...btnSecondary, fontSize: 12, padding: "4px 10px" }}>
                       {s.explodeOpen === false ? "▸ Show size breakdown (explode)" : "▾ Hide size breakdown (explode)"}
                     </button>
                     {s.explodeOpen !== false && (
-                      <PrepackExplodePreview rows={rows} packsByRow={packsByRow} composition={pp.composition} />
+                      <PrepackExplodePreview rows={rows} packsByRow={packsByRow} composition={ppActive.composition} />
                     )}
                   </div>
                 )}
               </>
             )}
-            {/* Normal sized matrix (non-prepack styles). */}
-            {s.payload && !pp && s.payload.sizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
-            {s.payload && !pp && s.payload.sizes.length > 0 && (
+            {/* Normal sized matrix (non-prepack styles, OR a prepack-defined style
+                ordered at garment-size grain → rendered by its actual sizes). */}
+            {s.payload && !ppActive && displaySizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
+            {s.payload && !ppActive && displaySizes.length > 0 && (
               <EditableSizeMatrix
                 rows={rows} sizes={displaySizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
