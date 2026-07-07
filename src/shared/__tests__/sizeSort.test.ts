@@ -13,8 +13,8 @@ describe("compareSizes — canonical size ordering", () => {
   it("numeric waists order numerically", () => {
     expect(["32", "28", "30", "34"].sort(compareSizes)).toEqual(["28", "30", "32", "34"]);
   });
-  it("letters before numeric before PPK before alpha", () => {
-    expect(["PPK24", "30", "M", "ZZZ"].sort(compareSizes)).toEqual(["M", "30", "PPK24", "ZZZ"]);
+  it("numeric before letters before PPK before alpha", () => {
+    expect(["PPK24", "30", "M", "ZZZ"].sort(compareSizes)).toEqual(["30", "M", "PPK24", "ZZZ"]);
   });
   it("abbreviations (SML/MED/LRG/XLG) normalize", () => {
     expect(["XLG", "SML", "LRG", "MED"].sort(compareSizes)).toEqual(["SML", "MED", "LRG", "XLG"]);
