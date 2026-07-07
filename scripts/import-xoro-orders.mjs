@@ -459,9 +459,20 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   if (sib) {
     if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
     const sizeSafe = String(p.size).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    // Swap the sibling sku_code's trailing segment for our size — keeps the
-    // sibling's exact style/colour spelling in the new code.
-    const newSku = String(sib.sku_code).replace(/-[^-]*$/, `-${sizeSafe}`);
+    // Build the new code as STYLE-COLOUR-SIZE from the sibling's COLOUR segment —
+    // never by blindly swapping the sibling's trailing segment. When the sibling
+    // is a COLOUR-ONLY row (sku ends in the colour, e.g. RYB1157-ESPRESSO), a
+    // trailing swap drops the colour and yields a COLOURLESS code (RYB1157-LRG);
+    // those then collide across colours and scramble the size/colour matrix — the
+    // Defect-C mis-resolution (money still ties, but the grid shows phantom
+    // single-size "colours"). Extract the colour tokens from the sibling's own
+    // sku_code: strip the style prefix, then a trailing size segment if the
+    // sibling is itself sized — keeping the catalog's colour spelling.
+    const stylePrefixRe = new RegExp("^" + String(sib.style_code).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "-", "i");
+    let colorSeg = String(sib.sku_code).replace(stylePrefixRe, "");
+    if (sib.size) colorSeg = colorSeg.replace(/-[^-]*$/, ""); // drop the sibling's own size segment
+    colorSeg = colorSeg.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").toUpperCase();
+    const newSku = colorSeg ? `${sib.style_code}-${colorSeg}-${sizeSafe}` : `${sib.style_code}-${sizeSafe}`;
     // is_apparel only when the sibling is apparel AND all five dims are present
     // (mirrors resolveOrCreateSku — avoids the apparel_dims_required CHECK).
     const apparelFinal = !!(sib.is_apparel && sib.color && p.size && sib.inseam && sib.length && sib.fit);

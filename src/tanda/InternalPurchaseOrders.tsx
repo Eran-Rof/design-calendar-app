@@ -110,6 +110,7 @@ type DQResponse = {
 const DQ_CLASS_LABEL: Record<string, string> = {
   orphan_style_code: "Orphan style code (not in catalog)",
   unlinked_line: "Unlinked line (no SKU)",
+  mismapped_sku: "Mismapped SKU (colorless code → scrambled matrix)",
   ppk_no_prepack_def: "PPK style missing prepack definition",
   incomplete_size_coverage: "Incomplete size coverage",
 };
