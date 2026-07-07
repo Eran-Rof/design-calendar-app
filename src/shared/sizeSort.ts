@@ -24,26 +24,30 @@ const LETTER_CANON: Record<string, string> = {
   "4XL": "4XLARGE", "4X": "4XLARGE", "4XLARGE": "4XLARGE",
 };
 
+// Tiers: numeric waists FIRST, then letter sizes, then PPK pack tokens, then
+// anything else. (Numeric-before-letter preserves the frontend's long-standing
+// convention; the two systems don't coexist within one real style, so this only
+// affects the rare mixed case.)
 function rankOf(size: string): { tier: number; rank: number; sub: number; alpha: string } {
   const s = String(size ?? "").trim();
-  if (!s) return { tier: 5, rank: 0, sub: 0, alpha: "" };
+  if (!s) return { tier: 9, rank: 0, sub: 0, alpha: "" };
+  if (/^\d+(\.\d+)?$/.test(s)) return { tier: 0, rank: Number(s), sub: 0, alpha: "" };  // numeric waist
   const base = s.split(/[\s(]/)[0];                 // "XS(5-6)" → "XS"; "MEDIUM" → "MEDIUM"
   const canon = LETTER_CANON[base.toUpperCase()] || base.toUpperCase();
   if (canon in SIZE_TIER) {
     const lo = (s.match(/\((\d+)/) || [])[1];        // age-range low bound as tiebreak
-    return { tier: 0, rank: SIZE_TIER[canon], sub: lo ? Number(lo) : 0, alpha: "" };
+    return { tier: 1, rank: SIZE_TIER[canon], sub: lo ? Number(lo) : 0, alpha: "" };
   }
-  if (/^\d+(\.\d+)?$/.test(s)) return { tier: 1, rank: Number(s), sub: 0, alpha: "" };
   const ppk = s.match(/^PPK(\d+)$/i);
   if (ppk) return { tier: 2, rank: Number(ppk[1]), sub: 0, alpha: "" };
-  return { tier: 4, rank: 0, sub: 0, alpha: s.toUpperCase() };
+  return { tier: 3, rank: 0, sub: 0, alpha: s.toUpperCase() };
 }
 
 /** Comparator for Array.sort — canonical apparel size order. */
 export function compareSizes(a: string, b: string): number {
   const ka = rankOf(a), kb = rankOf(b);
   if (ka.tier !== kb.tier) return ka.tier - kb.tier;
-  if (ka.tier === 4) return ka.alpha.localeCompare(kb.alpha);
+  if (ka.tier === 3) return ka.alpha.localeCompare(kb.alpha);
   if (ka.rank !== kb.rank) return ka.rank - kb.rank;
   return ka.sub - kb.sub;
 }

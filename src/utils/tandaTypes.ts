@@ -1,6 +1,8 @@
 // ── PO WIP Types & Constants ──────────────────────────────────────────────────
 // Shared between TandA.tsx and any module that needs PO/milestone types.
 
+import { compareSizes } from "../shared/sizeSort";
+
 export interface SyncFilters {
   poNumbers: string[];
   dateFrom: string;
@@ -229,14 +231,12 @@ export function normalizeSize(raw: string): string {
 
 export const ALPHA_SZ_ORDER: Record<string, number> = { Small: 1, Medium: 2, Large: 3, Xlarge: 4, XXL: 5, "3XL": 6, "4XL": 7 };
 
+// Delegates to the ONE canonical comparator (src/shared/sizeSort.ts) so every
+// size grid — PO WIP matrix, exports, row-detail — orders identically and the
+// kids age-range forms (XS(5-6), S(7-8)) sort correctly. Kept as a named export
+// for its existing consumers.
 export function sizeSort(a: string, b: string): number {
-  const na = Number(a), nb = Number(b);
-  if (!isNaN(na) && !isNaN(nb)) return na - nb;
-  const oa = ALPHA_SZ_ORDER[a], ob = ALPHA_SZ_ORDER[b];
-  if (oa !== undefined && ob !== undefined) return oa - ob;
-  if (oa !== undefined) return 1;
-  if (ob !== undefined) return -1;
-  return a.localeCompare(b);
+  return compareSizes(a, b);
 }
 
 export function mapXoroRaw(raw: any[]): XoroPO[] {
