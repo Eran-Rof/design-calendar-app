@@ -459,19 +459,19 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   if (sib) {
     if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
     const sizeSafe = String(p.size).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-    // Build the new code as STYLE-COLOUR-SIZE from the sibling's COLOUR segment —
-    // never by blindly swapping the sibling's trailing segment. When the sibling
-    // is a COLOUR-ONLY row (sku ends in the colour, e.g. RYB1157-ESPRESSO), a
-    // trailing swap drops the colour and yields a COLOURLESS code (RYB1157-LRG);
-    // those then collide across colours and scramble the size/colour matrix — the
-    // Defect-C mis-resolution (money still ties, but the grid shows phantom
-    // single-size "colours"). Extract the colour tokens from the sibling's own
-    // sku_code: strip the style prefix, then a trailing size segment if the
-    // sibling is itself sized — keeping the catalog's colour spelling.
-    const stylePrefixRe = new RegExp("^" + String(sib.style_code).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "-", "i");
-    let colorSeg = String(sib.sku_code).replace(stylePrefixRe, "");
-    if (sib.size) colorSeg = colorSeg.replace(/-[^-]*$/, ""); // drop the sibling's own size segment
-    colorSeg = colorSeg.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").toUpperCase();
+    // Build the new code as STYLE-COLOUR-SIZE using the sibling's COLOUR FIELD
+    // (authoritative) — never by swapping the sibling's trailing sku segment. Two
+    // traps that swap hits: a COLOUR-ONLY sibling (sku ends in the colour, e.g.
+    // RYB1157-ESPRESSO) loses the colour; and a sibling that is ITSELF a corrupted
+    // COLOURLESS row (sku RYB1157-XL, colour "Dark Slate") yields the SIZE token
+    // "XL" as the "colour". Both recreate colourless codes that collide across
+    // colours and scramble the size/colour matrix — the Defect-C mis-resolution
+    // (money still ties, but the grid shows phantom single-size "colours").
+    // sib.color is the catalog's real colour, so normalising it (upper, alnum-only:
+    // "Dark Slate" -> "DARKSLATE") ALWAYS yields a coloured code. Fall back to the
+    // parsed source colour, then to a colourless code only when the SOURCE itself
+    // carries no colour (a genuinely colourless ItemNumber).
+    const colorSeg = String(sib.color || p.color || "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
     const newSku = colorSeg ? `${sib.style_code}-${colorSeg}-${sizeSafe}` : `${sib.style_code}-${sizeSafe}`;
     // is_apparel only when the sibling is apparel AND all five dims are present
     // (mirrors resolveOrCreateSku — avoids the apparel_dims_required CHECK).
