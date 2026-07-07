@@ -204,6 +204,24 @@ A single **EXPLODE PPK** toggle in the **grid toolbar** (top-right, next to ⚙ 
 
 **Frozen header.** The grid's header row is **pinned** (sticky) — it stays visible while the rows scroll inside the table's own scroll area; the Totals footer is pinned to the bottom.
 
+### Data-quality surfacing (the ⚠ report)
+
+The PO grid **calls out bad data** instead of silently rendering it wrong — the fix for the class of import defect that used to leave a PO looking fine while its modal showed "Style not found", a blank matrix, or "most in one size". Two surfaces, one source (the **`v_po_data_quality`** view over active POs, read via `GET /api/internal/purchase-orders/data-quality`):
+
+- **Per-PO ⚠ badge** — a PO # cell that has issues carries a small **⚠ N** badge (red if any *error*, amber if only *warnings*). Click it to open the report focused on that PO.
+- **⚠ Data quality (N)** button (top of the grid, appears only when there are findings) — opens the full report: findings grouped by defect class, each row showing the **PO · Style · Color · item count · suggested fix**, with a plain-English cause under each group and a one-click **xlsx export** (`ExportButton`, the universal export). The header summarises *E errors · W warnings across P active POs*.
+
+The four defect classes:
+
+| Class | Severity | Meaning | Fix |
+|---|---|---|---|
+| **Orphan style code** | error | `ip_item_master.style_code` isn't in `style_master` → modal "Style not found" | Remap to the canonical (the report suggests it) or create the style |
+| **Unlinked line** | error | PO line has no SKU → no cost / sell / matrix | Match the line to a SKU, or create it |
+| **PPK missing prepack def** | warn | PPK style has no active prepack matrix → blank / wrong explode | Define the matrix in Style Master (PPK popup) |
+| **Incomplete size coverage** | warn | a colour carries 1 size while siblings carry ≥3 → "most in one size" | Verify against the source order; add the missing size SKUs |
+
+The same findings are available from the CLI — **`npm run data-quality`** prints the grouped detail (and `--errors` exits nonzero only on errors, for CI/import gating). The **Xoro importer** (`scripts/import-xoro-orders.mjs --apply`) nudges the operator to run it after every ingest, so a bad import is flagged at the source. The report is read-only — it *surfaces* defects; remediation is done in the catalog (or via the `scripts/backfills/consolidate-*.sql` passes).
+
 ### Receiving → GL → AP 3-way match (P13)
 
 Receiving a native PO posts real accounting through the **Receiving** panel (`m=receiving`, `src/tanda/InternalReceiving.tsx`) and the procurement posting service — **not** a status flip:
@@ -229,6 +247,7 @@ The `GR/IR Clearing (2050)` account already exists (migration `20260717120000`);
 | `GET` | `/api/internal/purchase-orders/:id` | Header + lines. |
 | `PATCH` | `/api/internal/purchase-orders/:id` | Update mutable header fields, replace lines (**drafts**, or any status with **`revise:true`**), and/or change `status`. Issuing assigns `po_number`. A `revise:true` save on a non-draft notifies the vendor's portal users (`notifyVendor`, bell + email) and returns `vendor_notified` (count). |
 | `DELETE` | `/api/internal/purchase-orders/:id` | **Drafts only** (409 otherwise — cancel an issued PO instead). Cascades lines. |
+| `GET` | `/api/internal/purchase-orders/data-quality` | Catalog/link data-quality findings on active POs (from `v_po_data_quality`): `{ summary, findings[] }`. Optional `?po_number=` narrows to one PO (the per-PO ⚠ badge). Powers the **⚠ Data quality** report. |
 
 ---
 
