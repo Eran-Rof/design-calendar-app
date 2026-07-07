@@ -13,6 +13,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope, activeBrandId } from "../../../_lib/brandContext.js";
 import { resolvePricesForCustomer } from "../../../_lib/pricing/engine.js";
+import { resolvePerUnitCost } from "../../../_lib/sales-grain.js";
 
 export const config = { maxDuration: 20 };
 
@@ -224,6 +225,9 @@ function extractPpk(v) {
 // WRONG factor for the stored grain — a $324/pack cost read as $324/EACH (×ppk
 // high → margin ~98%, Sell $65.66), or a per-EACH $11.85 cost read as $0.66 (÷ppk
 // low → margin −1278%). Anchoring to the known PO-cost grain fixes both directions.
+// Phase 2 (2026-07-06): the cost-grain decision is delegated to the SHARED
+// resolvePerUnitCost (api/_lib/sales-grain.js) so purchasing + sales use ONE
+// grain resolver — no more two divergent implementations to drift.
 //
 // `line` carries qty_ordered, unit_cost_cents, ppk, sku_code, style_id, style_code.
 // `refs` carries the resolved reference cents (or null): stdCost, custPrice,
@@ -239,21 +243,29 @@ export function computePoLineMoney(line, refs = {}) {
   const linked = !!(line.sku_code || line.style_id);
   const poEach = poPrice / ppk; // the line's per-each cost — grain we KNOW.
 
-  // Reference grain: is the resolved reference stored per-EACH or per-PACK? Anchor
-  // to poEach — whichever of {std, std÷ppk} sits closer is the per-each std, and
-  // tells us how to normalize SELL from the same tables. `<=` breaks ties toward
-  // per-each (correct for loose lines, where ppk = 1 and the two are identical).
+  // Reference grain: is the resolved reference stored per-EACH or per-PACK? The
+  // ip_item_avg_cost (+ sell) grain is inconsistent for PPK skus with no tag, so
+  // we resolve it through the SHARED `resolvePerUnitCost` — the SAME grain
+  // resolver the sales COGS path uses (api/_lib/sales-grain.js). It anchors the
+  // ambiguous master cost to a known per-unit reference (here the PO's OWN
+  // per-each price, poEach): a master cost > 2× that is per-PACK → ÷ pack size,
+  // else per-EACH. `packGrain` is that same verdict, carried to SELL so cost and
+  // sell agree on grain. No std → structural fallback (a pure prepack style_code
+  // carries PPK). ONE grain source of truth across purchasing + sales.
   const std = refs.stdCost != null ? Number(refs.stdCost) : null;
-  const refPerEach = std != null
-    ? Math.abs(std - poEach) <= Math.abs(std / ppk - poEach)
-    : !/PPK/i.test(String(line.style_code || ""));
+  const packGrain = std != null && ppk > 1 && std > poEach * 2; // resolvePerUnitCost's rule
+  const refPerEach = std != null ? !packGrain : !/PPK/i.test(String(line.style_code || ""));
   const toEach = (v) => (refPerEach ? Number(v) : Number(v) / ppk); // → per-each
 
   // Avg PO Price — the PO's own per-each cost (linked lines only; SKU-less pack
   // aggregate lines can't be per-unit-validated).
   const priceCents = linked ? poEach * eaches : 0; // = poPrice × qty
-  // Avg cost — per-each std where the SKU resolves one, else the PO's own price.
-  const costEach = std != null ? toEach(std) : poEach;
+  // Avg cost — per-each std (via the shared resolver) where the SKU resolves one,
+  // else the PO's own per-each price.
+  const stdEach = std != null
+    ? resolvePerUnitCost({ masterUnitCost: std, packSize: ppk, grain: packGrain ? "pack" : "unit", netAmount: poEach, qtyUnits: 1 })
+    : null;
+  const costEach = stdEach != null ? stdEach : poEach;
   const costCents = linked ? costEach * eaches : 0;
 
   // Sell — first hit wins (customer → brand → recent sale → SKU std → provisional),
