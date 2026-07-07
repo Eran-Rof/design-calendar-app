@@ -619,7 +619,10 @@ async function importPOs(refs) {
   console.log(`  UNRESOLVED SKUs (distinct ${skuUnresolved.size}). first 15: ${[...skuUnresolved].slice(0, 15).join(", ") || "none"}`);
   console.log(`  sample mapped POs:`);
   for (const s of samples) console.log("   ", JSON.stringify(s));
-  if (APPLY) console.log(`\n  ➜ INGEST GUARDRAIL: run \`npm run audit:pos\` now to confirm no PO grid invariant regressed (unlinked / grain / size / case).`);
+  if (APPLY) {
+    console.log(`\n  ➜ INGEST GUARDRAIL: run \`npm run audit:pos\` now to confirm no PO grid invariant regressed (unlinked / grain / size / case).`);
+    console.log(`  ➜ DATA QUALITY: run \`npm run data-quality\` to surface any catalog/link defects this import introduced (orphan codes / unlinked / PPK / size coverage) — also visible in the PO grid's "⚠ Data quality" report.`);
+  }
 }
 
 // ── SO source preview (lossy, opt-in) ────────────────────────────────────--

@@ -414,6 +414,7 @@ import r_internal_procurement_recon_inbox_index from "./internal/procurement/rec
 import r_internal_procurement_vendor_invoice_drafts_id from "./internal/procurement/vendor-invoice-drafts/[id].js";
 import r_internal_procurement_vendor_invoice_drafts_index from "./internal/procurement/vendor-invoice-drafts/index.js";
 import r_internal_purchase_orders_id from "./internal/purchase-orders/[id].js";
+import r_internal_purchase_orders_data_quality from "./internal/purchase-orders/data-quality.js";
 import r_internal_purchase_orders_index from "./internal/purchase-orders/index.js";
 import r_internal_purchase_orders_part_bill from "./internal/purchase-orders/part-bill.js";
 import r_internal_purchase_orders_shipments from "./internal/purchase-orders/shipments.js";
@@ -912,6 +913,7 @@ export const ROUTES = [
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
+  { pattern: "/api/internal/purchase-orders/data-quality", handler: r_internal_purchase_orders_data_quality },
   { pattern: "/api/internal/sales-orders/allocate-by-lot", handler: r_internal_sales_orders_allocate_by_lot },
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },

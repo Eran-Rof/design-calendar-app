@@ -15,6 +15,7 @@
     "typecheck:raw": "tsc -b --force",
     "check:api": "node scripts/check-api.mjs",
     "audit:pos": "node scripts/audit-pos.mjs",
+    "data-quality": "node scripts/po-data-quality.mjs",
     "gen:routes": "node scripts/gen-routes.mjs",
     "gen:module-keys": "node scripts/gen-module-keys.mjs",
     "seed:module-keys": "node scripts/seed-module-keys.mjs",

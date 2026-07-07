@@ -98,6 +98,22 @@ type PO = {
   // can be "issued · in transit" or "partially received · in transit".
   in_transit?: boolean; transit_eta?: string | null; transit_shipments?: number;
 };
+type DQFinding = {
+  po_id: string; po_number: string; defect_class: string; severity: "error" | "warn";
+  style_code: string | null; color: string | null; detail: string; suggested_fix: string; item_count: number;
+};
+type DQResponse = {
+  summary: { total: number; errors: number; warnings: number; affected_pos: number;
+    by_class: Record<string, number>; by_po: Record<string, number> };
+  findings: DQFinding[];
+};
+const DQ_CLASS_LABEL: Record<string, string> = {
+  orphan_style_code: "Orphan style code (not in catalog)",
+  unlinked_line: "Unlinked line (no SKU)",
+  ppk_no_prepack_def: "PPK style missing prepack definition",
+  incomplete_size_coverage: "Incomplete size coverage",
+};
+
 type Vendor = { id: string; name: string; code?: string };
 type Item = { id: string; sku_code: string; style_code?: string; description?: string };
 type Lookup = { id: string; code?: string; name: string };
@@ -255,6 +271,31 @@ export default function InternalPurchaseOrders() {
   // Row expander (▸ carrot): which PO's line detail is open. One at a time.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Data-quality surfacing: catalog/link defects on active POs (v_po_data_quality)
+  // so bad imports are SEEN, not silently trusted. Report modal + per-PO ⚠ badge.
+  const [dq, setDq] = useState<DQResponse | null>(null);
+  const [dqOpen, setDqOpen] = useState(false);
+  const [dqFocusPo, setDqFocusPo] = useState<string | null>(null);
+  async function loadDq() {
+    try {
+      const r = await fetch("/api/internal/purchase-orders/data-quality");
+      if (!r.ok) return;
+      const d = await r.json() as DQResponse;
+      if (d && Array.isArray(d.findings)) setDq(d);
+    } catch { /* non-blocking */ }
+  }
+  useEffect(() => { void loadDq(); }, []);
+  const dqByPo = useMemo(() => {
+    const m = new Map<string, { errors: number; warns: number; findings: DQFinding[] }>();
+    for (const f of dq?.findings || []) {
+      const e = m.get(f.po_number) || { errors: 0, warns: 0, findings: [] };
+      if (f.severity === "error") e.errors += 1; else e.warns += 1;
+      e.findings.push(f);
+      m.set(f.po_number, e);
+    }
+    return m;
+  }, [dq]);
+
   // Totals strip — sum across either the filtered subset or the full loaded
   // dataset. Qty-weighted avg cost/sell so the weighted Margin % is meaningful
   // (mirrors the server's enrichPricing weighting). Total = Σ total_cents.
@@ -393,6 +434,15 @@ export default function InternalPurchaseOrders() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Purchase Orders</h2>
         <div style={{ display: "flex", gap: 8 }}>
+          {dq && dq.summary.total > 0 && (
+            <button
+              style={{ ...btnSecondary, color: dq.summary.errors ? C.danger : C.warn,
+                borderColor: dq.summary.errors ? "#7f1d1d" : "#78350f" }}
+              onClick={() => { setDqFocusPo(null); setDqOpen(true); }}
+              title="Catalog / link data-quality issues found on active POs">
+              ⚠ Data quality ({dq.summary.total})
+            </button>
+          )}
           <ExportButton rows={exportRows} filename="purchase-orders" sheetName="Purchase Orders" columns={exportColumns} />
           <button style={btnPrimary} onClick={() => { setEditing(null); setModalOpen(true); }}>+ New purchase order</button>
         </div>
@@ -434,7 +484,7 @@ export default function InternalPurchaseOrders() {
         <label style={dl}>To <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...dateInput, marginLeft: 4 }} /></label>
         {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Clear dates</button>}
         {anyFilter && <button onClick={clearFilters} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, color: C.warn, borderColor: C.warn }} title="Clear status, vendor, search and date filters">Clear filters</button>}
-        <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
+        <button style={btnSecondary} onClick={() => { void load(); void loadDq(); }}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
           columns={PO_COLUMNS}
@@ -558,7 +608,22 @@ export default function InternalPurchaseOrders() {
                 <td style={{ ...td, width: 28, padding: "8px 6px", textAlign: "center", color: C.textMuted, userSelect: "none" }}
                   onClick={(e) => { e.stopPropagation(); setExpandedId(isOpen ? null : po.id); }}
                   title={isOpen ? "Hide line detail" : "Show line detail"}>{isOpen ? "▾" : "▸"}</td>
-                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("po_number")}>{po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}</td>
+                <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("po_number")}>
+                  {po.po_number || <span style={{ color: C.textMuted }}>(draft)</span>}
+                  {(() => {
+                    const d = po.po_number ? dqByPo.get(po.po_number) : undefined;
+                    if (!d) return null;
+                    const isErr = d.errors > 0;
+                    return (
+                      <span onClick={(e) => { e.stopPropagation(); setDqFocusPo(po.po_number!); setDqOpen(true); }}
+                        title={`${d.errors} error(s), ${d.warns} warning(s) — click for detail`}
+                        style={{ marginLeft: 6, cursor: "pointer", fontFamily: "system-ui", fontSize: 11, fontWeight: 700,
+                          color: isErr ? C.danger : C.warn }}>
+                        ⚠ {d.errors + d.warns}
+                      </span>
+                    );
+                  })()}
+                </td>
                 <td style={td} hidden={!isVisible("vendor")}>{vendorName[po.vendor_id] || "—"}</td>
                 <td style={td} hidden={!isVisible("order_date")}>{fmtDateDisplay(po.order_date)}</td>
                 <td style={td} hidden={!isVisible("expected_date")}>{po.expected_date ? fmtDateDisplay(po.expected_date) : "—"}</td>
@@ -615,9 +680,83 @@ export default function InternalPurchaseOrders() {
           po={editing}
           vendors={vendors}
           onClose={() => { setModalOpen(false); setEditing(null); }}
-          onSaved={() => { setModalOpen(false); setEditing(null); void load(); }}
+          onSaved={() => { setModalOpen(false); setEditing(null); void load(); void loadDq(); }}
         />
       )}
+
+      {dqOpen && dq && (
+        <PoDataQualityModal dq={dq} focusPo={dqFocusPo} onClose={() => { setDqOpen(false); setDqFocusPo(null); }} />
+      )}
+    </div>
+  );
+}
+
+// ── Data-quality report: the "loud" surfacing layer ─────────────────────────
+// Lists every catalog/link defect on active POs (from v_po_data_quality) grouped
+// by defect class, with the affected PO / style / color, a plain-English cause,
+// and a suggested fix — plus a full xlsx export. So bad imports are SEEN.
+function PoDataQualityModal({ dq, focusPo, onClose }: { dq: DQResponse; focusPo: string | null; onClose: () => void }) {
+  const shown = focusPo ? dq.findings.filter((f) => f.po_number === focusPo) : dq.findings;
+  const classes = [...new Set(shown.map((f) => f.defect_class))]
+    .sort((a, b) => (shown.filter((f) => f.defect_class === a && f.severity === "error").length ? -1 : 1)
+      - (shown.filter((f) => f.defect_class === b && f.severity === "error").length ? -1 : 1));
+  const exportRows = shown.map((f) => ({
+    po_number: f.po_number, severity: f.severity, issue: DQ_CLASS_LABEL[f.defect_class] || f.defect_class,
+    style_code: f.style_code || "", color: f.color || "", items: f.item_count, detail: f.detail, suggested_fix: f.suggested_fix,
+  }));
+  const exportColumns: ExportColumn[] = [
+    { key: "po_number", header: "PO" }, { key: "severity", header: "Severity" }, { key: "issue", header: "Issue" },
+    { key: "style_code", header: "Style" }, { key: "color", header: "Color" }, { key: "items", header: "Items", format: "number" },
+    { key: "detail", header: "Detail" }, { key: "suggested_fix", header: "Suggested Fix" },
+  ];
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 130, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflow: "auto" }} onClick={onClose}>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 12, width: "min(1040px, 96vw)", maxHeight: "90vh", overflow: "auto", padding: 20, color: C.text }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h3 style={{ margin: 0, fontSize: 18 }}>⚠ PO data quality{focusPo ? <span style={{ color: C.textMuted }}> · {focusPo}</span> : null}</h3>
+          <div style={{ display: "flex", gap: 8 }}>
+            <ExportButton rows={exportRows} filename="po-data-quality" sheetName="Data Quality" columns={exportColumns} />
+            <button onClick={onClose} style={btnSecondary}>Close</button>
+          </div>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 14 }}>
+          {dq.summary.errors} error(s) · {dq.summary.warnings} warning(s) across {dq.summary.affected_pos} active PO(s).
+          These are data defects the import accepted silently — resolve them so the PO grid and modal render correctly.
+        </div>
+        {shown.length === 0 ? (
+          <div style={{ color: C.success }}>No data-quality issues on this PO.</div>
+        ) : classes.map((cls) => {
+          const rows = shown.filter((f) => f.defect_class === cls);
+          const isErr = rows.some((f) => f.severity === "error");
+          return (
+            <div key={cls} style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: isErr ? C.danger : C.warn, marginBottom: 6 }}>
+                {isErr ? "●" : "▲"} {DQ_CLASS_LABEL[cls] || cls} <span style={{ color: C.textMuted, fontWeight: 400 }}>({rows.length})</span>
+              </div>
+              <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr>
+                    <th style={th}>PO</th><th style={th}>Style</th><th style={th}>Color</th>
+                    <th style={{ ...th, textAlign: "right" }}>Items</th><th style={th}>Suggested fix</th>
+                  </tr></thead>
+                  <tbody>
+                    {rows.map((f, i) => (
+                      <tr key={i}>
+                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{f.po_number}</td>
+                        <td style={td}>{f.style_code || <span style={{ color: C.textMuted }}>—</span>}</td>
+                        <td style={td}>{f.color || <span style={{ color: C.textMuted }}>—</span>}</td>
+                        <td style={{ ...td, textAlign: "right" }}>{f.item_count}</td>
+                        <td style={{ ...td, color: C.textMuted }}>{f.suggested_fix}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{rows[0]?.detail}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
