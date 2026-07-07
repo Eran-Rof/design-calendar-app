@@ -24,6 +24,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
+import { compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 
 // EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
@@ -633,17 +634,9 @@ type PoDetailLine = {
   sku_code: string | null; qty_ordered: number; qty_received: number | null;
   unit_cost_cents: number; lot_number: string | null; description: string | null;
 };
-// Apparel-ish size rank so grids read XS,S,M,L,XL… then numerics then alpha.
-const SIZE_RANK: Record<string, number> = { XXS: 0, XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, "2XL": 6, XXXL: 7, "3XL": 7, "4XL": 8 };
-function sizeSort(a: string, b: string): number {
-  const ra = SIZE_RANK[a.toUpperCase()], rb = SIZE_RANK[b.toUpperCase()];
-  if (ra != null && rb != null) return ra - rb;
-  if (ra != null) return -1;
-  if (rb != null) return 1;
-  const na = parseFloat(a), nb = parseFloat(b);
-  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-  return a.localeCompare(b);
-}
+// Canonical size ordering — shared comparator (handles letter, kids age-range
+// "XS(5-6)", numeric, PPK). Replaced a local SIZE_RANK map that alpha-sorted
+// age-range sizes into L,M,S,XL,XS.
 
 function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean; status: string }) {
   const [lines, setLines] = useState<PoDetailLine[] | null>(null);
@@ -716,6 +709,11 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   const ppkOf = (style: string, size: string) => (extractPpk(size) ?? extractPpk(style) ?? 1);
   const miniTh: React.CSSProperties = { ...th, position: "static" };
   const remainingView = qtyView === "remaining" && hasReceipts;
+  // Does this PO actually contain prepack (PPK) lines? The packs/units + "PPK
+  // exploded" labels only make sense then — a plain sized style has no packs, so
+  // showing "packs / PPK exploded" on every row was wrong (CEO: "all carrots say
+  // prepack exploded even if not a prepack style").
+  const hasPpk = matrixLines.some((l) => extractPpk(l.size) != null || extractPpk(l.style_code) != null);
 
   // Metric rows to render per color. Breakdown ON → three lines (Issued/Received/
   // Open); OFF → one line following the Remaining/Original toggle. `q` is qty,
@@ -740,7 +738,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
     <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
-        <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>
+        {hasPpk && <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>}
         {!showBreakdown && remainingView && <span style={{ color: "#14B8A6", fontSize: 10 }}>· remaining to ship</span>}
         {showBreakdown && <span style={{ color: C.textMuted, fontSize: 10 }}>· <span style={{ color: C.textSub }}>issued</span> / <span style={{ color: "#60A5FA" }}>received</span> / <span style={{ color: "#14B8A6" }}>open</span></span>}
         {hasReceipts && (
@@ -769,7 +767,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
         )}
       </div>
       {[...byStyle.entries()].map(([style, s]) => {
-        const sizes = [...s.sizes].sort(sizeSort);
+        const sizes = [...s.sizes].sort(compareSizes);
         return (
           <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
@@ -781,8 +779,8 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
                 <thead><tr>
                   <th style={miniTh}>Color</th>
                   {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sz}</th>)}
-                  <th style={{ ...miniTh, textAlign: "center" }}>{explode ? "Units" : "Packs"}</th>
-                  <th style={{ ...miniTh, textAlign: "right" }}>{explode ? "Per-each $" : "PO unit $"}</th>
+                  <th style={{ ...miniTh, textAlign: "center" }}>{hasPpk ? (explode ? "Units" : "Packs") : "Qty"}</th>
+                  <th style={{ ...miniTh, textAlign: "right" }}>{hasPpk ? (explode ? "Per-each $" : "PO unit $") : "Unit $"}</th>
                   <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
                 </tr></thead>
                 <tbody>
