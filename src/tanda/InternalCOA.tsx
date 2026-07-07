@@ -26,6 +26,7 @@ const COA_COLUMNS: ColumnDef[] = [
   { key: "name",            label: "Name" },
   { key: "account_type",    label: "Type" },
   { key: "account_subtype", label: "Subtype" },
+  { key: "parent",          label: "Parent" },
   { key: "normal_balance",  label: "Normal" },
   { key: "balance",         label: "Balance" },
   { key: "status",          label: "Status" },
@@ -142,6 +143,16 @@ export default function InternalCOA() {
     COA_COLUMNS,
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
+  // Resolve parent_account_id → the parent account's "{code} — {name}" so the
+  // grid never shows a raw UUID (NON-NEG no-viewable-UUIDs rule). Falls back to
+  // "—" when the account has no parent, or the parent isn't in the current
+  // (possibly filtered) result set.
+  const byId = new Map(rows.map((a) => [a.id, a]));
+  const parentLabel = (a: Account): string => {
+    if (!a.parent_account_id) return "—";
+    const p = byId.get(a.parent_account_id);
+    return p ? `${p.code} — ${p.name}` : "—";
+  };
   const { getRowProps } = useRowClickEdit<Account>({
     onRowClick: (a) => setEditing(a),
     onBeforeRowClick: (id) => setHighlightedId(id),
@@ -217,7 +228,7 @@ export default function InternalCOA() {
           Show inactive
         </label>
         <ExportButton
-          rows={rows as unknown as Array<Record<string, unknown>>}
+          rows={rows.map((a) => ({ ...a, parent_label: parentLabel(a) })) as unknown as Array<Record<string, unknown>>}
           filename="chart-of-accounts"
           sheetName="Chart of Accounts"
           columns={[
@@ -225,6 +236,7 @@ export default function InternalCOA() {
             { key: "name",                  header: "Name" },
             { key: "account_type",          header: "Type" },
             { key: "account_subtype",       header: "Subtype" },
+            { key: "parent_label",          header: "Parent" },
             { key: "normal_balance",        header: "Normal" },
             { key: "balance_signed_cents",  header: "Balance",      format: "currency_cents" },
             { key: "status",                header: "Status" },
@@ -265,6 +277,7 @@ export default function InternalCOA() {
                 <th style={th} hidden={!isVisible("name")}>Name</th>
                 <th style={th} hidden={!isVisible("account_type")}>Type</th>
                 <th style={th} hidden={!isVisible("account_subtype")}>Subtype</th>
+                <th style={th} hidden={!isVisible("parent")}>Parent</th>
                 {/* Operator ask #15: was "Balance" (showing DEBIT/CREDIT label),
                     renamed to "Normal" so it doesn't collide with the new
                     money-balance column to its right. */}
@@ -295,6 +308,7 @@ export default function InternalCOA() {
                     <td style={td} hidden={!isVisible("name")}>{a.name}</td>
                     <td style={td} hidden={!isVisible("account_type")}>{a.account_type}</td>
                     <td style={td} hidden={!isVisible("account_subtype")}>{a.account_subtype || "—"}</td>
+                    <td style={td} hidden={!isVisible("parent")}>{parentLabel(a)}</td>
                     <td style={td} hidden={!isVisible("normal_balance")}>{a.normal_balance}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }} hidden={!isVisible("balance")}>
                       <a

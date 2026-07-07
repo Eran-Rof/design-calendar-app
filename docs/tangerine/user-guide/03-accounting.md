@@ -48,7 +48,7 @@ The COA arrives **empty**. The accountant supplies the canonical list (per the e
 
 ### List view
 
-Columns: **Code, Name, Type, Subtype, Balance, Status, Postable, Control**, plus per-row Edit / Delete buttons.
+Columns: **Code, Name, Type, Subtype, Parent, Normal, Balance, Status, Postable, Control**, plus per-row Edit / Delete buttons. The **Parent** column resolves each account's `parent_account_id` to the parent's `Code — Name` (never a raw UUID), or `—` when the account has no parent. Any column can be hidden via the columns (⚙) button, and all appear in the xlsx export.
 
 Filters above the table:
 
