@@ -211,14 +211,17 @@ The PO grid **calls out bad data** instead of silently rendering it wrong — th
 - **Per-PO ⚠ badge** — a PO # cell that has issues carries a small **⚠ N** badge (red if any *error*, amber if only *warnings*). Click it to open the report focused on that PO.
 - **⚠ Data quality (N)** button (top of the grid, appears only when there are findings) — opens the full report: findings grouped by defect class, each row showing the **PO · Style · Color · item count · suggested fix**, with a plain-English cause under each group and a one-click **xlsx export** (`ExportButton`, the universal export). The header summarises *E errors · W warnings across P active POs*.
 
-The four defect classes:
+The defect classes:
 
 | Class | Severity | Meaning | Fix |
 |---|---|---|---|
 | **Orphan style code** | error | `ip_item_master.style_code` isn't in `style_master` → modal "Style not found" | Remap to the canonical (the report suggests it) or create the style |
 | **Unlinked line** | error | PO line has no SKU → no cost / sell / matrix | Match the line to a SKU, or create it |
+| **Mismapped SKU** | warn | a colour is set but the `sku_code` is colourless (`STYLE-SIZE`) — a legacy import mis-resolution: sized lines bound to colourless SKUs, so the matrix shows **phantom single-size colours** even though the **PO total is correct** | Re-import the PO from the Xoro source with the fixed resolver |
 | **PPK missing prepack def** | warn | PPK style has no active prepack matrix → blank / wrong explode | Define the matrix in Style Master (PPK popup) |
 | **Incomplete size coverage** | warn | a colour carries 1 size while siblings carry ≥3 → "most in one size" | Verify against the source order; add the missing size SKUs |
+
+> **The Mismapped-SKU root cause (Defect C).** The Xoro importer's SKU auto-creator built a new sized `sku_code` by *swapping the sibling's trailing segment* for the size. When the only same-colour sibling was a **colour-only row** (sku ends in the colour, e.g. `RYB1157-ESPRESSO`), the swap produced a **colourless** code (`RYB1157-LRG`); different colours' sized lines then collapsed onto the same colourless codes, scrambling the size/colour matrix (money still ties — only attribution is wrong). Fixed in `scripts/import-xoro-orders.mjs`: the new code is built explicitly as `STYLE-COLOUR-SIZE` from the sibling's colour segment, so a colour-only sibling now yields `RYB1157-ESPRESSO-LRG`. Existing affected POs (≈499 lines / 35 POs, surfaced as `mismapped_sku`) are corrected by re-importing them from the authoritative `tanda_pos.data.Items` source.
 
 The same findings are available from the CLI — **`npm run data-quality`** prints the grouped detail (and `--errors` exits nonzero only on errors, for CI/import gating). The **Xoro importer** (`scripts/import-xoro-orders.mjs --apply`) nudges the operator to run it after every ingest, so a bad import is flagged at the source. The report is read-only — it *surfaces* defects; remediation is done in the catalog (or via the `scripts/backfills/consolidate-*.sql` passes).
 
