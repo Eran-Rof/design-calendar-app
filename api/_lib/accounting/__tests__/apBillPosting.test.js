@@ -69,4 +69,28 @@ describe("composeApBillJe", () => {
     expect(je.lines).toHaveLength(2);
     expect(je.lines.some((l) => l.account_id === "acct-exp")).toBe(false);
   });
+
+  it("routes the non-item/plug line to the vendor's default expense account when present", () => {
+    const je = composeApBillJe({
+      entity_id: "ent", bill: BILL, goods_cents: 100_00n, other_cents: 5_00n,
+      accounts: { ...ACCTS, vendorExpense: "acct-vend-exp" },
+    });
+    const vend = je.lines.find((l) => l.account_id === "acct-vend-exp");
+    expect(vend.debit).toBe("10.00"); // other 5.00 + plug 5.00
+    expect(je.lines.some((l) => l.account_id === "acct-exp")).toBe(false);
+    const dr = je.lines.reduce((s, l) => s + Number(l.debit), 0);
+    const cr = je.lines.reduce((s, l) => s + Number(l.credit), 0);
+    expect(dr).toBeCloseTo(cr, 2);
+  });
+
+  it("falls back to 8007 (fallbackExpense) when the vendor has no default expense account", () => {
+    for (const vendorExpense of [null, undefined]) {
+      const je = composeApBillJe({
+        entity_id: "ent", bill: BILL, goods_cents: 100_00n, other_cents: 5_00n,
+        accounts: { ...ACCTS, vendorExpense },
+      });
+      const exp = je.lines.find((l) => l.account_id === "acct-exp");
+      expect(exp.debit).toBe("10.00");
+    }
+  });
 });

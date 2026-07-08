@@ -5,9 +5,10 @@
 // guard). POST body: { dry_run?: boolean (default true), limit?: number }.
 //
 // Walks invoices rows with source IN ('xoro_ap') AND gl_status='unposted',
-// composes one JE per bill via composeApBillJe (DR 1201 goods / DR 8007
-// non-item+tax / CR 2000 vendor-subledgered) and posts through
-// gl_post_journal_entry. On success sets gl_status='posted' + accrual_je_id.
+// composes one JE per bill via composeApBillJe (DR 1201 goods / DR vendor's
+// default expense account — else 8007 — for non-item+tax / CR 2000
+// vendor-subledgered) and posts through gl_post_journal_entry. On success
+// sets gl_status='posted' + accrual_je_id.
 //
 // Idempotent three ways: only unposted bills are selected; the posting RPC's
 // (source_table, source_id, basis) unique index rejects a duplicate JE; and a
@@ -56,6 +57,36 @@ export async function runApPostingSweep(admin, { dry_run = true, limit = 500 } =
     .limit(Math.min(Number(limit) || 500, 1000));
   if (bErr) throw new Error(`invoices read failed: ${bErr.message}`);
 
+  // Vendor default expense accounts (vendors.default_gl_expense_account_id):
+  // when a vendor has one, the bill's non-item/tax-plug line routes there
+  // instead of fallback 8007. Batched once per sweep and validated against
+  // gl_accounts (must exist for this entity, be postable+active, and not a
+  // control account) — any lookup/validation failure just falls back to 8007.
+  const vendorExpenseByVendor = new Map();
+  try {
+    const vendorIds = [...new Set((bills || []).map((b) => b.vendor_id).filter(Boolean))];
+    if (vendorIds.length) {
+      const { data: vendRows, error: vErr } = await admin
+        .from("vendors").select("id, default_gl_expense_account_id")
+        .in("id", vendorIds).not("default_gl_expense_account_id", "is", null);
+      if (!vErr && vendRows?.length) {
+        const acctIds = [...new Set(vendRows.map((v) => v.default_gl_expense_account_id))];
+        const { data: okAccts, error: okErr } = await admin
+          .from("gl_accounts").select("id")
+          .eq("entity_id", entity.id).in("id", acctIds)
+          .eq("is_postable", true).eq("is_control", false).eq("status", "active");
+        const okSet = new Set(okErr ? [] : (okAccts || []).map((a) => a.id));
+        for (const v of vendRows) {
+          if (okSet.has(v.default_gl_expense_account_id)) {
+            vendorExpenseByVendor.set(v.id, v.default_gl_expense_account_id);
+          }
+        }
+      }
+    }
+  } catch {
+    // best-effort — fall back to 8007 for everything
+  }
+
   const result = { scanned: (bills || []).length, posted: 0, skipped: [], errors: [], dry_run };
 
   for (const bill of bills || []) {
@@ -75,7 +106,8 @@ export async function runApPostingSweep(admin, { dry_run = true, limit = 500 } =
 
     const { goods_cents, other_cents } = splitBillLineCents(lines);
     const payload = composeApBillJe({
-      entity_id: entity.id, bill, goods_cents, other_cents, accounts,
+      entity_id: entity.id, bill, goods_cents, other_cents,
+      accounts: { ...accounts, vendorExpense: vendorExpenseByVendor.get(bill.vendor_id) || null },
     });
     if (!payload) {
       result.skipped.push({ bill: bill.invoice_number, reason: bill.vendor_id ? "zero_total" : "no_vendor" });

@@ -13,8 +13,11 @@
 //   - item-linked lines (inventory_item_id resolved)  → DR Inventory 1201
 //     (purchases build inventory; the per-invoice AR history posts COGS that
 //     relieves it — coherent periodic-inventory model)
-//   - non-item lines + tax/rounding remainder          → DR Uncategorized
-//     Expense 8007 (operator re-routes later; nothing silently disappears)
+//   - non-item lines + tax/rounding remainder          → DR the vendor's
+//     default expense account when one is set (vendors.
+//     default_gl_expense_account_id, passed as accounts.vendorExpense),
+//     else DR Uncategorized Expense 8007 (operator re-routes later;
+//     nothing silently disappears)
 //   - CR Accounts Payable 2000, subledger vendor       (control account)
 // Credit memos (negative totals) post with the directions flipped.
 //
@@ -55,7 +58,12 @@ function dollars(centsBig) {
  *                           posting/invoice date fields, total_amount_cents
  * @param {bigint} p.goods_cents  from splitBillLineCents
  * @param {bigint} p.other_cents  from splitBillLineCents
- * @param {object} p.accounts     { inventory, fallbackExpense, ap } (uuids)
+ * @param {object} p.accounts     { inventory, fallbackExpense, ap,
+ *                                   vendorExpense? } (uuids). vendorExpense
+ *                                   (nullable) is the bill vendor's default
+ *                                   expense account; when present it takes
+ *                                   the non-item/plug line instead of
+ *                                   fallbackExpense.
  */
 export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, accounts }) {
   const total = BigInt(Math.round(Number(bill.total_amount_cents) || 0));
@@ -81,7 +89,7 @@ export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, acc
     });
   };
   addSigned(accounts.inventory, goods_cents, `Goods — bill ${bill.invoice_number}`);
-  addSigned(accounts.fallbackExpense, expense_cents, `Non-item/tax — bill ${bill.invoice_number}`);
+  addSigned(accounts.vendorExpense || accounts.fallbackExpense, expense_cents, `Non-item/tax — bill ${bill.invoice_number}`);
   // AP side: negated total (credit for a normal bill, debit for a credit memo).
   if (total !== 0n) {
     lines.push({
