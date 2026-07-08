@@ -37,6 +37,7 @@
  *   node scripts/import-xoro-orders.mjs --sos-native               # dry-run native SOs from tanda_sos
  *   node scripts/import-xoro-orders.mjs --so-only --sos-native --apply  # write SOs only
  *   node scripts/import-xoro-orders.mjs --include-sos              # preview the lossy SO blob (no write)
+ *   node scripts/import-xoro-orders.mjs --po=ROF-P001265 --apply   # targeted single-PO re-import (comma-separable)
  *
  * Reads VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from .env / .env.local.
  * Dependency-free: talks to PostgREST directly via fetch (no @supabase/supabase-js).
@@ -57,6 +58,10 @@ const SOS_NATIVE = args.has("--sos-native");          // import from the rich ta
 const INCLUDE_ARCHIVED = args.has("--include-archived");
 const SO_ONLY = args.has("--so-only");                // skip the PO step (SO-only run)
 const AFFECTED_ONLY = args.has("--affected-only");    // re-import ONLY orders that currently have ≥1 unresolved (null-linked) line — the targeted backfill
+// --po=<number>[,<number>...]: re-import ONLY the named PO(s) — the single-PO targeted repair.
+const PO_ONLY = new Set(
+  [...args].filter((a) => a.startsWith("--po=")).flatMap((a) => a.slice(5).split(",")).map((s) => s.trim()).filter(Boolean)
+);
 
 // ── env ──────────────────────────────────────────────────────────────────--
 function loadEnv(file) {
@@ -452,9 +457,15 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   // an "Ibiza" size under "Algae"). No colour match ⇒ leave unresolved + reported.
   // Prefer a SIZED sibling (r.size present) of the same colour, so the sku_code
   // size-swap is valid — never a color-grain/no-size row.
-  const sib = (family.length && p.size && !/PPK/i.test(itemNumber) && !/PPK/i.test(p.size))
-    ? (family.find((r) => r.style_id && r.size && expandedColorKey(r.color) === expandedColorKey(p.color))
-        || family.find((r) => r.style_id && expandedColorKey(r.color) === expandedColorKey(p.color)) || null)
+  // When the parsed style code resolves to a style, the sibling MUST belong to that
+  // style. The code-family (sku_code ilike STYLE-*) also sweeps in VARIANT styles
+  // (RBB0185-03SF, RBB0185-03SFPPK…), and a cross-style sibling makes the 23505
+  // logical-tuple fallback bind the line to the VARIANT (P001265 Navy/Charcoal bound
+  // to -03SF rows), splitting the base style's size run across phantom styles.
+  const sibPool = styleId ? family.filter((r) => r.style_id === styleId) : family;
+  const sib = (sibPool.length && p.size && !/PPK/i.test(itemNumber) && !/PPK/i.test(p.size))
+    ? (sibPool.find((r) => r.style_id && r.size && expandedColorKey(r.color) === expandedColorKey(p.color))
+        || sibPool.find((r) => r.style_id && expandedColorKey(r.color) === expandedColorKey(p.color)) || null)
     : null;
   if (sib) {
     if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
@@ -539,6 +550,7 @@ async function importPOs(refs) {
     const d = po.data || {};
     const poNum = po.po_number;
     if (affected && !affected.has(poNum)) continue;
+    if (PO_ONLY.size && !PO_ONLY.has(poNum)) continue;
     const vendorId = refs.vendors.byName.get(norm(d.VendorName)) || refs.vendors.byCode.get(norm(d.VendorName)) || null;
     if (!vendorId) vendorUnresolved.add(d.VendorName || "(blank)");
     const status = mapPoStatus(d.StatusName);
