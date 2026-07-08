@@ -30,6 +30,7 @@ import { createClient } from "@supabase/supabase-js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import { resolveVendorId } from "../../_lib/xoro-mirror/ap.js";
 import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber, billSinglePoNumber } from "../../_lib/ap-bill-sync.js";
+import { runApPostingSweep } from "../internal/ap-backfill/run.js";
 
 // Fetch ip_item_master rows for the styles referenced by a batch of bills so
 // each bill line can be linked to its SKU. Paginated OR-ilike by style prefix.
@@ -247,6 +248,17 @@ export default async function handler(req, res) {
         result.line_rows_written += lineRows.length;
       }
     }
+  }
+
+  // Per-bill AP GL posting sweep (re-rate 2026-07-08): every freshly-ingested
+  // (and any previously-failed) unposted xoro_ap bill gets its accrual JE
+  // (DR 1201 goods / DR 8007 non-item+tax / CR 2000 vendor-subledgered).
+  // Best-effort — a posting failure is reported but never fails the ingest.
+  try {
+    const sweep = await runApPostingSweep(admin, { dry_run: false, limit: 500 });
+    result.gl_sweep = { posted: sweep.posted, skipped: sweep.skipped.length, errors: sweep.errors };
+  } catch (e) {
+    result.gl_sweep = { error: e instanceof Error ? e.message : String(e) };
   }
 
   return res.status(200).json({ processed: true, ...result });

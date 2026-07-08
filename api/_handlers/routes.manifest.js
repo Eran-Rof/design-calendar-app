@@ -734,4 +734,5 @@ export default [
   ["/api/sales/upload-payment-state"                         , "./sales/upload-payment-state.js"],
   ["/api/cron/ar-receipts-reconcile"                         , "./cron/ar-receipts-reconcile.js"],
   ["/api/internal/journal-entries/:id/source"                , "./internal/journal-entries/[id]/source.js"],
+  ["/api/internal/ap-backfill/run"                           , "./internal/ap-backfill/run.js"],
 ];
