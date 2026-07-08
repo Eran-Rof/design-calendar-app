@@ -277,6 +277,7 @@ export function composeApSummaryPayload({
     source_table: "xoro_mirror_runs",
     source_id: String(run_id),
     description: `Xoro AP mirror summary for ${mirror_date}`,
+    audit_reason: `Nightly Xoro AP mirror daily summary for ${mirror_date} (T10 shadow ledger)`,
     created_by_user_id: actor_user_id || null,
     lines: [
       { line_number: 1, account_id: cogs_account_id,  debit: dollars, credit: "0" },
@@ -314,6 +315,7 @@ export function composeInventoryPayload({
     source_table: "xoro_mirror_runs",
     source_id: String(run_id),
     description: `Xoro inventory mirror summary for ${mirror_date}`,
+    audit_reason: `Nightly Xoro inventory mirror delta for ${mirror_date} (T10 shadow ledger)`,
     created_by_user_id: actor_user_id || null,
     lines: [
       { line_number: 1, account_id: inventory_asset_account_id, debit: invDebit,  credit: invCredit },
