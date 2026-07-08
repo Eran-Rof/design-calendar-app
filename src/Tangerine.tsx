@@ -35,6 +35,7 @@ import InternalPartInventory      from "./tanda/InternalPartInventory";
 import InternalMfgBom             from "./tanda/InternalMfgBom";
 import InternalMfgBuildOrders     from "./tanda/InternalMfgBuildOrders";
 import InternalMfgReports         from "./tanda/InternalMfgReports";
+import InternalSyncHealth         from "./tanda/InternalSyncHealth";
 import InternalRmaReasonMaster    from "./tanda/InternalRmaReasonMaster";
 import InternalAdjustmentTypeMaster from "./tanda/InternalAdjustmentTypeMaster";
 import InternalDatePresetMaster from "./tanda/InternalDatePresetMaster";
@@ -761,6 +762,7 @@ export default function Tangerine() {
         {activeModule === "onboarding"             && <InternalOnboarding />}
         {/* M15 — External / Partner API key admin */}
         {activeModule === "api_keys"               && <InternalApiKeys />}
+        {activeModule === "sync_health"            && <InternalSyncHealth />}
       </main>
       {/* EntitySwitcher + BrandChannelSwitcher moved to the slim top bar above. */}
       {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable

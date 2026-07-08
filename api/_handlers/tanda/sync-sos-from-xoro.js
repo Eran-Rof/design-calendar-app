@@ -44,7 +44,7 @@ const TERMINAL_STATUSES = ["Shipped", "Invoiced", "Closed", "Cancelled"];
 const ACTIVE_MAX_PAGES = 60;
 const TERMINAL_MAX_PAGES = 25;
 
-function toIsoDate(raw) {
+export function toIsoDate(raw) {
   if (!raw) return null;
   let s = String(raw).trim();
   if (!s || s.startsWith("01/01/0001") || s.startsWith("0001-01-01")) return null;
@@ -63,7 +63,7 @@ function toIsoDate(raw) {
 // into a flat shape with hoisted header fields + Items[]. Mirrors
 // rof_xoro_project/scripts/rest_sales_orders_sync.py::expand_so field reads so
 // the importer (scripts/import-xoro-orders.mjs) sees the same names POs use.
-function flattenXoroSo(raw) {
+export function flattenXoroSo(raw) {
   const h = raw?.SoEstimateHeader ?? raw?.soHeader ?? raw ?? {};
   const lines = Array.isArray(raw?.SoEstimateItemLineArr) ? raw.SoEstimateItemLineArr
               : Array.isArray(raw?.SoLineArr) ? raw.SoLineArr

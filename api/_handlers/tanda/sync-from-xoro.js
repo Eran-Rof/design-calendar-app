@@ -124,6 +124,7 @@ export default async function handler(req, res) {
   const admin = createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   const requestId = randomUUID();
+  const startedAtIso = new Date().toISOString();
   const result = {
     request_id: requestId,
     statuses_fetched: ACTIVE_STATUSES,
@@ -501,6 +502,28 @@ export default async function handler(req, res) {
       }
     } catch (e) {
       result.errors.push(`native reconcile failed: ${String(e?.message || e)}`);
+    }
+
+    // 9. Record the completed fetch in xoro_sync_logs. The 01:30 UTC
+    //    xoro-mirror-nightly orchestrator gates on
+    //    MAX(xoro_sync_logs.completed_at WHERE status='complete') < 25h —
+    //    but NOTHING ever wrote this table, so the guard tripped every night
+    //    and the AR/AP/inventory mirror + daily summary JEs silently skipped
+    //    (37 skipped nights vs 3 manual backfills as of 2026-07-07). This
+    //    endpoint runs near the END of the 21:00 nightly chain (and on the
+    //    PO WIP Sync button), so its success is the freshness signal the
+    //    guard was designed around. Best-effort: never fails the sync.
+    try {
+      await admin.from("xoro_sync_logs").insert({
+        sync_type: "nightly_po_sync",
+        status: "complete",
+        started_at: startedAtIso,
+        completed_at: new Date().toISOString(),
+        records_processed: result.upserted || 0,
+        raw_summary: { request_id: requestId, source: "tanda/sync-from-xoro" },
+      });
+    } catch (e) {
+      result.errors.push(`xoro_sync_logs write failed: ${String(e?.message || e)}`);
     }
 
     return res.status(200).json(result);

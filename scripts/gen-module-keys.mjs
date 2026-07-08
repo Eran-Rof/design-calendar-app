@@ -29,9 +29,12 @@ const actionsFor = (group) =>
     ? ["read", "write", "post", "void", "export"]
     : ["read", "write", "export"];
 
-const src = readFileSync(resolve(ROOT, "src/Tangerine.tsx"), "utf8");
+// The MODULES array moved from src/Tangerine.tsx to src/erp/modules.ts (nav
+// refactor); this generator silently rotted pointing at the old file, freezing
+// the api/_lib/tangerineModules.js mirror at 123 modules (~#1493).
+const src = readFileSync(resolve(ROOT, "src/erp/modules.ts"), "utf8");
 const start = src.indexOf("const MODULES: ModuleDef[] = [");
-if (start === -1) { console.error("✗ MODULES array not found in src/Tangerine.tsx"); process.exit(1); }
+if (start === -1) { console.error("✗ MODULES array not found in src/erp/modules.ts"); process.exit(1); }
 const end = src.indexOf("];", start);
 const block = src.slice(start, end);
 

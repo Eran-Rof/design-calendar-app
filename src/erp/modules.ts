@@ -27,6 +27,7 @@ export type ModuleKey =
   | "mfg_bom"
   | "mfg_build_orders"
   | "mfg_reports"
+  | "sync_health"
   | "rma_reason_master"
   | "adjustment_type_master"
   | "adjustment_reason_master"
@@ -409,6 +410,7 @@ export const MODULES: ModuleDef[] = [
   { key: "onboarding",          label: "Onboarding",         emoji: "🚀", group: "Admin" },
   // M15 — External / Partner API key admin.
   { key: "api_keys",            label: "API Keys",           emoji: "🔑", group: "Admin" },
+  { key: "sync_health",         label: "Sync Health",        emoji: "🩺", group: "Admin" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
