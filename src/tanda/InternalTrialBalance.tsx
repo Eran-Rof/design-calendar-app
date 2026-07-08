@@ -12,6 +12,7 @@
 // rendered in red whenever non-zero.
 
 import { useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -151,7 +152,12 @@ export default function InternalTrialBalance() {
     });
   }
 
+  // Fetch-race guard: rapid date-preset clicks fire overlapping load()s; a
+  // slower earlier response must never clobber the newest state.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -165,12 +171,15 @@ export default function InternalTrialBalance() {
         throw new Error(detail.error || `HTTP ${r.status}`);
       }
       const data: ApiResponse = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows(data.rows || []);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setRows([]);
+      if (seqGuard.isCurrent(seq)) {
+        setErr(e instanceof Error ? e.message : String(e));
+        setRows([]);
+      }
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 

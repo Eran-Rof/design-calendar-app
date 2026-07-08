@@ -17,6 +17,7 @@
 // and ecom/DTC rows tagged by channel).
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -153,7 +154,12 @@ export default function InternalSegmentPL() {
     });
   }
 
+  // Fetch-race guard: rapid date changes fire overlapping load()s; a slower
+  // earlier response must never clobber the newest state.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -163,12 +169,13 @@ export default function InternalSegmentPL() {
       const r = await fetch(`/api/internal/segment-pl?${p.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows((data.breakdown || []) as BreakdownRow[]);
       setDims((data.dims || { brands: [], channels: [], stores: [], genders: [] }) as Dims);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);

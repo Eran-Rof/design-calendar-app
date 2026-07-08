@@ -4,6 +4,7 @@
 // Reads /api/internal/sales-by-customer?from=YYYY-MM-DD&to=YYYY-MM-DD.
 
 import { useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -91,7 +92,11 @@ export default function InternalSalesByCustomer() {
   );
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
+  // Fetch-race guard: only the latest load()'s result may be applied.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -101,12 +106,15 @@ export default function InternalSalesByCustomer() {
       const r = await fetch(`/api/internal/sales-by-customer?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows((data.rows || []) as Row[]);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setRows([]);
+      if (seqGuard.isCurrent(seq)) {
+        setErr(e instanceof Error ? e.message : String(e));
+        setRows([]);
+      }
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 

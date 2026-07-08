@@ -17,6 +17,7 @@
 // so the panel doesn't need a separate /api/internal/balance-sheet roundtrip.
 
 import { useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -86,7 +87,11 @@ export default function InternalCashFlow() {
     operating: false, investing: false, financing: false,
   });
 
+  // Fetch-race guard: only the latest load()'s result may be applied.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -97,11 +102,12 @@ export default function InternalCashFlow() {
       const r = await fetch(`/api/internal/cash-flow?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = (await r.json()) as Response;
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows(data.rows || []);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 
