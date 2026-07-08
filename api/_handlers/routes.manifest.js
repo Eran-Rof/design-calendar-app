@@ -725,6 +725,8 @@ export default [
   ["/api/cron/tpl-inventory-pull"                            , "./cron/tpl-inventory-pull.js"],
   ["/api/cron/ip-integration-health"                         , "./cron/ip-integration-health.js"],
   ["/api/cron/xoro-feed-health-alert"                        , "./cron/xoro-feed-health-alert.js"],
+  ["/api/cron/app-errors-digest"                             , "./cron/app-errors-digest.js"],
+  ["/api/internal/client-errors"                             , "./internal/client-errors.js"],
   ["/api/internal/rfqs/messages-inbox"                       , "./internal/rfqs/messages-inbox/index.js"],
   ["/api/internal/rfqs/:id/messages"                         , "./internal/rfqs/[id]/messages/index.js"],
   ["/api/vendor/rfqs/:id/messages"                           , "./vendor/rfqs/[id]/messages/index.js"],
