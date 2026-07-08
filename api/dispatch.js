@@ -29,6 +29,42 @@ export const config = { maxDuration: 300 };
 // Compile once per cold start
 const COMPILED = compileRoutes(ROUTES);
 
+// Security sprint (re-rate 2026-07-08): individual handlers historically set
+// `Access-Control-Allow-Origin: *`, which lets any website script drive the
+// API from a victim's browser. Rather than edit ~700 handlers, the dispatcher
+// clamps the header centrally: res.setHeader is wrapped so ANY attempt to set
+// Access-Control-Allow-Origin is rewritten to the request's origin when that
+// origin is allowlisted, else to the primary app origin (which makes the
+// response unreadable cross-origin). Server-to-server callers (webhooks, EDI,
+// crons) are unaffected — CORS only constrains browsers.
+const CORS_ALLOWED = new Set([
+  "https://apps.ringoffire.com",
+  "https://design-calendar-app.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+]);
+const VERCEL_PREVIEW_RE = /^https:\/\/design-calendar-app-[a-z0-9]+-[a-z0-9-]+\.vercel\.app$/;
+
+export function resolveCorsOrigin(origin) {
+  const o = String(origin || "");
+  if (CORS_ALLOWED.has(o) || VERCEL_PREVIEW_RE.test(o)) return o;
+  return "https://apps.ringoffire.com";
+}
+
+function clampCors(req, res) {
+  const value = resolveCorsOrigin(req.headers.origin);
+  const orig = res.setHeader.bind(res);
+  res.setHeader = (name, v) => {
+    if (String(name).toLowerCase() === "access-control-allow-origin") {
+      return orig(name, value);
+    }
+    return orig(name, v);
+  };
+  // Handlers that never set CORS still get a correct, clamped header.
+  orig("Access-Control-Allow-Origin", value);
+  orig("Vary", "Origin");
+}
+
 export default async function handler(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   // After a rewrite, req.url reflects the rewritten path (`/api/dispatch`),
@@ -54,6 +90,9 @@ export default async function handler(req, res) {
       params[route.params[i]] = decodeURIComponent(match[i + 1]);
     }
     req.query = { ...(req.query || {}), ...params };
+
+    // Clamp CORS before the handler runs so its own setHeader calls are wrapped.
+    clampCors(req, res);
 
     // P14 RBAC. Default (RBAC_MODE unset) = no-op. `log` = observe + warn on a
     // would-deny. `enforce` = reject with 403 when an authenticated caller lacks
