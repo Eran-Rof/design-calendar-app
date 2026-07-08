@@ -24,7 +24,8 @@
     "staging:local": "node scripts/staging-setup.mjs --local",
     "staging:remote": "node scripts/staging-setup.mjs --remote",
     "staging:smoke": "node scripts/staging-smoke.mjs",
-    "staging:reset": "node scripts/staging-setup.mjs --local --reset"
+    "staging:reset": "node scripts/staging-setup.mjs --local --reset",
+    "dr:drill": "node scripts/dr-drill.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
