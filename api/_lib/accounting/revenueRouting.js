@@ -41,7 +41,6 @@ export function resolveRevenueRouting(input = {}) {
   const gender = String(input.genderCode || "").toUpperCase();
   const channel = String(input.channel || "wholesale").toLowerCase();
   const pt = brand === "PT";
-  const ecom = channel === "ecom_rof" || channel === "ecom_pt";
 
   if (input.isSample) return { revenueCode: "4010", cogsCode: null };
   if (input.isShipping) {
@@ -51,8 +50,12 @@ export function resolveRevenueRouting(input = {}) {
   }
   if (channel === "consignment") return { revenueCode: "4007", cogsCode: "5018" };
   if (input.isPrivateLabel || brand === "PL") return { revenueCode: "4012", cogsCode: "5015" };
-  if (pt) return ecom ? { revenueCode: "4008", cogsCode: "5013" } : { revenueCode: "4009", cogsCode: "5012" };
-  if (ecom) return { revenueCode: "4011", cogsCode: "5014" };
+  // Ecom is STORE-scoped ("all brands from the … store"), so the store wins
+  // over the item's brand: psychotuna.com → 4008, ringoffireclothing.com → 4011.
+  if (channel === "ecom_pt") return { revenueCode: "4008", cogsCode: "5013" };
+  if (channel === "ecom_rof") return { revenueCode: "4011", cogsCode: "5014" };
+  // Wholesale: PT is brand-scoped (CEO-confirmed: brand beats kids gender).
+  if (pt) return { revenueCode: "4009", cogsCode: "5012" };
   if (KIDS_GENDERS.has(gender)) return { revenueCode: "4006", cogsCode: "5011" };
   return { revenueCode: "4005", cogsCode: "5010" };
 }
