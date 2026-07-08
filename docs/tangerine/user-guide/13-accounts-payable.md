@@ -159,7 +159,17 @@ While Xoro remains the system of record (pre-Tangerine go-live), the actual post
 | `xoro_mirror` (T10 PO-derived synthetic) | **Updated in place** — the real bill supersedes the mirror-derived one |
 | `xoro_ap` | **Updated in place** — idempotent re-sync |
 
-This is the *operational* AP record. It is deliberately **not** wired into the T10 shadow-mirror GL engine, whose summary JEs sum only `source='xoro_mirror'` (see [22. Shadow Mirror](22-shadow-mirror.md)). Vendors are matched by **Vendor Name** against `vendors.code` / `vendors.aliases` (the CSV "Vendor Code" is the Xoro internal id and does not map); unmatched vendors are skipped and returned in the response so the operator can add a vendor or alias. At Tangerine go-live, native AP entry takes over and this feed is retired.
+Vendors are matched by **Vendor Name** against `vendors.code` / `vendors.aliases` (the CSV "Vendor Code" is the Xoro internal id and does not map); unmatched vendors are skipped and returned in the response so the operator can add a vendor or alias. At Tangerine go-live, native AP entry takes over and this feed is retired.
+
+### Per-bill GL posting (2026-07-08)
+
+Every synced Xoro bill now posts its own journal entry — this replaced the old daily AP summary, which had **never successfully posted** (it credited the AP control account without a vendor subledger, so the posting guard rejected it every night; found and confirmed during the July 8 re-rate). The per-bill JE:
+
+- **DR 1201 Inventory** for item-linked lines (purchases build inventory; the per-invoice sales history posts the COGS that relieves it),
+- **DR 8007 Uncategorized Expense** for non-item lines plus the tax/rounding remainder (re-route from the JE as needed — nothing silently disappears),
+- **CR 2000 Accounts Payable** for the bill total, **subledgered to the vendor** — so the AP control account ties out to the bill ledger by construction. Credit memos post with the directions flipped.
+
+The sweep runs automatically at the end of every `POST /api/ap/sync-bills` ingest and can be run by hand via **`POST /api/internal/ap-backfill/run`** `{ dry_run?: true, limit? }` (internal token; idempotent — only `gl_status='unposted'` bills are touched, and a duplicate post heals the bill row instead of erroring). Posted bills get `gl_status='posted'` + `accrual_je_id`, which lights up the status badge → JE drill in the AP Invoices panel. `journal_type='ap_invoice_historical'` rides the period-lock bypass so older bills backfill cleanly. **Not yet covered:** payment-side JEs (the CSV carries only a paid/unpaid status, no payment dates or amounts) — cash application for Xoro bills is a follow-up alongside the bank-feed work.
 
 ## Sub-decisions defaults (P3-1 → P3-2)
 

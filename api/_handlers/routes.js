@@ -95,6 +95,7 @@ import r_internal_analytics_sustainability_trend from "./internal/analytics/sust
 import r_internal_anomalies_id from "./internal/anomalies/[id].js";
 import r_internal_anomalies_index from "./internal/anomalies/index.js";
 import r_internal_ap_aging_index from "./internal/ap-aging/index.js";
+import r_internal_ap_backfill_run from "./internal/ap-backfill/run.js";
 import r_internal_ap_invoices_id from "./internal/ap-invoices/[id].js";
 import r_internal_ap_invoices_index from "./internal/ap-invoices/index.js";
 import r_internal_ap_invoices_pay from "./internal/ap-invoices/pay.js";
@@ -1021,6 +1022,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/compliance/summary", handler: r_vendor_compliance_summary },
   { pattern: "/api/internal/ai/suggest-iso2", handler: r_internal_ai_suggest_iso2 },
   { pattern: "/api/internal/analytics/spend", handler: r_internal_analytics_spend },
+  { pattern: "/api/internal/ap-backfill/run", handler: r_internal_ap_backfill_run },
   { pattern: "/api/internal/ar-backfill/run", handler: r_internal_ar_backfill_run },
   { pattern: "/api/internal/fba/sync-orders", handler: r_internal_fba_sync_orders },
   { pattern: "/api/internal/pricing/resolve", handler: r_internal_pricing_resolve },
