@@ -535,7 +535,7 @@ async function resolveCustomer(admin, ctx) {
   // Try ip_customer_master → customers join via code.
   const { data: legacy } = await admin
     .from("ip_customer_master")
-    .select("id, customer_code, customer_name")
+    .select("id, customer_code, name")
     .eq("id", legacy_customer_id)
     .maybeSingle();
   if (!legacy) {
@@ -554,12 +554,12 @@ async function resolveCustomer(admin, ctx) {
     if (byCode) return { customer_id: byCode.id, synthesized: false };
   }
   // Match by name (case-insensitive exact).
-  if (legacy.customer_name) {
+  if (legacy.name) {
     const { data: byName } = await admin
       .from("customers")
       .select("id")
       .eq("entity_id", entity_id)
-      .ilike("name", legacy.customer_name.trim())
+      .ilike("name", legacy.name.trim())
       .is("deleted_at", null)
       .maybeSingle();
     if (byName) return { customer_id: byName.id, synthesized: false };
@@ -568,7 +568,7 @@ async function resolveCustomer(admin, ctx) {
   return await synthesizeCustomer(admin, {
     runId, entity_id,
     code: legacy.customer_code || null,
-    name: legacy.customer_name || null,
+    name: legacy.name || null,
     legacy_customer_id,
     invoice_number,
     dry_run,
@@ -601,13 +601,17 @@ async function synthesizeCustomer(admin, ctx) {
     return { customer_id: existing.id, synthesized: true };
   }
 
+  // customers.customer_code is NOT NULL (Xoro ref column) — seed it with the
+  // synth code so historical placeholders satisfy the constraint. No metadata
+  // column on customers; provenance goes in attributes (jsonb).
   const { data: created, error: cErr } = await admin.from("customers").insert({
     entity_id,
     code: synthCode,
+    customer_code: synthCode,
     name: synthName,
     customer_type: "wholesale",
     status: "active",
-    metadata: { historical_backfill: true, backfill_run_id: runId, legacy_customer_id: legacy_customer_id || null },
+    attributes: { historical_backfill: true, backfill_run_id: runId, legacy_customer_id: legacy_customer_id || null },
   }).select("id").maybeSingle();
   if (cErr || !created) {
     await admin.from("bf_unmatched_customers_log").insert({
