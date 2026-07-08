@@ -56,6 +56,7 @@ import r_cron_push_delivery from "./cron/push-delivery.js";
 import r_cron_scorecards_monthly from "./cron/scorecards-monthly.js";
 import r_cron_tpl_inventory_pull from "./cron/tpl-inventory-pull.js";
 import r_cron_workspace_tasks_due_soon from "./cron/workspace-tasks-due-soon.js";
+import r_cron_xoro_feed_health_alert from "./cron/xoro-feed-health-alert.js";
 import r_dropbox_proxy from "./dropbox-proxy.js";
 import r_edi_inbound_vendor_id from "./edi/inbound/[vendor_id].js";
 import r_edi_inbound_index from "./edi/inbound/index.js";
@@ -604,6 +605,7 @@ import r_shopify_returns from "./shopify/returns.js";
 import r_tanda_pos_sync from "./tanda-pos-sync.js";
 import r_tanda_sync_from_xoro from "./tanda/sync-from-xoro.js";
 import r_tanda_sync_sos_from_xoro from "./tanda/sync-sos-from-xoro.js";
+import r_tanda_upload_sos from "./tanda/upload-sos.js";
 import r_vendor_invite from "./vendor-invite.js";
 import r_vendor_accept_invite from "./vendor/accept-invite.js";
 import r_vendor_ai_extract_invoice from "./vendor/ai-extract-invoice.js";
@@ -1184,6 +1186,7 @@ export const ROUTES = [
   { pattern: "/api/cron/crm-tasks-due-tomorrow", handler: r_cron_crm_tasks_due_tomorrow },
   { pattern: "/api/cron/fba-settlements-weekly", handler: r_cron_fba_settlements_weekly },
   { pattern: "/api/cron/walmart-orders-nightly", handler: r_cron_walmart_orders_nightly },
+  { pattern: "/api/cron/xoro-feed-health-alert", handler: r_cron_xoro_feed_health_alert },
   { pattern: "/api/internal/adjustment-reasons", handler: r_internal_adjustment_reasons_index },
   { pattern: "/api/internal/buyer-scope-master", handler: r_internal_buyer_scope_master_index },
   { pattern: "/api/internal/customer-locations", handler: r_internal_customer_locations_index },
@@ -1359,6 +1362,7 @@ export const ROUTES = [
   { pattern: "/api/internal/seasons", handler: r_internal_seasons_index },
   { pattern: "/api/internal/vendors", handler: r_internal_vendors_index },
   { pattern: "/api/shopify/products", handler: r_shopify_products },
+  { pattern: "/api/tanda/upload-sos", handler: r_tanda_upload_sos },
   { pattern: "/api/vendor/contracts", handler: r_vendor_contracts_index },
   { pattern: "/api/vendor/esg-score", handler: r_vendor_esg_score_index },
   { pattern: "/api/vendor/scorecard", handler: r_vendor_scorecard },

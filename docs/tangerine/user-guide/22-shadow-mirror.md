@@ -202,4 +202,17 @@ The manual entries always live alongside mirrored entries forever. There's no me
 
 ---
 
+## 22.12 Sync Health — the "screams when anything stops" layer (2026-07-07)
+
+The bridge's historical failure mode was **silence**: the 2026-07-07 audit found `tanda_sos` stale 19 days (the pull endpoint had outgrown Vercel's 300s ceiling and 504'd) and the accounting mirror skipped **37 of 40 nights** — because `xoro_sync_logs`, the table the stale-guard reads, was **never written by anything**. Three fixes:
+
+1. **The stale-guard contract is now honored.** `POST /api/tanda/sync-from-xoro` (the nightly PO sync, near the end of the 21:00 chain) writes a `xoro_sync_logs` row (`sync_type='nightly_po_sync'`, status `complete`) on success — the 01:30 mirror's freshness guard finally has its signal. Missed dates backfill via the range re-run.
+2. **SOs are now PUSHED, not pulled.** The 21:00 fetch (`rest_sales_orders_sync.py`) already walks Xoro SOs with no time limit; it now posts the RAW records in gzip chunks to **`POST /api/tanda/upload-sos`** (server does zero Xoro I/O — flatten + upsert `tanda_sos` only; the last chunk logs `nightly_so_upload`). The old pull endpoint remains for manual small-scope one-offs.
+3. **`v_xoro_feed_health` + alerts + panel + CLI.** One view, one row per feed (`pos_mirror`, `sos_mirror`, `onhand_snapshot`, `item_costing`, `open_sos_planning`, `open_pos_planning`, `fetch_log`, `accounting_mirror`) with last-sync, threshold, and `ok/stale/never`. Read by:
+   - the **daily alert cron** (`/api/cron/xoro-feed-health-alert`, 13:00 UTC ≈ 09:00 ET) — ONE notification listing every non-ok feed, severity error, roles admin+accounting, channels **bell + email**; silent when all ok;
+   - the **Sync Health panel** — Tangerine → Admin → **Sync Health** (`?m=sync_health`), red/green per feed + xlsx export;
+   - the **CLI** — `npm run sync-health` (add `--bad` to exit non-zero when anything is stale, for scripting).
+
+---
+
 Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.
