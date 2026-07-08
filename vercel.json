@@ -74,6 +74,7 @@
     { "path": "/api/cron/crm-tasks-due-tomorrow", "schedule": "0 13 * * *" },
     { "path": "/api/cron/fba-inventory-daily", "schedule": "0 4 * * *" },
     { "path": "/api/cron/fba-returns-daily", "schedule": "30 4 * * *" },
-    { "path": "/api/cron/fba-settlements-weekly", "schedule": "0 6 * * 3" }
+    { "path": "/api/cron/fba-settlements-weekly", "schedule": "0 6 * * 3" },
+    { "path": "/api/cron/subledger-tieout", "schedule": "0 6 * * *" }
   ]
 }

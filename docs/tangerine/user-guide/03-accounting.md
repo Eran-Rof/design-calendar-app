@@ -798,3 +798,25 @@ QuickBooks-style descent, now wired end to end:
 6. **Deep link:** `/tangerine?m=journal_entries&je=<id>` opens the Journal Entries panel with that entry's modal already open (one-shot param).
 
 Phase 2 (planned): AR/AP aging bucket drills, Segment P&L cell → GL account activity (the routed revenue accounts make this a direct mapping), bank-recon rows → entries, and scorecard tiles.
+
+## Subledger tie-out monitor — the books prove themselves daily (2026-07-08)
+
+Best-in-class books aren't proven once at close — they're proven **continuously**. Every morning (06:00 UTC) a monitor compares each **control account's** GL balance against the subledger that is supposed to explain it, to the cent:
+
+| Control account | GL side (posted ACCRUAL entries) | Subledger it must match |
+|---|---|---|
+| **1105 AR — Credit Card** | net debit balance | open AR invoices routed to 1105 (`total − paid`) |
+| **1107 AR — Factored** | net debit balance | open AR invoices routed to 1107 |
+| **1108 AR — House** | net debit balance | open AR invoices routed to 1108 |
+| **2000 Accounts Payable** | net credit balance | unpaid posted vendor bills (`total − paid`) |
+
+**What happens on a break.** Any difference greater than **$0.01** sends ONE bell + email alert to admin and accounting (same delivery path as the Xoro feed-health alert), listing each account with its GL figure, subledger figure, and the exact diff. The break is also recorded in the error log, so the daily app-errors digest carries it as a second net.
+
+**Expected diffs during the transition — read before panicking:**
+
+- **AR classes:** the per-invoice AR history backfill is still running. Until it completes, the AR classes will alert daily — that's intentional. The alert going quiet is the signal that history has fully landed.
+- **AP 2000:** vendor-bill *payments* aren't posted to the GL yet (bills only accrue). While no posted bill carries any payment, the AP tie-out reports **`pending_payments`** in the run summary's `waived` field instead of alerting. The moment the first payment lands in the bills ledger, the waiver lifts on its own and 2000 is held to the same one-cent standard.
+
+**Where to look when it fires:** open **GL Detail** on the named account (Accounting → GL Detail, or drill from the Trial Balance) and compare against the AR Invoices / AP Bills grid filtered to open balances. The alert body includes any open AR sitting on invoices with *no* AR account assigned — that amount can never tie and should be re-routed first.
+
+Runs as `/api/cron/subledger-tieout`; it can also be invoked manually for an on-demand proof after a backfill batch.
