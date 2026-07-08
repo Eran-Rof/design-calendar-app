@@ -20,7 +20,14 @@ export type DrillModuleKey =
   | "sales_orders"
   | "ap_invoices"
   | "ar_invoices"
-  | "journal_entries";
+  | "journal_entries"
+  // Drill-through targets for JE → source document (jeSourceDoc resolver):
+  | "ap_payments"
+  | "ar_receipts"
+  | "inventory_adjustments"
+  | "commission_accruals"
+  | "commission_payouts"
+  | "mfg_build_orders";
 
 /**
  * Navigate to a target list module, seeding one party-filter query param.

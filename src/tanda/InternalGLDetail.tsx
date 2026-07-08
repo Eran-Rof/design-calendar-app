@@ -13,6 +13,7 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import JEDetailModal from "./components/JEDetailModal";
 
 // Only the numeric columns are toggleable — the TOTAL footer row spans the
 // first three columns (Date/Description/Source) via colSpan={3}, so those
@@ -133,6 +134,9 @@ export default function InternalGLDetail() {
   const [toDate, setToDate] = useState<string>(initial.to || todayISO());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  // Drill-through: row → the journal entry behind it (parity with the
+  // GLDetailModal variant — this standalone panel was the one dead end).
+  const [jeSeed, setJeSeed] = useState<{ id: string; je_number?: string | null; description?: string | null } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
@@ -295,9 +299,21 @@ export default function InternalGLDetail() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={`${r.je_id}-${r.posting_date}`}>
+                <tr
+                  key={`${r.je_id}-${r.posting_date}`}
+                  onDoubleClick={() => r.je_id && setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
+                  title="Double-click to open the journal entry"
+                  style={{ cursor: r.je_id ? "pointer" : undefined }}>
                   <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
-                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>{r.je_number || "—"}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>
+                    {r.je_id
+                      ? <button type="button" onClick={() => setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
+                          title="Open the journal entry"
+                          style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontFamily: "inherit", fontSize: "inherit", textDecoration: "underline" }}>
+                          {r.je_number || "↗"}
+                        </button>
+                      : (r.je_number || "—")}
+                  </td>
                   <td style={td}>{r.description || "—"}</td>
                   <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>
                     {r.source_module || "—"}
@@ -319,6 +335,13 @@ export default function InternalGLDetail() {
           </table>
         )}
       </div>
+      {jeSeed && (
+        <JEDetailModal
+          je={jeSeed}
+          onClose={() => setJeSeed(null)}
+          onReversed={() => setJeSeed(null)}
+        />
+      )}
     </div>
   );
 }

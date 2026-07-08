@@ -10,6 +10,7 @@ import SearchableSelect from "./components/SearchableSelect";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import JEDetailModal from "./components/JEDetailModal";
 
 const TABLE_KEY = "tanda.ap_payments";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -80,6 +81,8 @@ function fmtCents(c: string | number | null | undefined): string {
 
 export default function InternalAPPayments() {
   const [rows, setRows] = useState<APPayment[]>([]);
+  // Drill-through: payment → its cash journal entry.
+  const [jeSeed, setJeSeed] = useState<{ id: string } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -272,7 +275,14 @@ export default function InternalAPPayments() {
                     </td>
                     <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!visibleColumns.has("reference")}>{p.reference || "—"}</td>
                     <td style={{ ...td, fontSize: 11, color: p.cash_je_id ? C.success : C.textMuted }} hidden={!visibleColumns.has("cash_je")}>
-                      {p.cash_je_id ? "✓ posted" : "—"}
+                      {p.cash_je_id
+                        ? <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setJeSeed({ id: p.cash_je_id as string }); }}
+                            title="Open the journal entry this payment posted"
+                            style={{ background: "transparent", border: "none", color: C.success, cursor: "pointer", padding: 0, fontSize: 11, textDecoration: "underline" }}>
+                            ✓ posted ↗
+                          </button>
+                        : "—"}
                     </td>
                   </tr>
                 );
@@ -281,6 +291,9 @@ export default function InternalAPPayments() {
           </table>
         )}
       </div>
+      {jeSeed && (
+        <JEDetailModal je={jeSeed} onClose={() => setJeSeed(null)} onReversed={() => setJeSeed(null)} />
+      )}
     </div>
   );
 }

@@ -328,6 +328,7 @@ import r_internal_inventory_transfers_index from "./internal/inventory-transfers
 import r_internal_ip_ai_demand_index from "./internal/ip-ai-demand/index.js";
 import r_internal_items_index from "./internal/items/index.js";
 import r_internal_journal_entries_id from "./internal/journal-entries/[id].js";
+import r_internal_journal_entries_id_source from "./internal/journal-entries/[id]/source.js";
 import r_internal_journal_entries_index from "./internal/journal-entries/index.js";
 import r_internal_journal_entries_reverse from "./internal/journal-entries/reverse.js";
 import r_internal_marketplace_benchmark from "./internal/marketplace/benchmark.js";
@@ -826,6 +827,7 @@ export const ROUTES = [
   { pattern: "/api/internal/diversity/:vendor_id/verify", handler: r_internal_diversity_vendor_id_verify },
   { pattern: "/api/internal/journal-entries/:id/reverse", handler: r_internal_journal_entries_reverse },
   { pattern: "/api/internal/notifications/:id/mark-read", handler: r_internal_notifications_mark_read },
+  { pattern: "/api/internal/journal-entries/:id/source", handler: r_internal_journal_entries_id_source },
   { pattern: "/api/internal/sales-reps/:id/assignments", handler: r_internal_sales_reps_id_assignments },
   { pattern: "/api/internal/shopify/process-refund/:id", handler: r_internal_shopify_process_refund_id },
   { pattern: "/api/internal/build-orders/:id/complete", handler: r_internal_build_orders_complete },

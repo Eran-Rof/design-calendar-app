@@ -22,7 +22,7 @@ import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/Ta
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
-import { readDrillParam } from "./scorecardDrill";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 
 const TABLE_KEY = "tanda.journal_entry";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -135,6 +135,17 @@ export default function InternalJournalEntry() {
     useDebouncedSearch(readDrillParam("q"), 200);
   const [postOpen, setPostOpen] = useState(false);
   const [detail, setDetail] = useState<JE | null>(null);
+  // Drill-through deep-link: ?je=<id> auto-opens the entry's detail modal
+  // (JEDetailModal self-fetches by id, so a minimal seed suffices). One-shot:
+  // consumed so leaving and returning doesn't re-open the modal.
+  useEffect(() => {
+    const jeParam = readDrillParam("je");
+    if (jeParam) {
+      setDetail({ id: jeParam } as JE);
+      consumeDrillParams(["je"]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
   // Universal row-click primitive (operator ask #4) — replaces the
   // hand-rolled onClick/setDetail on each <tr>. The hook handles

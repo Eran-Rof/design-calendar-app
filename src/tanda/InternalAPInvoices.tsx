@@ -26,6 +26,7 @@ import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import ExportButton from "./exports/ExportButton";
+import JEDetailModal from "./components/JEDetailModal";
 import type { ExportColumn } from "./exports/useTableExport";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
@@ -183,6 +184,8 @@ const AP_INVOICES_COLUMNS: ColumnDef[] = [
 
 export default function InternalAPInvoices() {
   const [rows, setRows] = useState<APInvoice[]>([]);
+  // Drill-through: bill → its posted journal entry.
+  const [jeSeed, setJeSeed] = useState<{ id: string } | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -465,7 +468,14 @@ export default function InternalAPInvoices() {
                       <SourceBadge source={inv.source} />
                     </td>
                     <td style={td} hidden={!isVisible("gl_status")}>
-                      <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>
+                      {inv.accrual_je_id
+                        ? <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setJeSeed({ id: inv.accrual_je_id as string }); }}
+                            title="Open the journal entry this bill posted"
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, color: statusColor(inv.gl_status), fontWeight: 600, fontSize: "inherit", textDecoration: "underline" }}>
+                            ● {inv.gl_status} ↗
+                          </button>
+                        : <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>}
                     </td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
@@ -534,6 +544,9 @@ export default function InternalAPInvoices() {
           onClose={() => setPayOpen(null)}
           onPaid={() => { setPayOpen(null); void load(); }}
         />
+      )}
+      {jeSeed && (
+        <JEDetailModal je={jeSeed} onClose={() => setJeSeed(null)} onReversed={() => setJeSeed(null)} />
       )}
     </div>
   );
