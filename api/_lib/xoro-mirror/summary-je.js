@@ -379,7 +379,7 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
   //    fail the affected domain(s) only; AR & AP may still post even if 1300
   //    is missing.
   const { ids: acct, missing } = await loadAccountIds(supabase, entity_id, [
-    "1200", "1300", "2100", "4000", "5000",
+    "1108", "1201", "2000", "4005", "5001",
   ]);
   for (const code of missing) {
     result.errors.push({
@@ -402,11 +402,11 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
       if (existing) {
         result.skipped.push({ domain: "ar", reason: "already_posted", existing_je_id: existing });
         result.je_ids.ar = existing;
-      } else if (!acct.get("1200") || !acct.get("4000")) {
+      } else if (!acct.get("1108") || !acct.get("4005")) {
         result.errors.push({
           domain: "ar",
           kind: "missing_gl_account",
-          message: "AR summary needs codes 1200 + 4000",
+          message: "AR summary needs codes 1108 + 4005",
         });
       } else {
         const ar_total_cents = await sumArMirrorTotals(supabase, { entity_id, mirror_date });
@@ -416,8 +416,8 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
         } else {
           const payload = composeArSummaryPayload({
             entity_id, mirror_date, run_id: arRun.id, ar_total_cents,
-            ar_account_id: acct.get("1200"),
-            revenue_account_id: acct.get("4000"),
+            ar_account_id: acct.get("1108"),
+            revenue_account_id: acct.get("4005"),
             actor_user_id,
           });
           const je_id = await postJe(supabase, payload);
@@ -447,11 +447,11 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
       if (existing) {
         result.skipped.push({ domain: "ap", reason: "already_posted", existing_je_id: existing });
         result.je_ids.ap = existing;
-      } else if (!acct.get("5000") || !acct.get("2100")) {
+      } else if (!acct.get("5001") || !acct.get("2000")) {
         result.errors.push({
           domain: "ap",
           kind: "missing_gl_account",
-          message: "AP summary needs codes 5000 + 2100",
+          message: "AP summary needs codes 5001 + 2000",
         });
       } else {
         const ap_total_cents = await sumApMirrorTotals(supabase, { entity_id, mirror_date });
@@ -461,8 +461,8 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
         } else {
           const payload = composeApSummaryPayload({
             entity_id, mirror_date, run_id: apRun.id, ap_total_cents,
-            cogs_account_id: acct.get("5000"),
-            ap_account_id: acct.get("2100"),
+            cogs_account_id: acct.get("5001"),
+            ap_account_id: acct.get("2000"),
             actor_user_id,
           });
           const je_id = await postJe(supabase, payload);
@@ -492,11 +492,11 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
       if (existing) {
         result.skipped.push({ domain: "inventory", reason: "already_posted", existing_je_id: existing });
         result.je_ids.inventory_or_null = existing;
-      } else if (!acct.get("1300") || !acct.get("5000")) {
+      } else if (!acct.get("1201") || !acct.get("5001")) {
         result.errors.push({
           domain: "inventory",
           kind: "missing_gl_account",
-          message: "Inventory summary needs codes 1300 + 5000",
+          message: "Inventory summary needs codes 1201 + 5001",
         });
       } else {
         const today_cents = await computeInventoryValueCents(supabase, { entity_id });
@@ -509,8 +509,8 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
         } else {
           const payload = composeInventoryPayload({
             entity_id, mirror_date, run_id: invRun.id, delta_cents,
-            inventory_asset_account_id: acct.get("1300"),
-            cogs_account_id: acct.get("5000"),
+            inventory_asset_account_id: acct.get("1201"),
+            cogs_account_id: acct.get("5001"),
             actor_user_id,
           });
           const je_id = await postJe(supabase, payload);

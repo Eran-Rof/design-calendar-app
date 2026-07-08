@@ -339,8 +339,8 @@ describe("postInvoice (P4-4 AR)", () => {
             eq(col, val) { captured[col] = val; return this; },
             maybeSingle: async () => {
               calls.push({ ...captured });
-              if (captured.code === "1200") return { data: { id: "AR-FROM-CODE" }, error: null };
-              if (captured.code === "4000") return { data: { id: "REV-FROM-CODE" }, error: null };
+              if (captured.code === "1108") return { data: { id: "AR-FROM-CODE" }, error: null };
+              if (captured.code === "4005") return { data: { id: "REV-FROM-CODE" }, error: null };
               return { data: null, error: null };
             },
           };
@@ -375,8 +375,8 @@ describe("postInvoice (P4-4 AR)", () => {
     expect(evt.data.ar_account_id).toBe("AR-FROM-CODE");
     expect(evt.data.revenue_account_id).toBe("REV-FROM-CODE");
     // We probed code 1200 + 4000
-    expect(calls.find((c) => c.code === "1200")).toBeTruthy();
-    expect(calls.find((c) => c.code === "4000")).toBeTruthy();
+    expect(calls.find((c) => c.code === "1108")).toBeTruthy();
+    expect(calls.find((c) => c.code === "4005")).toBeTruthy();
   });
 
   it("400 when inventory line present but no COGS account resolvable", async () => {
