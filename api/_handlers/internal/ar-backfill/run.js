@@ -145,6 +145,9 @@ export default async function handler(req, res) {
 
   const runId = cryptoRandomUuid();
   const summary = {
+    // Bumped when runner behavior changes — external drivers poll this to
+    // detect that a fix has actually deployed before starting a real run.
+    runner_version: 2,
     backfill_run_id: runId,
     entity_id: entity.id,
     start_date: v.data.start_date,
@@ -159,7 +162,16 @@ export default async function handler(req, res) {
     months: [],
   };
 
+  // Exclusive upper bound for the requested window (end_date is inclusive).
+  const endExclusive = new Date(new Date(v.data.end_date + "T00:00:00Z").getTime() + 86400000)
+    .toISOString().slice(0, 10);
+
   for (const { year, month, monthStart, monthEnd } of iterMonths(v.data.start_date, v.data.end_date)) {
+    // Clip each month to the requested window — otherwise a one-week request
+    // reprocesses (and re-conflicts) the entire month, which is what pushed
+    // weekly driver calls past the 300s gateway limit.
+    const winStart = monthStart > v.data.start_date ? monthStart : v.data.start_date;
+    const winEnd = monthEnd < endExclusive ? monthEnd : endExclusive;
     const monthSummary = {
       year, month,
       invoices_created: 0,
@@ -173,7 +185,7 @@ export default async function handler(req, res) {
       const result = await processMonth(admin, {
         runId,
         entity_id: entity.id,
-        monthStart, monthEnd,
+        monthStart: winStart, monthEnd: winEnd,
         accountIds: accountIds.data,
         dry_run: v.data.dry_run,
       });
@@ -212,14 +224,24 @@ export default async function handler(req, res) {
 async function processMonth(admin, ctx) {
   const { runId, entity_id, monthStart, monthEnd, accountIds, dry_run } = ctx;
 
-  // Pull all source rows for the month.
-  const { data: srcRows, error: srcErr } = await admin
-    .from("ip_sales_history_wholesale")
-    .select("id, sku_id, customer_id, channel_id, invoice_number, txn_date, qty, unit_price, net_amount, gross_amount, unit_cost_at_sale, source_line_key")
-    .gte("txn_date", monthStart)
-    .lt("txn_date", monthEnd)
-    .not("invoice_number", "is", null);
-  if (srcErr) throw new Error(`ip_sales_history_wholesale read failed: ${srcErr.message}`);
+  // Pull all source rows for the window. PostgREST silently caps un-ranged
+  // reads at 1000 rows and busy months run 2–4k lines, so page explicitly;
+  // order by id for a stable walk across pages.
+  const PAGE = 1000;
+  const srcRows = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error: srcErr } = await admin
+      .from("ip_sales_history_wholesale")
+      .select("id, sku_id, customer_id, channel_id, invoice_number, txn_date, qty, unit_price, net_amount, gross_amount, unit_cost_at_sale, source_line_key")
+      .gte("txn_date", monthStart)
+      .lt("txn_date", monthEnd)
+      .not("invoice_number", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (srcErr) throw new Error(`ip_sales_history_wholesale read failed: ${srcErr.message}`);
+    srcRows.push(...(page || []));
+    if (!page || page.length < PAGE) break;
+  }
 
   // Routing dims for the month (Revenue→GL COA spec): sku → style (gender,
   // PL suffix) → brand code; channel_id → ip_channel_master code.
