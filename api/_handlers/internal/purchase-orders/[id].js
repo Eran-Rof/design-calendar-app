@@ -202,6 +202,8 @@ export default async function handler(req, res, params) {
     // PO is line-locked UNLESS this is an explicit revision (revise:true) — the
     // operator's "✎ Edit" path, which also notifies the vendor below.
     const isRevision = body.revise === true && po.status !== "cancelled";
+    let revisionLinesChanged = false;
+    let revisionOrphanedConsumedCents = 0;
     if (Array.isArray(body.lines)) {
       if (po.status !== "draft" && !("status" in body) && !isRevision) {
         return res.status(409).json({ error: "Lines can only be edited on a draft, or via an explicit revision." });
@@ -224,10 +226,70 @@ export default async function handler(req, res, params) {
           lot_number: l.lot_number != null && String(l.lot_number).trim() !== "" ? String(l.lot_number).trim() : null,
         });
       }
-      await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
-      if (norm.length) {
-        const { error: lErr } = await admin.from("purchase_order_lines").insert(norm);
-        if (lErr) return res.status(500).json({ error: `Line update failed: ${lErr.message}` });
+      if (po.status === "draft") {
+        // Drafts edit freely — nothing references draft lines yet.
+        await admin.from("purchase_order_lines").delete().eq("purchase_order_id", id);
+        if (norm.length) {
+          const { error: lErr } = await admin.from("purchase_order_lines").insert(norm);
+          if (lErr) return res.status(500).json({ error: `Line update failed: ${lErr.message}` });
+        }
+      } else {
+        // Diff-based replacement for issued/in-transit/received POs — the line ids
+        // must survive a revision: tanda_po_receipt_lines FKs RESTRICT (wholesale
+        // delete 500s on any received PO) and po_commitments / po_shipment_lines
+        // CASCADE (wholesale delete silently wiped D3 commitments + the in-transit
+        // overlay). Match incoming lines to existing ones by item/part.
+        const { data: existing, error: exErr } = await admin.from("purchase_order_lines")
+          .select("id, inventory_item_id, part_id, line_number")
+          .eq("purchase_order_id", id)
+          .order("line_number", { ascending: true });
+        if (exErr) return res.status(500).json({ error: `Line read failed: ${exErr.message}` });
+        const keyOf = (l) => `${l.inventory_item_id || ""}|${l.part_id || ""}`;
+        const pool = new Map();
+        for (const ex of existing || []) {
+          if (!pool.has(keyOf(ex))) pool.set(keyOf(ex), []);
+          pool.get(keyOf(ex)).push(ex);
+        }
+        const updates = [];
+        const inserts = [];
+        for (const n of norm) {
+          const match = (pool.get(keyOf(n)) || []).shift();
+          if (match) {
+            const { line_number: _ln, purchase_order_id: _po, ...fields } = n;
+            updates.push({ id: match.id, fields });
+          } else {
+            inserts.push(n);
+          }
+        }
+        const removed = [...pool.values()].flat();
+        if (removed.length) {
+          const removedIds = removed.map((l) => l.id);
+          const { data: rcptRefs } = await admin.from("tanda_po_receipt_lines")
+            .select("purchase_order_line_id").in("purchase_order_line_id", removedIds).limit(1);
+          if (rcptRefs && rcptRefs.length) {
+            return res.status(409).json({ error: "A revision can't remove a line that already has receipts against it. Keep the line (adjust its quantity), or void the receipt first." });
+          }
+          // Receipt consumption rolls up oldest-first across the whole PO, so a
+          // removed line's commitment may carry consumption that belongs to the
+          // PO — capture it before the CASCADE delete and re-apply below.
+          const { data: doomed } = await admin.from("po_commitments")
+            .select("consumed_amount_cents").in("purchase_order_line_id", removedIds);
+          revisionOrphanedConsumedCents = (doomed || [])
+            .reduce((s, c) => s + (Number(c.consumed_amount_cents) || 0), 0);
+          const { error: dErr } = await admin.from("purchase_order_lines").delete().in("id", removedIds);
+          if (dErr) return res.status(500).json({ error: `Line removal failed: ${dErr.message}` });
+        }
+        for (const u of updates) {
+          const { error: uErr } = await admin.from("purchase_order_lines").update(u.fields).eq("id", u.id);
+          if (uErr) return res.status(500).json({ error: `Line update failed: ${uErr.message}` });
+        }
+        if (inserts.length) {
+          let maxLn = (existing || []).reduce((m, l) => Math.max(m, Number(l.line_number) || 0), 0);
+          const rows = inserts.map((n) => ({ ...n, line_number: ++maxLn }));
+          const { error: iErr } = await admin.from("purchase_order_lines").insert(rows);
+          if (iErr) return res.status(500).json({ error: `Line insert failed: ${iErr.message}` });
+        }
+        revisionLinesChanged = true;
       }
       const subtotal = norm.reduce((s, l) => s + l.line_total_cents, 0);
       patch.subtotal_cents = subtotal;
@@ -278,6 +340,68 @@ export default async function handler(req, res, params) {
         await admin.from("po_commitments")
           .update({ status: "cancelled", closed_at: new Date().toISOString() })
           .eq("purchase_order_id", id).in("status", ["open", "partial"]);
+      }
+    }
+
+    // A revision that changed lines must keep the D3 open-PO commitments in sync
+    // (the issue-time seed above only runs on the draft→issued transition).
+    // Surviving lines keep their commitment row (amount refreshed, status
+    // recomputed from consumption); brand-new lines get a fresh 'open' row;
+    // removed lines' rows were CASCADE-deleted with the line, and any receipt
+    // consumption stranded on them is re-applied oldest-first below.
+    if (revisionLinesChanged) {
+      const { data: commits } = await admin.from("po_commitments")
+        .select("id, purchase_order_line_id, committed_amount_cents, consumed_amount_cents, status")
+        .eq("purchase_order_id", id);
+      const wasIssued = (commits || []).length > 0 || revisionOrphanedConsumedCents > 0;
+      if (wasIssued) {
+        const { data: curLines } = await admin.from("purchase_order_lines")
+          .select("id, line_total_cents, qty_ordered").eq("purchase_order_id", id);
+        const byLine = new Map((commits || []).map((c) => [c.purchase_order_line_id, c]));
+        for (const l of curLines || []) {
+          if (!(Number(l.qty_ordered) > 0)) continue;
+          const committed = Number(l.line_total_cents) || 0;
+          const c = byLine.get(l.id);
+          if (c) {
+            if (c.status === "cancelled") continue;
+            const consumed = Number(c.consumed_amount_cents) || 0;
+            const status = committed > 0 && consumed >= committed ? "closed" : consumed > 0 ? "partial" : "open";
+            if (committed !== Number(c.committed_amount_cents) || status !== c.status) {
+              await admin.from("po_commitments").update({
+                committed_amount_cents: committed,
+                status,
+                closed_at: status === "closed" ? new Date().toISOString() : null,
+              }).eq("id", c.id);
+            }
+          } else {
+            await admin.from("po_commitments").insert({
+              entity_id: data.entity_id, purchase_order_id: id, purchase_order_line_id: l.id,
+              vendor_id: data.vendor_id, committed_amount_cents: committed,
+              status: "open", expected_in_dc_date: data.expected_date || null,
+            });
+          }
+        }
+        if (revisionOrphanedConsumedCents > 0) {
+          const { data: open2 } = await admin.from("po_commitments")
+            .select("id, committed_amount_cents, consumed_amount_cents")
+            .eq("purchase_order_id", id).in("status", ["open", "partial"])
+            .order("created_at", { ascending: true });
+          let remaining = revisionOrphanedConsumedCents;
+          for (const c of open2 || []) {
+            if (remaining <= 0) break;
+            const room = Number(c.committed_amount_cents) - Number(c.consumed_amount_cents);
+            if (room <= 0) continue;
+            const apply = Math.min(room, remaining);
+            const newConsumed = Number(c.consumed_amount_cents) + apply;
+            const full = newConsumed >= Number(c.committed_amount_cents);
+            await admin.from("po_commitments").update({
+              consumed_amount_cents: newConsumed,
+              status: full ? "closed" : "partial",
+              closed_at: full ? new Date().toISOString() : null,
+            }).eq("id", c.id);
+            remaining -= apply;
+          }
+        }
       }
     }
 
