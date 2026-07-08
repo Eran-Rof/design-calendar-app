@@ -178,11 +178,11 @@ function makeSupabase(seed = {}) {
 function seedHappy(mirror_date = "2026-05-28") {
   return {
     gl_accounts: [
-      { id: ACCT_1200, entity_id: ENTITY_ID, code: "1200" },
-      { id: ACCT_1300, entity_id: ENTITY_ID, code: "1300" },
-      { id: ACCT_2100, entity_id: ENTITY_ID, code: "2100" },
-      { id: ACCT_4000, entity_id: ENTITY_ID, code: "4000" },
-      { id: ACCT_5000, entity_id: ENTITY_ID, code: "5000" },
+      { id: ACCT_1200, entity_id: ENTITY_ID, code: "1108" },
+      { id: ACCT_1300, entity_id: ENTITY_ID, code: "1201" },
+      { id: ACCT_2100, entity_id: ENTITY_ID, code: "2000" },
+      { id: ACCT_4000, entity_id: ENTITY_ID, code: "4005" },
+      { id: ACCT_5000, entity_id: ENTITY_ID, code: "5001" },
     ],
     xoro_mirror_runs: [
       { id: AR_RUN_ID,  entity_id: ENTITY_ID, domain: "ar",         mirror_date, status: "complete" },
@@ -246,14 +246,14 @@ describe("centsToDollarString", () => {
 describe("loadAccountIds", () => {
   it("returns Map of code→id for found codes", async () => {
     const { sb } = makeSupabase(seedHappy());
-    const r = await loadAccountIds(sb, ENTITY_ID, ["1200", "4000"]);
-    expect(r.ids.get("1200")).toBe(ACCT_1200);
-    expect(r.ids.get("4000")).toBe(ACCT_4000);
+    const r = await loadAccountIds(sb, ENTITY_ID, ["1108", "4005"]);
+    expect(r.ids.get("1108")).toBe(ACCT_1200);
+    expect(r.ids.get("4005")).toBe(ACCT_4000);
     expect(r.missing).toEqual([]);
   });
   it("records missing codes", async () => {
     const { sb } = makeSupabase(seedHappy());
-    const r = await loadAccountIds(sb, ENTITY_ID, ["1200", "9999"]);
+    const r = await loadAccountIds(sb, ENTITY_ID, ["1108", "9999"]);
     expect(r.missing).toEqual(["9999"]);
   });
 });
@@ -568,7 +568,7 @@ describe("postDailySummaryJes — missing GL accounts", () => {
   it("records missing_gl_account errors when accounts don't exist", async () => {
     const seed = seedHappy();
     // Drop 1300 — inventory should fail; AR + AP still work.
-    seed.gl_accounts = seed.gl_accounts.filter((a) => a.code !== "1300");
+    seed.gl_accounts = seed.gl_accounts.filter((a) => a.code !== "1201");
     const { sb, store } = makeSupabase(seed);
     const r = await postDailySummaryJes(sb, ENTITY_ID, "2026-05-28");
     expect(r.errors.some((e) => e.kind === "missing_gl_account")).toBe(true);
@@ -580,7 +580,7 @@ describe("postDailySummaryJes — missing GL accounts", () => {
   });
   it("AR fails when 1200 is missing but AP still posts", async () => {
     const seed = seedHappy();
-    seed.gl_accounts = seed.gl_accounts.filter((a) => a.code !== "1200");
+    seed.gl_accounts = seed.gl_accounts.filter((a) => a.code !== "1108");
     const { sb } = makeSupabase(seed);
     const r = await postDailySummaryJes(sb, ENTITY_ID, "2026-05-28");
     expect(r.je_ids.ar).toBe(null);

@@ -75,20 +75,24 @@ async function resolveAccounts(admin, entityId, invoice, hasInventoryLine) {
     .eq("id", entityId)
     .maybeSingle();
 
+  // Code fallbacks realigned to the 2026-07-07 COA restructure: 1200 is now the
+  // NON-postable Inventory header (house AR = 1108), 4000/5000 became pure
+  // section headers (catch-all revenue/COGS = 4005/5010), inventory = 1201.
+  // The old codes would fail the posting engine's accountPostable guard.
   const arId =
     invoice.ar_account_id ||
     entity?.default_ar_account_id ||
-    (await findAccountByCode(admin, entityId, "1200"))?.id;
+    (await findAccountByCode(admin, entityId, "1108"))?.id;
   if (!arId) {
-    throw new Error("AR account not configured (set ar_account_id on invoice or seed gl_accounts.code='1200').");
+    throw new Error("AR account not configured (set ar_account_id on invoice or seed gl_accounts.code='1108').");
   }
 
   const revenueId =
     invoice.revenue_account_id ||
     entity?.default_revenue_account_id ||
-    (await findAccountByCode(admin, entityId, "4000"))?.id;
+    (await findAccountByCode(admin, entityId, "4005"))?.id;
   if (!revenueId) {
-    throw new Error("Revenue account not configured (set revenue_account_id on invoice or seed gl_accounts.code='4000').");
+    throw new Error("Revenue account not configured (set revenue_account_id on invoice or seed gl_accounts.code='4005').");
   }
 
   let cogsId = null;
@@ -97,18 +101,18 @@ async function resolveAccounts(admin, entityId, invoice, hasInventoryLine) {
     cogsId =
       invoice.cogs_account_id ||
       entity?.default_cogs_account_id ||
-      (await findAccountByCode(admin, entityId, "5000"))?.id ||
+      (await findAccountByCode(admin, entityId, "5010"))?.id ||
       null;
     if (!cogsId) {
-      throw new Error("Inventory lines present but no COGS account configured (seed gl_accounts.code='5000').");
+      throw new Error("Inventory lines present but no COGS account configured (seed gl_accounts.code='5010').");
     }
     inventoryId =
       invoice.inventory_asset_account_id ||
       entity?.default_inventory_account_id ||
-      (await findAccountByCode(admin, entityId, "1300"))?.id ||
+      (await findAccountByCode(admin, entityId, "1201"))?.id ||
       null;
     if (!inventoryId) {
-      throw new Error("Inventory lines present but no inventory asset account configured (seed gl_accounts.code='1300').");
+      throw new Error("Inventory lines present but no inventory asset account configured (seed gl_accounts.code='1201').");
     }
   }
 

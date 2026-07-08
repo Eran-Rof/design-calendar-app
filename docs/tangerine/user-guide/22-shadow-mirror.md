@@ -60,7 +60,7 @@ flowchart TD
     AR["📥 AR mirror (T10-2)<br/>UPSERT ar_invoices + ar_invoice_lines<br/>source='xoro_mirror'"]
     AP["📤 AP mirror (T10-3)<br/>UPSERT invoices (AP)<br/>source='xoro_mirror'"]
     Inv["📦 Inventory rebuild (T10-4)<br/>DROP xoro_mirror_snapshot layers<br/>+ rebuild from snapshot"]
-    JE["🧾 Summary JE poster (T10-5)<br/>3 daily JEs:<br/>AR (DR 1200 / CR 4000)<br/>AP (DR 5xxx/6xxx / CR 2100)<br/>Inventory delta (DR 5000 / CR 1300)"]
+    JE["🧾 Summary JE poster (T10-5)<br/>3 daily JEs:<br/>AR (DR 1108 / CR 4005)<br/>AP (DR 5xxx/6xxx / CR 2000)<br/>Inventory delta (DR 5001 / CR 1201)"]
     Notify["📧 Notification emit (T10-6)<br/>Operator gets nightly heartbeat<br/>email at 22:00 local"]
 
     XoroCron --> T10Cron --> Guard
