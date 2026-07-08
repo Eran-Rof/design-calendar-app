@@ -137,6 +137,15 @@ export function isSafeDropboxPath(p) {
 export function authenticateInternalCaller(req) {
   const expected = process.env.INTERNAL_API_TOKEN;
   if (!expected) {
+    // PRODUCTION fails CLOSED (2026-07-07): the token IS configured in the
+    // Vercel production env — if it ever goes missing (env mistake, project
+    // clone), every /api/internal/** route would otherwise silently open to
+    // the world. 503 (not 401) so the operator reads "server misconfigured",
+    // not "bad credentials". Dev/preview keep the soft-open warn so local
+    // work doesn't need the secret.
+    if ((process.env.VERCEL_ENV || "") === "production") {
+      return { ok: false, status: 503, error: "Internal API token not configured on the server", mode: "closed" };
+    }
     // Soft-warn on first hit so we know which routes need the token
     // wired into clients. Don't spam — once-per-process is enough.
     if (!authenticateInternalCaller._warned) {

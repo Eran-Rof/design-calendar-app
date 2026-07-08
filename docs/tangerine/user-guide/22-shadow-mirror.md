@@ -215,4 +215,10 @@ The bridge's historical failure mode was **silence**: the 2026-07-07 audit found
 
 ---
 
+## 22.13 App-wide error tracking + security hardening (2026-07-07)
+
+Companion to §22.12 — the same audit's remaining P0s. **Error tracking** (`app_errors` table, service-role-only): the API dispatcher's catch-all now persists every unhandled handler error (`source='api'`); every internal sub-app's browser reports uncaught errors / unhandled promise rejections via `src/utils/errorReporter.ts` → `POST /api/internal/client-errors` (`source='client'`; per-session cap, dedupe, batched); crons can opt in via `captureError` (`source='cron'`). Errors are **fingerprinted** (uuids/numbers normalized) so repeats group. The daily **`app-errors-digest`** cron (13:05 UTC ≈ 09:05 ET) sends ONE bell+email to admins with the top groups — silent on a clean day — and prunes rows older than 30 days. **Security hardening:** `/api/internal/**` now **fails closed in production** if `INTERNAL_API_TOKEN` ever goes missing from the env (503, instead of silently opening every internal route — the token is set today; this guards regressions), and the vendor-PII encryption (`VENDOR_DATA_ENCRYPTION_KEY`) **rejects weak/malformed keys** instead of silently deriving a low-entropy one (the prod key was verified as a proper 32-byte key, so this is a guard, not a behavior change — never change the key itself; existing rows are encrypted under it).
+
+---
+
 Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.

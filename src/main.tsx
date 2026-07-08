@@ -8,11 +8,16 @@ import { canAccessInventoryPlanning, getPlmSessionEmail } from "./config/plannin
 import { canAccessAppFromSession } from "./permissions";
 import { installInternalApiAuth } from "./utils/internalApiAuth";
 import { installIdleLogout } from "./utils/installIdleLogout";
+import { installErrorReporter } from "./utils/errorReporter";
 
 // Inject Authorization: Bearer header on every /api/internal/* fetch
 // from the browser. Reads VITE_INTERNAL_API_TOKEN at build time.
 // Idempotent — safe to call once at boot.
 installInternalApiAuth();
+// Report uncaught browser errors / unhandled rejections to
+// /api/internal/client-errors (app_errors → daily digest email). Installed
+// AFTER the auth wrapper so the report POST carries the internal token.
+installErrorReporter(window.location.pathname.split("/")[1] || "root");
 
 // Simple path-based routing — no router library needed
 const path = window.location.pathname;

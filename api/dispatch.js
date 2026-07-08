@@ -16,6 +16,7 @@ import { ROUTES, compileRoutes } from "./_handlers/routes.js";
 import { demoEarlyExit, demoStubKind } from "./_lib/demoGuard.js";
 import { rbacObserve, rbacEnforce, rbacMode } from "./_lib/rbac/index.js";
 import { brandObserve } from "./_lib/brandContext.js";
+import { captureError } from "./_lib/errorCapture.js";
 
 // Bumped from 60s → 300s. Several inner handlers (parse-excel,
 // xoro-proxy, ats-supply-sync, tanda-pos-sync, xoro-sales-sync,
@@ -77,6 +78,16 @@ export default async function handler(req, res) {
       // Protect the dispatcher from unhandled throws in a specific handler
       // eslint-disable-next-line no-console
       console.error(`Handler error on ${pathname}:`, err);
+      // Persist to app_errors so the daily digest surfaces it (Vercel logs
+      // alone are write-only in practice). Awaited: we're already on the
+      // error path, and fire-and-forget can be frozen with the lambda.
+      await captureError({
+        source: "api",
+        route: pathname,
+        method: req.method,
+        message: err?.message || String(err),
+        stack: err?.stack,
+      });
       if (!res.headersSent) {
         res.status(500).json({ error: "Handler error", detail: err?.message || String(err) });
       }

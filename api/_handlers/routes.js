@@ -36,6 +36,7 @@ import r_b2b_orders_index from "./b2b/orders/index.js";
 import r_b2b_session from "./b2b/session.js";
 import r_cron_ai_proactive_insights from "./cron/ai-proactive-insights.js";
 import r_cron_anomalies_nightly from "./cron/anomalies-nightly.js";
+import r_cron_app_errors_digest from "./cron/app-errors-digest.js";
 import r_cron_benchmark_compute from "./cron/benchmark-compute.js";
 import r_cron_compliance_automation from "./cron/compliance-automation.js";
 import r_cron_compliance_daily from "./cron/compliance-daily.js";
@@ -166,6 +167,7 @@ import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
+import r_internal_client_errors from "./internal/client-errors.js";
 import r_internal_colors_id from "./internal/colors/[id].js";
 import r_internal_colors_index from "./internal/colors/index.js";
 import r_internal_colors_nrf_suggest from "./internal/colors/nrf-suggest.js";
@@ -1246,10 +1248,12 @@ export const ROUTES = [
   { pattern: "/api/webhooks/resend-inbound", handler: r_webhooks_resend_inbound },
   { pattern: "/api/xoro/inventory-snapshot", handler: r_xoro_inventory_snapshot },
   { pattern: "/api/cron/anomalies-nightly", handler: r_cron_anomalies_nightly },
+  { pattern: "/api/cron/app-errors-digest", handler: r_cron_app_errors_digest },
   { pattern: "/api/cron/benchmark-compute", handler: r_cron_benchmark_compute },
   { pattern: "/api/cron/fba-returns-daily", handler: r_cron_fba_returns_daily },
   { pattern: "/api/internal/balance-sheet", handler: r_internal_balance_sheet_index },
   { pattern: "/api/internal/bank-accounts", handler: r_internal_bank_accounts_index },
+  { pattern: "/api/internal/client-errors", handler: r_internal_client_errors },
   { pattern: "/api/internal/notifications", handler: r_internal_notifications_index },
   { pattern: "/api/internal/payment-terms", handler: r_internal_payment_terms_index },
   { pattern: "/api/internal/sales-returns", handler: r_internal_sales_returns_index },

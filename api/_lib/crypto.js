@@ -16,14 +16,20 @@ import crypto from "node:crypto";
 function loadKey() {
   const raw = process.env.VENDOR_DATA_ENCRYPTION_KEY;
   if (!raw) throw new Error("VENDOR_DATA_ENCRYPTION_KEY is not set");
-  // Accept hex (64 chars) or base64 (44 chars incl padding). Anything else → 32-byte scrypt-derived.
+  // Accept hex (64 chars) or base64-encoded 32 bytes. ANYTHING ELSE FAILS
+  // CLOSED (2026-07-07): the old fallback silently scrypt-derived a key from
+  // an arbitrary passphrase, so a mis-set env var still "worked" — banking/tax
+  // data would be encrypted under a low-entropy key with no one the wiser.
+  // Prod runs a proper 64-hex key (verified against Vercel 2026-07-07), so the
+  // fallback was dead code; removing it cannot break decryption of existing
+  // rows. If this ever throws, the ENV VAR is wrong — do NOT change the key
+  // itself (rows are encrypted under it).
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, "hex");
   try {
     const b = Buffer.from(raw, "base64");
     if (b.length === 32) return b;
   } catch { /* fall through */ }
-  // Fallback: derive a 32-byte key from arbitrary passphrase.
-  return crypto.scryptSync(raw, "vendor_portal_salt_v1", 32);
+  throw new Error("VENDOR_DATA_ENCRYPTION_KEY must be 32 bytes (64-char hex or base64) — refusing weak/malformed key");
 }
 
 export function encryptFieldValue(plaintext) {
