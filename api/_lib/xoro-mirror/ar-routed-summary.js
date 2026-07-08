@@ -149,12 +149,12 @@ export async function loadArRoutedInputs(supabase, { entity_id, mirror_date }) {
     const chunk = invIds.slice(i, i + IN_CHUNK);
     const { data, error } = await supabase
       .from("ar_invoice_lines")
-      .select("invoice_id, inventory_item_id, line_total_cents")
-      .in("invoice_id", chunk);
+      .select("ar_invoice_id, inventory_item_id, line_total_cents")
+      .in("ar_invoice_id", chunk);
     if (error) throw new Error(`ar_invoice_lines read failed: ${error.message}`);
     for (const ln of data || []) {
-      if (!linesByInvoice.has(ln.invoice_id)) linesByInvoice.set(ln.invoice_id, []);
-      linesByInvoice.get(ln.invoice_id).push(ln);
+      if (!linesByInvoice.has(ln.ar_invoice_id)) linesByInvoice.set(ln.ar_invoice_id, []);
+      linesByInvoice.get(ln.ar_invoice_id).push(ln);
       if (ln.inventory_item_id) skuIds.add(ln.inventory_item_id);
     }
   }
