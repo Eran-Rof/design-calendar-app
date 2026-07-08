@@ -8,6 +8,7 @@
 // later).
 
 import { useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
@@ -156,9 +157,15 @@ export default function InternalGLDetail() {
   // Auto-load whenever an account is picked or the date range changes — no
   // separate "Load" click. (Deep links via COA balance click-through arrive with
   // initial.account_id already set, so they load on mount too.)
+  // Fetch-race guard: rapid account/date changes fire overlapping load()s; a
+  // slower earlier response must never clobber the newest state.
+  const seqGuard = useSeqGuard();
+
   useEffect(() => {
     if (accountId) void load();
-    else setRows([]);
+    // Clearing the account also invalidates any in-flight load, so a stale
+    // response can't repopulate the just-emptied grid.
+    else { seqGuard.begin(); setRows([]); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, fromDate, toDate]);
 
@@ -167,6 +174,7 @@ export default function InternalGLDetail() {
       setErr("Pick an account first");
       return;
     }
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -177,12 +185,15 @@ export default function InternalGLDetail() {
       const r = await fetch(`/api/internal/gl-detail?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows((data.rows || []) as Row[]);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setRows([]);
+      if (seqGuard.isCurrent(seq)) {
+        setErr(e instanceof Error ? e.message : String(e));
+        setRows([]);
+      }
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 

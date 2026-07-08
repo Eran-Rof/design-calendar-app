@@ -57,6 +57,12 @@ Grouped quick links that open each report in place:
 - **General Ledger** — GL Detail, Chart of Accounts, Journal Entries, Periods.
 - **Sales** — Sales by Rep, Sales by Customer.
 
+All the financial report panels (Trial Balance, Income Statement, Balance
+Sheet, Cash Flow, Segment P&L, GL Detail, Sales by Customer/Rep, CRM Pipeline)
+now guard against stale responses: if you change a filter or date range while a
+slower earlier request is still in flight, the old response is discarded
+instead of briefly overwriting the newer numbers.
+
 ## 🔖 UPC Report
 
 Reports menu → **🔖 UPC Report**. Lists every barcode in the UPC master at `(style, color, size)` grain, joined to the style for its name:

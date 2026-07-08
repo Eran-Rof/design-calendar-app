@@ -24,6 +24,7 @@
 // Sections are collapsible (default open). Currency right-aligned + tabular-nums.
 
 import { Fragment, useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
@@ -328,7 +329,12 @@ export default function InternalIncomeStatement() {
     });
   }
 
+  // Fetch-race guard: rapid basis/date changes fire overlapping load()s; a
+  // slower earlier response must never clobber the newest state.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -339,12 +345,13 @@ export default function InternalIncomeStatement() {
       const r = await fetch(`/api/internal/income-statement?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows((data.rows || []) as ISRow[]);
       setBrands((data.brands || []) as Brand[]);
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 

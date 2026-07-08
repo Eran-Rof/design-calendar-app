@@ -14,6 +14,7 @@
 // Per docs/tangerine/P5-close-core-financials-architecture.md §6.
 
 import { useEffect, useState } from "react";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
@@ -113,7 +114,12 @@ export default function InternalBalanceSheet() {
     });
   }
 
+  // Fetch-race guard: rapid basis/as-of changes fire overlapping load()s; a
+  // slower earlier response must never clobber the newest state.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -124,6 +130,7 @@ export default function InternalBalanceSheet() {
         throw new Error((await bsRes.json().catch(() => ({}))).error || `HTTP ${bsRes.status}`);
       }
       const bsData = await bsRes.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setRows((bsData.rows || []) as BSRow[]);
 
       // Sibling fetch: income statement for current-year net income.
@@ -136,6 +143,7 @@ export default function InternalBalanceSheet() {
       const isRes = await fetch(`/api/internal/income-statement?${isParams.toString()}`);
       if (isRes.ok) {
         const isData = await isRes.json();
+        if (!seqGuard.isCurrent(seq)) return;
         const isRows = (isData.rows || []) as ISRow[];
         // Net income = revenue (net credits) - expense (net debits).
         // The IS view already encodes the sign per account_type:
@@ -156,12 +164,12 @@ export default function InternalBalanceSheet() {
       } else {
         // IS endpoint not yet deployed (P5-3 may still be in flight) — fall
         // back to zero. Variance footer will show the gap until P5-3 ships.
-        setCurrentYearEarnings(0);
+        if (seqGuard.isCurrent(seq)) setCurrentYearEarnings(0);
       }
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 

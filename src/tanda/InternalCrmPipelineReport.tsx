@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
+import { useSeqGuard } from "./hooks/useSeqGuard";
 
 type Stage = "new" | "qualified" | "proposal" | "won" | "lost";
 
@@ -77,7 +78,12 @@ export default function InternalCrmPipelineReport() {
   const [customerFilter, setCustomerFilter] = useState<string>("");
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
 
+  // Fetch-race guard: rapid owner/customer filter changes fire overlapping
+  // load()s; only the latest request's result may be applied.
+  const seqGuard = useSeqGuard();
+
   async function load() {
+    const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
@@ -91,12 +97,15 @@ export default function InternalCrmPipelineReport() {
         throw new Error(j.error || `HTTP ${r.status}`);
       }
       const d: PipelineReport = await r.json();
+      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
       setData(d);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setData(null);
+      if (seqGuard.isCurrent(seq)) {
+        setErr(e instanceof Error ? e.message : String(e));
+        setData(null);
+      }
     } finally {
-      setLoading(false);
+      if (seqGuard.isCurrent(seq)) setLoading(false);
     }
   }
 
