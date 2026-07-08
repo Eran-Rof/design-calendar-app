@@ -18,6 +18,7 @@
 // flow (approval + credit + FIFO COGS). M10-C only originates the draft.
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveRevenueRouting, isPrivateLabelStyle, channelFromChannelMasterCode } from "../../../_lib/accounting/revenueRouting.js";
 
 export const config = { maxDuration: 20 };
 
@@ -105,7 +106,10 @@ export default async function handler(req, res) {
     .eq("id", so.entity_id)
     .maybeSingle();
 
-  const ar_account_id = so.ar_account_id || entity?.default_ar_account_id || null;
+  // AR account: SO override → the CUSTOMER's class default (factored 1107 /
+  // credit-card 1105 / house 1108 — stamped on customers 2026-07-07) → entity.
+  // Resolved after invCust loads below; placeholder chain kept for clarity.
+  let ar_account_id = so.ar_account_id || entity?.default_ar_account_id || null;
   const revenue_account_id = so.revenue_account_id || entity?.default_revenue_account_id || null;
   const cogs_account_id = entity?.default_cogs_account_id || null;
   const inventory_asset_account_id = entity?.default_inventory_account_id || null;
@@ -116,6 +120,7 @@ export default async function handler(req, res) {
   // (arInvoiceSent) books revenue + COGS per line to the brand's accounts.
   const lineItemIds = [...new Set(openLines.map((l) => l.inventory_item_id).filter(Boolean))];
   const styleAcctByItem = new Map(); // inventory_item_id -> { rev, cogs }
+  const routedByItem = new Map();    // inventory_item_id -> { revId, cogsId } from the COA routing spec
   if (lineItemIds.length) {
     const { data: items } = await admin.from("ip_item_master").select("id, style_code").in("id", lineItemIds);
     const codeByItem = new Map((items || []).map((i) => [i.id, i.style_code]));
@@ -123,19 +128,60 @@ export default async function handler(req, res) {
     const styleByCode = new Map();
     if (codes.length) {
       const { data: styles } = await admin.from("style_master")
-        .select("style_code, revenue_account_id, cogs_account_id").in("style_code", codes);
+        .select("style_code, revenue_account_id, cogs_account_id, gender_code, brand_id").in("style_code", codes);
       for (const s of styles || []) styleByCode.set(String(s.style_code).toLowerCase(), s);
     }
+    // Revenue→GL Phase 3: route each line via the shared COA spec resolver
+    // (brand × gender × channel × PL). An EXPLICIT style_master account still
+    // wins (deliberate operator override); the resolver replaces the generic
+    // customer/entity fallbacks so revenue lands in 4005-4012 (+ COGS twins)
+    // instead of one catch-all. Sample detection for native is TBD (no signal
+    // defined yet) — sample SOs currently route like normal sales.
+    const brandIds = [...new Set([...styleByCode.values()].map((s) => s.brand_id).filter(Boolean))];
+    const brandCodeById = new Map();
+    if (brandIds.length) {
+      const { data: brands } = await admin.from("brand_master").select("id, code").in("id", brandIds);
+      for (const b of brands || []) brandCodeById.set(b.id, b.code);
+    }
+    let channelCode = null;
+    if (so.channel_id) {
+      const { data: ch } = await admin.from("channel_master").select("code").eq("id", so.channel_id).maybeSingle();
+      channelCode = ch?.code || null;
+    }
+    const neededCodes = new Set();
+    const routedCodesByItem = new Map();
     for (const [itemId, code] of codeByItem) {
       const s = code ? styleByCode.get(String(code).toLowerCase()) : null;
       if (s) styleAcctByItem.set(itemId, { rev: s.revenue_account_id || null, cogs: s.cogs_account_id || null });
+      const brandCode = s ? brandCodeById.get(s.brand_id) || null : null;
+      const routing = resolveRevenueRouting({
+        brandCode,
+        genderCode: s?.gender_code || null,
+        channel: channelFromChannelMasterCode(channelCode, brandCode),
+        isPrivateLabel: isPrivateLabelStyle(code),
+      });
+      routedCodesByItem.set(itemId, routing);
+      neededCodes.add(routing.revenueCode);
+      if (routing.cogsCode) neededCodes.add(routing.cogsCode);
+    }
+    if (neededCodes.size) {
+      const { data: accts } = await admin.from("gl_accounts")
+        .select("id, code").eq("entity_id", so.entity_id).in("code", [...neededCodes]);
+      const acctIdByCode = new Map((accts || []).map((a) => [a.code, a.id]));
+      for (const [itemId, routing] of routedCodesByItem) {
+        routedByItem.set(itemId, {
+          revId: acctIdByCode.get(routing.revenueCode) || null,
+          cogsId: routing.cogsCode ? acctIdByCode.get(routing.cogsCode) || null : null,
+        });
+      }
     }
   }
-  // Customer-level GL defaults for the fallback chain (style → customer → entity).
+  // Customer-level GL defaults for the fallback chain (style → routed → customer → entity).
   const { data: invCust } = await admin.from("customers")
-    .select("default_revenue_account_id, default_cogs_account_id").eq("id", so.customer_id).maybeSingle();
+    .select("default_revenue_account_id, default_cogs_account_id, default_ar_account_id").eq("id", so.customer_id).maybeSingle();
   const custRevenueId = invCust?.default_revenue_account_id || null;
   const custCogsId = invCust?.default_cogs_account_id || null;
+  if (!so.ar_account_id && invCust?.default_ar_account_id) ar_account_id = invCust.default_ar_account_id;
 
   const today = new Date().toISOString().slice(0, 10);
   const invoice_number = await nextInvoiceNumber(admin, so.entity_id, today.slice(0, 4));
@@ -174,14 +220,16 @@ export default async function handler(req, res) {
   // 3b. Insert invoice lines from the SO's open quantities.
   const lineRows = openLines.map((l, idx) => {
     const sa = l.inventory_item_id ? styleAcctByItem.get(l.inventory_item_id) : null;
+    const rt = l.inventory_item_id ? routedByItem.get(l.inventory_item_id) : null;
     return {
       ar_invoice_id: invoice.id,
       sales_order_line_id: l.id,
       line_number: idx + 1,
       description: l.description || null,
-      // Precedence: style → SO-line/customer → entity (revenue); style → customer → entity (COGS).
-      revenue_account_id: (sa && sa.rev) || l.revenue_account_id || custRevenueId || revenue_account_id,
-      cogs_account_id: (sa && sa.cogs) || custCogsId || cogs_account_id,
+      // Precedence: explicit style override → COA routing spec (brand×gender×
+      // channel×PL via revenueRouting.js) → SO-line/customer → entity.
+      revenue_account_id: (sa && sa.rev) || (rt && rt.revId) || l.revenue_account_id || custRevenueId || revenue_account_id,
+      cogs_account_id: (sa && sa.cogs) || (rt && rt.cogsId) || custCogsId || cogs_account_id,
       inventory_item_id: l.inventory_item_id || null,
       quantity: l.open_qty,
       unit_price_cents: l.unit_price_cents,

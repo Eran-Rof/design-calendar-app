@@ -82,3 +82,14 @@ export function channelFromIpChannelName(name) {
   if (n === "ROF ECOM") return "ecom_rof";
   return "wholesale";
 }
+
+// Native adapter: channel_master codes (DTC/WHOLESALE/FBA/WALMART/FAIRE) →
+// normalized channel. DTC = a Shopify storefront; which one is the item's
+// brand's store (PT → psychotuna.com, everything else → ringoffireclothing.com).
+// Marketplaces (FBA/WALMART/FAIRE) route as wholesale until they get their own
+// revenue accounts.
+export function channelFromChannelMasterCode(code, brandCode) {
+  const c = String(code || "").trim().toUpperCase();
+  if (c === "DTC") return String(brandCode || "").toUpperCase() === "PT" ? "ecom_pt" : "ecom_rof";
+  return "wholesale";
+}
