@@ -61,6 +61,7 @@ function makeSupabase(seed = {}) {
       return rows.filter((row) => {
         for (const f of filters) {
           if (f.op === "eq"  && row[f.col] !== f.val) return false;
+          if (f.op === "in"  && !(Array.isArray(f.val) && f.val.includes(row[f.col]))) return false;
           if (f.op === "neq" && row[f.col] === f.val) return false;
           if (f.op === "gte" && !(row[f.col] >= f.val)) return false;
           if (f.op === "lte" && !(row[f.col] <= f.val)) return false;
@@ -118,6 +119,7 @@ function makeSupabase(seed = {}) {
     const builder = {
       select() { if (mode === "insert") postSelect = true; return builder; },
       eq(col, val) { filters.push({ op: "eq", col, val }); return builder; },
+      in(col, vals) { filters.push({ op: "in", col, val: vals }); return builder; },
       neq(col, val) { filters.push({ op: "neq", col, val }); return builder; },
       gte(col, val) { filters.push({ op: "gte", col, val }); return builder; },
       lte(col, val) { filters.push({ op: "lte", col, val }); return builder; },
@@ -183,6 +185,9 @@ function seedHappy(mirror_date = "2026-05-28") {
       { id: ACCT_2100, entity_id: ENTITY_ID, code: "2000" },
       { id: ACCT_4000, entity_id: ENTITY_ID, code: "4005" },
       { id: ACCT_5000, entity_id: ENTITY_ID, code: "5001" },
+      // Remaining routed-AR codes (all exist in the real chart).
+      ...["1105", "1107", "4006", "4007", "4008", "4009", "4010", "4011", "4012", "4014", "4015", "4016"]
+        .map((code) => ({ id: `acct-${code}`, entity_id: ENTITY_ID, code })),
     ],
     xoro_mirror_runs: [
       { id: AR_RUN_ID,  entity_id: ENTITY_ID, domain: "ar",         mirror_date, status: "complete" },
@@ -190,11 +195,20 @@ function seedHappy(mirror_date = "2026-05-28") {
       { id: INV_RUN_ID, entity_id: ENTITY_ID, domain: "inventory",  mirror_date, status: "complete" },
     ],
     ar_invoices: [
-      { id: "ar-1", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents: 12000 },
-      { id: "ar-2", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents:  3500 },
+      { id: "ar-1", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents: 12000, invoice_number: "XI-1", customer_id: "cust-house" },
+      { id: "ar-2", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents:  3500, invoice_number: "XI-2", customer_id: "cust-house" },
       // Manual row on the same date — must NOT be counted.
-      { id: "ar-m", entity_id: ENTITY_ID, source: "manual",      invoice_date: mirror_date, total_amount_cents: 99999 },
+      { id: "ar-m", entity_id: ENTITY_ID, source: "manual",      invoice_date: mirror_date, total_amount_cents: 99999, invoice_number: "XI-M", customer_id: "cust-house" },
     ],
+    // Routed-AR inputs: house customer → DR 1108; no lines/sku dims → every
+    // invoice's remainder routes to the wholesale catch-all bucket (4005).
+    customers: [{ id: "cust-house", is_factored: false, payment_processor: null }],
+    ar_invoice_lines: [],
+    ip_channel_master: [],
+    ip_sales_history_wholesale: [],
+    ip_item_master: [],
+    style_master: [],
+    brand_master: [],
     invoices: [
       { id: "ap-1", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents:  8000 },
       { id: "ap-2", entity_id: ENTITY_ID, source: "xoro_mirror", invoice_date: mirror_date, total_amount_cents:  2000 },
@@ -415,11 +429,15 @@ describe("postDailySummaryJes — happy path: all 3 runs complete", () => {
     }
   });
 
-  it("AR JE has DR 1200 + CR 4000 with matching cents", () => {
+  it("AR JE is ROUTED: DR 1108 house AR (customer subledger) + CR 4005 catch-all", () => {
     const ar = store.journal_entries.find((j) => j.journal_type === "ar_xoro_mirror_daily");
-    expect(ar.lines[0].account_id).toBe(ACCT_1200);
+    // One house customer → one DR line, subledgered; both invoices route to
+    // the wholesale catch-all bucket (no lines/sku dims in the seed).
+    expect(ar.lines[0].account_id).toBe(ACCT_1200); // code 1108 (house AR)
     expect(ar.lines[0].debit).toBe("155.00");
-    expect(ar.lines[1].account_id).toBe(ACCT_4000);
+    expect(ar.lines[0].subledger_type).toBe("customer");
+    expect(ar.lines[0].subledger_id).toBe("cust-house");
+    expect(ar.lines[1].account_id).toBe(ACCT_4000); // code 4005 (catch-all)
     expect(ar.lines[1].credit).toBe("155.00");
   });
 

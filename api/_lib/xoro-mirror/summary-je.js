@@ -4,9 +4,14 @@
 // one summary JE per domain so the GL has the day's totals without
 // per-invoice JE noise.
 //
-//   AR Summary  : DR 1200 AR Control / CR 4000 Revenue       = SUM(mirror AR total_amount_cents)
-//   AP Summary  : DR 5000 COGS       / CR 2100 AP Control    = SUM(mirror AP total_amount_cents)
-//   Inventory   : DR/CR 1300 Inventory Asset vs 5000 COGS    = today_value - prior_value (if |Δ| ≥ $1)
+//   AR Summary  : ROUTED (Phase 2, revenue→GL) — DR per (AR account × customer:
+//                 factored 1107 / CC 1105 / house 1108, customer subledger) /
+//                 CR per revenue bucket (4005…4016 via revenueRouting.js)
+//                 = SUM(mirror AR total_amount_cents), always balanced.
+//   AP Summary  : DR 5001 COGS        / CR 2000 AP Control   = SUM(mirror AP total_amount_cents)
+//   Inventory   : DR/CR 1201 Inventory vs 5001 COGS          = today_value - prior_value (if |Δ| ≥ $1)
+//   (Bridge COGS stays PERIODIC — AP purchases + inventory Δ — until native
+//    per-invoice posting at cutover; routed per-sale COGS then replaces it.)
 //
 // All JEs go through the gl_post_journal_entry(payload jsonb) RPC. The RPC
 // takes numeric(18,2) DOLLAR strings (not cents) so we convert cents→dollars
@@ -27,6 +32,8 @@
 //     skipped:       [ { domain, reason, existing_je_id? }, ... ],
 //     errors:        [ { domain, kind, message }, ... ],
 //   }
+
+import { loadArRoutedInputs, bucketMirrorDay, composeArRoutedPayload, AR_ROUTED_CODES } from "./ar-routed-summary.js";
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -380,6 +387,8 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
   //    is missing.
   const { ids: acct, missing } = await loadAccountIds(supabase, entity_id, [
     "1108", "1201", "2000", "4005", "5001",
+    // Routed AR summary (Phase 2): AR by customer class + revenue buckets.
+    ...AR_ROUTED_CODES,
   ]);
   for (const code of missing) {
     result.errors.push({
@@ -409,16 +418,20 @@ export async function postDailySummaryJes(supabase, entity_id, mirror_date, opts
           message: "AR summary needs codes 1108 + 4005",
         });
       } else {
-        const ar_total_cents = await sumArMirrorTotals(supabase, { entity_id, mirror_date });
-        result.totals_cents.ar = ar_total_cents;
-        if (ar_total_cents === 0) {
+        // Phase 2 (revenue→GL): ROUTED daily JE — DR per (AR account ×
+        // customer) with a customer subledger (1105/1107/1108 are CONTROL
+        // accounts; the guard rejects bare control lines), CR per revenue
+        // bucket (4005…4016) resolved per line from style brand/gender/PL +
+        // the day's Xoro store→channel. Replaces the single-lump shape.
+        const inputs = await loadArRoutedInputs(supabase, { entity_id, mirror_date });
+        const agg = bucketMirrorDay(inputs);
+        result.totals_cents.ar = agg.total_cents;
+        if (agg.total_cents === 0) {
           result.skipped.push({ domain: "ar", reason: "zero_total" });
         } else {
-          const payload = composeArSummaryPayload({
-            entity_id, mirror_date, run_id: arRun.id, ar_total_cents,
-            ar_account_id: acct.get("1108"),
-            revenue_account_id: acct.get("4005"),
-            actor_user_id,
+          const payload = composeArRoutedPayload({
+            entity_id, mirror_date, run_id: arRun.id, agg,
+            acctIdByCode: acct, actor_user_id,
           });
           const je_id = await postJe(supabase, payload);
           result.je_ids.ar = je_id;
