@@ -229,8 +229,6 @@ export default [
   ["/api/internal/scorecards"                                , "./internal/scorecards/index.js"],
   ["/api/internal/workspaces"                                , "./internal/workspaces/index.js"],
   ["/api/sales/sync-invoices"                                , "./sales/sync-invoices.js"],
-  ["/api/sales/upload-payment-state"                         , "./sales/upload-payment-state.js"],
-  ["/api/cron/ar-receipts-reconcile"                         , "./cron/ar-receipts-reconcile.js"],
   ["/api/shopify/collections"                                , "./shopify/collections.js"],
   ["/api/cron/push-delivery"                                 , "./cron/push-delivery.js"],
   ["/api/internal/anomalies"                                 , "./internal/anomalies/index.js"],
@@ -733,4 +731,6 @@ export default [
   ["/api/internal/rfqs/:id/messages"                         , "./internal/rfqs/[id]/messages/index.js"],
   ["/api/vendor/rfqs/:id/messages"                           , "./vendor/rfqs/[id]/messages/index.js"],
   ["/api/vendor/rfqs/messages-inbox"                         , "./vendor/rfqs/messages-inbox/index.js"],
+  ["/api/sales/upload-payment-state"                         , "./sales/upload-payment-state.js"],
+  ["/api/cron/ar-receipts-reconcile"                         , "./cron/ar-receipts-reconcile.js"],
 ];

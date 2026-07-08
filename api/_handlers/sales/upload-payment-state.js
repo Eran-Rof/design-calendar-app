@@ -10,8 +10,8 @@
 // Auth: bearer DESIGN_CALENDAR_API_TOKEN.
 
 import { createClient } from "@supabase/supabase-js";
-import { authenticateDesignCalendarCaller, rateLimit } from "../_lib/auth.js";
-import { unpackGzipEnvelope } from "../_lib/gzipEnvelope.js";
+import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
+import { unpackGzipEnvelope } from "../../_lib/gzipEnvelope.js";
 
 export const config = { maxDuration: 60 };
 
