@@ -1,15 +1,26 @@
 // api/_lib/ip-permissions.js
 //
-// Server-side permission check for planning endpoints. Reads the
-// `x-user-email` request header, looks up the user's active roles +
-// effective permissions from ip_user_roles / ip_roles, and returns a
-// result object. Caller decides how to respond.
+// Server-side permission check for planning endpoints. Resolves the caller's
+// identity, looks up the user's active roles + effective permissions from
+// ip_user_roles / ip_roles, and returns a result object. Caller decides how
+// to respond.
+//
+// Identity resolution (security sprint, re-rate 2026-07-08): the raw
+// `x-user-email` header is client-supplied and trivially spoofable — any
+// caller could inherit any user's permissions on privileged endpoints (e.g.
+// buy-plan-to-po CREATES purchase orders). When the per-user JWT bridge is
+// configured (TANGERINE_JWT_SECRET set — the production state), the email
+// MUST come from a verified Authorization: Bearer app-JWT (the SPA's global
+// fetch interceptor attaches it on every /api/internal/** call); the header
+// is ignored. The header path survives only when the JWT bridge is not
+// configured (local dev without the secret).
 //
 // Returns:
 //   { ok: true, user: { email, permissions } }
 //   { ok: false, status, error }
 
 import { createClient } from "@supabase/supabase-js";
+import { isAppJwtEnabled, verifyAppJwt } from "./auth/appJwt.js";
 
 let _admin = null;
 function supabaseAdmin() {
@@ -25,9 +36,22 @@ export async function checkPermission(req, requiredPermission) {
   const admin = supabaseAdmin();
   if (!admin) return { ok: false, status: 500, error: "Supabase admin not configured" };
 
-  const email = (req.headers?.["x-user-email"] || req.headers?.["X-User-Email"] || "").toString().trim().toLowerCase();
-  if (!email) {
-    return { ok: false, status: 401, error: "x-user-email header missing" };
+  let email = "";
+  if (isAppJwtEnabled()) {
+    // Verified path: identity comes ONLY from the signed app JWT.
+    const authz = (req.headers?.authorization || req.headers?.Authorization || "").toString();
+    const token = authz.startsWith("Bearer ") ? authz.slice(7).trim() : "";
+    const claims = token ? verifyAppJwt(token) : null;
+    email = (claims?.email || "").trim().toLowerCase();
+    if (!email) {
+      return { ok: false, status: 401, error: "Sign-in required (verified user token missing or has no email) — refresh the app to re-authenticate" };
+    }
+  } else {
+    // Dev fallback only — no JWT secret configured on this deployment.
+    email = (req.headers?.["x-user-email"] || req.headers?.["X-User-Email"] || "").toString().trim().toLowerCase();
+    if (!email) {
+      return { ok: false, status: 401, error: "x-user-email header missing" };
+    }
   }
 
   // Pull user roles.

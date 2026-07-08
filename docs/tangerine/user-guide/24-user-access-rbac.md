@@ -1,6 +1,8 @@
 # 24. User Access & Permissions (P14 RBAC)
 
-> **P14 status (2026-05-30):** schema + log-only + enforce middleware shipped (PRs #630/#632/#634, all `RBAC_MODE`-gated **off by default**). Chunk 3b ships the admin **API** (this chapter) + the **User Access** panel. **Enforcement is OFF until you set `RBAC_MODE`** — today every user still has the access they had before P14.
+> **P14 status (2026-07-08, security sprint):** **`RBAC_MODE=enforce` is now LIVE in production.** A signed-in user lacking a permission gets a 403; unauthenticated/legacy-token callers still pass (incremental adoption), and internal errors fail open, so nobody can be locked out. Both current internal users carry full permission sets (verified 113/107 effective rows), so day-one behavior is unchanged — tighten roles in the User Access panel to make enforcement bite. The same sprint also: **dropped the blanket anonymous access policies on every financial table** (journal entries, GL accounts/periods, AR/AP invoices & payments, receipts, bank accounts/transactions, commitments, commissions — the browser's public key can no longer read or write the ledger; all financial screens go through the server API, which is unaffected), **clamped API CORS to the app's own origins** (was `*` — any website could previously drive the API from a visitor's browser), and **planning endpoints now take the caller's identity from the verified sign-in token, not a spoofable header**. If a planning action ever answers "Sign-in required," sign out and back in once so the app picks up a fresh user token.
+>
+> *(Historical: shipped 2026-05-30 as PRs #630/#632/#634, off by default; log-mode ran from 2026-06-30.)*
 
 Tangerine RBAC controls **who can do what, per module, per action** — laid on top of the existing entity membership (who belongs to ROF). It does **not** change who can log in; it changes what each logged-in person is allowed to do once inside.
 
