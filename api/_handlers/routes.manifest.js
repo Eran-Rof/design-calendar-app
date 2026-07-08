@@ -733,4 +733,5 @@ export default [
   ["/api/vendor/rfqs/messages-inbox"                         , "./vendor/rfqs/messages-inbox/index.js"],
   ["/api/sales/upload-payment-state"                         , "./sales/upload-payment-state.js"],
   ["/api/cron/ar-receipts-reconcile"                         , "./cron/ar-receipts-reconcile.js"],
+  ["/api/internal/journal-entries/:id/source"                , "./internal/journal-entries/[id]/source.js"],
 ];

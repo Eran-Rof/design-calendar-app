@@ -23,6 +23,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import DocumentAttachmentList from "../../shared/documents/DocumentAttachmentList";
 import RowHistory from "./RowHistory";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
+import { drillToModule, type DrillModuleKey } from "../scorecardDrill";
 
 // Minimal seed the modal needs before its own fetch resolves. Both the JE list
 // (full JE row) and the GL-detail line (je_id + description) can satisfy this.
@@ -123,6 +124,19 @@ type ApprovalRequest = {
   steps: ApprovalStep[];
 };
 
+// Drill-through: a related-entry number rendered as an in-modal jump link.
+function JeJumpLink({ id, label, onJump }: { id: string; label: string; onJump: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onJump(id)}
+      title="Open this related entry"
+      style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 13, textDecoration: "underline" }}>
+      {label}
+    </button>
+  );
+}
+
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -147,14 +161,25 @@ export default function JEDetailModal({
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Drill-through: in-modal jump to a RELATED entry (sibling / reverses /
+  // reversed-by) — the fetch keys on jumpId || je.id, so clicking a related
+  // number re-loads the modal in place instead of dead-ending.
+  const [jumpId, setJumpId] = useState<string | null>(null);
+  const jeId = jumpId || je.id;
+  // Drill-through: the JE's source document, resolved server-side
+  // (source_table/source_id → { label, module, q }).
+  const [srcDoc, setSrcDoc] = useState<{ label: string; module: string | null; q: string | null } | null>(null);
+
+  useEffect(() => { setJumpId(null); }, [je.id]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setErr(null);
+      setSrcDoc(null);
       try {
-        const r = await fetch(`/api/internal/journal-entries/${je.id}`);
+        const r = await fetch(`/api/internal/journal-entries/${jeId}`);
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const full = await r.json() as JEFull;
         if (cancelled) return;
@@ -173,11 +198,20 @@ export default function JEDetailModal({
           }
         } catch { /* non-fatal — lines fall back to "—" */ }
 
+        // Best-effort source-document resolution (drill: JE → document).
+        try {
+          const sr = await fetch(`/api/internal/journal-entries/${jeId}/source`);
+          if (sr.ok) {
+            const s = await sr.json();
+            if (!cancelled && s && s.label) setSrcDoc(s);
+          }
+        } catch { /* non-fatal — the Source row falls back to plain text */ }
+
         // Best-effort approval history.
         try {
           const params = new URLSearchParams();
           params.set("context_table", "journal_entries");
-          params.set("context_id", je.id);
+          params.set("context_id", jeId);
           const pr = await fetch(`/api/internal/approval-requests?${params.toString()}`);
           if (pr.ok) {
             const list = await pr.json() as ApprovalRequest[];
@@ -191,7 +225,7 @@ export default function JEDetailModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [je.id]);
+  }, [jeId]);
 
   // Close on Escape.
   useEffect(() => {
@@ -252,10 +286,20 @@ export default function JEDetailModal({
               <DetailRow label="Basis" value={<span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.basis}</span>} />
               <DetailRow label="Source module" value={data.source_module || "—"} />
               <DetailRow
-                label="Source ref"
-                value={data.source_table
-                  ? <span style={{ fontSize: 12 }}>{data.source_table}</span>
-                  : "—"}
+                label="Source document"
+                value={srcDoc
+                  ? (srcDoc.module && srcDoc.q
+                      ? <button
+                          type="button"
+                          onClick={() => { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); }}
+                          title="Open the document this entry was posted from"
+                          style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>
+                          {srcDoc.label} ↗
+                        </button>
+                      : <span style={{ fontSize: 12 }}>{srcDoc.label}</span>)
+                  : data.source_table
+                    ? <span style={{ fontSize: 12 }}>{data.source_table}</span>
+                    : "—"}
               />
               <DetailRow
                 label="Posted at"
@@ -270,15 +314,15 @@ export default function JEDetailModal({
               <DetailRow
                 label="Sibling JE"
                 value={data.sibling_je_id
-                  ? <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.sibling_je_number || "Yes"}</span>
+                  ? <JeJumpLink id={data.sibling_je_id} label={data.sibling_je_number || "Yes"} onJump={setJumpId} />
                   : "—"}
               />
               <DetailRow
                 label="Reverses / reversed by"
                 value={data.reverses_je_id
-                  ? <>Reverses <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.reverses_je_number || "another entry"}</span></>
+                  ? <>Reverses <JeJumpLink id={data.reverses_je_id} label={data.reverses_je_number || "another entry"} onJump={setJumpId} /></>
                   : data.reversed_by_je_id
-                    ? <>Reversed by <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{data.reversed_by_je_number || "another entry"}</span></>
+                    ? <>Reversed by <JeJumpLink id={data.reversed_by_je_id} label={data.reversed_by_je_number || "another entry"} onJump={setJumpId} /></>
                     : "—"}
               />
             </div>

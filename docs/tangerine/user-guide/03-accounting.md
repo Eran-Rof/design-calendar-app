@@ -783,3 +783,18 @@ POST /api/internal/gl-periods/:id/close        → runs preflight + transitions 
 POST /api/internal/gl-periods/:id/reopen       → admin-only with reason
 ```
 
+
+---
+
+## Drill-through — every number down to the journal entry (Phase 1, 2026-07-08)
+
+QuickBooks-style descent, now wired end to end:
+
+1. **Report line → account activity.** Trial Balance / Income Statement / Balance Sheet rows already opened the account's GL detail (date- and basis-scoped, running balance).
+2. **Activity line → journal entry.** Both the GL-detail modal *and* the standalone GL Detail panel now open the entry: click the JE number (or double-click the row).
+3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it. Mirror-posted daily summaries label themselves as such (no single document).
+4. **Related entries.** Sibling (cash-basis twin), "reverses", and "reversed by" numbers in the entry modal are links — the modal re-loads in place, so an audit walk never dead-ends.
+5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
+6. **Deep link:** `/tangerine?m=journal_entries&je=<id>` opens the Journal Entries panel with that entry's modal already open (one-shot param).
+
+Phase 2 (planned): AR/AP aging bucket drills, Segment P&L cell → GL account activity (the routed revenue accounts make this a direct mapping), bank-recon rows → entries, and scorecard tiles.

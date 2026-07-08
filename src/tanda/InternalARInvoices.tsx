@@ -13,6 +13,7 @@ import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
 import { uploadStagedDocs } from "../shared/documents/uploadDocument";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import JEDetailModal from "./components/JEDetailModal";
 import SourceBadge, { SOURCE_OPTIONS } from "./components/SourceBadge";
 import SearchableSelect from "./components/SearchableSelect";
 import QuickAddPartyModal from "./components/QuickAddPartyModal";
@@ -198,6 +199,8 @@ function dollarsToCentsBigInt(s: string): bigint | null {
 
 export default function InternalARInvoices() {
   const [rows, setRows] = useState<ARInvoice[]>([]);
+  // Drill-through: invoice → its posted journal entry.
+  const [jeSeed, setJeSeed] = useState<{ id: string } | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -550,7 +553,14 @@ export default function InternalARInvoices() {
                       {fmtCents(balanceCents.toString())}
                     </td>
                     <td style={td} hidden={!isVisible("status")}>
-                      <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>
+                      {inv.accrual_je_id
+                        ? <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setJeSeed({ id: inv.accrual_je_id as string }); }}
+                            title="Open the journal entry this invoice posted"
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, color: statusColor(inv.gl_status), fontWeight: 600, fontSize: "inherit", textDecoration: "underline" }}>
+                            ● {inv.gl_status} ↗
+                          </button>
+                        : <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>}
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
                       {canEdit && (
@@ -607,6 +617,9 @@ export default function InternalARInvoices() {
           onClose={() => { setEditOpen(false); setEditing(null); }}
           onSaved={() => { setEditOpen(false); setEditing(null); void load(); }}
         />
+      )}
+      {jeSeed && (
+        <JEDetailModal je={jeSeed} onClose={() => setJeSeed(null)} onReversed={() => setJeSeed(null)} />
       )}
     </div>
   );

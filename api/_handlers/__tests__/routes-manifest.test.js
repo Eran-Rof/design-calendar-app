@@ -39,7 +39,9 @@ describe("API routing manifest", () => {
     expect(missing).toEqual([]);
   });
 
-  it("generated ROUTES covers exactly the manifest patterns", async () => {
+  // Importing routes.js loads 700+ handler modules — legitimately slow and
+  // grows with every route; the 5s default started flaking at ~708 routes.
+  it("generated ROUTES covers exactly the manifest patterns", { timeout: 60_000 }, async () => {
     const { ROUTES } = await import("../routes.js");
     expect(ROUTES.length).toBe(manifest.length);
     expect(new Set(ROUTES.map((r) => r.pattern))).toEqual(new Set(manifest.map(([p]) => p)));
