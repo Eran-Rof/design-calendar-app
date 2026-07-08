@@ -56,6 +56,7 @@ import r_cron_notification_digest_flush from "./cron/notification-digest-flush.j
 import r_cron_po_issued_notify from "./cron/po-issued-notify.js";
 import r_cron_push_delivery from "./cron/push-delivery.js";
 import r_cron_scorecards_monthly from "./cron/scorecards-monthly.js";
+import r_cron_subledger_tieout from "./cron/subledger-tieout.js";
 import r_cron_tpl_inventory_pull from "./cron/tpl-inventory-pull.js";
 import r_cron_workspace_tasks_due_soon from "./cron/workspace-tasks-due-soon.js";
 import r_cron_xoro_feed_health_alert from "./cron/xoro-feed-health-alert.js";
@@ -1282,6 +1283,7 @@ export const ROUTES = [
   { pattern: "/api/cron/menu-usage-decay", handler: r_cron_menu_usage_decay },
   { pattern: "/api/cron/po-issued-notify", handler: r_cron_po_issued_notify },
   { pattern: "/api/cron/shopify-backfill", handler: r_cron_shopify_backfill },
+  { pattern: "/api/cron/subledger-tieout", handler: r_cron_subledger_tieout },
   { pattern: "/api/internal/b2b-accounts", handler: r_internal_b2b_accounts_index },
   { pattern: "/api/internal/build-orders", handler: r_internal_build_orders_index },
   { pattern: "/api/internal/date-presets", handler: r_internal_date_presets_index },

@@ -735,4 +735,5 @@ export default [
   ["/api/cron/ar-receipts-reconcile"                         , "./cron/ar-receipts-reconcile.js"],
   ["/api/internal/journal-entries/:id/source"                , "./internal/journal-entries/[id]/source.js"],
   ["/api/internal/ap-backfill/run"                           , "./internal/ap-backfill/run.js"],
+  ["/api/cron/subledger-tieout"                              , "./cron/subledger-tieout.js"],
 ];
