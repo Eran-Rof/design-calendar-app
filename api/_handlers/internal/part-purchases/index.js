@@ -9,7 +9,7 @@
 //          { part_id (required), vendor_id (required), qty (required),
 //            unit_cost_cents (required), invoice_number?, invoice_date?,
 //            location_id?, ap_account_id?, actor_user_id? }
-//        Posts DR 1360 Inventory-Parts (subledger=part) / CR AP (subledger=vendor)
+//        Posts DR 1207 Inventory-Parts (subledger=part) / CR AP (subledger=vendor)
 //        + creates the part FIFO layer (source_kind='ap_invoice').
 //
 // Parts are kept separate from style inventory; this never touches the style
@@ -90,8 +90,8 @@ export default async function handler(req, res) {
     const v = validate(body);
     if (v.error) return res.status(400).json({ error: v.error });
 
-    const partsAccount = await accountByCode(admin, entity.id, "1360");
-    if (!partsAccount) return res.status(400).json({ error: "Inventory-Parts account (1360) not found. Apply the M2 GL migration." });
+    const partsAccount = await accountByCode(admin, entity.id, "1207");
+    if (!partsAccount) return res.status(400).json({ error: "Inventory-Parts account (1207) not found. Apply the M2 GL migration." });
 
     let apAccountId = null;
     if (v.data.ap_account_id) {
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
     });
     if (lErr) { await admin.from("invoices").delete().eq("id", header.id); return res.status(500).json({ error: `Line insert failed: ${lErr.message}` }); }
 
-    // 3. Post the bill — DR 1360 (part) / CR AP (vendor) + part FIFO layer.
+    // 3. Post the bill — DR 1207 (part) / CR AP (vendor) + part FIFO layer.
     let postResult;
     try {
       postResult = await postEvent(admin, {

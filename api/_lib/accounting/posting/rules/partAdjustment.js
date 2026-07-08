@@ -2,7 +2,7 @@
 //
 // Manufacturing — part inventory adjustment posting rule. The parts analogue of
 // inventoryAdjustment.js: parts live in their own FIFO pool (part_inventory_layers)
-// and their own asset account (1360 Inventory-Parts), so this rule emits
+// and their own asset account (1207 Inventory-Parts), so this rule emits
 // partInventoryLayers[] / partConsumePlan[] (drained by postEvent via the part
 // FIFO engine) rather than the style inventory variants.
 //

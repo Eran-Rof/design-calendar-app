@@ -2,12 +2,12 @@
 //
 // Manufacturing PARTS received against a native purchase order (a
 // 'manufacturing_part' PO). The parts side of a goods receipt: parts are booked
-// into part inventory (1360) at cost against the GR/IR clearing account (2050),
+// into part inventory (1207) at cost against the GR/IR clearing account (2050),
 // which the matched vendor AP bill later clears — identical in shape to the
-// style-goods inventoryReceipt rule, but debiting 1360 (subledger=part) instead
+// style-goods inventoryReceipt rule, but debiting 1207 (subledger=part) instead
 // of the style inventory account.
 //
-//   DR 1360 Inventory-Parts   = received part cost (per part, subledger=part)
+//   DR 1207 Inventory-Parts   = received part cost (per part, subledger=part)
 //   CR 2050 GR/IR-goods       = vendor PO cost      → cleared by the vendor AP bill
 //
 // Cash basis recognizes cost at payment, so the cash JE is null (mirrors
@@ -22,7 +22,7 @@
  * @param {import('../types.js').PostingEvent} event
  *   event.data = {
  *     receipt_id, vendor_id, receipt_date,
- *     part_inventory_account_id,   // DR — 1360 Inventory-Parts
+ *     part_inventory_account_id,   // DR — 1207 Inventory-Parts
  *     gr_ir_account_id,            // CR — 2050 GR/IR
  *     lines: [{ part_id, amount }],// per-part DR at received cost (decimal strings)
  *     goods_amount,                // CR total (decimal string) = Σ line amounts

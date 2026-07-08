@@ -82,7 +82,7 @@ const RULE_BY_KIND = {
   // bill (DR 2160 / ±6320 PO Variance / CR AP). Both post on both bases.
   mfg_cmt_accrued:       mfgCmtAccrued,
   mfg_cmt_invoice_match: mfgCmtInvoiceMatch,
-  // Manufacturing parts received via a native PO → part inventory (1360)/GR-IR.
+  // Manufacturing parts received via a native PO → part inventory (1207)/GR-IR.
   part_inventory_receipt: partInventoryReceipt,
 };
 
@@ -277,7 +277,7 @@ export async function postEvent(supabase, event) {
   // 2a-bis. partConsumePlan drain — the parts analogue of the consumePlan drain
   //   above, but routed through part_fifo_consume (part_inventory_layers) so
   //   parts are drawn from their OWN FIFO pool. Same two modes:
-  //     LEGACY 2-LINE  — part_adjustment negative (DR counter / CR 1360 parts).
+  //     LEGACY 2-LINE  — part_adjustment negative (DR counter / CR 1207 parts).
   //     INDEXED        — future mfg_build_issue (M4): one CR-parts line per part
   //                      consumed into WIP, each entry carrying dr_line_ix/cr_line_ix.
   //   consumer_kind whitelist: build_issue | adjustment_decrease | transfer_out |

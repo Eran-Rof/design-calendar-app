@@ -60,7 +60,7 @@ export function apInvoiceReceived(event) {
   let totalCents;
   const inventoryLayers = [];
   // Manufacturing (M5b): a PART line stocks a part_master part into its OWN FIFO
-  // pool (1360 Inventory-Parts, subledger=part). Drained by postEvent's
+  // pool (1207 Inventory-Parts, subledger=part). Drained by postEvent's
   // partInventoryLayers branch — parts are kept separate from style inventory.
   const partInventoryLayers = [];
 

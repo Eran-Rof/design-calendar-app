@@ -171,14 +171,14 @@ async function completeBuildFromReceipt(admin, res, { receiptId, rcpt, lines, bu
 
 // Manufacturing parts (P1) — receive a 'manufacturing_part' PO into part
 // inventory. Each accepted line stocks its part_id into part_inventory_layers
-// (source_kind='po_receipt') and the GRNI JE books DR 1360 Inventory-Parts
+// (source_kind='po_receipt') and the GRNI JE books DR 1207 Inventory-Parts
 // (subledger=part) / CR 2050 GR/IR. The vendor bill later clears 2050 (3-way
 // match — POST /purchase-orders/:id/part-bill).
 async function receivePartLines(admin, res, { receiptId, rcpt, lines, partByPol, vendorId }) {
   if (!vendorId) return res.status(409).json({ error: "Parent PO has no vendor — cannot post the part receipt GRNI JE." });
-  const partsAcctId = await findPostableAccount(admin, rcpt.entity_id, "1360");
+  const partsAcctId = await findPostableAccount(admin, rcpt.entity_id, "1207");
   const grirAcctId = await findPostableAccount(admin, rcpt.entity_id, "2050");
-  if (!partsAcctId) return res.status(409).json({ error: "No postable Inventory-Parts account (gl_accounts code 1360)." });
+  if (!partsAcctId) return res.status(409).json({ error: "No postable Inventory-Parts account (gl_accounts code 1207)." });
   if (!grirAcctId) return res.status(409).json({ error: "No postable GR/IR Clearing account (gl_accounts code 2050) — apply the 20260717120000 migration." });
 
   const { data: locs } = await admin.from("inventory_locations")
@@ -260,7 +260,7 @@ async function receivePartLines(admin, res, { receiptId, rcpt, lines, partByPol,
   return res.status(200).json({
     receipt_id: receiptId, status: "posted", part_receipt: true,
     part_layers_created: layerResults.length, je_id: jeId, goods_cost_cents: goodsTotalCents,
-    message: `Part receipt posted — ${layerResults.length} part layer(s) stocked into inventory (DR 1360 / CR 2050), GRNI JE posted.`,
+    message: `Part receipt posted — ${layerResults.length} part layer(s) stocked into inventory (DR 1207 / CR 2050), GRNI JE posted.`,
     layers: layerResults,
   });
 }
@@ -322,7 +322,7 @@ export default async function handler(req, res) {
   }
 
   // ── Manufacturing parts: a 'manufacturing_part' PO stocks PART inventory ─────
-  // (part_inventory_layers / 1360) rather than style inventory. Any line with a
+  // (part_inventory_layers / 1207) rather than style inventory. Any line with a
   // part_id routes here; a manufacturing_part PO carries only part lines.
   const isPartReceipt = po?.po_type === "manufacturing_part" || (polRows || []).some((p) => p.part_id);
   if (isPartReceipt) {
