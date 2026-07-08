@@ -14,12 +14,12 @@ const SIZE_TIER: Record<string, number> = {
   XLARGE: 3, "2XLARGE": 4, "3XLARGE": 5, "4XLARGE": 6, "5XLARGE": 7,
 };
 const LETTER_CANON: Record<string, string> = {
-  XXS: "XXSMALL", XS: "XSMALL", XSMALL: "XSMALL",
+  XXS: "XXSMALL", XS: "XSMALL", XSM: "XSMALL", "X-SMALL": "XSMALL", XSMALL: "XSMALL",
   S: "SMALL", SM: "SMALL", SML: "SMALL", SMALL: "SMALL",
   M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM", MEDIUM: "MEDIUM",
   L: "LARGE", LG: "LARGE", LRG: "LARGE", LARGE: "LARGE",
-  XL: "XLARGE", XLG: "XLARGE", XLARGE: "XLARGE",
-  XXL: "2XLARGE", "2XL": "2XLARGE", "2X": "2XLARGE", "2XLARGE": "2XLARGE",
+  XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
+  XXL: "2XLARGE", "2XL": "2XLARGE", "2X": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
   XXXL: "3XLARGE", "3XL": "3XLARGE", "3X": "3XLARGE", "3XLARGE": "3XLARGE",
   "4XL": "4XLARGE", "4X": "4XLARGE", "4XLARGE": "4XLARGE",
 };
@@ -41,6 +41,19 @@ function rankOf(size: string): { tier: number; rank: number; sub: number; alpha:
   const ppk = s.match(/^PPK(\d+)$/i);
   if (ppk) return { tier: 2, rank: Number(ppk[1]), sub: 0, alpha: "" };
   return { tier: 3, rank: 0, sub: 0, alpha: s.toUpperCase() };
+}
+
+/**
+ * Canonical DISPLAY label for a size token — the frontend mirror of the backend
+ * api/_lib/styleMatrix.js normalizeSize (LETTER_SIZE_CANON). KEEP IN SYNC.
+ * Matrix payloads key columns and sku cells by these labels (SMALL/MEDIUM/…/
+ * 2XLARGE), so any qty seeded from raw catalog spellings (SML/MED/LRG/XLG/XXL,
+ * S/M/L/XL) must pass through this or it lands in a phantom off-scale column.
+ * Whole-token only; numeric waists, PPK tokens, age-range forms pass through.
+ */
+export function canonSizeLabel(raw: string): string {
+  if (raw == null) return raw;
+  return LETTER_CANON[String(raw).trim().toUpperCase()] || raw;
 }
 
 /** Comparator for Array.sort — canonical apparel size order. */

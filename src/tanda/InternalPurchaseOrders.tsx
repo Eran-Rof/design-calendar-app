@@ -24,7 +24,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
-import { compareSizes } from "../shared/sizeSort";
+import { canonSizeLabel, compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 
 // EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
@@ -828,7 +828,9 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   for (const l of matrixLines) {
     const style = l.style_code as string;
     const color = l.color || "—";
-    const size = l.size as string;
+    // Canonical size label so legacy SKU spellings (SML vs SMALL, LRG vs LARGE)
+    // group into ONE column instead of duplicate columns per spelling.
+    const size = canonSizeLabel(l.size as string);
     let s = byStyle.get(style);
     if (!s) { s = { sizes: new Set(), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
     s.sizes.add(size);

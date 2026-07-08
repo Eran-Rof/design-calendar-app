@@ -27,6 +27,7 @@ import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON,
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
 import { canonColor } from "./colorCanon";
+import { canonSizeLabel } from "../shared/sizeSort";
 import { confirmDialog } from "../shared/ui/warn";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
@@ -498,7 +499,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // Without this, variant-spelled existing lines would key to a row that no
         // longer exists after the payload merge and their qtys would vanish.
         const rk = rowKeyOf(canonColor(c.color), c.inseam ?? null);
-        if (c.qty > 0) qty[matrixCellKey(rk, c.size)] = c.qty;
+        // Same for the size: legacy SKU spellings (SML/MED/LRG/XLG/XXL) must land
+        // in the style's SCALE columns (SMALL/MEDIUM/…), not spawn phantom
+        // off-scale duplicates. Payload sku cells are keyed by the same canon, so
+        // the save still resolves to the existing (legacy-spelled) SKU id.
+        if (c.qty > 0) qty[matrixCellKey(rk, canonSizeLabel(c.size))] = c.qty;
         if (c.unit) unit[rk] = c.unit;
         if (c.lot) lot[rk] = c.lot;
       }
