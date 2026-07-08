@@ -122,6 +122,7 @@ export function composeArRoutedPayload({ entity_id, mirror_date, run_id, agg, ac
     source_table: "xoro_mirror_runs",
     source_id: String(run_id),
     description: `Xoro AR mirror summary for ${mirror_date} (routed: ${agg.cr.map((c) => c.account_code).join(",")})`,
+    audit_reason: `Nightly Xoro AR mirror daily summary for ${mirror_date} (T10 shadow ledger, routed by COA spec)`,
     created_by_user_id: actor_user_id || null,
     lines,
   };
