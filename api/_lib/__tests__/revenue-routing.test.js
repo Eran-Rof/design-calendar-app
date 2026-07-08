@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  resolveRevenueRouting, resolveArAccountCode, isPrivateLabelStyle, channelFromIpChannelName,
+  resolveRevenueRouting, resolveArAccountCode, isPrivateLabelStyle,
+  channelFromIpChannelName, channelFromChannelMasterCode,
 } from "../accounting/revenueRouting.js";
 
 describe("resolveRevenueRouting — the 2026-07-07 COA spec", () => {
@@ -71,6 +72,14 @@ describe("adapters", () => {
     expect(isPrivateLabelStyle("RYB0412PL")).toBe(true);
     expect(isPrivateLabelStyle("RYB0412")).toBe(false);
     expect(isPrivateLabelStyle(null)).toBe(false);
+  });
+  it("channelFromChannelMasterCode: native channels — DTC resolves by brand's store", () => {
+    expect(channelFromChannelMasterCode("DTC", "PT")).toBe("ecom_pt");
+    expect(channelFromChannelMasterCode("DTC", "ROF")).toBe("ecom_rof");
+    expect(channelFromChannelMasterCode("DTC", null)).toBe("ecom_rof");
+    expect(channelFromChannelMasterCode("WHOLESALE", "PT")).toBe("wholesale");
+    expect(channelFromChannelMasterCode("FBA", "ROF")).toBe("wholesale"); // marketplaces: wholesale until own accounts
+    expect(channelFromChannelMasterCode(null, null)).toBe("wholesale");
   });
   it("channelFromIpChannelName: bridge channel names", () => {
     expect(channelFromIpChannelName("PT ECOM")).toBe("ecom_pt");
