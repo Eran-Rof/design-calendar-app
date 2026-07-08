@@ -6,7 +6,7 @@
 // spelling to ONE canonical, display-friendly label so the frontend seed (from a
 // document's raw line colors) lands on the same canonical row the backend
 // payload builds. DETERMINISTIC — independent of which variants are present.
-const COLOR_ABBREV: Record<string, string> = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH", BLCK: "BLACK", CBO: "COMBO" };
+const COLOR_ABBREV: Record<string, string> = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH", BLCK: "BLACK", CBO: "COMBO", CAM: "CAMO" };
 
 export function canonColor(raw: string | null | undefined): string | null {
   if (raw == null) return null;

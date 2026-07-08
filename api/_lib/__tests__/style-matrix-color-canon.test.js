@@ -20,6 +20,13 @@ describe("canonColor", () => {
     expect(canonColor("Simple Sage Cbo")).toBe("Simple Sage Combo");
   });
 
+  it("collapses the Camo↔Cam abbreviation (the ROF-P001011 Woodland split)", () => {
+    expect(canonColor("WOODLAND CAM")).toBe(canonColor("WOODLAND CAMO"));
+    expect(canonColor("Woodland Cam")).toBe("Woodland Camo");
+    // 'Cam' inside 'Camel' must NOT expand.
+    expect(canonColor("Camel")).toBe("Camel");
+  });
+
   it("collapses with↔w and punctuation/spacing", () => {
     expect(canonColor("Open Sea - Light Wash w Tint")).toBe(canonColor("Open Sea - Lt Wash with Tint"));
     expect(canonColor("Navy/Peach")).toBe(canonColor("NAVY/PEACH"));

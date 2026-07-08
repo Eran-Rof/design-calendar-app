@@ -98,7 +98,7 @@ export function compareSizes(a, b) {
 // the same label. Presentation-only — ip_item_master is NOT mutated; SKUs keep
 // their real ids so saves still resolve to the existing row (no forking).
 // Mirror: src/tanda/colorCanon.ts — keep in sync.
-const COLOR_ABBREV = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH", BLCK: "BLACK", CBO: "COMBO" };
+const COLOR_ABBREV = { LT: "LIGHT", DK: "DARK", MED: "MEDIUM", W: "WITH", WTH: "WITH", BLCK: "BLACK", CBO: "COMBO", CAM: "CAMO" };
 export function canonColor(raw) {
   if (raw == null) return raw;
   const s = String(raw).trim();
