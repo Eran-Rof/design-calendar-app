@@ -36,11 +36,11 @@ Parts now hold real stock in their **own FIFO pool**, completely separate from f
 
 - **🧩 Part Inventory** (`/tangerine?m=part_inventory`, under **Manufacturing**) shows on-hand by part: quantity, average unit cost, total value, and layer count, with a running **Total parts value**. Export to xlsx.
 - **Adjust / opening balance** — the **+ Adjust** button (or per-row **Adjust**) opens a modal to change a part's on-hand:
-  - **Increase** (opening balance / found / correction-up) — enter a quantity and **unit cost**, pick a **counter account** (e.g. an opening-balance equity or found-income account). This creates a FIFO cost layer and posts **DR 1360 Inventory-Parts / CR** your counter account.
-  - **Decrease** (damage / shrinkage / write-off / correction-down) — enter a quantity and pick an **expense account**. This FIFO-consumes the oldest layers at their actual cost and posts **DR** expense **/ CR 1360 Inventory-Parts**.
+  - **Increase** (opening balance / found / correction-up) — enter a quantity and **unit cost**, pick a **counter account** (e.g. an opening-balance equity or found-income account). This creates a FIFO cost layer and posts **DR 1207 Inventory-Parts / CR** your counter account.
+  - **Decrease** (damage / shrinkage / write-off / correction-down) — enter a quantity and pick an **expense account**. This FIFO-consumes the oldest layers at their actual cost and posts **DR** expense **/ CR 1207 Inventory-Parts**.
   - Every adjustment is posted to the general ledger immediately and is immutable; correct a mistake with an opposing adjustment.
 
-Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `part_fifo_consume`) and a new control account **1360 Inventory – Parts** (subledger by part), mirroring the finished-goods FIFO engine but kept entirely separate. How parts are *purchased* (a vendor bill / PO that stocks parts) is wired up alongside the build-order work in a later chunk; today, opening balances and corrections seed and maintain part stock.
+Behind the scenes parts use a dedicated FIFO engine (`part_inventory_layers` + `part_fifo_consume`) and a new control account **1207 Inventory – Parts** (subledger by part), mirroring the finished-goods FIFO engine but kept entirely separate. How parts are *purchased* (a vendor bill / PO that stocks parts) is wired up alongside the build-order work in a later chunk; today, opening balances and corrections seed and maintain part stock.
 
 ## M3 — bill of materials (shipped)
 
@@ -71,7 +71,7 @@ The lifecycle:
    - **Auto customer.** If the resolved BOM is customer-specific, **Build for customer** is auto-filled with that customer.
    - **Availability under each size.** The plan matrix shows each finished size's **on-hand** underneath the cell (like SO entry), and a **component-availability** panel lists the BOM's parts with required-vs-on-hand and a **shortage warning** when you'd build beyond what's in stock (informational — it never blocks). *First version: parts show aggregate on-hand; per-size and on-PO are a follow-up.*
 2. **Release** — snapshots the style's active BOM into the build, scaling each component to `qty_per_unit × target × (1 + scrap%)`. Status → *released*.
-3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1205 WIP / CR 1360 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*. **Where you see the result:** the build's **WIP rollup** (Parts / Consumed styles / WIP total) and each row's *Consumed* + *Actual cost*; the **General Ledger** (journal entries on **1205 WIP** and the credited inventory accounts); the **part inventory** depleting; and **Manufacturing → Reports** (open WIP). Every posting now carries an **audit reason** (required by the ledger's audit policy) generated automatically per step.
+3. **Issue components → WIP** — consumes the **parts** (from part inventory) and any **consumed finished styles** (from style inventory) at their actual **FIFO** cost, into WIP. Posts, per component, `DR 1205 WIP / CR 1207 Inventory-Parts` (or `/ CR` the style inventory account). Status → *issued*. **Where you see the result:** the build's **WIP rollup** (Parts / Consumed styles / WIP total) and each row's *Consumed* + *Actual cost*; the **General Ledger** (journal entries on **1205 WIP** and the credited inventory accounts); the **part inventory** depleting; and **Manufacturing → Reports** (open WIP). Every posting now carries an **audit reason** (required by the ledger's audit policy) generated automatically per step.
 4. **Capitalize services** — for each conversion/labor **service** component, click **Capitalize** and enter the factory's actual charge. Posts `DR 1205 WIP / CR 2000 AP` (the vendor bill) and rolls the charge into WIP.
 5. **Complete → finished goods** — moves the full accumulated WIP into finished-goods inventory: posts `DR <style inventory> / CR 1205 WIP` and creates the finished style's **FIFO layer at the real build cost** (`accumulated ÷ completed qty`), tagged `source_kind = manufacture`. Status → *completed*. (You must capitalize all service charges first.)
 
@@ -129,7 +129,7 @@ Guards: the build must be *issued* and **all service charges capitalized** first
 
 ### Buying parts (shipped)
 
-Parts are stocked the proper way too — as a **vendor purchase**, not just opening-balance adjustments. In **Part Inventory**, **+ Receive purchase** (or **Buy** on a part row) opens a modal: pick the **part** and **vendor**, enter **quantity** and **unit cost**, optionally a bill number. On save it **creates a vendor bill and posts it** — `DR 1360 Inventory-Parts / CR Accounts Payable` — and stocks the part into its FIFO pool at the purchase cost. So the parts you'll consume in builds enter inventory at real purchase cost and leave a payable for the vendor, exactly like buying finished goods. (Built on the AP posting engine via a part line on the vendor bill.)
+Parts are stocked the proper way too — as a **vendor purchase**, not just opening-balance adjustments. In **Part Inventory**, **+ Receive purchase** (or **Buy** on a part row) opens a modal: pick the **part** and **vendor**, enter **quantity** and **unit cost**, optionally a bill number. On save it **creates a vendor bill and posts it** — `DR 1207 Inventory-Parts / CR Accounts Payable` — and stocks the part into its FIFO pool at the purchase cost. So the parts you'll consume in builds enter inventory at real purchase cost and leave a payable for the vendor, exactly like buying finished goods. (Built on the AP posting engine via a part line on the vendor bill.)
 
 ### Buying parts via a Purchase Order + Receiving (shipped)
 
@@ -137,7 +137,7 @@ For a full procurement paper trail — a PO you issue to the vendor, then receiv
 
 1. **Procurement → Purchase Orders → New**, set **PO type = "Manufacturing part"**. The line grid switches to a **parts** picker (pick a part, quantity, unit cost) instead of the style size matrix — style SKUs are hidden.
 2. **Issue** the PO (assigns a PO number).
-3. **Procurement → Receiving** → pick the issued part PO, enter **Accepted** quantities, **Save draft** → **Post receipt**. This stocks each part into its FIFO pool (`part_inventory_layers`) and books the **GRNI**: `DR 1360 Inventory-Parts / CR 2050 GR/IR`.
+3. **Procurement → Receiving** → pick the issued part PO, enter **Accepted** quantities, **Save draft** → **Post receipt**. This stocks each part into its FIFO pool (`part_inventory_layers`) and books the **GRNI**: `DR 1207 Inventory-Parts / CR 2050 GR/IR`.
 4. Back on the PO, **Enter part bill (3-way match)** — enter the vendor's actual invoice total. It clears the receipt's GR/IR and books any price difference to **6320 PO Variance**: `DR 2050 GR/IR · DR/CR 6320 PO Variance · CR AP`.
 
 So a part PO is bought, received, and 3-way matched exactly like a goods PO — GR/IR nets to zero once billed, price variance is captured, and parts land in inventory at real cost.

@@ -97,7 +97,7 @@ export function validateInsert(body) {
       line_number: ln++,
       inventory_item_id: l.inventory_item_id && UUID_RE.test(String(l.inventory_item_id)) ? l.inventory_item_id : null,
       // Manufacturing-part line: stocks a part_master part into part inventory
-      // (1360) on receipt instead of a style SKU. Mutually exclusive with
+      // (1207) on receipt instead of a style SKU. Mutually exclusive with
       // inventory_item_id (a line is a style SKU OR a part).
       part_id: l.part_id && UUID_RE.test(String(l.part_id)) ? l.part_id : null,
       description: l.description ? String(l.description).trim() : null,

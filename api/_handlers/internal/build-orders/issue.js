@@ -41,9 +41,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ ...updated, note: "No part/style components to issue (services only)." });
   }
 
-  const partsAccount = await accountByCode(admin, entity.id, "1360");
+  const partsAccount = await accountByCode(admin, entity.id, "1207");
   if (!partsAccount && consumable.some((c) => c.component_kind === "part")) {
-    return res.status(400).json({ error: "Inventory-Parts account (1360) not found. Apply the M2 GL migration." });
+    return res.status(400).json({ error: "Inventory-Parts account (1207) not found. Apply the M2 GL migration." });
   }
   const styleAccount = await resolveFinishedInventoryAccount(admin, entity.id);
   if (!styleAccount && consumable.some((c) => c.component_kind === "finished_style")) {

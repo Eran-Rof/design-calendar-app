@@ -7,7 +7,7 @@
 //            unit_cost_cents (required when qty_delta>0; omit when <0),
 //            reason (required), gl_account_id (counter account, required),
 //            location_id?, actor_user_id? }
-//        Resolves the 1360 Inventory-Parts account, inserts the row, invokes
+//        Resolves the 1207 Inventory-Parts account, inserts the row, invokes
 //        postEvent('part_adjustment'), stamps posted_je_id. Positive creates a
 //        part FIFO layer; negative FIFO-consumes.
 //
@@ -40,13 +40,13 @@ async function resolveDefaultEntityId(admin) {
   return data?.id ?? null;
 }
 
-// The parts inventory asset account is code '1360' (M2 seed).
+// The parts inventory asset account is code '1207' (M2 seed).
 async function resolvePartsInventoryAccount(admin, entityId) {
   const { data } = await admin
     .from("gl_accounts")
     .select("id, code, name, is_postable, status")
     .eq("entity_id", entityId)
-    .eq("code", "1360")
+    .eq("code", "1207")
     .maybeSingle();
   return data && data.is_postable && data.status === "active" ? data : null;
 }
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
 
     const partsAccount = await resolvePartsInventoryAccount(admin, entityId);
     if (!partsAccount) {
-      return res.status(400).json({ error: "Inventory-Parts account (code 1360) not found or not postable. Apply the M2 GL migration first." });
+      return res.status(400).json({ error: "Inventory-Parts account (code 1207) not found or not postable. Apply the M2 GL migration first." });
     }
 
     const actorUserId = v.data.actor_user_id;

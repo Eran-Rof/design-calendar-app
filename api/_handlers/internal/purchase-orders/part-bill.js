@@ -4,8 +4,8 @@
 //        3-way match it against the PO + its posted goods receipts.
 //
 // The parts were booked into inventory at receipt (partInventoryReceipt:
-//   DR 1360 Inventory-Parts / CR 2050 GR/IR). This bill CLEARS 2050 — it does
-// NOT re-debit 1360 (no double count). Any difference between the bill and the
+//   DR 1207 Inventory-Parts / CR 2050 GR/IR). This bill CLEARS 2050 — it does
+// NOT re-debit 1207 (no double count). Any difference between the bill and the
 // received value is a price variance booked to 6320 PO Variance.
 //   DR 2050 GR/IR   = received value   ·   DR/CR 6320 PPV   ·   CR AP = bill total
 //
