@@ -37,6 +37,7 @@ import r_b2b_session from "./b2b/session.js";
 import r_cron_ai_proactive_insights from "./cron/ai-proactive-insights.js";
 import r_cron_anomalies_nightly from "./cron/anomalies-nightly.js";
 import r_cron_app_errors_digest from "./cron/app-errors-digest.js";
+import r_cron_ar_receipts_reconcile from "./cron/ar-receipts-reconcile.js";
 import r_cron_benchmark_compute from "./cron/benchmark-compute.js";
 import r_cron_compliance_automation from "./cron/compliance-automation.js";
 import r_cron_compliance_daily from "./cron/compliance-daily.js";
@@ -597,6 +598,7 @@ import r_planning_sync_on_hand from "./planning/sync-on-hand.js";
 import r_planning_sync_open_pos from "./planning/sync-open-pos.js";
 import r_sales_backfill_grain from "./sales/backfill-grain.js";
 import r_sales_sync_invoices from "./sales/sync-invoices.js";
+import r_sales_upload_payment_state from "./sales/upload-payment-state.js";
 import r_searates_proxy from "./searates-proxy.js";
 import r_send_notification from "./send-notification.js";
 import r_shopify_collections from "./shopify/collections.js";
@@ -1196,6 +1198,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-snapshot", handler: r_internal_inventory_snapshot },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },
   { pattern: "/api/cron/ai-proactive-insights", handler: r_cron_ai_proactive_insights },
+  { pattern: "/api/cron/ar-receipts-reconcile", handler: r_cron_ar_receipts_reconcile },
   { pattern: "/api/cron/compliance-automation", handler: r_cron_compliance_automation },
   { pattern: "/api/cron/discount-offers-daily", handler: r_cron_discount_offers_daily },
   { pattern: "/api/cron/faire-payouts-monthly", handler: r_cron_faire_payouts_monthly },
@@ -1208,6 +1211,7 @@ export const ROUTES = [
   { pattern: "/api/internal/bank-transactions", handler: r_internal_bank_transactions_index },
   { pattern: "/api/internal/preferred-vendors", handler: r_internal_preferred_vendors_index },
   { pattern: "/api/internal/sales-by-customer", handler: r_internal_sales_by_customer_index },
+  { pattern: "/api/sales/upload-payment-state", handler: r_sales_upload_payment_state },
   { pattern: "/api/vendor/payment-preferences", handler: r_vendor_payment_preferences_index },
   { pattern: "/api/cron/faire-orders-nightly", handler: r_cron_faire_orders_nightly },
   { pattern: "/api/cron/faire-returns-weekly", handler: r_cron_faire_returns_weekly },

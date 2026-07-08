@@ -30,8 +30,18 @@
 // logged status='failed' and the loop continues.
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveRevenueRouting, resolveArAccountCode, isPrivateLabelStyle, channelFromIpChannelName } from "../../../_lib/accounting/revenueRouting.js";
 
 export const config = { maxDuration: 300 };
+
+// Every account code the routed historical JEs can touch (AR classes, revenue
+// buckets, COGS twins). Resolved once per run; codes missing from the chart
+// fall back to the entity defaults per line.
+const ROUTED_CODES = [
+  "1105", "1107", "1108",
+  "4005", "4006", "4007", "4008", "4009", "4010", "4011", "4012",
+  "5010", "5011", "5012", "5013", "5014", "5015", "5018",
+];
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HISTORICAL_FLOOR = "2024-08-01";
@@ -205,11 +215,15 @@ async function processMonth(admin, ctx) {
   // Pull all source rows for the month.
   const { data: srcRows, error: srcErr } = await admin
     .from("ip_sales_history_wholesale")
-    .select("id, sku_id, customer_id, invoice_number, txn_date, qty, unit_price, net_amount, gross_amount, unit_cost_at_sale, source_line_key")
+    .select("id, sku_id, customer_id, channel_id, invoice_number, txn_date, qty, unit_price, net_amount, gross_amount, unit_cost_at_sale, source_line_key")
     .gte("txn_date", monthStart)
     .lt("txn_date", monthEnd)
     .not("invoice_number", "is", null);
   if (srcErr) throw new Error(`ip_sales_history_wholesale read failed: ${srcErr.message}`);
+
+  // Routing dims for the month (Revenue→GL COA spec): sku → style (gender,
+  // PL suffix) → brand code; channel_id → ip_channel_master code.
+  const dims = await loadRoutingDims(admin, srcRows || []);
 
   // Group by invoice_number.
   const groups = new Map();
@@ -244,6 +258,9 @@ async function processMonth(admin, ctx) {
     const customer_id = resolved.customer_id;
     if (!customer_id) continue;  // resolution failed cleanly; logged.
 
+    // AR class per customer (factored 1107 / CC 1105 / house 1108).
+    const arAcctId = await resolveArClassAccount(admin, dims, accountIds, customer_id);
+
     // Build totals
     let total_cents = 0n;
     const invoiceLines = [];
@@ -274,7 +291,7 @@ async function processMonth(admin, ctx) {
         invoice_date: grp.txn_date,
         total_amount_cents: Number(total_cents),
         paid_amount_cents: 0,
-        ar_account_id: accountIds.ar,
+        ar_account_id: arAcctId,
         revenue_account_id: accountIds.revenue,
         cogs_account_id: accountIds.cogs,
         inventory_asset_account_id: accountIds.inventory,
@@ -293,7 +310,7 @@ async function processMonth(admin, ctx) {
     // Insert lines + build JE candidate lines.
     const jeLines = [{
       line_number: 1,
-      account_id: accountIds.ar,
+      account_id: arAcctId,
       debit: cents(total_cents),
       credit: "0",
       memo: `Historical AR ${grp.invoice_number}`,
@@ -329,10 +346,21 @@ async function processMonth(admin, ctx) {
         throw new Error(`ar_invoice_lines insert failed: ${lnErr.message}`);
       }
 
+      // Route the line per the COA spec (brand × gender × store-channel × PL).
+      const d = src.sku_id ? dims.skuDims.get(src.sku_id) : null;
+      const routing = resolveRevenueRouting({
+        brandCode: d?.brandCode,
+        genderCode: d?.genderCode,
+        channel: channelFromIpChannelName(dims.channelCodeById.get(src.channel_id)),
+        isPrivateLabel: d ? isPrivateLabelStyle(d.styleCode) : false,
+      });
+      const revAcct = accountIds.byCode.get(routing.revenueCode) || accountIds.revenue;
+      const cogsAcct = routing.cogsCode ? (accountIds.byCode.get(routing.cogsCode) || accountIds.cogs) : null;
+
       // CR revenue line
       jeLines.push({
         line_number: jeLineN++,
-        account_id: accountIds.revenue,
+        account_id: revAcct,
         debit: "0",
         credit: cents(line_total_cents),
         memo: `Revenue ${grp.invoice_number} L${i + 1}`,
@@ -340,11 +368,11 @@ async function processMonth(admin, ctx) {
         subledger_id: null,
       });
 
-      // COGS pair iff we have a cost
-      if (cogsCents != null && cogsCents > 0) {
+      // COGS pair iff we have a cost (and the routing emits COGS — samples don't)
+      if (cogsCents != null && cogsCents > 0 && cogsAcct) {
         jeLines.push({
           line_number: jeLineN++,
-          account_id: accountIds.cogs,
+          account_id: cogsAcct,
           debit: cents(BigInt(cogsCents)),
           credit: "0",
           memo: `COGS ${grp.invoice_number} L${i + 1}`,
@@ -386,6 +414,7 @@ async function processMonth(admin, ctx) {
         source_table: "ar_invoices",
         source_id: invRow.id,
         description: `Historical AR backfill ${grp.invoice_number}`,
+        audit_reason: `AR historical backfill from Xoro sales history (P4-8, routed by COA spec) — invoice ${grp.invoice_number}`,
         lines: jeLines,
       },
     });
@@ -407,6 +436,63 @@ async function processMonth(admin, ctx) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+// Routing dims for a month's source rows: sku → {brandCode, genderCode,
+// styleCode} (via ip_item_master → style_master → brand_master) + channel
+// id → ip_channel_master.channel_code. Chunked .in() reads.
+async function loadRoutingDims(admin, srcRows) {
+  const CHUNK = 200;
+  const skuDims = new Map();
+  const channelCodeById = new Map();
+  const custClassById = new Map(); // filled lazily by resolveArClassAccount
+
+  {
+    const { data } = await admin.from("ip_channel_master").select("id, channel_code");
+    for (const ch of data || []) channelCodeById.set(ch.id, ch.channel_code);
+  }
+
+  const skuIds = [...new Set(srcRows.map((r) => r.sku_id).filter(Boolean))];
+  const skuToStyle = new Map();
+  const styleIds = new Set();
+  for (let i = 0; i < skuIds.length; i += CHUNK) {
+    const { data } = await admin.from("ip_item_master").select("id, style_id").in("id", skuIds.slice(i, i + CHUNK));
+    for (const r of data || []) { if (r.style_id) { skuToStyle.set(r.id, r.style_id); styleIds.add(r.style_id); } }
+  }
+  const styleById = new Map();
+  const brandIds = new Set();
+  const styleArr = [...styleIds];
+  for (let i = 0; i < styleArr.length; i += CHUNK) {
+    const { data } = await admin.from("style_master").select("id, style_code, gender_code, brand_id").in("id", styleArr.slice(i, i + CHUNK));
+    for (const r of data || []) { styleById.set(r.id, r); if (r.brand_id) brandIds.add(r.brand_id); }
+  }
+  const brandCodeById = new Map();
+  if (brandIds.size) {
+    const { data } = await admin.from("brand_master").select("id, code").in("id", [...brandIds]);
+    for (const r of data || []) brandCodeById.set(r.id, r.code);
+  }
+  for (const [skuId, styleId] of skuToStyle) {
+    const st = styleById.get(styleId);
+    if (!st) continue;
+    skuDims.set(skuId, {
+      brandCode: brandCodeById.get(st.brand_id) || null,
+      genderCode: st.gender_code || null,
+      styleCode: st.style_code || null,
+    });
+  }
+  return { skuDims, channelCodeById, custClassById };
+}
+
+// AR account for a customer's class (factored 1107 / CC 1105 / house 1108),
+// cached per run. Falls back to the entity default AR.
+async function resolveArClassAccount(admin, dims, accountIds, customerId) {
+  if (dims.custClassById.has(customerId)) return dims.custClassById.get(customerId);
+  const { data } = await admin.from("customers")
+    .select("is_factored, payment_processor").eq("id", customerId).maybeSingle();
+  const code = resolveArAccountCode(data || {});
+  const acct = accountIds.byCode.get(code) || accountIds.ar;
+  dims.custClassById.set(customerId, acct);
+  return acct;
+}
+
 async function resolveDefaultAccountIds(admin, entityId) {
   const { data: e } = await admin.from("entities")
     .select("default_ar_account_id, default_revenue_account_id, default_cogs_account_id, default_inventory_account_id")
@@ -418,17 +504,24 @@ async function resolveDefaultAccountIds(admin, entityId) {
     return data?.id || null;
   }
 
-  const ar  = e?.default_ar_account_id        || await byCode("1200");
-  const rev = e?.default_revenue_account_id   || await byCode("4000");
-  const cog = e?.default_cogs_account_id      || await byCode("5000");
-  const inv = e?.default_inventory_account_id || await byCode("1300");
+  // Fallback codes realigned to the 2026-07-07 COA restructure (1200/4000/
+  // 5000/1300 are non-postable headers now).
+  const ar  = e?.default_ar_account_id        || await byCode("1108");
+  const rev = e?.default_revenue_account_id   || await byCode("4005");
+  const cog = e?.default_cogs_account_id      || await byCode("5010");
+  const inv = e?.default_inventory_account_id || await byCode("1201");
 
-  if (!ar)  return { error: "AR account not configured (set default_ar_account_id or seed gl_accounts.code='1200')." };
+  if (!ar)  return { error: "AR account not configured (set default_ar_account_id or seed gl_accounts.code='1108')." };
   if (!rev) return { error: "Revenue account not configured." };
   if (!cog) return { error: "COGS account not configured." };
   if (!inv) return { error: "Inventory account not configured." };
 
-  return { data: { ar, revenue: rev, cogs: cog, inventory: inv } };
+  // Routed code → id map for the COA-spec per-line routing.
+  const { data: routedRows } = await admin.from("gl_accounts")
+    .select("id, code").eq("entity_id", entityId).in("code", ROUTED_CODES);
+  const byCodeMap = new Map((routedRows || []).map((r) => [r.code, r.id]));
+
+  return { data: { ar, revenue: rev, cogs: cog, inventory: inv, byCode: byCodeMap } };
 }
 
 async function resolveCustomer(admin, ctx) {
