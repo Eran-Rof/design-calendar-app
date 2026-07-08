@@ -43,3 +43,40 @@ jobs:
       # — new type errors are blocked; the baseline shrinks as files are fixed.
       - run: npm run typecheck
       - run: npm test
+
+  # Production-build gate (2026-07-08 ops audit): vitest + tsc never run the
+  # real vite/rollup production build, so a bad import, missing asset, or
+  # rollup-only resolution failure could pass CI and then break the Vercel
+  # deploy. Fail the PR instead.
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: https://placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: placeholder
+      VITE_AZURE_CLIENT_ID: placeholder
+      VITE_AZURE_TENANT_ID: placeholder
+      VITE_XORO_API_KEY: placeholder
+      VITE_XORO_API_SECRET: placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build
+
+  # Lint gate (2026-07-08 ops audit): minimal high-signal flat config in
+  # eslint.config.js — core correctness rules only (no-dupe-keys, no-debugger,
+  # use-isnan, …) over src/**/*.{ts,tsx}. Zero errors required; warnings
+  # (e.g. react-hooks/rules-of-hooks legacy hits) do not fail the job.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint

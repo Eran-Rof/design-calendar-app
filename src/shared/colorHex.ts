@@ -35,7 +35,7 @@ const MAP: Record<string, string> = {
   salsa: "#b23b3b", egret: "#efece2", peony: "#e07ba0", orchid: "#a865b0", grapewine: "#5a2a4a", grapewinemanta: "#5a2a4a",
   stormy: "#5a6470", icebrggreen: "#9fbfa9", icebergreen: "#9fbfa9", mnlssnight: "#1a2238", moonlssnights: "#1a2238",
   moonlessnights: "#1a2238", clouddancer: "#eceae0", navalacademy: "#1f3a5f", blncdeblnc: "#f5f4ef", blancdeblanc: "#f5f4ef",
-  sangromni: "#7a2238", sangria: "#7a2238", tibetanred: "#b23b3b", discharge: "#8a8a8a", dkspring: "#2e5d3a",
+  sangromni: "#7a2238", tibetanred: "#b23b3b", discharge: "#8a8a8a", dkspring: "#2e5d3a",
   dksprng: "#2e5d3a", forgetmenot: "#8aa0c8", spiral: "#b9a0cf", sparky: "#c8c8c8", spacedye: "#9aa0a8",
 };
 
