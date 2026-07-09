@@ -38,6 +38,7 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   bank_recon_report: "bank_recon",
   // Financial reports → analytics (read/export module)
   trial_balance: "analytics",
+  factor_recon: "analytics",
   income_statement: "analytics",
   balance_sheet: "analytics",
   cash_flow: "analytics",

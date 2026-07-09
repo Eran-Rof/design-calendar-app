@@ -522,3 +522,27 @@ Until that rule exists, the credit-check helper still runs (and the result is lo
 
 Set `credit_limit_cents=100000` (= $1,000) on a test customer, create an AR invoice for $1,500, click Post. Expected: HTTP 202, `requires_approval: true`, `approval_request_id` returned, invoice `gl_status='pending_approval'`. Approve via the Approvals panel → re-post fires automatically → `gl_status='sent'` + `accrual_je_id` populated.
 
+
+---
+
+## Factor (Rosenthal) — monthly statements + open-AR tie-out
+
+> **Factor Module Phase 1 (2026-07-08).** Ring of Fire factors its wholesale AR through **Rosenthal Capital Group** (client #11548). Rosenthal delivers two monthly PDFs: the **CLIENT RECAP** (statement economics) and the **FACTORED AR DETAILED** (month-end open-AR by customer/invoice). This module imports both into Tangerine and proves them against the GL.
+
+**Panel:** Tangerine → Accounting → **Factor (Rosenthal)** (`?m=factor_recon`).
+
+- **Statement grid** — one row per month with Net Sales, Cash Collections, Chargebacks (net, sign as printed — negative means net chargebacks), Commissions, Interest, Fees/Other, Advances, Beginning/Ending Net OAR, Net Due Client, and Total Loans. Export to Excel with the export button.
+- **Month drill** — click a month to open the month-end **open-AR detail** grouped by customer (with the Rosenthal customer number), each group showing computed aging buckets as of the report date (Current / 1–15 / 16–30 / 31–60 / 61–90 / Over 90; `O`-type rows are open A/P deductions, e.g. chargeback offsets, and carry negative balances). The footer total ties to the report's Net OAR to the cent.
+- **Tie-out strip** — the drill header compares the statement's **Ending Net OAR** against the **GL 1107 (Accounts Receivable - Factor)** cumulative ACCRUAL balance as of month end (via the trial-balance endpoint) and shows the difference. While the AR historical backfill is mid-flight a diff is expected; once factored invoices post to 1107 the diff should trend to $0.
+
+**Importing statements:** drop the Rosenthal PDFs in a folder and run
+
+```
+node scripts/import-factor-pdfs.mjs <folder-or-pdf-paths>
+```
+
+Both filename vintages are recognized ("CLIENT RECAP 07.2025.pdf" and "Client recap 10.24.pdf"); the statement month always comes from the PDF text. The importer is idempotent (upserts on `statement_month` / `(as_of_date, item_num)`), keeps signs exactly as printed, verifies the OAR rollforward inside each statement, checks month-to-month chain continuity (each beginning Net OAR = prior ending), and asserts Σ item balances = the AR-detail footer Net OAR before reporting the tie-out table. Tables: `factor_statements`, `factor_ar_open_items`, `factor_customers` (Rosenthal number → our customer link).
+
+**The six factored customers (Rosenthal numbers):** BEALL`S INC. 111987 · BURLINGTON MERCHANDISING 119432 · D D`S DISCOUNT 133867 · ISLAND LEISURE 676622 · ROSS STORES 211832 · MACY`S BACKSTAGE 683407.
+
+**Phase 2 (deferred):** monthly factoring-cost JEs (commissions / interest / chargebacks → expense accounts) and per-invoice chargeback dispute tracking (needs the Rosenthal chargeback-detail report).

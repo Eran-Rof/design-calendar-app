@@ -279,6 +279,8 @@ import r_internal_fabric_codes_id from "./internal/fabric-codes/[id].js";
 import r_internal_fabric_codes_index from "./internal/fabric-codes/index.js";
 import r_internal_fabric_mills_id from "./internal/fabric-mills/[id].js";
 import r_internal_fabric_mills_index from "./internal/fabric-mills/index.js";
+import r_internal_factor_open_items from "./internal/factor/open-items.js";
+import r_internal_factor_statements from "./internal/factor/statements.js";
 import r_internal_factors_id from "./internal/factors/[id].js";
 import r_internal_factors_index from "./internal/factors/index.js";
 import r_internal_faire_post_order_id from "./internal/faire/post-order/[id].js";
@@ -1006,6 +1008,8 @@ export const ROUTES = [
   { pattern: "/api/internal/allocations/rules", handler: r_internal_allocations_rules },
   { pattern: "/api/internal/audit/row-history", handler: r_internal_audit_row_history },
   { pattern: "/api/internal/crm/opportunities", handler: r_internal_crm_opportunities_index },
+  { pattern: "/api/internal/factor/open-items", handler: r_internal_factor_open_items },
+  { pattern: "/api/internal/factor/statements", handler: r_internal_factor_statements },
   { pattern: "/api/internal/faire/sync-orders", handler: r_internal_faire_sync_orders },
   { pattern: "/api/internal/rbac/observations", handler: r_internal_rbac_observations },
   { pattern: "/api/internal/vendors/diversity", handler: r_internal_vendors_diversity },

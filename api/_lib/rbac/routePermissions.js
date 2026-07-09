@@ -61,6 +61,8 @@ const SEGMENT_MODULE = {
   "users-access": "users_access",
   "audit": "audit_log",
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",
+  // Factor Module Phase 1 — Rosenthal recon panel (read-only report surface).
+  "factor": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
   "rfqs": "sourcing",
   "tax": "finance_misc", "scf": "finance_misc", "virtual-cards": "finance_misc",

@@ -280,6 +280,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/recon-report",       label: "Recon Report",         app: "tanda", route: "/tangerine?m=bank_recon_report",  group: "Accounting", icon: "⚖️" },
   { key: "tanda/accounting/commission-accruals", label: "Commission Accruals", app: "tanda", route: "/tangerine?m=commission_accruals", group: "Accounting", icon: "💰" },
   { key: "tanda/accounting/commission-payouts",  label: "Commission Payouts",  app: "tanda", route: "/tangerine?m=commission_payouts",  group: "Accounting", icon: "📜" },
+  // Factor Module Phase 1 — Rosenthal statements + open-AR + GL 1107 tie-out.
+  { key: "tanda/accounting/factor-recon",        label: "Factor (Rosenthal)",   app: "tanda", route: "/tangerine?m=factor_recon",        group: "Accounting", icon: "🏦" },
   { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },
   { key: "tanda/shopify/stores",                 label: "Connect Store",        app: "tanda", route: "/tangerine?m=shopify_stores",     group: "Shopify", icon: "🛍️" },
   { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
@@ -374,4 +376,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 21;
+export const MENU_KEYS_VERSION = 22;

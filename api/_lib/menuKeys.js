@@ -148,6 +148,7 @@ const KEYS = [
   "tanda/accounting/budgets",
   "tanda/accounting/form-1099",
   "tanda/accounting/bank-reconciliation",
+  "tanda/accounting/factor-recon",
   "tanda/crm/opportunities",
   "tanda/crm/activities",
   "tanda/crm/tasks",
