@@ -123,11 +123,13 @@ export const DEFAULT_PER_DOMAIN_THRESHOLD_CENTS = 300n; // $3.00
 // bank_transactions.source enum → recon source_tag mapping.
 //   plaid       → 'plaid_sync' (the canonical T10 tag for Plaid-sourced cash)
 //   csv_upload  → 'xoro_mirror' (legacy CSV imports = historical Xoro truth)
+//   xoro_mirror → 'xoro_mirror' (the register mirror — Xoro truth by
+//                 construction; added with the bank-recon mirror build)
 //   manual      → 'manual'
 // Anything else falls through to 'manual_or_legacy' (defensive).
 export function mapBankSourceToTag(raw) {
   if (raw === "plaid") return "plaid_sync";
-  if (raw === "csv_upload") return "xoro_mirror";
+  if (raw === "csv_upload" || raw === "xoro_mirror") return "xoro_mirror";
   if (raw === "manual") return "manual";
   return "manual_or_legacy";
 }
@@ -135,10 +137,11 @@ export function mapBankSourceToTag(raw) {
 // Classification: which side does this row belong to?
 //   'tangerine' side = the new truth: plaid (bank feed) + manual
 //   'xoro'      side = the historical truth: csv_upload (legacy imports)
+//                      + xoro_mirror (the register mirror)
 // (See module header §2 for the rationale.)
 export function classifyBankRow(row) {
   if (!row || typeof row !== "object") return null;
-  if (row.source === "csv_upload") return "xoro";
+  if (row.source === "csv_upload" || row.source === "xoro_mirror") return "xoro";
   if (row.source === "plaid" || row.source === "manual") return "tangerine";
   // Unknown source — bucket to tangerine so it still surfaces as a
   // variance if it has no Xoro counterpart.

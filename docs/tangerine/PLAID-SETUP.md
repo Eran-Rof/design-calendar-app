@@ -2,6 +2,8 @@
 
 Permanent reference for wiring Plaid into the Tangerine bank reconciliation flow (P6). Run through this once per environment (Sandbox first, then Production).
 
+> **Coexistence with the Xoro register mirror (#1671, 2026-07-09):** until Plaid goes live, the bank tables are fed by the Xoro Payments-register mirror (`source='xoro_mirror'` — see user-guide ch17). Plaid needs **no schema or code change** to go live: link each Plaid account to the SAME `gl_account_id` its mirror account uses and the existing `bank_accounts` row is reused (`plaid_*` columns fill in via the exchange handler); Plaid rows land beside mirror rows keyed by their own `external_txn_id`, and the P9 cash recon engine treats `plaid` as the Tangerine side vs `xoro_mirror` as the Xoro side — which is exactly the parallel-run comparison the cutover gate wants. The normalized ingestion contract for any future feed is `api/_lib/bank-feeds/ingest.js`.
+
 ---
 
 ## 1. Generate the at-rest encryption key

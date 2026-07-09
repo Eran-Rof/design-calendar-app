@@ -274,3 +274,106 @@ export async function runControlTieouts(admin, entity_id) {
     },
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// CASH mirror tie-out (bank reconciliation mirror, 2026-07)
+//
+// Proves GL cash/CC balances against the Xoro bank mirror
+// (bank_transactions, source='xoro_mirror') AS OF the last month Xoro
+// reconciled against physical bank statements (RECONCILED_THROUGH from
+// api/_lib/bank-mirror/mirror.js). Unlike the control tie-outs above,
+// this is an AS-OF comparison, so it reads dated journal_entry_lines
+// directly (v_trial_balance is an all-time rollup and can't be dated).
+//
+// Sign convention matches the P6 recon RPC: balances on the account's
+// NORMAL side (DEBIT-normal DR−CR, CREDIT-normal CR−DR) so a credit card
+// reads positive-owed on both sides.
+//
+// KNOWN ONE-SIDEDNESS: the mirror carries Xoro's PAYMENTS register only —
+// AR receipts (deposits) exist in neither the mirror nor the GL yet
+// (ar_receipts is empty). Both sides being outflow-only means this
+// tie-out proves mirror⇄GL agreement, while absolute balances stay
+// negative until the deposit side (AR receipts backfill or Plaid) lands.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Run the cash-mirror tie-out for every mirrored bank account.
+ * Returns { rows, meta } shaped like runControlTieouts:
+ * rows[]: {account_code, name, kind, side, gl_cents, subledger_cents
+ *          (= mirror balance), diff_cents, status: 'ok'|'break', as_of}.
+ */
+export async function runCashMirrorTieouts(admin, entity_id, { asOf } = {}) {
+  const { RECONCILED_THROUGH, MIRROR_ACCOUNTS } = await import("../bank-mirror/mirror.js");
+  const cutoff = asOf || RECONCILED_THROUGH;
+
+  const specByCode = new Map(MIRROR_ACCOUNTS.map((s) => [s.code, s]));
+  const { data: banks, error: bErr } = await admin
+    .from("bank_accounts")
+    .select("id, name, account_kind, gl_account_id, gl_accounts!inner(code, name, normal_balance, entity_id)")
+    .eq("entity_id", entity_id)
+    .eq("feed_source", "xoro_mirror")
+    .eq("is_active", true);
+  if (bErr) throw new Error(`bank_accounts read failed: ${bErr.message}`);
+
+  const rows = [];
+  for (const b of banks || []) {
+    const gl = b.gl_accounts;
+    const spec = specByCode.get(gl.code);
+    const side = gl.normal_balance === "CREDIT" ? "credit" : "debit";
+    const sign = side === "credit" ? -1 : 1;
+
+    // Mirror balance through cutoff.
+    let mirror_cents = 0;
+    {
+      const txns = await fetchAllPages(admin, (a) =>
+        a
+          .from("bank_transactions")
+          .select("amount_cents")
+          .eq("bank_account_id", b.id)
+          .eq("source", "xoro_mirror")
+          .lte("posted_date", cutoff)
+          .order("id", { ascending: true }),
+      );
+      for (const t of txns) mirror_cents += sign * intCents(t.amount_cents);
+    }
+
+    // GL balance through cutoff (posted ACCRUAL lines; debit/credit are DOLLARS).
+    let gl_cents = 0;
+    {
+      const lines = await fetchAllPages(admin, (a) =>
+        a
+          .from("journal_entry_lines")
+          .select("debit, credit, journal_entries!inner(posting_date, status, basis, entity_id)")
+          .eq("account_id", b.gl_account_id)
+          .eq("journal_entries.status", "posted")
+          .eq("journal_entries.basis", "ACCRUAL")
+          .eq("journal_entries.entity_id", entity_id)
+          .lte("journal_entries.posting_date", cutoff)
+          .order("id", { ascending: true }),
+      );
+      for (const l of lines) gl_cents += sign * (dollarsToCents(l.debit) - dollarsToCents(l.credit));
+    }
+
+    const diff_cents = gl_cents - mirror_cents;
+    rows.push({
+      account_code: gl.code,
+      name: gl.name,
+      kind: spec?.tieout || b.account_kind,
+      side,
+      gl_cents,
+      subledger_cents: mirror_cents,
+      diff_cents,
+      status: Math.abs(diff_cents) <= TOLERANCE_CENTS ? "ok" : "break",
+      as_of: cutoff,
+    });
+  }
+  rows.sort((a, b) => a.account_code.localeCompare(b.account_code));
+  return {
+    rows,
+    meta: {
+      as_of: cutoff,
+      mirrored_accounts: rows.length,
+      note: "mirror carries Xoro payments register only — deposits absent from BOTH sides until AR receipts/Plaid land",
+    },
+  };
+}
