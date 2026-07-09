@@ -63,6 +63,9 @@ const SEGMENT_MODULE = {
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",
   // Factor Module Phase 1 — Rosenthal recon panel (read-only report surface).
   "factor": "analytics",
+  // Drill-through Phase 2 — aging bucket drill + Segment P&L GL drill. Same
+  // read-only report class as scorecards/factor (analytics = read + export).
+  "ar-aging": "analytics", "ap-aging": "analytics", "segment-pl": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
   "rfqs": "sourcing",
   "tax": "finance_misc", "scf": "finance_misc", "virtual-cards": "finance_misc",

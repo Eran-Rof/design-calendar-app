@@ -102,6 +102,11 @@ All 5 reports support:
 - ⬇ Export button (T3 cross-cutter — xlsx + csv, autofit columns, correct currency / date typing).
 - Click-to-drill into related panels where applicable (GL Detail → JE; Sales by Rep → that rep's accruals).
 
+> **Aging drill-through (Phase 2, 2026-07-09):** on both AR Aging and AP Aging, every amount
+> (cell / row total / column total) opens the open invoices or bills behind it, each linking to
+> the document and its journal entry. Deep link: `?m=ap_aging&bucket=<key>&party=<vendor id>`.
+> Details in the [Accounting chapter](03-accounting.md#drill-through-phase-2--agings-segment-pl-bank-recon-2026-07-09).
+
 ### GL Detail RPC reference
 
 `gl_detail(account_id, from, to)` is a STABLE function returning ordered journal_entry_lines with running_balance_cents per row. Useful for the accountant's "what made up this number" question.

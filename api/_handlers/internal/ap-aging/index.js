@@ -127,11 +127,43 @@ export default async function handler(req, res) {
       const { data, error } = await q;
       if (error) return res.status(500).json({ error: error.message });
       rows = collapseAgingByBucket(data || [], "vendor_id");
+
+      // The view carries only vendor_id — resolve name/code so the panel (and
+      // the Phase 2 bucket drill) can label rows. Chunked .in() lookups.
+      const vendorIds = [...new Set(rows.map((r) => r.vendor_id).filter(Boolean))];
+      const vendorById = new Map();
+      for (let i = 0; i < vendorIds.length; i += 200) {
+        const { data: vendors, error: vendErr } = await admin
+          .from("vendors")
+          .select("id, name, code")
+          .in("id", vendorIds.slice(i, i + 200));
+        if (vendErr) return res.status(500).json({ error: vendErr.message });
+        for (const vd of vendors || []) vendorById.set(vd.id, vd);
+      }
+      for (const r of rows) {
+        const vd = vendorById.get(r.vendor_id);
+        r.vendor_name = vd?.name || null;
+        r.vendor_code = vd?.code || null;
+      }
     }
 
-    rows.sort((a, b) => Number(b.total_outstanding_cents || b.outstanding_cents || 0) -
-                        Number(a.total_outstanding_cents || a.outstanding_cents || 0));
-    rows = rows.slice(0, v.data.limit);
+    // Sort by open exposure DESC; in view mode the limit applies per VENDOR
+    // (one row per vendor × bucket — slicing raw rows would drop buckets and
+    // the panel cells would no longer tie to the drill).
+    if (v.data.mode === "as_of") {
+      rows.sort((a, b) => Number(b.total_outstanding_cents || 0) - Number(a.total_outstanding_cents || 0));
+      rows = rows.slice(0, v.data.limit);
+    } else {
+      const totals = new Map();
+      for (const r of rows) {
+        totals.set(r.vendor_id, (totals.get(r.vendor_id) || 0) + Number(r.outstanding_cents || 0));
+      }
+      const keep = new Set(
+        [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, v.data.limit).map(([id]) => id),
+      );
+      rows = rows.filter((r) => keep.has(r.vendor_id));
+      rows.sort((a, b) => (totals.get(b.vendor_id) || 0) - (totals.get(a.vendor_id) || 0));
+    }
 
     return res.status(200).json({
       mode: v.data.mode,

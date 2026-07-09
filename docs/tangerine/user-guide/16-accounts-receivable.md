@@ -342,7 +342,7 @@ ar_receipt_applications
 
 ### The Aging panel
 
-Navigate to **Tangerine → Accounting → AR Aging** (📅). The panel shows one row per customer with non-zero open AR, broken into five buckets relative to invoice due dates:
+Navigate to **Tangerine → Accounting → AR Aging** (📅). The panel shows one row per customer with non-zero open AR, broken into six buckets relative to invoice due dates:
 
 | Bucket | Definition |
 |---|---|
@@ -350,9 +350,16 @@ Navigate to **Tangerine → Accounting → AR Aging** (📅). The panel shows on
 | **1-30** | 1-30 days past due (yellow) |
 | **31-60** | 31-60 days past due (orange) |
 | **61-90** | 61-90 days past due (red) |
-| **91-120+** | 91+ days past due (deep red, bolded) |
+| **91-120** | 91-120 days past due (deeper red) |
+| **120+** | 120+ days past due (deepest red, bolded) |
 
-Each row's "Total Open" matches the sum across all five buckets. The footer row totals each column across the filtered customer set.
+Each row's "Total Open" matches the sum across all six buckets. The footer row totals each column across the filtered customer set.
+
+> **Drill-through (Phase 2, 2026-07-09):** every amount is clickable — cell, row total, or column
+> total — and opens the list of open invoices behind that number (dates, days past due, open
+> amount; footer ties to the cell). Each row links to the invoice (**↗**) and its posting journal
+> entry (**JE**). Deep link: `?m=ar_aging&bucket=<key>&party=<customer id>`. See the
+> [Accounting chapter's drill-through section](03-accounting.md#drill-through-phase-2--agings-segment-pl-bank-recon-2026-07-09).
 
 ### Modes
 
