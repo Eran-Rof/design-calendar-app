@@ -171,6 +171,37 @@ Every synced Xoro bill now posts its own journal entry — this replaced the old
 
 The sweep runs automatically at the end of every `POST /api/ap/sync-bills` ingest and can be run by hand via **`POST /api/internal/ap-backfill/run`** `{ dry_run?: true, limit? }` (internal token; idempotent — only `gl_status='unposted'` bills are touched, and a duplicate post heals the bill row instead of erroring). Posted bills get `gl_status='posted'` + `accrual_je_id`, which lights up the status badge → JE drill in the AP Invoices panel. `journal_type='ap_invoice_historical'` rides the period-lock bypass so older bills backfill cleanly. **Not yet covered:** payment-side JEs (the CSV carries only a paid/unpaid status, no payment dates or amounts) — cash application for Xoro bills is a follow-up alongside the bank-feed work.
 
+## Historical bill backfill (`source='xoro_bills_register'`, #1668)
+
+The complete Xoro AP history — **3,680 bills (Oct 2023 → Jul 2026, $51,080,712.61)** from the CEO's Bills register export plus **2,685 bill payments ($41,126,644.78)** from the Payments export — is posted to the GL and frozen as the AP opening history. AP control account **2000 ties to the register to the cent**: GL 2000 = **$9,947,831.51 CR** = the register's Σ Amount Due over Open/Partially-Paid bills.
+
+**Pipeline** (all idempotent — every JE carries a stable `(source_table, source_id, basis)` key):
+
+1. `node scripts/import-bills-register.mjs <register.csv> [--create-vendors]` — parses the export (BOM, `"$ 1,234.19"` money, `-`-as-empty, MM/DD/YYYY) into staging table `ap_bill_register_import`, verifying the register identity on every row: `Total = Paid + Discounts + Credits + Due` (and `Credits = Vendor Credits + Prepayments`). Vendors resolve by payments-staging name → `vendors.name` → `vendors.aliases` (all case-insensitive).
+2. `node scripts/post-bills-register.mjs <phase>` with phases `reconcile → link-invoices → accruals → deltas → relief → payments → residuals → verify` (each supports `--dry-run` / `--limit=N`).
+
+**Accounting model:**
+
+| JE | Lines | Date |
+|---|---|---|
+| Accrual (`ap_invoice_historical`, one per bill) | DR **1201 Inventory** (Vendor Type Suppliers/Manufacturer) or the vendor's default expense account, else **8007** · CR **2000** vendor-subledgered @ Total Amount | Bill Date |
+| Relief (`ap_relief_historical`, bills with discounts/credits) | DR **2000** (vendor) · CR **5005 Vendor Discount** (discounts + vendor credits) · CR **1308 Vendor Prepayments & Deposits** (prepayments applied) | bill Modified date (application-date proxy) |
+| Payment (`ap_payment_historical`, one per payment doc) | DR **2000** (vendor) · CR the mapped payment account @ **Paid Amount** (cash only) | Payment date |
+| Residual / true-ups (`ap_adjustment_historical`) | DR/CR **2000** (vendor) vs **8002** / DR-account | export date / bill date |
+
+**Key decisions (and why):**
+
+- **Cutover 2024-08-31, no opening JE**: no opening-balance JE exists for 2000 and no GL periods exist before 2024-08 (entity hard-lock 2024-07-31), so the **58 bills dated before 2024-08-31 post AT 2024-08-31**; all were fully paid, and their payments ARE in the payments export, so they accrue + relieve normally rather than being skipped. The 108 bills dated exactly 08/31/2024 (dsantiago's Feb-2025 opening-AP backfills) accrue normally — they ARE the opening AP.
+- **Payments are cash-only**: the two exports prove Σ(payment `Amount` − `Paid Amount`) = Σ(bills discounts + credits + prepayments applied) **to the cent ($6,229,033.16)** — a payment doc's non-cash slice is exactly the discount/credit/prepayment application. Those post at **bill** level (the register carries the precise 5005-vs-1308 split), and the **133 zero-cash payment docs get no JE**. Crediting banks at full `Amount` would have overstated cash out by $6.23M.
+- **1308 Vendor Prepayments & Deposits** (new account, child of 1300 Deposits & Prepaid) carries a **CR $5,062,725.55 clearing balance**: prepayments applied to bills whose original deposit wires predate the GL's bank-cash history. When bank history is backfilled, deposit wires book DR 1308 and the account clears.
+- **Xoro→Valley account mapping**: "Bank Leumi" payment accounts map to Valley 1001/1002/1003 (Leumi has no GL accounts of its own); other payment accounts map to 1020 Cash Clearing, 1051 Factor Advances, 2101–2108 credit cards, 3004 Opening Balance Equity — mapping fixed in `ap_payment_import.gl_account_id`.
+- **Dedupe vs #1662**: 145 bills already carried per-bill accrual JEs from the Xoro API pull — skipped (`skip_reason='already_posted_1662'`). 24 of them were posted at the API line-sum, not the register header total — trued-up by delta JEs (net −$57,445.72) and the invoice totals aligned, so GL = subledger = register.
+- **Frozen from the nightly sync**: register bills land in `invoices` with `source='xoro_bills_register'`, which `sync-bills` treats as foreign and never updates — the AP subledger stays exactly what the register said on 2026-07-08, which is what the GL ties to. Post-export Xoro activity (new bills, new payments) is NOT reflected until a re-export or cutover; new bills syncing in as `xoro_ap` still accrue via the #1662 sweep, but Xoro marking bills paid without Tangerine payment JEs will surface as tie-out drift — re-run this backfill from fresh exports at cutover (~2026-07-28).
+- **Porsche residual $6,236.32**: the register says $6,236.32 more was paid on Porsche bills than the payments export applied (payments outside the export) — one per-vendor adjustment JE (DR 2000 / CR 8002 Reconciliation Discrepancies).
+- **Control alignment**: a hanging DR $500 from a dry-run-test reversal pair (original excluded as `status='reversed'` while its reversal stayed posted) was neutralized by restoring the original to `posted`; $2,172.00 of `manufacture_service` credits sitting on 2000 with **no vendor bill** — dual-basis siblings, $1,086.00 ACCRUAL + $1,086.00 CASH — were reclassed to 2160 Accrued CMT / Conversion Clearing per basis (2000 is reserved for the vendor-bill subledger the daily tie-out proves; CASH-basis 2000 correctly ends at $0.00).
+
+**Result**: 3,534 accrual JEs + 24 true-ups + 257 relief JEs + 2,552 payment JEs + 1 residual + 3 alignment JEs; the #1665 daily tie-out's AP `pending_payments` waiver lifts (payments now exist) and AP 2000 reports **ok** — GL $9,947,831.51 CR vs subledger $9,947,831.51, diff $0.00, and every top-10 vendor subledger balance matches the register exactly.
+
 ## Sub-decisions defaults (P3-1 → P3-2)
 
 Per arch §11:
