@@ -1,8 +1,30 @@
 # 17. Bank Reconciliation (M7 + M8)
 
 > **P6 status (2026-05-27 night):** all 7 chunks shipped. Schema + Plaid Link + CSV upload + match engine + admin UI + recon report + auto-post fee rules. PRs #408, #409, #410, #411, #412, #413, #414.
+>
+> **Xoro mirror LIVE (#1671, 2026-07-09):** the bank tables are now populated by the **Xoro register mirror** — see the next section. Plaid is configured but **not live yet**.
 
 The Bank Reconciliation module ingests bank/CC transactions (via Plaid or CSV), matches them to existing journal-entry lines, lets the accountant post standalone JEs for fees + interest + transfers, and produces a per-period reconciliation report that the period-close pre-flight check now consumes.
+
+## Xoro register mirror (#1671 — the current live feed)
+
+All ROF bank accounts are reconciled **in Xoro** through **2026-05-31**; Plaid is set up but not live. Until it is, Tangerine mirrors Xoro's reconciled bank activity so the panels above have a bank side to work with:
+
+- **What feeds it:** the Xoro Payments-register export staged in `ap_payment_import` (#1668). Xoro's REST API exposes **no** bank-account / bank-transaction / deposit / reconciliation endpoint under any private-app credential we hold (probed 2026-07-08, ~30 path variants × 4 key pairs) — the register export is the reconciled bank-payment ledger, so the mirror derives from it.
+- **Accounts mirrored (13):** the three Valley checking accounts (GL 1001 `····7801` Main, 1002 `····1300` Payroll, 1003 `····1500` Web — Xoro's "Bank Leumi" names map to the **Valley** GL accounts, never their own), the eight credit cards (2101–2108, AmEx + Chase), the Rosenthal factor-advance facility (1051, mirrored as `factor_settlement` category), and Xoro's Cash Clearing box (1020). Account numbers are masked to last-4 — full numbers exist nowhere.
+- **Transactions:** `bank_transactions` rows with `source='xoro_mirror'`, `external_txn_id` = Xoro payment number (idempotent re-runs), `posted_date` = the **source** payment date. Money out = negative, per the P6 convention.
+- **Auto-match:** each register payment already knows the JE the AP backfill posted for it, so matching is exact (confidence 100), with an amount+date (±3 days) fallback pass that will pick up AR-receipt JEs as that backfill lands. Match state is never clobbered by re-syncs.
+- **Recon runs:** one `bank_recon_runs` row per account × month with `source='xoro_mirror'`. Months through **2026-05-31** are marked `reconciled` when the GL ties to the mirror to the cent, `flagged` when it doesn't; later months roll forward as `in_progress`. Operator-created (`source='manual'`) runs are never touched.
+- **Nightly:** `/api/cron/bank-mirror-sync` (05:30 UTC, before the 06:00 subledger tie-out) re-syncs the register, re-matches, and recomputes non-reconciled months. The 06:00 tie-out email now includes a **CASH mirror tie-out** section (GL vs mirror per account as of 2026-05-31).
+- **Backfill / re-run:** `node scripts/import-xoro-bank-history.mjs` (idempotent; `--report` for read-only). Posts **no** journal entries — mirror + report only.
+
+**Known one-sidedness (read before trusting balances):** the register carries **payments only**. AR receipts (deposits) exist in neither the mirror nor the GL yet (`ar_receipts` is empty), so GL cash balances are large negatives and will stay that way until the AR-receipts backfill or the Plaid feed lands. The mirror's job today is proving **GL ⇄ Xoro-register agreement** — which it does: as of the 2026-07-09 backfill, 2,551 transactions mirrored, 100% matched, 285 of 286 closed account-months reconciled to the cent. The single flag: two operator **test JEs** on 1001 dated 2026-05-31 (JE-2026-00001 "rest" −$10,000.00, JE-2026-00002 "post po issue" −$10.00) — books-only entries that should be reversed via the JE reversal flow.
+
+**Note on the panel's Compute button:** the P6 `bank_recon_compute` RPC sums CASH-basis JEs, but all activity on the cash accounts is ACCRUAL-basis, so pressing Compute on a mirror-managed run will briefly show a zero GL balance — the nightly sync recomputes and heals it. The mirror computes its runs on ACCRUAL basis directly.
+
+## Plaid go-live seam
+
+When Plaid flips on, **no schema or code change is needed**: the webhook (`/api/webhooks/plaid`) already drives `cron/bank-feed-sync`, which upserts `source='plaid'` rows into the same `bank_transactions` table the mirror uses (idempotent on `(bank_account_id, external_txn_id)`; match state never rides an ingest upsert). Link the Plaid account to the SAME `gl_account_id` and the existing `bank_accounts` row is reused. Env vars expected (values in Vercel only, never committed): `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV`, `PLAID_TOKEN_ENC_KEY` (+ webhook verification per `docs/tangerine/PLAID-SETUP.md`). The normalized ingestion contract for any future feed lives in `api/_lib/bank-feeds/ingest.js`.
 
 ## Panel layout
 

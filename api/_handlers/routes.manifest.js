@@ -741,4 +741,5 @@ export default [
   ["/api/internal/ar-aging/detail"                           , "./internal/ar-aging/detail.js"],
   ["/api/internal/ap-aging/detail"                           , "./internal/ap-aging/detail.js"],
   ["/api/internal/segment-pl/gl-drill"                       , "./internal/segment-pl/gl-drill.js"],
+  ["/api/cron/bank-mirror-sync"                              , "./cron/bank-mirror-sync.js"],
 ];

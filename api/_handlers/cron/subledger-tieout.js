@@ -33,7 +33,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { enqueue as enqueueNotification } from "../../_lib/notifications/index.js";
 import { captureError } from "../../_lib/errorCapture.js";
-import { runControlTieouts, formatUsd, TOLERANCE_CENTS } from "../../_lib/accounting/tieouts.js";
+import { runControlTieouts, runCashMirrorTieouts, formatUsd, TOLERANCE_CENTS } from "../../_lib/accounting/tieouts.js";
 
 export const config = { maxDuration: 300 };
 
@@ -57,9 +57,24 @@ export default async function handler(req, res) {
       .filter((r) => r.waived)
       .map((r) => ({ account_code: r.account_code, note: r.waived, diff_cents: r.diff_cents }));
 
+    // CASH mirror tie-out: GL cash/CC balances vs the Xoro bank mirror as of
+    // the last Xoro-reconciled month end. Skips cleanly (empty rows) until
+    // the mirror backfill has run. Best-effort: a cash read failure must not
+    // kill the control tie-outs above.
+    let cashBreaks = [];
+    try {
+      const cash = await runCashMirrorTieouts(admin, entity.id);
+      out.cash = cash.rows;
+      out.cash_meta = cash.meta;
+      cashBreaks = cash.rows.filter((r) => r.status === "break");
+      out.cash_breaks = cashBreaks.length;
+    } catch (e) {
+      out.cash_error = String(e?.message || e);
+    }
+
     const breaks = rows.filter((r) => r.status === "break");
     out.breaks = breaks.length;
-    if (breaks.length === 0) return res.status(200).json(out);
+    if (breaks.length === 0 && cashBreaks.length === 0) return res.status(200).json(out);
 
     const name = (code) => meta.account_names?.[code] || code;
     const lines = breaks.map((r) =>
@@ -71,9 +86,17 @@ export default async function handler(req, res) {
     if (meta.missing_accounts?.length) {
       extras.push(`Control account code(s) missing from the chart: ${meta.missing_accounts.join(", ")}.`);
     }
+    const cashLines = cashBreaks.map((r) =>
+      `• ${r.account_code} ${r.name} — GL ${formatUsd(r.gl_cents)} vs Xoro mirror ${formatUsd(r.subledger_cents)} → off by ${formatUsd(r.diff_cents)} (as of ${r.as_of})`);
     const body =
-      `${breaks.length} control account(s) do not tie to their subledger (tolerance ${formatUsd(TOLERANCE_CENTS)}, cumulative ACCRUAL balances):\n\n` +
-      lines.join("\n") +
+      (breaks.length
+        ? `${breaks.length} control account(s) do not tie to their subledger (tolerance ${formatUsd(TOLERANCE_CENTS)}, cumulative ACCRUAL balances):\n\n` +
+          lines.join("\n")
+        : "All control accounts tie.") +
+      (cashLines.length
+        ? `\n\nCASH mirror tie-out — ${cashLines.length} account(s) off vs the Xoro-reconciled bank mirror:\n\n${cashLines.join("\n")}` +
+          `\n(The mirror carries Xoro's payments register only; deposits are absent from BOTH sides until AR receipts/Plaid land, so these diffs are books-only entries or register rows the GL missed.)`
+        : "") +
       (out.waived.length
         ? `\n\nWaived (not alerted): ${out.waived.map((w) => `${w.account_code} [${w.note}, off ${formatUsd(w.diff_cents)}]`).join(", ")}.`
         : "") +
@@ -82,15 +105,16 @@ export default async function handler(req, res) {
       `Drill: Tangerine → Accounting → GL Detail on the account, vs AR Invoices / AP Bills grids filtered to open balances.`;
 
     try {
+      const allBreakCodes = [...breaks.map((b) => b.account_code), ...cashBreaks.map((b) => b.account_code)];
       const ev = await enqueueNotification(admin, {
         entity_id: entity.id,
         kind: "subledger_tieout_break",
         severity: "error",
-        subject: `Subledger tie-out: ${breaks.length} control account(s) off — ${breaks.map((b) => b.account_code).join(", ")}`,
+        subject: `Subledger tie-out: ${allBreakCodes.length} account(s) off — ${allBreakCodes.join(", ")}`,
         body,
         context_table: "journal_entry_lines",
         context_id: null,
-        payload: { breaks, waived: out.waived, meta },
+        payload: { breaks, cash_breaks: cashBreaks, waived: out.waived, meta },
         recipient_roles: ["admin", "accounting"],
       });
       out.alerted = true;
@@ -105,8 +129,8 @@ export default async function handler(req, res) {
     await captureError({
       source: "cron",
       route: "/api/cron/subledger-tieout",
-      message: `tieout: ${breaks.length} control account(s) off — ${breaks.map((b) => `${b.account_code} ${formatUsd(b.diff_cents)}`).join(", ")}`,
-      context: { kind: "tieout", breaks, waived: out.waived },
+      message: `tieout: ${breaks.length + cashBreaks.length} account(s) off — ${[...breaks, ...cashBreaks].map((b) => `${b.account_code} ${formatUsd(b.diff_cents)}`).join(", ")}`,
+      context: { kind: "tieout", breaks, cash_breaks: cashBreaks, waived: out.waived },
     });
 
     return res.status(200).json(out);

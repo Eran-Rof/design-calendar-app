@@ -38,6 +38,7 @@ import r_cron_ai_proactive_insights from "./cron/ai-proactive-insights.js";
 import r_cron_anomalies_nightly from "./cron/anomalies-nightly.js";
 import r_cron_app_errors_digest from "./cron/app-errors-digest.js";
 import r_cron_ar_receipts_reconcile from "./cron/ar-receipts-reconcile.js";
+import r_cron_bank_mirror_sync from "./cron/bank-mirror-sync.js";
 import r_cron_benchmark_compute from "./cron/benchmark-compute.js";
 import r_cron_compliance_automation from "./cron/compliance-automation.js";
 import r_cron_compliance_daily from "./cron/compliance-daily.js";
@@ -1289,6 +1290,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/change-requests", handler: r_vendor_change_requests },
   { pattern: "/api/vendor/discount-offers", handler: r_vendor_discount_offers_index },
   { pattern: "/api/xoro/sync-item-costing", handler: r_xoro_sync_item_costing },
+  { pattern: "/api/cron/bank-mirror-sync", handler: r_cron_bank_mirror_sync },
   { pattern: "/api/cron/compliance-daily", handler: r_cron_compliance_daily },
   { pattern: "/api/cron/menu-usage-decay", handler: r_cron_menu_usage_decay },
   { pattern: "/api/cron/po-issued-notify", handler: r_cron_po_issued_notify },
