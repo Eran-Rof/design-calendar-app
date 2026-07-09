@@ -553,3 +553,22 @@ Both filename vintages are recognized ("CLIENT RECAP 07.2025.pdf" and "Client re
 **The six factored customers (Rosenthal numbers):** BEALL`S INC. 111987 · BURLINGTON MERCHANDISING 119432 · D D`S DISCOUNT 133867 · ISLAND LEISURE 676622 · ROSS STORES 211832 · MACY`S BACKSTAGE 683407.
 
 **Phase 2 (deferred):** monthly factoring-cost JEs (commissions / interest / chargebacks → expense accounts) and per-invoice chargeback dispute tracking (needs the Rosenthal chargeback-detail report).
+
+### Phase 2 — chargeback disputes + factoring-cost JEs (2026-07-09)
+
+**Chargebacks tab** (Factor (Rosenthal) panel → Chargebacks): item-grain rows from the monthly Rosenthal **"Chargeback Report MM.YY.pdf"** ("Charge Back Analysis" section — customer, invoice/deduction ref, item date, C/B date, batch, signed amount). Positive = chargeback (deduction taken by the customer); negative = creditback/recovery. Σ per month ties to the report's **TradeStyle Total**, which equals the recap's chargeback line negated — the importer asserts both. **Reasons** (with Rosenthal's 3-digit reason codes) attach best-effort from the report's CHARGEBACK/CREDITBACK SUMMARY section; Rosenthal merges that section at date grain ("GLOBAL"), so high-volume months resolve fewer per-item reasons — unattributed rows show "—".
+
+**Dispute workflow:** each row carries an editable **status** (New / Under review / Disputed / Accepted / Recovered) and a **notes** field, saved inline (PATCH `/api/internal/factor/chargebacks/:id`). Every status change appends `{at, by, from, to, note}` to the row's `status_history` (updated-by audit trail). Re-importing a month **never** overwrites dispute state. Loaded history: Jul 2025 → Jun 2026 (11 months, 5,928 items; **Feb 2026 report was not provided by Rosenthal**; no chargeback detail exists before Jul 2025).
+
+**Factoring-cost JEs** (`scripts/post-factor-cost-jes.mjs`): one accrual JE per statement month, dated month-end —
+
+```
+DR 6802 Factor Commissions Expense    (recap COMMISSIONS)
+DR 6804 Factor Interest Expense       (TOTAL INTEREST + PRIOR MONTH INT. ADJ.)
+DR 6803 Factor Exp - Other            (facility FEES + OTHER lines only)
+CR 1051 Factor Advances - Rosenthal   (the factor charges costs to the loan)
+```
+
+The recap's "ACCRUED FEES/OTHER TRANSFERS (FACILITY)" is deliberately NOT posted whole — it contains the **prior** month's interest being charged to the loan (already expensed in its accrual month), so only the facility FEES+OTHER components are new cost. Chargebacks are AR-side and excluded from cost JEs. Idempotent per month (`source_module='factor_recap'`, `source_id=<statement month>`; `uq_je_source_basis` backstop). Posted 2024-10 → 2025-09 (12 JEs, **$515,690.72** total factoring cost). Known exception: Oct-24's facility OTHER is a one-off −$188,930.78 loan credit (not a fee — three orders of magnitude beyond every other month's OTHER) and is excluded from 6803 pending CEO/Rosenthal clarification.
+
+**Statement gaps:** CLIENT RECAP statements Oct 2025 → Jun 2026 have not been provided yet — `factor_statements` (and therefore cost JEs) end at Sep 2025; the AR snapshots and chargeback detail already run through Jun 2026. Re-run `import-factor-pdfs.mjs` + `post-factor-cost-jes.mjs` when the CEO forwards them.

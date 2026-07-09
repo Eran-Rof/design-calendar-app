@@ -38,7 +38,9 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   bank_recon_report: "bank_recon",
   // Financial reports → analytics (read/export module)
   trial_balance: "analytics",
-  factor_recon: "analytics",
+  // Factor (Rosenthal) — Phase 2 added the chargeback-dispute write, so the
+  // panel gates on finance_misc (matches the server's "factor" segment map).
+  factor_recon: "finance_misc",
   income_statement: "analytics",
   balance_sheet: "analytics",
   cash_flow: "analytics",

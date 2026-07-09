@@ -38,14 +38,21 @@ function client() {
 }
 
 async function distinctAsOfDates(admin) {
-  // Small table (one batch of rows per month) — read the column and dedupe.
-  const { data, error } = await admin
-    .from("factor_ar_open_items")
-    .select("as_of_date")
-    .order("as_of_date", { ascending: true })
-    .range(0, 49999);
-  if (error) throw new Error(error.message);
-  return [...new Set((data || []).map((r) => r.as_of_date))];
+  // PostgREST caps reads at max_rows (1000) regardless of .range(), and the
+  // table now spans 12+ months (~2.5k rows) — page through the column.
+  const dates = new Set();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await admin
+      .from("factor_ar_open_items")
+      .select("as_of_date")
+      .order("as_of_date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    for (const r of data || []) dates.add(r.as_of_date);
+    if (!data || data.length < PAGE) break;
+  }
+  return [...dates].sort();
 }
 
 export default async function handler(req, res) {

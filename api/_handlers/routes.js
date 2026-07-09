@@ -282,6 +282,8 @@ import r_internal_fabric_codes_id from "./internal/fabric-codes/[id].js";
 import r_internal_fabric_codes_index from "./internal/fabric-codes/index.js";
 import r_internal_fabric_mills_id from "./internal/fabric-mills/[id].js";
 import r_internal_fabric_mills_index from "./internal/fabric-mills/index.js";
+import r_internal_factor_chargebacks_id from "./internal/factor/chargebacks/[id].js";
+import r_internal_factor_chargebacks_index from "./internal/factor/chargebacks/index.js";
 import r_internal_factor_open_items from "./internal/factor/open-items.js";
 import r_internal_factor_statements from "./internal/factor/statements.js";
 import r_internal_factors_id from "./internal/factors/[id].js";
@@ -856,6 +858,7 @@ export const ROUTES = [
   { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },
   { pattern: "/api/internal/costing/lines/:line_id", handler: r_internal_costing_lines_line_id_index },
+  { pattern: "/api/internal/factor/chargebacks/:id", handler: r_internal_factor_chargebacks_id },
   { pattern: "/api/internal/payments/:id/fx-detail", handler: r_internal_payments_id_fx_detail },
   { pattern: "/api/internal/pim/attribute-defs/:id", handler: r_internal_pim_attribute_defs_id },
   { pattern: "/api/internal/sales-orders/:id/split", handler: r_internal_sales_orders_split },
@@ -1005,6 +1008,7 @@ export const ROUTES = [
   { pattern: "/api/internal/commissions/accrue", handler: r_internal_commissions_accrue },
   { pattern: "/api/internal/commissions/settle", handler: r_internal_commissions_settle },
   { pattern: "/api/internal/costing/add-vendor", handler: r_internal_costing_add_vendor },
+  { pattern: "/api/internal/factor/chargebacks", handler: r_internal_factor_chargebacks_index },
   { pattern: "/api/internal/faire/sync-payouts", handler: r_internal_faire_sync_payouts },
   { pattern: "/api/internal/faire/sync-returns", handler: r_internal_faire_sync_returns },
   { pattern: "/api/internal/pim/attribute-defs", handler: r_internal_pim_attribute_defs_index },

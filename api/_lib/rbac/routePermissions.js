@@ -61,10 +61,13 @@ const SEGMENT_MODULE = {
   "users-access": "users_access",
   "audit": "audit_log",
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",
-  // Factor Module Phase 1 — Rosenthal recon panel (read-only report surface).
-  "factor": "analytics",
+  // Factor Module (Rosenthal). Phase 1 mapped this to analytics (read-only
+  // reports); Phase 2 adds the chargeback dispute PATCH, so the segment moves
+  // to finance_misc (read/write/export) — GETs stay read-gated, the dispute
+  // write is enforceable.
+  "factor": "finance_misc",
   // Drill-through Phase 2 — aging bucket drill + Segment P&L GL drill. Same
-  // read-only report class as scorecards/factor (analytics = read + export).
+  // read-only report class as scorecards (analytics = read + export).
   "ar-aging": "analytics", "ap-aging": "analytics", "segment-pl": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
   "rfqs": "sourcing",

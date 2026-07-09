@@ -1,23 +1,27 @@
 #!/usr/bin/env node
-// Factor Module Phase 1 — import the Rosenthal Capital Group monthly PDFs.
+// Factor Module Phase 1+2 — import the Rosenthal Capital Group monthly PDFs.
 //
 //   node scripts/import-factor-pdfs.mjs <dir-or-pdf> [more paths...] [--dry-run]
 //
-// Accepts directories (scanned for "CLIENT RECAP MM.YYYY.pdf" and
-// "FACTORED- AR DETAILED MM.YYYY.pdf"; "(1)" duplicate downloads are ignored)
-// and/or explicit PDF paths. Text extraction shells out to python+pypdf
-// (`python -m pip install pypdf`); parsing lives in
-// api/_lib/factor/parseFactorPdfText.js (unit-tested with fixtures).
+// Accepts directories (scanned for "CLIENT RECAP MM.YYYY.pdf",
+// "FACTORED- AR DETAILED MM.YYYY.pdf" and "Chargeback Report MM.YY.pdf";
+// "(1)" duplicate downloads are ignored) and/or explicit PDF paths. Text
+// extraction shells out to python+pypdf (`python -m pip install pypdf`);
+// parsing lives in api/_lib/factor/parseFactorPdfText.js (fixture-tested).
 //
 // Idempotent:
 //   • factor_statements    — upsert on statement_month
 //   • factor_ar_open_items — upsert on (as_of_date, item_num)
+//   • factor_chargebacks   — upsert on (report_month, item_num, cb_date,
+//                            batch, amount_cents, dup_seq); dispute columns
+//                            (status/notes/status_history) are NEVER in the
+//                            payload, so re-imports keep operator edits
 //   • factor_customers     — insert-if-missing (never clobbers an operator's
 //                            customer_id link)
 //
 // Each AR-detail load asserts Σ item_balance_cents == the report footer's
-// Net OAR (the parser already enforces this; we re-verify from the DB after
-// the upsert and print the tie-out table).
+// Net OAR; each chargeback load asserts Σ amount_cents == TradeStyle Total
+// (and both are re-verified from the DB after the upsert).
 //
 // Env: VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY from .env.local (PROD).
 
@@ -29,6 +33,8 @@ import { createClient } from "@supabase/supabase-js";
 import {
   parseClientRecap,
   parseArDetail,
+  parseChargebackReport,
+  attachChargebackReasons,
   detectReportType,
 } from "../api/_lib/factor/parseFactorPdfText.js";
 
@@ -82,7 +88,8 @@ function collectPdfPaths(args) {
         // both date shapes; the statement month is ALWAYS taken from the PDF
         // text ("FOR THE MONTH OF …"), never the filename.
         if (/^CLIENT RECAP \d{2}\.\d{2,4}\.pdf$/i.test(name) ||
-            /^FACTORED-? AR DETAILED \d{2}\.\d{2,4}\.pdf$/i.test(name)) {
+            /^FACTORED-? AR DETAILED \d{2}\.\d{2,4}\.pdf$/i.test(name) ||
+            /^CHARGEBACK REPORT \d{2}\.\d{2,4}\.pdf$/i.test(name)) {
           out.push(join(p, name));
         }
       }
@@ -90,7 +97,28 @@ function collectPdfPaths(args) {
       out.push(p);
     }
   }
-  return out.sort();
+  // Dedupe by basename — the same report often exists in two folders (e.g.
+  // Downloads root + the organized Factor folder). First occurrence wins.
+  const seen = new Set();
+  return out.sort().filter((p) => {
+    const b = basename(p).toLowerCase();
+    if (seen.has(b)) return false;
+    seen.add(b);
+    return true;
+  });
+}
+
+// Supabase PostgREST caps every read at max_rows (1000) regardless of
+// .range() — paginate to read a full table slice.
+async function pageAll(query, pageSize = 1000) {
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await query(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    all.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return all;
 }
 
 const fmt = (c) => (c / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -110,6 +138,7 @@ async function main() {
 
   const statements = [];
   const details = [];
+  const chargebacks = [];
   for (const p of pdfs) {
     const text = extractPdfText(p);
     const type = detectReportType(text);
@@ -121,6 +150,11 @@ async function main() {
       const parsed = parseArDetail(text);
       details.push({ ...parsed, source_file: basename(p) });
       console.log(`✓ parsed AR DETAIL as of ${parsed.as_of_date}: ${parsed.items.length} items, Σ balance ${fmt(parsed.totals.net_oar_cents)} (ties to footer)`);
+    } else if (type === "chargeback_report") {
+      const parsed = parseChargebackReport(text);
+      const withReason = attachChargebackReasons(parsed.details, parsed.summary, parsed.reason_codes);
+      chargebacks.push({ ...parsed, source_file: basename(p) });
+      console.log(`✓ parsed CHARGEBACK ${parsed.report_month}: ${parsed.details.length} items, TradeStyle total ${fmt(parsed.tradestyle_total_cents)} (ties), reasons ${withReason}/${parsed.details.length}`);
     } else {
       console.error(`✗ ${basename(p)}: unknown report type — skipped`);
       process.exitCode = 1;
@@ -144,11 +178,28 @@ async function main() {
     }
   }
 
+  // ── Chargeback ↔ recap cross-check: the recap's CHARGEBACKS(-)/CREDITBACKS/
+  //    RECOVERIES equals the NEGATED TradeStyle detail total for the month.
+  const stmtByMonth = new Map(statements.map((s) => [s.statement_month, s]));
+  for (const cb of chargebacks) {
+    const s = stmtByMonth.get(cb.report_month);
+    if (!s) continue; // no statement in this batch — cross-checked in-DB later
+    if (s.chargebacks_net_cents !== -cb.tradestyle_total_cents) {
+      console.error(`✗ ${cb.report_month}: recap chargebacks ${fmt(s.chargebacks_net_cents)} ≠ −TradeStyle total ${fmt(-cb.tradestyle_total_cents)}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`✓ ${cb.report_month}: chargeback detail ties to recap (${fmt(s.chargebacks_net_cents)})`);
+    }
+  }
+
   if (dryRun) { console.log("\n--dry-run: no writes."); return; }
 
   // ── factor_customers: insert any new Rosenthal numbers (never clobber) ──
   const custByNo = new Map();
   for (const d of details) for (const r of d.items) custByNo.set(r.factor_customer_no, r.customer_name);
+  for (const cb of chargebacks) for (const r of cb.details) {
+    if (!custByNo.has(r.factor_customer_no)) custByNo.set(r.factor_customer_no, r.customer_name);
+  }
   if (custByNo.size) {
     const rows = [...custByNo.entries()].map(([factor_customer_no, name]) => ({ factor_customer_no, name }));
     const { error } = await sb.from("factor_customers")
@@ -195,15 +246,68 @@ async function main() {
     console.log(`↑ factor_ar_open_items ${d.as_of_date}: ${rows.length} rows upserted`);
   }
 
+  // ── factor_chargebacks ──
+  // Duplicate business keys inside one report (same item, amount, batch, C/B
+  // date) get a deterministic dup_seq by file order, so re-imports hit the
+  // same rows. Dispute columns (status/notes/status_history/updated_*) are
+  // never in the payload — ON CONFLICT DO UPDATE only touches import columns.
+  for (const cb of chargebacks) {
+    const seq = new Map();
+    const rows = cb.details.map((r) => {
+      const key = `${r.item_num}|${r.cb_date}|${r.batch}|${r.amount_cents}`;
+      const n = (seq.get(key) || 0) + 1;
+      seq.set(key, n);
+      return {
+        report_month: cb.report_month,
+        factor_customer_no: r.factor_customer_no,
+        customer_name: r.customer_name,
+        client_customer: r.client_customer,
+        item_num: r.item_num,
+        item_date: r.item_date,
+        cb_date: r.cb_date,
+        batch: r.batch,
+        amount_cents: r.amount_cents,
+        item_type: r.amount_cents < 0 ? "creditback" : "chargeback",
+        reason: r.reason ?? null,
+        reason_code: r.reason_code ?? null,
+        reference: r.reference ?? null,
+        dup_seq: n,
+        customer_id: customerIdByNo.get(r.factor_customer_no) ?? null,
+        imported_at: new Date().toISOString(),
+        raw: { source_file: cb.source_file },
+      };
+    });
+    const { error } = await sb.from("factor_chargebacks")
+      .upsert(rows, { onConflict: "report_month,item_num,cb_date,batch,amount_cents,dup_seq" });
+    if (error) throw new Error(`factor_chargebacks upsert ${cb.report_month}: ${error.message}`);
+    console.log(`↑ factor_chargebacks ${cb.report_month}: ${rows.length} rows upserted`);
+  }
+
+  // ── Verify chargebacks from the DB: Σ amount per month vs TradeStyle total ──
+  if (chargebacks.length) {
+    console.log("\nChargeback tie-out (DB Σ amount vs report TradeStyle Total):");
+    for (const cb of chargebacks) {
+      const data = await pageAll((from, to) => sb.from("factor_chargebacks")
+        .select("amount_cents")
+        .eq("report_month", cb.report_month)
+        .order("id", { ascending: true })
+        .range(from, to));
+      const sum = data.reduce((a, r) => a + Number(r.amount_cents), 0);
+      const ok = sum === cb.tradestyle_total_cents;
+      if (!ok) process.exitCode = 1;
+      console.log(`  ${cb.report_month}: ${data.length} rows, Σ ${fmt(sum)} vs ${fmt(cb.tradestyle_total_cents)} ${ok ? "✓ TIES" : "✗ MISMATCH"}`);
+    }
+  }
+
   // ── Verify from the DB: Σ item_balance per as_of vs the report footer ──
   console.log("\nTie-out (DB Σ item_balance vs report footer Net OAR):");
   let bad = 0;
   for (const d of details) {
-    const { data, error } = await sb.from("factor_ar_open_items")
+    const data = await pageAll((from, to) => sb.from("factor_ar_open_items")
       .select("item_balance_cents")
       .eq("as_of_date", d.as_of_date)
-      .range(0, 9999);
-    if (error) throw new Error(`verify read ${d.as_of_date}: ${error.message}`);
+      .order("id", { ascending: true })
+      .range(from, to));
     const sum = data.reduce((a, r) => a + Number(r.item_balance_cents), 0);
     const ok = sum === d.totals.net_oar_cents;
     if (!ok) bad += 1;
