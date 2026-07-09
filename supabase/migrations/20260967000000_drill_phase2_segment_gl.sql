@@ -1,4 +1,4 @@
--- 20260966000000_drill_phase2_segment_gl.sql
+-- 20260967000000_drill_phase2_segment_gl.sql
 -- ════════════════════════════════════════════════════════════════════════════
 -- Drill-through Phase 2 — Segment P&L cell → GL account activity.
 --
