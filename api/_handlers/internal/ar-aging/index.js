@@ -131,11 +131,43 @@ export default async function handler(req, res) {
       const { data, error } = await q;
       if (error) return res.status(500).json({ error: error.message });
       rows = collapseAgingByBucket(data || [], "customer_id");
+
+      // The view carries only customer_id — resolve name/code so the panel
+      // (and the Phase 2 bucket drill) can label rows. Chunked .in() lookups.
+      const custIds = [...new Set(rows.map((r) => r.customer_id).filter(Boolean))];
+      const custById = new Map();
+      for (let i = 0; i < custIds.length; i += 200) {
+        const { data: custs, error: custErr } = await admin
+          .from("customers")
+          .select("id, name, code")
+          .in("id", custIds.slice(i, i + 200));
+        if (custErr) return res.status(500).json({ error: custErr.message });
+        for (const c of custs || []) custById.set(c.id, c);
+      }
+      for (const r of rows) {
+        const c = custById.get(r.customer_id);
+        r.customer_name = c?.name || null;
+        r.customer_code = c?.code || null;
+      }
     }
 
-    // Sort by total_open_cents DESC (biggest exposure on top); apply limit.
-    rows.sort((a, b) => Number(b.total_open_cents || 0) - Number(a.total_open_cents || 0));
-    rows = rows.slice(0, v.data.limit);
+    // Sort by open exposure DESC and apply the limit per CUSTOMER (view mode
+    // returns one row per customer × bucket — slicing raw rows would silently
+    // drop buckets and the panel cells would no longer tie to the drill).
+    if (v.data.mode === "as_of") {
+      rows.sort((a, b) => Number(b.total_outstanding_cents || 0) - Number(a.total_outstanding_cents || 0));
+      rows = rows.slice(0, v.data.limit);
+    } else {
+      const totals = new Map();
+      for (const r of rows) {
+        totals.set(r.customer_id, (totals.get(r.customer_id) || 0) + Number(r.outstanding_cents || 0));
+      }
+      const keep = new Set(
+        [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, v.data.limit).map(([id]) => id),
+      );
+      rows = rows.filter((r) => keep.has(r.customer_id));
+      rows.sort((a, b) => (totals.get(b.customer_id) || 0) - (totals.get(a.customer_id) || 0));
+    }
 
     return res.status(200).json({
       mode: v.data.mode,

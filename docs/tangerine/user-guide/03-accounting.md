@@ -797,7 +797,59 @@ QuickBooks-style descent, now wired end to end:
 5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
 6. **Deep link:** `/tangerine?m=journal_entries&je=<id>` opens the Journal Entries panel with that entry's modal already open (one-shot param).
 
-Phase 2 (planned): AR/AP aging bucket drills, Segment P&L cell → GL account activity (the routed revenue accounts make this a direct mapping), bank-recon rows → entries, and scorecard tiles.
+## Drill-through Phase 2 — agings, Segment P&L, bank recon (2026-07-09)
+
+Phase 2 extends the same descent to three more report surfaces:
+
+### AR / AP aging bucket drills
+
+Every amount on **AR Aging** and **AP Aging** is now clickable — a customer × bucket cell, a
+vendor × bucket cell, a row total, or a column total (amounts show a dotted underline on hover).
+Clicking opens the **bucket drill modal**: the open invoices/bills behind that exact number, with
+invoice #, party, dates, **days past due**, total / paid / **open**, and a footer TOTAL that always
+ties to the clicked cell (same bucket math as the report SQL, including the as-of date if you set
+one). From each row:
+
+- **↗** (or double-click) opens the document in the AR / AP Invoices module, filtered to it.
+- **JE** opens the posting journal entry (from there Phase 1 reaches the source document and
+  related entries).
+
+Very large buckets list the first 5,000 documents (earliest due first) and say so — the TOTAL
+still covers everything. The drill is shareable/deep-linkable:
+`/tangerine?m=ar_aging&bucket=61-90&party=<customer id>` (also `m=ap_aging`; `bucket=total` works;
+optional `as_of=YYYY-MM-DD`). The AR panel also now shows the full six SQL buckets (91-120 and
+120+ were previously lumped) — and a long-standing bug where every AR aging amount rendered as
+"—" is fixed.
+
+### Segment P&L cell → GL accounts
+
+On **Segment P&L**, click any **Net Sales**, per-gender break-out, or **COGS** number (segment
+columns and Total; the auto "Other" bucket has no filter definition, so it doesn't drill). The
+modal maps the cell through the **same revenue-routing rules the Xoro bridge posts with**
+(4005-4012 revenue / 50xx COGS twins, private-label = style codes ending "PL") and lists each GL
+account behind the cell:
+
+- **Sub-ledger (this segment)** — the cell's share, ties to the clicked number to the cent.
+- **GL Posted (account net)** — the account's full posted net for the range, exactly what the GL
+  detail shows on the next hop.
+- **Coverage** — *exclusive* means only this cell routes into the account (the two columns should
+  tie once the routed revenue backfill covers the range); *shared* means other segments also post
+  there, so the GL column is a superset by design.
+
+**↗** (or double-click) opens the account's GL detail for the same range (ACCRUAL) — from there
+Phase 1 reaches the journal entries and source documents.
+
+### Bank reconciliation links
+
+On **Bank Reconciliation → Transactions**:
+
+- **Matched** (and auto-posted) rows show a **JE <number>** button → opens the matched journal
+  entry directly.
+- Every row shows **GL ▸** → opens the bank account's GL ledger windowed **±7 days** around the
+  transaction date. For **unmatched** rows this is the "find the counterpart" view: scan nearby
+  ledger activity for the amount, then use **Match**.
+
+Phase 2 still queued: scorecard tiles, AR receipts panel reverse link.
 
 ## Subledger tie-out monitor — the books prove themselves daily (2026-07-08)
 

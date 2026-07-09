@@ -12,15 +12,20 @@
 // Amounts are DOLLARS (the sub-ledger ip_sales_history_* stores dollars), unlike
 // the GL Income Statement which is in cents.
 //
-// Source of record note: the Tangerine GL has no posted sales yet; this reports
-// off the sales sub-ledger (ip_sales_history_wholesale, which holds both wholesale
-// and ecom/DTC rows tagged by channel).
+// Source of record note: this reports off the sales sub-ledger
+// (ip_sales_history_wholesale, which holds both wholesale and ecom/DTC rows
+// tagged by channel). The GL carries the same sales as routed daily bridge JEs.
+//
+// Drill-through Phase 2: Net Sales / gender break-out / COGS cells are
+// clickable → SegmentGLDrillModal maps the cell to the routed GL account(s)
+// behind it (revenueRouting) → GLDetailModal → JE → source document.
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import SegmentGLDrillModal, { type SegmentGLDrillTarget } from "./components/SegmentGLDrillModal";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -118,7 +123,10 @@ function addTo(a: Agg, r: BreakdownRow): void {
 }
 
 // A rendered column: a user segment, the auto "Other" bucket, or the pinned Total.
-type DisplayCol = { key: string; label: string; kind: "seg" | "other" | "total"; agg: Agg; genderAgg: Agg[] };
+// `filter` = the column's dimension filters (Total = empty/all; Other = null —
+// its composition is "whatever no segment matched", which has no filter form,
+// so Other cells don't drill).
+type DisplayCol = { key: string; label: string; kind: "seg" | "other" | "total"; agg: Agg; genderAgg: Agg[]; filter: ColFilter | null };
 
 export default function InternalSegmentPL() {
   const [rows, setRows] = useState<BreakdownRow[]>([]);
@@ -140,6 +148,8 @@ export default function InternalSegmentPL() {
   });
   const [editing, setEditing] = useState<ColFilter | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  // Drill-through Phase 2 — the cell → GL accounts modal.
+  const [glDrill, setGlDrill] = useState<SegmentGLDrillTarget | null>(null);
 
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(columns)); } catch { /* ignore */ } }, [columns]);
 
@@ -216,10 +226,13 @@ export default function InternalSegmentPL() {
 
     const hasOther = otherAgg.net !== 0 || otherAgg.qty !== 0;
     const cols: DisplayCol[] = columns.map((c, i) => ({
-      key: c.id, label: c.label, kind: "seg" as const, agg: segAgg[i], genderAgg: segGen[i],
+      key: c.id, label: c.label, kind: "seg" as const, agg: segAgg[i], genderAgg: segGen[i], filter: c,
     }));
-    if (hasOther) cols.push({ key: "__other", label: "Other", kind: "other", agg: otherAgg, genderAgg: otherGen });
-    cols.push({ key: "__total", label: "Total", kind: "total", agg: totalAgg, genderAgg: totalGen });
+    if (hasOther) cols.push({ key: "__other", label: "Other", kind: "other", agg: otherAgg, genderAgg: otherGen, filter: null });
+    cols.push({
+      key: "__total", label: "Total", kind: "total", agg: totalAgg, genderAgg: totalGen,
+      filter: { id: "__total", label: "Total", brandCodes: [], channels: [], stores: [], genders: [] },
+    });
     return { displayCols: cols, hasOther };
   }, [columns, rows, genders]);
 
@@ -273,15 +286,42 @@ export default function InternalSegmentPL() {
     ...(kind === "other" ? { fontStyle: "italic", color: C.textMuted } : {}),
   });
 
-  function measureRow(label: string, fn: (a: Agg) => number | null, fmt: (v: number | null) => string, opts?: { bold?: boolean; color?: (v: number | null) => string }) {
+  // Open the GL drill for one cell. `gender` narrows a gender break-out row.
+  function openCellDrill(c: DisplayCol, measure: "net_sales" | "cogs", measureLabel: string, gender?: string) {
+    if (!c.filter) return; // "Other" has no filter form — not drillable
+    setGlDrill({
+      colLabel: c.label,
+      measure,
+      measureLabel,
+      from,
+      to,
+      filters: {
+        brands: c.filter.brandCodes,
+        channels: c.filter.channels,
+        stores: c.filter.stores,
+        genders: gender ? [gender] : c.filter.genders,
+      },
+    });
+  }
+
+  function measureRow(label: string, fn: (a: Agg) => number | null, fmt: (v: number | null) => string, opts?: { bold?: boolean; color?: (v: number | null) => string; drill?: "net_sales" | "cogs" }) {
     return (
       <tr>
         <td style={{ ...labelCell, fontWeight: opts?.bold ? 700 : 400, color: opts?.bold ? C.text : C.textSub }}>{label}</td>
         {displayCols.map((c) => {
           const v = fn(c.agg);
           const col = opts?.color ? opts.color(v) : (c.kind === "other" ? C.textMuted : C.text);
+          const drillable = !!opts?.drill && !!c.filter && v != null && v !== 0;
           return (
-            <td key={c.key} style={colCellStyle(c.kind, { ...numCell, fontWeight: opts?.bold || c.kind === "total" ? 700 : 400, color: col })}>
+            <td
+              key={c.key}
+              style={colCellStyle(c.kind, {
+                ...numCell, fontWeight: opts?.bold || c.kind === "total" ? 700 : 400, color: col,
+                ...(drillable ? { cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 } : {}),
+              })}
+              onClick={drillable ? () => openCellDrill(c, opts!.drill!, label) : undefined}
+              title={drillable ? "Show the GL accounts behind this number" : undefined}
+            >
               {fmt(v)}
             </td>
           );
@@ -365,16 +405,30 @@ export default function InternalSegmentPL() {
               </tr>
             </thead>
             <tbody>
-              {measureRow("Net Sales", (a) => a.net, money, { bold: true })}
+              {measureRow("Net Sales", (a) => a.net, money, { bold: true, drill: "net_sales" })}
               {byGender && genders.map((g, gi) => (
                 <tr key={`g-${g}`}>
                   <td style={{ ...labelCell, paddingLeft: 28, color: C.textMuted, fontStyle: "italic" }}>{genderLabel(g)}</td>
-                  {displayCols.map((c) => (
-                    <td key={c.key} style={colCellStyle(c.kind, { ...numCell, color: C.textSub })}>{money(c.genderAgg[gi]?.net ?? 0)}</td>
-                  ))}
+                  {displayCols.map((c) => {
+                    const v = c.genderAgg[gi]?.net ?? 0;
+                    const drillable = !!c.filter && v !== 0;
+                    return (
+                      <td
+                        key={c.key}
+                        style={colCellStyle(c.kind, {
+                          ...numCell, color: C.textSub,
+                          ...(drillable ? { cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 } : {}),
+                        })}
+                        onClick={drillable ? () => openCellDrill(c, "net_sales", `Net Sales — ${genderLabel(g)}`, g) : undefined}
+                        title={drillable ? "Show the GL accounts behind this number" : undefined}
+                      >
+                        {money(v)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
-              {measureRow("COGS", (a) => (a.cogsKnown ? a.cogs : null), money)}
+              {measureRow("COGS", (a) => (a.cogsKnown ? a.cogs : null), money, { drill: "cogs" })}
               {measureRow("Gross Margin", gm, money, { bold: true, color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
               {measureRow("Gross Margin %", gmPct, pct, { color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
               {measureRow("Units", (a) => a.qty, (v) => (v == null ? "—" : Math.round(v).toLocaleString("en-US")))}
@@ -388,8 +442,11 @@ export default function InternalSegmentPL() {
         MPL brands, "ROF DTC" = brand ROF + channel DTC. Empty filter = all values. <strong>Drag the chips
         to reorder.</strong> Each sale counts in the <em>first</em> matching column (left → right), and any
         sale not captured by your columns falls into <strong>Other</strong> — so the columns always sum to
-        <strong> Total</strong>. COGS/margin are blank where the source has no cost.
+        <strong> Total</strong>. COGS/margin are blank where the source has no cost. Click a Net Sales or
+        COGS number to see the GL accounts behind it and walk down to the journal entries.
       </div>
+
+      {glDrill && <SegmentGLDrillModal target={glDrill} onClose={() => setGlDrill(null)} />}
 
       {editing && (
         <ColumnEditor

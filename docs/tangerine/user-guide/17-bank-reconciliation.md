@@ -33,6 +33,18 @@ flowchart LR
     Unmatched -->|Plaid removed_transactions| Reversed
 ```
 
+## Drill-through links (Phase 2, 2026-07-09)
+
+Every transaction row now walks into the books directly:
+
+- **Matched / auto-posted rows** show a **JE <number>** button — opens the linked journal entry
+  in the shared entry modal (from there: source document, sibling / reversal links — the Phase 1
+  chain).
+- **Every row** (with a GL-linked bank account) shows **GL ▸** — opens the bank account's GL
+  detail windowed **±7 days around the transaction date**. For **unmatched** rows this is the
+  "find the counterpart" view: scan the nearby ledger activity for the amount, then use
+  **Match** to link it.
+
 ## Plaid linking
 
 1. Sign up at plaid.com → grab `PLAID_CLIENT_ID` + `PLAID_SECRET` + `PLAID_ENV` (`sandbox` first, then `production`).

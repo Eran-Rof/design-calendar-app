@@ -3,10 +3,18 @@
 // Tangerine P7-7 — AP Aging admin panel (Reports menu group).
 // Reads /api/internal/ap-aging. Mirrors InternalARAging structure: as-of date
 // picker, vendor filter, color-coded buckets (current/1-30/31-60/61-90/91+).
+//
+// Drill-through Phase 2: every bucket cell, row total, and column total is
+// clickable → AgingDrillModal lists the open vendor bills behind the number,
+// each linking on to the bill and its JE. Deep-linkable:
+//   ?m=ap_aging&bucket=<key>[&party=<vendor_id>][&as_of=YYYY-MM-DD]
+// (one-shot — consumed on mount, kept in sync while a drill is open).
 
 import { useEffect, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import AgingDrillModal, { type AgingDrillTarget } from "./components/AgingDrillModal";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 
 const TABLE_KEY = "tanda.ap_aging";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -18,6 +26,15 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "b91_plus", label: "91+" },
   { key: "total",    label: "Total Open" },
 ];
+
+// Bucket keys AS THE API KNOWS THEM (ap-aging/detail ?bucket=).
+const BUCKETS = [
+  { key: "current", label: "Current",    col: "current" },
+  { key: "1-30",    label: "1-30 days",  col: "b1_30" },
+  { key: "31-60",   label: "31-60 days", col: "b31_60" },
+  { key: "61-90",   label: "61-90 days", col: "b61_90" },
+  { key: "91+",     label: "91+ days",   col: "b91_plus" },
+] as const;
 
 type AgingRow = {
   entity_id?: string;
@@ -55,7 +72,7 @@ const C = {
   primary: "#3B82F6",
 };
 
-const BUCKET_COLOR = {
+const BUCKET_COLOR: Record<string, string> = {
   current:  C.textSub,
   b1_30:    "#FACC15",
   b31_60:   "#FB923C",
@@ -143,14 +160,39 @@ function rpcRowsToPivot(rows: AgingRow[]): PivotRow[] {
   }));
 }
 
+// Keep the URL shareable while a drill is open (replaceState — no history spam).
+function syncDrillUrl(t: AgingDrillTarget | null): void {
+  const url = new URL(window.location.href);
+  for (const k of ["bucket", "party"]) url.searchParams.delete(k);
+  if (t) {
+    url.searchParams.set("bucket", t.bucket);
+    if (t.partyId) url.searchParams.set("party", t.partyId);
+  }
+  window.history.replaceState(window.history.state, "", url.toString());
+}
+
 export default function InternalAPAging() {
   const [pivot, setPivot] = useState<PivotRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [asOf, setAsOf] = useState<string>(todayISO());
+  const [asOf, setAsOf] = useState<string>(() => readDrillParam("as_of") || todayISO());
   const [vendorFilter, setVendorFilter] = useState<string>("");
   const [mode, setMode] = useState<string>("current");
+  const [drill, setDrillState] = useState<AgingDrillTarget | null>(null);
+  // One-shot deep link: ?bucket=<key>[&party=<vendor_id>] opens the drill.
+  const [pendingDeepLink, setPendingDeepLink] = useState<{ bucket: string; party: string } | null>(() => {
+    const bucket = readDrillParam("bucket");
+    if (!bucket) return null;
+    return { bucket, party: readDrillParam("party") };
+  });
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
+  useEffect(() => { consumeDrillParams(["bucket", "party", "as_of"]); }, []);
+
+  function setDrill(t: AgingDrillTarget | null) {
+    setDrillState(t);
+    syncDrillUrl(t);
+  }
 
   async function load() {
     setLoading(true);
@@ -171,7 +213,26 @@ export default function InternalAPAging() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Deep link fires once the grid has loaded (so party labels resolve).
+  useEffect(() => {
+    if (!pendingDeepLink || loading) return;
+    const { bucket, party } = pendingDeepLink;
+    setPendingDeepLink(null);
+    const b = BUCKETS.find((x) => x.key === bucket) || (bucket === "total" ? { key: "total" as const, label: "Total Open" } : null);
+    if (!b) return;
+    const row = party ? pivot.find((r) => r.vendor_id === party) : null;
+    setDrill({
+      kind: "ap",
+      bucket: b.key,
+      bucketLabel: b.label,
+      asOf: asOf !== todayISO() ? asOf : null,
+      partyId: party || null,
+      partyLabel: row ? (row.vendor_name || row.vendor_code) : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDeepLink, loading]);
 
   const filtered = vendorFilter.trim()
     ? pivot.filter((r) =>
@@ -193,11 +254,29 @@ export default function InternalAPAging() {
     { current: 0, b1_30: 0, b31_60: 0, b61_90: 0, b91_plus: 0, total: 0 },
   );
 
+  const drillAsOf = asOf !== todayISO() ? asOf : null;
+
+  function openDrill(bucketKey: string, bucketLabel: string, row: PivotRow | null) {
+    setDrill({
+      kind: "ap",
+      bucket: bucketKey,
+      bucketLabel,
+      asOf: drillAsOf,
+      partyId: row ? row.vendor_id : null,
+      partyLabel: row ? (row.vendor_name || row.vendor_code) : null,
+    });
+  }
+
+  const clickableNum = (v: number): React.CSSProperties =>
+    v !== 0 ? { cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 } : {};
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>AP Aging</h2>
-        <div style={{ fontSize: 11, color: C.textMuted }}>mode: <strong>{mode}</strong></div>
+        <div style={{ fontSize: 11, color: C.textMuted }}>
+          mode: <strong>{mode}</strong> · click any amount to see the bills behind it
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -259,11 +338,9 @@ export default function InternalAPAging() {
             <thead>
               <tr>
                 <th style={th} hidden={!visibleColumns.has("vendor")}>Vendor</th>
-                <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("current")}>Current</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b1_30 }} hidden={!visibleColumns.has("b1_30")}>1-30</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b31_60 }} hidden={!visibleColumns.has("b31_60")}>31-60</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b61_90 }} hidden={!visibleColumns.has("b61_90")}>61-90</th>
-                <th style={{ ...th, textAlign: "right", color: BUCKET_COLOR.b91_plus }} hidden={!visibleColumns.has("b91_plus")}>91+</th>
+                {BUCKETS.map((b) => (
+                  <th key={b.col} style={{ ...th, textAlign: "right", color: BUCKET_COLOR[b.col] }} hidden={!visibleColumns.has(b.col)}>{b.label.replace(" days", "")}</th>
+                ))}
                 <th style={{ ...th, textAlign: "right" }} hidden={!visibleColumns.has("total")}>Total Open</th>
               </tr>
             </thead>
@@ -276,29 +353,63 @@ export default function InternalAPAging() {
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>({r.vendor_code})</span>
                     )}
                   </td>
-                  <td style={tdNum} hidden={!visibleColumns.has("current")}>{fmtCents(r.current)}</td>
-                  <td style={{ ...tdNum, color: r.b1_30    > 0 ? BUCKET_COLOR.b1_30    : C.textMuted }} hidden={!visibleColumns.has("b1_30")}>{fmtCents(r.b1_30)}</td>
-                  <td style={{ ...tdNum, color: r.b31_60   > 0 ? BUCKET_COLOR.b31_60   : C.textMuted }} hidden={!visibleColumns.has("b31_60")}>{fmtCents(r.b31_60)}</td>
-                  <td style={{ ...tdNum, color: r.b61_90   > 0 ? BUCKET_COLOR.b61_90   : C.textMuted }} hidden={!visibleColumns.has("b61_90")}>{fmtCents(r.b61_90)}</td>
-                  <td style={{ ...tdNum, color: r.b91_plus > 0 ? BUCKET_COLOR.b91_plus : C.textMuted, fontWeight: r.b91_plus > 0 ? 700 : 400 }} hidden={!visibleColumns.has("b91_plus")}>{fmtCents(r.b91_plus)}</td>
-                  <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(r.total)}</td>
+                  {BUCKETS.map((b) => {
+                    const v = r[b.col as keyof PivotRow] as number;
+                    return (
+                      <td
+                        key={b.col}
+                        style={{ ...tdNum, color: v > 0 ? BUCKET_COLOR[b.col] : C.textMuted, ...clickableNum(v) }}
+                        hidden={!visibleColumns.has(b.col)}
+                        onClick={v !== 0 ? () => openDrill(b.key, b.label, r) : undefined}
+                        title={v !== 0 ? "Show the open bills behind this amount" : undefined}
+                      >
+                        {fmtCents(v)}
+                      </td>
+                    );
+                  })}
+                  <td
+                    style={{ ...tdNum, fontWeight: 700, ...clickableNum(r.total) }}
+                    hidden={!visibleColumns.has("total")}
+                    onClick={r.total !== 0 ? () => openDrill("total", "Total Open", r) : undefined}
+                    title={r.total !== 0 ? "Show all open bills for this vendor" : undefined}
+                  >
+                    {fmtCents(r.total)}
+                  </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: "#111827" }}>
                 <td style={{ ...td, fontWeight: 700, color: C.textSub }} hidden={!visibleColumns.has("vendor")}>TOTAL ({filtered.length})</td>
-                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("current")}>{fmtCents(totals.current)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b1_30 }} hidden={!visibleColumns.has("b1_30")}>{fmtCents(totals.b1_30)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b31_60 }} hidden={!visibleColumns.has("b31_60")}>{fmtCents(totals.b31_60)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b61_90 }} hidden={!visibleColumns.has("b61_90")}>{fmtCents(totals.b61_90)}</td>
-                <td style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR.b91_plus }} hidden={!visibleColumns.has("b91_plus")}>{fmtCents(totals.b91_plus)}</td>
-                <td style={{ ...tdNum, fontWeight: 700 }} hidden={!visibleColumns.has("total")}>{fmtCents(totals.total)}</td>
+                {BUCKETS.map((b) => {
+                  const v = totals[b.col as keyof typeof totals];
+                  return (
+                    <td
+                      key={b.col}
+                      style={{ ...tdNum, fontWeight: 700, color: BUCKET_COLOR[b.col], ...clickableNum(v) }}
+                      hidden={!visibleColumns.has(b.col)}
+                      onClick={v !== 0 ? () => openDrill(b.key, b.label, null) : undefined}
+                      title={v !== 0 ? "Show all open bills in this bucket" : undefined}
+                    >
+                      {fmtCents(v)}
+                    </td>
+                  );
+                })}
+                <td
+                  style={{ ...tdNum, fontWeight: 700, ...clickableNum(totals.total) }}
+                  hidden={!visibleColumns.has("total")}
+                  onClick={totals.total !== 0 ? () => openDrill("total", "Total Open", null) : undefined}
+                  title={totals.total !== 0 ? "Show every open bill" : undefined}
+                >
+                  {fmtCents(totals.total)}
+                </td>
               </tr>
             </tfoot>
           </table>
         )}
       </div>
+
+      {drill && <AgingDrillModal target={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }

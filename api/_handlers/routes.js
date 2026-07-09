@@ -95,6 +95,7 @@ import r_internal_analytics_spend from "./internal/analytics/spend.js";
 import r_internal_analytics_sustainability_trend from "./internal/analytics/sustainability-trend.js";
 import r_internal_anomalies_id from "./internal/anomalies/[id].js";
 import r_internal_anomalies_index from "./internal/anomalies/index.js";
+import r_internal_ap_aging_detail from "./internal/ap-aging/detail.js";
 import r_internal_ap_aging_index from "./internal/ap-aging/index.js";
 import r_internal_ap_backfill_run from "./internal/ap-backfill/run.js";
 import r_internal_ap_invoices_id from "./internal/ap-invoices/[id].js";
@@ -111,6 +112,7 @@ import r_internal_approval_requests_decide from "./internal/approval-requests/de
 import r_internal_approval_requests_index from "./internal/approval-requests/index.js";
 import r_internal_approval_rules_id from "./internal/approval-rules/[id].js";
 import r_internal_approval_rules_index from "./internal/approval-rules/index.js";
+import r_internal_ar_aging_detail from "./internal/ar-aging/detail.js";
 import r_internal_ar_aging_index from "./internal/ar-aging/index.js";
 import r_internal_ar_backfill_run from "./internal/ar-backfill/run.js";
 import r_internal_ar_backfill_status from "./internal/ar-backfill/status.js";
@@ -488,6 +490,7 @@ import r_internal_scorecards_index from "./internal/scorecards/index.js";
 import r_internal_search_index from "./internal/search/index.js";
 import r_internal_seasons_id from "./internal/seasons/[id].js";
 import r_internal_seasons_index from "./internal/seasons/index.js";
+import r_internal_segment_pl_gl_drill from "./internal/segment-pl/gl-drill.js";
 import r_internal_segment_pl_index from "./internal/segment-pl/index.js";
 import r_internal_service_items_id from "./internal/service-items/[id].js";
 import r_internal_service_items_index from "./internal/service-items/index.js";
@@ -989,6 +992,7 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-inventory", handler: r_internal_recon_run_inventory },
   { pattern: "/api/internal/rfqs/messages-inbox", handler: r_internal_rfqs_messages_inbox_index },
   { pattern: "/api/internal/scorecards/generate", handler: r_internal_scorecards_generate },
+  { pattern: "/api/internal/segment-pl/gl-drill", handler: r_internal_segment_pl_gl_drill },
   { pattern: "/api/internal/walmart/sync-orders", handler: r_internal_walmart_sync_orders },
   { pattern: "/api/vendor/marketplace/inquiries", handler: r_vendor_marketplace_inquiries_index },
   { pattern: "/api/vendor/messages/unread-count", handler: r_vendor_messages_unread_count },
@@ -1027,7 +1031,9 @@ export const ROUTES = [
   { pattern: "/api/vendor/compliance/summary", handler: r_vendor_compliance_summary },
   { pattern: "/api/internal/ai/suggest-iso2", handler: r_internal_ai_suggest_iso2 },
   { pattern: "/api/internal/analytics/spend", handler: r_internal_analytics_spend },
+  { pattern: "/api/internal/ap-aging/detail", handler: r_internal_ap_aging_detail },
   { pattern: "/api/internal/ap-backfill/run", handler: r_internal_ap_backfill_run },
+  { pattern: "/api/internal/ar-aging/detail", handler: r_internal_ar_aging_detail },
   { pattern: "/api/internal/ar-backfill/run", handler: r_internal_ar_backfill_run },
   { pattern: "/api/internal/fba/sync-orders", handler: r_internal_fba_sync_orders },
   { pattern: "/api/internal/pricing/resolve", handler: r_internal_pricing_resolve },
