@@ -738,4 +738,6 @@ export default [
   ["/api/cron/subledger-tieout"                              , "./cron/subledger-tieout.js"],
   ["/api/internal/factor/statements"                         , "./internal/factor/statements.js"],
   ["/api/internal/factor/open-items"                         , "./internal/factor/open-items.js"],
+  ["/api/internal/factor/chargebacks"                        , "./internal/factor/chargebacks/index.js"],
+  ["/api/internal/factor/chargebacks/:id"                    , "./internal/factor/chargebacks/[id].js"],
 ];

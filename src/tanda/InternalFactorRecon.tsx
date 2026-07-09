@@ -363,6 +363,293 @@ function MonthDetailModal({ statement, onClose }: { statement: StatementRow; onC
   );
 }
 
+// ── Chargebacks tab (Phase 2) ────────────────────────────────────────────────
+
+type ChargebackRow = {
+  id: string;
+  report_month: string;
+  factor_customer_no: string;
+  customer_name: string;
+  client_customer: string | null;
+  item_num: string;
+  item_date: string | null;
+  cb_date: string;
+  batch: string;
+  amount_cents: number | string;
+  item_type: string; // chargeback | creditback
+  reason: string | null;
+  reason_code: string | null;
+  reference: string | null;
+  status: string;
+  notes: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+};
+
+const CB_STATUSES = ["new", "under_review", "disputed", "accepted", "recovered"] as const;
+const CB_STATUS_LABEL: Record<string, string> = {
+  new: "New", under_review: "Under review", disputed: "Disputed",
+  accepted: "Accepted", recovered: "Recovered",
+};
+
+const selectDark: React.CSSProperties = {
+  background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
+  padding: "3px 6px", borderRadius: 4, fontSize: 12, colorScheme: "dark",
+};
+
+const CB_EXPORT_COLUMNS = [
+  { key: "month_label",        header: "Month" },
+  { key: "customer_name",      header: "Customer" },
+  { key: "factor_customer_no", header: "Rosenthal #" },
+  { key: "client_customer",    header: "Client Customer" },
+  { key: "item_num",           header: "Item / Invoice" },
+  { key: "item_date_us",       header: "Item Date" },
+  { key: "cb_date_us",         header: "C/B Date" },
+  { key: "batch",              header: "Batch" },
+  { key: "item_type",          header: "Type" },
+  { key: "reason",             header: "Reason" },
+  { key: "reason_code",        header: "Code" },
+  { key: "amount_cents",       header: "Amount", format: "currency_cents" },
+  { key: "status_label",       header: "Status" },
+  { key: "notes",              header: "Notes" },
+] as ExportColumn<Record<string, unknown>>[];
+
+function ChargebacksTab() {
+  const [rows, setRows] = useState<ChargebackRow[]>([]);
+  const [months, setMonths] = useState<string[]>([]);
+  const [month, setMonth] = useState<string | null>(null); // YYYY-MM-01
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const seqGuard = useSeqGuard();
+
+  async function load(monthKey?: string | null) {
+    const seq = seqGuard.begin();
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      if (monthKey) params.set("month", monthKey.slice(0, 7));
+      const r = await fetch(`/api/internal/factor/chargebacks${params.size ? `?${params}` : ""}`);
+      if (!r.ok) {
+        const detail = await r.json().catch(() => ({}));
+        throw new Error(detail.error || `HTTP ${r.status}`);
+      }
+      const data = await r.json();
+      if (!seqGuard.isCurrent(seq)) return;
+      setRows(data.rows || []);
+      setMonths(data.months || []);
+      setMonth(data.month || null);
+      setExpanded({});
+      setNoteDrafts({});
+    } catch (e: unknown) {
+      if (seqGuard.isCurrent(seq)) { setErr(e instanceof Error ? e.message : String(e)); setRows([]); }
+    } finally {
+      if (seqGuard.isCurrent(seq)) setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function patchRow(id: string, patch: { status?: string; notes?: string | null }) {
+    setSaving((p) => ({ ...p, [id]: true }));
+    try {
+      const r = await fetch(`/api/internal/factor/chargebacks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!r.ok) {
+        const detail = await r.json().catch(() => ({}));
+        throw new Error(detail.error || `HTTP ${r.status}`);
+      }
+      const updated = await r.json();
+      setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...updated } : row)));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving((p) => ({ ...p, [id]: false }));
+    }
+  }
+
+  const visible = statusFilter ? rows.filter((r) => r.status === statusFilter) : rows;
+
+  // Group by customer, preserving server order (customer_name ASC).
+  const groups: Array<{ no: string; name: string; rows: ChargebackRow[] }> = [];
+  for (const r of visible) {
+    const last = groups[groups.length - 1];
+    if (last && last.no === r.factor_customer_no) last.rows.push(r);
+    else groups.push({ no: r.factor_customer_no, name: r.customer_name, rows: [r] });
+  }
+  const totalNet = visible.reduce((a, r) => a + Number(r.amount_cents || 0), 0);
+  const totalCb = visible.reduce((a, r) => a + Math.max(0, Number(r.amount_cents || 0)), 0);
+  const totalCr = visible.reduce((a, r) => a + Math.min(0, Number(r.amount_cents || 0)), 0);
+
+  const exportRows = visible.map((r) => ({
+    ...r,
+    month_label: fmtMonth(r.report_month),
+    item_date_us: fmtDate(r.item_date),
+    cb_date_us: fmtDate(r.cb_date),
+    status_label: CB_STATUS_LABEL[r.status] || r.status,
+  })) as unknown as Array<Record<string, unknown>>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Month
+          <select
+            value={month || ""}
+            onChange={(e) => void load(e.target.value)}
+            style={{ ...selectDark, padding: "6px 10px", fontSize: 13 }}
+          >
+            {months.map((m) => (
+              <option key={m} value={m}>{fmtMonth(m)}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Status
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{ ...selectDark, padding: "6px 10px", fontSize: 13 }}
+          >
+            <option value="">All</option>
+            {CB_STATUSES.map((s) => <option key={s} value={s}>{CB_STATUS_LABEL[s]}</option>)}
+          </select>
+        </label>
+        <div style={{ flex: 1 }} />
+        <div style={{ fontSize: 12, color: C.textSub, display: "flex", gap: 16 }}>
+          <span>Chargebacks: <strong style={{ color: C.warn }}>{fmtCents(totalCb)}</strong></span>
+          <span>Creditbacks: <strong style={{ color: C.success }}>{fmtCents(totalCr)}</strong></span>
+          <span>Net: <strong>{fmtCents(totalNet)}</strong></span>
+        </div>
+        <ExportButton
+          rows={exportRows}
+          filename={`factor-chargebacks-${month ? month.slice(0, 7) : "all"}`}
+          sheetName="Chargebacks"
+          columns={CB_EXPORT_COLUMNS}
+        />
+      </div>
+
+      {err && (
+        <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
+          Error: {err}
+        </div>
+      )}
+
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: "calc(100vh - 260px)", overflow: "auto" }}>
+        {loading ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+        ) : visible.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
+            No chargeback rows{statusFilter ? ` with status "${CB_STATUS_LABEL[statusFilter]}"` : ""} for this month.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={th}>Customer / Item</th>
+                <th style={th}>Item Date</th>
+                <th style={th}>C/B Date</th>
+                <th style={th}>Batch</th>
+                <th style={th}>Reason</th>
+                <th style={thNum}>Amount</th>
+                <th style={th}>Status</th>
+                <th style={th}>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => {
+                const net = g.rows.reduce((a, r) => a + Number(r.amount_cents || 0), 0);
+                const nOpen = g.rows.filter((r) => r.status !== "accepted" && r.status !== "recovered").length;
+                const isOpen = !!expanded[g.no];
+                return (
+                  <React.Fragment key={g.no}>
+                    <tr
+                      onClick={() => setExpanded((p) => ({ ...p, [g.no]: !p[g.no] }))}
+                      style={{ background: C.groupHeaderBg, cursor: "pointer" }}
+                      title={isOpen ? "Collapse" : "Expand items"}
+                    >
+                      <td style={{ ...td, fontWeight: 700 }} colSpan={4}>
+                        {isOpen ? "▾" : "▸"} {g.name}{" "}
+                        <span style={{ color: C.textMuted, fontWeight: 400 }}>
+                          (Rosenthal #{g.no} • {g.rows.length} item{g.rows.length === 1 ? "" : "s"} • {nOpen} open)
+                        </span>
+                      </td>
+                      <td style={td} />
+                      <td style={{ ...tdNum, fontWeight: 700, color: net < 0 ? C.success : C.warn }}>{fmtCents(net)}</td>
+                      <td style={td} colSpan={2} />
+                    </tr>
+                    {isOpen && g.rows.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ ...td, paddingLeft: 28, fontFamily: "monospace", color: C.textSub }}>
+                          {r.item_num}
+                          {r.client_customer && <span style={{ marginLeft: 6, color: C.textMuted, fontSize: 10, fontFamily: "inherit" }}>({r.client_customer})</span>}
+                        </td>
+                        <td style={td}>{fmtDate(r.item_date)}</td>
+                        <td style={td}>{fmtDate(r.cb_date)}</td>
+                        <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.batch || "—"}</td>
+                        <td style={{ ...td, fontSize: 12, whiteSpace: "normal", maxWidth: 220 }}>
+                          {r.reason ? <>{r.reason}{r.reason_code && <span style={{ color: C.textMuted }}> ({r.reason_code})</span>}</> : <span style={{ color: C.textMuted }}>—</span>}
+                        </td>
+                        <td style={{ ...tdNum, color: Number(r.amount_cents) < 0 ? C.success : C.warn }}>{fmtCents(r.amount_cents)}</td>
+                        <td style={td}>
+                          <select
+                            value={r.status}
+                            disabled={!!saving[r.id]}
+                            onChange={(e) => void patchRow(r.id, { status: e.target.value })}
+                            style={selectDark}
+                            title={r.updated_by ? `Last updated by ${r.updated_by}` : undefined}
+                          >
+                            {CB_STATUSES.map((s) => <option key={s} value={s}>{CB_STATUS_LABEL[s]}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ ...td, minWidth: 180 }}>
+                          <input
+                            type="text"
+                            value={noteDrafts[r.id] ?? r.notes ?? ""}
+                            placeholder="Add note…"
+                            disabled={!!saving[r.id]}
+                            onChange={(e) => setNoteDrafts((p) => ({ ...p, [r.id]: e.target.value }))}
+                            onBlur={(e) => {
+                              const v = e.target.value.trim();
+                              if (v !== (r.notes ?? "")) void patchRow(r.id, { notes: v || null });
+                            }}
+                            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                            style={{ ...selectDark, width: "100%", padding: "3px 8px" }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: C.totalBg }}>
+                <td style={{ ...td, fontWeight: 700 }} colSpan={5}>
+                  NET {month ? fmtMonth(month) : ""} ({visible.length} items) — ties to the statement chargeback line (negated)
+                </td>
+                <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totalNet)}</td>
+                <td style={td} colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>
+        Positive = chargeback (deduction taken by the customer); negative = creditback / recovery. Reasons come from Rosenthal's summary section — merged entries can't always be attributed per item. Status and notes are yours; re-imports never overwrite them.
+      </div>
+    </div>
+  );
+}
+
 // ── Main panel ───────────────────────────────────────────────────────────────
 
 export default function InternalFactorRecon() {
@@ -394,28 +681,56 @@ export default function InternalFactorRecon() {
 
   useEffect(() => { void load(); }, []);
 
+  const [tab, setTab] = useState<"statements" | "chargebacks">("statements");
+
   const exportRows = rows.map((r) => ({ ...r, month_label: fmtMonth(r.statement_month) })) as unknown as Array<Record<string, unknown>>;
+
+  const tabBtn = (key: "statements" | "chargebacks", label: string) => (
+    <button
+      onClick={() => setTab(key)}
+      style={{
+        background: tab === key ? C.primary : "transparent",
+        color: tab === key ? "white" : C.textSub,
+        border: `1px solid ${tab === key ? C.primary : C.cardBdr}`,
+        padding: "6px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
+      }}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>Factor (Rosenthal)</h2>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={() => void load()}
-            disabled={loading}
-            style={{ background: C.primary, color: "white", border: `1px solid ${C.primary}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
-          <ExportButton
-            rows={exportRows}
-            filename="factor-statements-rosenthal"
-            sheetName="Factor Statements"
-            columns={STATEMENT_EXPORT_COLUMNS}
-          />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+        <div style={{ display: "flex", gap: 16, alignItems: "baseline" }}>
+          <h2 style={{ margin: 0, fontSize: 22 }}>Factor (Rosenthal)</h2>
+          <div style={{ display: "flex", gap: 6 }}>
+            {tabBtn("statements", "Statements")}
+            {tabBtn("chargebacks", "Chargebacks")}
+          </div>
         </div>
+        {tab === "statements" && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={() => void load()}
+              disabled={loading}
+              style={{ background: C.primary, color: "white", border: `1px solid ${C.primary}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+            >
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+            <ExportButton
+              rows={exportRows}
+              filename="factor-statements-rosenthal"
+              sheetName="Factor Statements"
+              columns={STATEMENT_EXPORT_COLUMNS}
+            />
+          </div>
+        )}
       </div>
+
+      {tab === "chargebacks" && <ChargebacksTab />}
+
+      {tab === "statements" && <>
       <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>
         Monthly CLIENT RECAP economics from Rosenthal Capital Group. Click a month to open the month-end open-AR detail and the GL 1107 tie-out.
       </div>
@@ -489,6 +804,7 @@ export default function InternalFactorRecon() {
       )}
 
       {drill && <MonthDetailModal statement={drill} onClose={() => setDrill(null)} />}
+      </>}
     </div>
   );
 }
