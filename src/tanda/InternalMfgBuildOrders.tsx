@@ -773,7 +773,10 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
   // services are NOT capitalized manually and the build completes via that
   // receipt (not the manual Complete button). Procurement mode = document only.
   const capMode = build?.conversion_po_mode === "capitalize";
-  const allServicesCapitalized = (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
+  // In capitalize mode the CMT is capitalized into WIP automatically at finished-
+  // goods receipt (completeBuildFromReceipt posts mfg_cmt_accrued), so there are
+  // no manual service-capitalization steps — treat all services as capitalized.
+  const allServicesCapitalized = capMode || (build?.components || []).filter((c) => c.component_kind === "service").every((c) => c.service_capitalized);
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
