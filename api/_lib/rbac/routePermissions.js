@@ -66,6 +66,9 @@ const SEGMENT_MODULE = {
   // to finance_misc (read/write/export) — GETs stay read-gated, the dispute
   // write is enforceable.
   "factor": "finance_misc",
+  // Drill-through Phase 2 — aging bucket drill + Segment P&L GL drill. Same
+  // read-only report class as scorecards (analytics = read + export).
+  "ar-aging": "analytics", "ap-aging": "analytics", "segment-pl": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
   "rfqs": "sourcing",
   "tax": "finance_misc", "scf": "finance_misc", "virtual-cards": "finance_misc",

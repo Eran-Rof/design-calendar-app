@@ -4,6 +4,13 @@
 // Query: ?bank_account_id, ?status (unmatched|matched|...|all),
 //        ?from=YYYY-MM-DD, ?to=YYYY-MM-DD, ?limit=N (default 200, max 1000)
 //
+// Drill-through Phase 2: each row also carries
+//   • bank_accounts.gl_account_id + gl_accounts(code, name) — so the UI can
+//     open a filtered GL-detail window for the txn's bank GL account, and
+//   • matched_je { id, je_number, description, status } resolved from
+//     matched_je_line_id — so matched / manual_je_created rows jump straight
+//     to the journal entry (Phase 1 JEDetailModal).
+//
 // Tangerine P6-5.
 
 import { createClient } from "@supabase/supabase-js";
@@ -91,7 +98,7 @@ export default async function handler(req, res) {
       "id, bank_account_id, source, external_txn_id, posted_date, amount_cents, " +
       "description, merchant_name, pending, status, matched_je_line_id, matched_at, " +
       "match_confidence, notes, created_at, " +
-      "bank_accounts(name, mask, institution_name)",
+      "bank_accounts(name, mask, institution_name, gl_account_id, gl_accounts(code, name))",
     )
     .eq("entity_id", entity.id)
     .order("posted_date", { ascending: false })
@@ -104,5 +111,33 @@ export default async function handler(req, res) {
 
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json(data || []);
+
+  // Drill-through Phase 2 — resolve matched JE line ids to their JE header so
+  // the panel links matched rows to the entry (no second round-trip client-side).
+  const rows = data || [];
+  const lineIds = [...new Set(rows.map((r) => r.matched_je_line_id).filter(Boolean))];
+  const jeByLineId = new Map();
+  for (let i = 0; i < lineIds.length; i += 200) {
+    const chunk = lineIds.slice(i, i + 200);
+    const { data: lines, error: lineErr } = await admin
+      .from("journal_entry_lines")
+      .select("id, journal_entry_id, journal_entries(id, je_number, description, status)")
+      .in("id", chunk);
+    if (lineErr) return res.status(500).json({ error: lineErr.message });
+    for (const ln of lines || []) {
+      if (ln.journal_entries) {
+        jeByLineId.set(ln.id, {
+          id: ln.journal_entries.id,
+          je_number: ln.journal_entries.je_number || null,
+          description: ln.journal_entries.description || null,
+          status: ln.journal_entries.status || null,
+        });
+      }
+    }
+  }
+  for (const r of rows) {
+    r.matched_je = r.matched_je_line_id ? (jeByLineId.get(r.matched_je_line_id) || null) : null;
+  }
+
+  return res.status(200).json(rows);
 }

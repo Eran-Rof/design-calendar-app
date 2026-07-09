@@ -738,6 +738,9 @@ export default [
   ["/api/cron/subledger-tieout"                              , "./cron/subledger-tieout.js"],
   ["/api/internal/factor/statements"                         , "./internal/factor/statements.js"],
   ["/api/internal/factor/open-items"                         , "./internal/factor/open-items.js"],
+  ["/api/internal/ar-aging/detail"                           , "./internal/ar-aging/detail.js"],
+  ["/api/internal/ap-aging/detail"                           , "./internal/ap-aging/detail.js"],
+  ["/api/internal/segment-pl/gl-drill"                       , "./internal/segment-pl/gl-drill.js"],
   ["/api/internal/factor/chargebacks"                        , "./internal/factor/chargebacks/index.js"],
   ["/api/internal/factor/chargebacks/:id"                    , "./internal/factor/chargebacks/[id].js"],
 ];

@@ -17,6 +17,13 @@
 //   4. Once a period's unmatched count hits 0, the operator can close
 //      the period (P5-1 close handler + future bank_recon_complete
 //      check — P6-6).
+//
+// Drill-through Phase 2:
+//   • matched / manual_je_created rows show a JE badge → JEDetailModal (the
+//     handler resolves matched_je_line_id → the entry) → source doc chain.
+//   • every row gets "GL ▸" → GLDetailModal on the txn's bank GL account,
+//     windowed ±7 days around the posted date — for unmatched rows that is
+//     the "find the counterpart" view.
 
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
@@ -24,6 +31,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect from "./components/SearchableSelect";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import JEDetailModal, { type JEDetailSeed } from "./components/JEDetailModal";
+import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
 const TXN_TABLE_KEY = "tanda.bank_recon_transactions";
 const TXN_COLUMNS: ColumnDef[] = [
@@ -78,7 +87,13 @@ type BankTxn = {
   matched_je_line_id: string | null;
   match_confidence: number | null;
   notes: string | null;
-  bank_accounts?: { name: string; mask: string | null; institution_name: string | null };
+  bank_accounts?: {
+    name: string; mask: string | null; institution_name: string | null;
+    gl_account_id?: string | null;
+    gl_accounts?: { code: string; name: string } | null;
+  };
+  // Drill-through Phase 2 — resolved server-side from matched_je_line_id.
+  matched_je?: { id: string; je_number: string | null; description: string | null; status: string | null } | null;
 };
 
 type MatchCandidate = {
@@ -470,7 +485,30 @@ function TransactionsTab() {
   const [filterStatus, setFilterStatus] = useState<BankTxn["status"] | "all">("unmatched");
   const [matchModal, setMatchModal] = useState<BankTxn | null>(null);
   const [createJeModal, setCreateJeModal] = useState<BankTxn | null>(null);
+  // Drill-through Phase 2 — jump to the matched JE / the bank account's ledger.
+  const [jeSeed, setJeSeed] = useState<JEDetailSeed | null>(null);
+  const [glTarget, setGlTarget] = useState<GLDetailTarget | null>(null);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TXN_TABLE_KEY, TXN_COLUMNS);
+
+  // Open the bank account's GL detail windowed around the txn date (±7 days) —
+  // for unmatched rows this is the "find the counterpart JE" view.
+  function openGlWindow(r: BankTxn) {
+    const glId = r.bank_accounts?.gl_account_id;
+    if (!glId) { notify("This bank account has no GL account linked.", "error"); return; }
+    const shift = (iso: string, days: number) => {
+      const d = new Date(iso + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    setGlTarget({
+      accountId: glId,
+      code: r.bank_accounts?.gl_accounts?.code || null,
+      name: r.bank_accounts?.gl_accounts?.name || r.bank_accounts?.name || null,
+      from: shift(r.posted_date, -7),
+      to: shift(r.posted_date, 7),
+      basis: "ACCRUAL",
+    });
+  }
 
   async function load() {
     setLoading(true); setErr(null);
@@ -643,8 +681,25 @@ function TransactionsTab() {
                     {r.status === "matched" && (
                       <button style={btnSecondary} onClick={() => void unmatch(r)}>Unmatch</button>
                     )}
-                    {r.status === "manual_je_created" && (
-                      <span style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>JE posted</span>
+                    {r.matched_je && (
+                      <button
+                        style={{ ...btnSecondary, color: C.primary }}
+                        onClick={() => setJeSeed({ id: r.matched_je!.id, je_number: r.matched_je!.je_number, description: r.matched_je!.description })}
+                        title="Open the matched journal entry"
+                      >
+                        JE {r.matched_je.je_number || ""}
+                      </button>
+                    )}
+                    {r.bank_accounts?.gl_account_id && (
+                      <button
+                        style={btnSecondary}
+                        onClick={() => openGlWindow(r)}
+                        title={r.status === "unmatched"
+                          ? "Open the bank account's GL ledger ±7 days around this date to find the counterpart entry"
+                          : "Open the bank account's GL ledger ±7 days around this date"}
+                      >
+                        GL ▸
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -668,6 +723,14 @@ function TransactionsTab() {
           onDone={() => { setCreateJeModal(null); void load(); }}
         />
       )}
+      {jeSeed && (
+        <JEDetailModal
+          je={jeSeed}
+          onClose={() => setJeSeed(null)}
+          onReversed={() => { setJeSeed(null); void load(); }}
+        />
+      )}
+      {glTarget && <GLDetailModal target={glTarget} onClose={() => setGlTarget(null)} />}
     </div>
   );
 }
