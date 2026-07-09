@@ -88,6 +88,7 @@ import InternalGLDetail           from "./tanda/InternalGLDetail";
 import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
+import InternalFactorRecon        from "./tanda/InternalFactorRecon";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
 import InternalSegmentPL          from "./tanda/InternalSegmentPL";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
@@ -686,6 +687,7 @@ export default function Tangerine() {
         {activeModule === "year_end_close"    && <InternalYearEndClose />}
         {activeModule === "bank_reconciliation" && <InternalBankReconciliation />}
         {activeModule === "bank_recon_report" && <InternalBankReconReport />}
+        {activeModule === "factor_recon"      && <InternalFactorRecon />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}

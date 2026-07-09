@@ -736,4 +736,6 @@ export default [
   ["/api/internal/journal-entries/:id/source"                , "./internal/journal-entries/[id]/source.js"],
   ["/api/internal/ap-backfill/run"                           , "./internal/ap-backfill/run.js"],
   ["/api/cron/subledger-tieout"                              , "./cron/subledger-tieout.js"],
+  ["/api/internal/factor/statements"                         , "./internal/factor/statements.js"],
+  ["/api/internal/factor/open-items"                         , "./internal/factor/open-items.js"],
 ];
