@@ -63,6 +63,21 @@ now guard against stale responses: if you change a filter or date range while a
 slower earlier request is still in flight, the old response is discarded
 instead of briefly overwriting the newer numbers.
 
+The **Income Statement** now re-fetches automatically whenever you change the
+**From / To** dates or the **basis** (previously it only loaded once and kept
+the default fiscal-year window until you clicked Refresh — so an xlsx export
+could carry the newly-typed dates in its filename while the rows still reflected
+the original window).
+
+> ⚠️ **One-time correction (2026-07-09):** every figure on the Trial Balance,
+> Income Statement, Balance Sheet and Cash Flow was previously displayed **100×
+> too small** (and rounded to whole dollars, dropping the cents) because the
+> underlying reports labelled dollar amounts as cents. This has been fixed —
+> the statements now show correct dollars-and-cents. **Any xlsx these panels
+> exported before this date is wrong** (values 100× understated; Income
+> Statement exports may also carry a stale date window) and should be
+> re-exported.
+
 ## 🔖 UPC Report
 
 Reports menu → **🔖 UPC Report**. Lists every barcode in the UPC master at `(style, color, size)` grain, joined to the style for its name:
