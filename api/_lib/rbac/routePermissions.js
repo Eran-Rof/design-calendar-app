@@ -40,6 +40,14 @@ const SEGMENT_MODULE = {
   "customers": "customer_master", "customer-master": "customer_master",
   "coa": "coa", "gl-accounts": "coa",
   "gl-periods": "gl_periods",
+  // Month-End Close — per-period close checklist + period locking. Rides the
+  // existing gl_periods module (POSTABLE: read/write/post/void/export) rather
+  // than minting a new module_key: close/reopen ARE period-status management,
+  // and reusing the seeded module keeps live-enforce RBAC working without new
+  // role grants (admin + accountant already hold gl_periods post; viewer
+  // reads). Reads=read, run-checks/sign-off=write, close/reopen=post (see the
+  // action refinement in routePermissionFor).
+  "month-end-close": "gl_periods",
   "journal-entries": "je_entry",
   "ar-invoices": "ar_invoices", "ar-receipts": "ar_receipts",
   "ap-invoices": "ap_invoices", "ap-payments": "ap_payments", "payments": "ap_payments",
@@ -96,6 +104,7 @@ export function routePermissionFor(pathname, method) {
   if (m === "GET" || m === "HEAD") action = "read";
   else if (/\/void(\/|$)/.test(pathname)) action = "void";
   else if (/\/(post|pay|approve|fund|settle)(\/|$)/.test(pathname)) action = "post";
+  else if (seg === "month-end-close" && /\/(close|reopen)(\/|$)/.test(pathname)) action = "post"; // period lock/unlock = post-grade
   else action = "write"; // POST/PUT/PATCH/DELETE create/update
 
   // JE draft vs posting split: the journal-entries surface covers both, but

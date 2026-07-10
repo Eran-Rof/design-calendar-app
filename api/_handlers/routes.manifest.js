@@ -744,4 +744,10 @@ export default [
   ["/api/cron/bank-mirror-sync"                              , "./cron/bank-mirror-sync.js"],
   ["/api/internal/factor/chargebacks"                        , "./internal/factor/chargebacks/index.js"],
   ["/api/internal/factor/chargebacks/:id"                    , "./internal/factor/chargebacks/[id].js"],
+  ["/api/internal/month-end-close/periods"                   , "./internal/month-end-close/periods.js"],
+  ["/api/internal/month-end-close/checklist"                 , "./internal/month-end-close/checklist.js"],
+  ["/api/internal/month-end-close/run-checks"                , "./internal/month-end-close/run-checks.js"],
+  ["/api/internal/month-end-close/sign-off"                  , "./internal/month-end-close/sign-off.js"],
+  ["/api/internal/month-end-close/close"                     , "./internal/month-end-close/close.js"],
+  ["/api/internal/month-end-close/reopen"                    , "./internal/month-end-close/reopen.js"],
 ];

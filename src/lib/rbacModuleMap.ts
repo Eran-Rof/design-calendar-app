@@ -26,6 +26,9 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   gl_accounts: "coa",
   gl_periods: "gl_periods",
   year_end_close: "gl_periods",
+  // Month-End Close rides the gl_periods module — close/reopen ARE period
+  // status management (matches the server's "month-end-close" segment map).
+  month_end_close: "gl_periods",
   journal_entries: "je_entry",
   ap_invoices: "ap_invoices",
   ap_payments: "ap_payments",
