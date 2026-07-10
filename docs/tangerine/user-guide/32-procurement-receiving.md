@@ -27,7 +27,22 @@ Record a broker/freight-forwarder invoice (freight, brokerage, duty advance, oth
 The broker invoice is then marked **✓ Posted** (its `allocation_je_id` is stamped; a linked customs entry's `revaluation_je_id` too). Idempotent — a posted invoice cannot be re-posted.
 
 ## 32.7 3-Way Match (`Procurement → ⚖️ 3-Way Match`)
-Enter a vendor invoice and match it against its PO + posted receipts. The engine compares the invoice total to the **received-and-accepted value** and flags **matched** (within $5 or 2%, whichever is greater), **variance** (outside tolerance), or **exception** (no receipt found).
+The panel now has **two tabs**.
+
+### 32.7.a Bill Match Audit (default) — the payables control
+Every AP bill in the book is matched against its **PO** and the **receiving evidence** (received qty/value on the PO lines — the Xoro mirror's `qty_received` for mirrored POs, native receiving for Tangerine POs) by an idempotent engine that re-runs **nightly at 06:45 UTC** and on demand (**Re-run engine**). It never touches bills, POs or the GL — it only writes match verdicts.
+
+**How a bill gets matched**
+1. **Explicit PO refs** — the PO numbers on the bill's line items (the Xoro bills register carries them for merchandise bills).
+2. **Fuzzy** — bills without refs from a vendor that *has* POs: a unique PO with the same vendor, a total within tolerance, ordered inside the date window (default −180/+30 days) counts as a match.
+3. Bills from vendors with **no POs at all** (rent, insurance, freight-only vendors, utilities…) are classified **Not applicable** — expense/service bills are out of 3-way scope.
+
+**Statuses** (worst-wins per bill): **Over-billed** (cumulative billed value/qty on a PO exceeds what was received, beyond tolerance — the status that leaks cash), **Qty variance**, **Price variance** (bill unit price vs PO unit price), **No PO found**, **2-way (no receipt)** (PO exists but nothing received yet — e.g. deposits/prepayments), **Matched (3-way)**, **Not applicable**.
+
+**Working the queue**: summary tiles (click to filter) show counts + $ per status with the *open* exception cut; filter by status/resolution/vendor/date (presets included); click a row for the per-PO evidence table (billed vs ordered vs received qty/value, unit prices, cumulative billed) with **View bill** / **View PO** drills. On any exception choose **Accept variance** or **Dispute** — a reason is **required** and audit-logged; resolutions survive nightly re-runs unless the verdict changes. **Tolerances** (defaults: qty ±2%, price ±1% or $50, amount $100) are editable in the panel and apply on the next engine run. When a nightly run leaves open **Over-billed** bills, accounting gets a notification.
+
+### 32.7.b Vendor Invoice Drafts — staging new invoices
+Enter a vendor invoice and match it against its PO + posted receipts **before** it becomes an AP invoice. The engine compares the invoice total to the **received-and-accepted value** and flags **matched** (within $5 or 2%, whichever is greater), **variance** (outside tolerance), or **exception** (no receipt found).
 
 **Approve** behaves by match state:
 - **Matched (within tolerance)** → **auto-posts** the GR/IR-clearing journal entry immediately. The goods were already booked into inventory by the receipt GRNI JE, so this only settles the liability — it never re-debits inventory or creates a second layer:

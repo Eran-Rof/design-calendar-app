@@ -49,6 +49,9 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   sales_by_customer: "analytics",
   // Procurement
   purchase_orders: "procurement",
+  // 3-Way Match — payables control; server gates its routes on ap_invoices
+  // (api/_lib/rbac/routePermissions.js "three-way-match" segment).
+  three_way_match: "ap_invoices",
   // Inventory / ops
   inventory_transfers: "inventory",
   inventory_adjustments: "inventory",

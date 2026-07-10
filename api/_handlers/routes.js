@@ -58,6 +58,7 @@ import r_cron_po_issued_notify from "./cron/po-issued-notify.js";
 import r_cron_push_delivery from "./cron/push-delivery.js";
 import r_cron_scorecards_monthly from "./cron/scorecards-monthly.js";
 import r_cron_subledger_tieout from "./cron/subledger-tieout.js";
+import r_cron_three_way_match from "./cron/three-way-match.js";
 import r_cron_tpl_inventory_pull from "./cron/tpl-inventory-pull.js";
 import r_cron_workspace_tasks_due_soon from "./cron/workspace-tasks-due-soon.js";
 import r_cron_xoro_feed_health_alert from "./cron/xoro-feed-health-alert.js";
@@ -536,6 +537,10 @@ import r_internal_tax_remittance_report from "./internal/tax/remittance-report.j
 import r_internal_tax_remittances from "./internal/tax/remittances.js";
 import r_internal_tax_rules_id from "./internal/tax/rules/[id].js";
 import r_internal_tax_rules_index from "./internal/tax/rules/index.js";
+import r_internal_three_way_match_matches from "./internal/three-way-match/matches.js";
+import r_internal_three_way_match_resolve from "./internal/three-way-match/resolve.js";
+import r_internal_three_way_match_run from "./internal/three-way-match/run.js";
+import r_internal_three_way_match_tolerances from "./internal/three-way-match/tolerances.js";
 import r_internal_tpl_providers_index from "./internal/tpl-providers/index.js";
 import r_internal_tpl_shipments_id from "./internal/tpl-shipments/[id].js";
 import r_internal_tpl_shipments_index from "./internal/tpl-shipments/index.js";
@@ -940,6 +945,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
+  { pattern: "/api/internal/three-way-match/tolerances", handler: r_internal_three_way_match_tolerances },
   { pattern: "/api/internal/xoro-mirror/backfill-range", handler: r_internal_xoro_mirror_backfill_range },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
@@ -959,6 +965,8 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/recon-inbox", handler: r_internal_procurement_recon_inbox_index },
   { pattern: "/api/internal/sales-orders/bulk-match", handler: r_internal_sales_orders_bulk_match },
   { pattern: "/api/internal/style-master/dim-values", handler: r_internal_style_master_dim_values },
+  { pattern: "/api/internal/three-way-match/matches", handler: r_internal_three_way_match_matches },
+  { pattern: "/api/internal/three-way-match/resolve", handler: r_internal_three_way_match_resolve },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
   { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
   { pattern: "/api/internal/price-lists/style-cost", handler: r_internal_price_lists_style_cost },
@@ -997,6 +1005,7 @@ export const ROUTES = [
   { pattern: "/api/internal/rfqs/messages-inbox", handler: r_internal_rfqs_messages_inbox_index },
   { pattern: "/api/internal/scorecards/generate", handler: r_internal_scorecards_generate },
   { pattern: "/api/internal/segment-pl/gl-drill", handler: r_internal_segment_pl_gl_drill },
+  { pattern: "/api/internal/three-way-match/run", handler: r_internal_three_way_match_run },
   { pattern: "/api/internal/walmart/sync-orders", handler: r_internal_walmart_sync_orders },
   { pattern: "/api/vendor/marketplace/inquiries", handler: r_vendor_marketplace_inquiries_index },
   { pattern: "/api/vendor/messages/unread-count", handler: r_vendor_messages_unread_count },
@@ -1321,6 +1330,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/sustainability", handler: r_vendor_sustainability_index },
   { pattern: "/api/cron/contracts-daily", handler: r_cron_contracts_daily },
   { pattern: "/api/cron/insights-weekly", handler: r_cron_insights_weekly },
+  { pattern: "/api/cron/three-way-match", handler: r_cron_three_way_match },
   { pattern: "/api/internal/allocations", handler: r_internal_allocations_index },
   { pattern: "/api/internal/ap-invoices", handler: r_internal_ap_invoices_index },
   { pattern: "/api/internal/ap-payments", handler: r_internal_ap_payments_index },
