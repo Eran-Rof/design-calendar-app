@@ -133,6 +133,8 @@ When you click **Build forecast** on a run that already has a build, you're offe
 2. **⚠ Wipe + rebuild (destructive)** — deletes *everything* tied to the run (forecast, recommendations, TBD rows, bucket buys, override audit log, and your Buyer / Override / Buy / Unit Cost edits). It requires a final confirmation where you **type the run name** to enable the button. There is no undo.
 
 > **Build (filtered):** if you've set grid filters (customer, style, category, etc.), the Build button relabels itself **Build (filtered)** and only rebuilds the matching subset. A filtered build wipes out-of-scope rows within that scope — that is intentional.
+>
+> **Supply-only rows honor a product filter.** The build adds a synthetic **(Supply Only)** row for any SKU that has incoming inventory (open PO / on-hand) but no demand pair, so you don't miss inbound stock. When your filter is **product-scoped** (style, category/group, sub-category, or gender), those supply-only rows are now restricted to the same product scope — so a "Cargo Shorts" build only shows cargo-shorts inbound, not every style with an open PO. A **customer-only** filter still shows all supply-only rows (they carry no customer). *Note: to clear supply-only rows a prior full build already wrote, use **Wipe + rebuild** — a plain rebuild leaves out-of-scope rows in place.*
 
 ## The Ecom screen
 
