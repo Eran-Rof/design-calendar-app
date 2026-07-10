@@ -36,6 +36,7 @@ import r_b2b_orders_index from "./b2b/orders/index.js";
 import r_b2b_session from "./b2b/session.js";
 import r_cron_ai_proactive_insights from "./cron/ai-proactive-insights.js";
 import r_cron_anomalies_nightly from "./cron/anomalies-nightly.js";
+import r_cron_ap_paid_delta_watcher from "./cron/ap-paid-delta-watcher.js";
 import r_cron_app_errors_digest from "./cron/app-errors-digest.js";
 import r_cron_ar_receipts_reconcile from "./cron/ar-receipts-reconcile.js";
 import r_cron_bank_mirror_sync from "./cron/bank-mirror-sync.js";
@@ -1227,6 +1228,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-snapshot", handler: r_internal_inventory_snapshot },
   { pattern: "/api/internal/style-fabric-codes", handler: r_internal_style_fabric_codes_index },
   { pattern: "/api/cron/ai-proactive-insights", handler: r_cron_ai_proactive_insights },
+  { pattern: "/api/cron/ap-paid-delta-watcher", handler: r_cron_ap_paid_delta_watcher },
   { pattern: "/api/cron/ar-receipts-reconcile", handler: r_cron_ar_receipts_reconcile },
   { pattern: "/api/cron/compliance-automation", handler: r_cron_compliance_automation },
   { pattern: "/api/cron/discount-offers-daily", handler: r_cron_discount_offers_daily },

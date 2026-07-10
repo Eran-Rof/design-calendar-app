@@ -749,4 +749,5 @@ export default [
   ["/api/internal/three-way-match/resolve"                   , "./internal/three-way-match/resolve.js"],
   ["/api/internal/three-way-match/tolerances"                , "./internal/three-way-match/tolerances.js"],
   ["/api/cron/three-way-match"                               , "./cron/three-way-match.js"],
+  ["/api/cron/ap-paid-delta-watcher"                         , "./cron/ap-paid-delta-watcher.js"],
 ];
