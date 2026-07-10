@@ -48,7 +48,15 @@ export function composeReceiptPayload({ entity_id, invoice, st, drAccountId, tod
     journal_type: "ar_receipt_xoro",
     posting_date: receiptPostingDate(st, invoice.invoice_date, todayIso),
     source_module: "xoro_receipts",
-    source_table: "ar_invoices",
+    // NOT "ar_invoices": the invoice's own accrual JE already occupies
+    // (ar_invoices, <invoice id>, ACCRUAL) under uq_je_source_basis, so a
+    // receipt JE tagged with the real table name can never post — this
+    // jammed every receipt until the Sep-Dec 2024 AR backfill exercised it
+    // (2026-07-10; zero ar_receipt_xoro JEs existed). A distinct provenance
+    // token is the established convention for event JEs against a document
+    // (see ap_payment_import / ap_bill_register_import from #1668). The
+    // index still gives one-receipt-per-invoice idempotency on this token.
+    source_table: "ar_receipts",
     source_id: String(invoice.id),
     description: `Xoro receipt — invoice ${invoice.invoice_number} paid per Xoro (${st.full_payment_date || st.payment_status || "paid"})`,
     audit_reason: `AR receipt reconciled from Xoro payment state (FullPaymentDate ${st.full_payment_date || "n/a"}) — invoice ${invoice.invoice_number}`,

@@ -147,7 +147,7 @@ export default async function handler(req, res) {
   const summary = {
     // Bumped when runner behavior changes — external drivers poll this to
     // detect that a fix has actually deployed before starting a real run.
-    runner_version: 2,
+    runner_version: 3,
     backfill_run_id: runId,
     entity_id: entity.id,
     start_date: v.data.start_date,
@@ -351,6 +351,17 @@ async function processMonth(admin, ctx) {
         ? Math.round(unitCostCents * quantity)
         : null;
 
+      // ar_invoice_lines_compute_total_trg OVERWRITES line_total_cents with
+      // quantity × unit_price_cents whenever BOTH are non-null — so a
+      // discounted line (net < gross) inserted with its list unit price gets
+      // silently re-totaled to GROSS while the JE posts NET (found 2026-07-10
+      // by the Sep-Dec 2024 load's header tie-out; discounted lines in the
+      // 2025 load carry the same latent defect). Only send unit_price_cents
+      // when it exactly reproduces the net line total; otherwise store the
+      // net total alone.
+      const unitPriceCents = src.unit_price != null ? Math.round(Number(src.unit_price) * 100) : null;
+      const priceReproducesTotal = unitPriceCents != null && quantity > 0
+        && Math.round(unitPriceCents * quantity) === Number(line_total_cents);
       const { error: lnErr } = await admin
         .from("ar_invoice_lines")
         .insert({
@@ -359,7 +370,7 @@ async function processMonth(admin, ctx) {
           description: `Historical line ${grp.invoice_number}-${i + 1}`,
           inventory_item_id: src.sku_id,
           quantity,
-          unit_price_cents: src.unit_price != null ? Math.round(Number(src.unit_price) * 100) : null,
+          unit_price_cents: priceReproducesTotal ? unitPriceCents : null,
           line_total_cents: Number(line_total_cents),
           cogs_cents: cogsCents,
           cogs_resolved_at: cogsCents != null ? new Date().toISOString() : null,
