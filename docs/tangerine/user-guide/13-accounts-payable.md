@@ -171,6 +171,24 @@ Every synced Xoro bill now posts its own journal entry — this replaced the old
 
 The sweep runs automatically at the end of every `POST /api/ap/sync-bills` ingest and can be run by hand via **`POST /api/internal/ap-backfill/run`** `{ dry_run?: true, limit? }` (internal token; idempotent — only `gl_status='unposted'` bills are touched, and a duplicate post heals the bill row instead of erroring). Posted bills get `gl_status='posted'` + `accrual_je_id`, which lights up the status badge → JE drill in the AP Invoices panel. `journal_type='ap_invoice_historical'` rides the period-lock bypass so older bills backfill cleanly. **Not yet covered:** payment-side JEs (the CSV carries only a paid/unpaid status, no payment dates or amounts) — cash application for Xoro bills is a follow-up alongside the bank-feed work.
 
+### 8007 Uncategorized Expense cleanup — vendor default expense accounts (2026-07-10)
+
+Historically ~$8.88M of non-item bill charges landed in **8007 Uncategorized Expense** (the fallback above), so the P&L showed one lump instead of real expense categories. The cleanup has two halves:
+
+1. **Go-forward** (already live since #1666): set the vendor's **Default expense account** in Vendor Master (Edit → "Default expense account", shown as "code — name"). Every future bill's non-item/tax slice posts there instead of 8007.
+2. **History**: `node scripts/reclass-8007.mjs` reclasses what already sits in 8007, one JE per **(vendor, month)** — `DR` the vendor's default expense account / `CR 8007` for that month's 8007 activity, **dated to the source month** (month-end; the in-flight current month uses its latest source-line date). Phases: `report` (read-only shape + writes the review CSV), `set-defaults` (applies the HIGH-confidence name→account mapping, never overwriting an operator-set default), `reclass`, `verify`. All phases support `--dry-run`.
+
+Posting hygiene: `journal_type='vendor_expense_reclass'`, `source_module='ap'`, `source_table='vendor_expense_reclass'`, `source_id='<vendor_id>:<YYYY-MM>'` (the source-key unique index makes re-runs idempotent), audit reason on every JE. The JEs are **expense→expense only — AP 2000 is never touched**.
+
+**What was moved (first run, 2026-07-10):** 523 JEs, **$5,224,663.22** out of 8007 into 39 real expense accounts across 70 vendors — freight/3PL (6348/5401/5402/5405), medical + business insurance (6338/6339/6335), rent (6360), accounting/legal (6301/6344), software/EDI (6378/6718/6326/6302), advertising (6713/6614), commissions (6127/5105/6133), autos, travel/meals, and the operator-set 6343 garment-vendor defaults. **8007 went $8,875,418.82 → $3,650,755.60.** Verified: trial-balance imbalance $0.00, all 523 JEs balanced, zero reclass lines touch 2000.
+
+**What was deliberately left in 8007** (see `docs/tangerine/ap-8007-review.csv` — vendor, monthly totals, suggested account, reason):
+
+- **Rosenthal & Rosenthal $859,158.88 — EXCLUDED/FLAG**: factoring fees are already booked by the #1670 `factor_cost` JEs (6802/6803/6804) from the Rosenthal statements; reclassing the AP-bill copies into the 68xx set could double-count. CEO/controller must reconcile the two sources first.
+- **MEDIUM ($2.47M) / LOW ($0.32M) confidence vendors**: garment manufacturers whose charges are likely inventory/COGS rather than an opex category (Factory 1, Interland, United Aryan…), ambiguous names (CNX America, E360 Travelers, NEXT ELEVATION…), related-party names (Bitton & Associates, Isaac Bitton), tax authorities (FTB — expense vs equity treatment is a CPA call), SBA loan payments (principal is a liability, not expense), and individuals (likely contractors — CEO to confirm).
+
+To finish the cleanup: set the vendor's default expense account in Vendor Master (using the CSV's suggestions), then re-run `node scripts/reclass-8007.mjs reclass` — it picks up **any** vendor with a validated default (postable, active, non-control) and posts only the missing (vendor, month) JEs.
+
 ## Historical bill backfill (`source='xoro_bills_register'`, #1668)
 
 The complete Xoro AP history — **3,680 bills (Oct 2023 → Jul 2026, $51,080,712.61)** from the CEO's Bills register export plus **2,685 bill payments ($41,126,644.78)** from the Payments export — is posted to the GL and frozen as the AP opening history. AP control account **2000 ties to the register to the cent**: GL 2000 = **$9,947,831.51 CR** = the register's Σ Amount Due over Open/Partially-Paid bills.
