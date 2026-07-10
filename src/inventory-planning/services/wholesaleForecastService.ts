@@ -156,6 +156,52 @@ export interface RunForecastPassOptions {
   onProgress?: (p: BuildProgress) => void;
 }
 
+// Per-pair decision for a filtered build. Exported for unit testing.
+//
+// Product-attribute filters (style_code / group_name / sub_category_name /
+// gender) apply to ALL pairs, INCLUDING supply-only synthetics — so a
+// filtered build (e.g. "Cargo Shorts") only surfaces incoming inventory
+// within that product scope instead of every SKU that happens to have an
+// open PO. (Previously supply-only rows were exempted from the filter
+// entirely, which meant a "Cargo Shorts" build pulled in ~1k unrelated
+// SKUs — denim, etc. — that had inbound POs.)
+//
+// The CUSTOMER filter still applies to real demand pairs only: supply-only
+// rows carry the placeholder customer and represent customer-agnostic
+// incoming inventory, so filtering by customer alone must not drop them.
+// Open future-demand requests likewise always survive (real pairs only).
+export function pairPassesBuildFilter(
+  filter: BuildFilter,
+  opts: {
+    isSupplyOnly: boolean;
+    hasOpenRequest: boolean;
+    customerId: string;
+    item: { style_code?: string | null; sku_code?: string | null; attributes?: unknown } | undefined;
+  },
+): boolean {
+  const { isSupplyOnly, hasOpenRequest, customerId, item } = opts;
+  if (!isSupplyOnly && hasOpenRequest) return true;
+  if (!isSupplyOnly && filter.customer_id && customerId !== filter.customer_id) return false;
+  if (filter.style_code) {
+    const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
+    if (styleOnSku !== filter.style_code) return false;
+  }
+  const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
+  if (filter.group_name) {
+    const v = attrs?.group_name;
+    if (typeof v !== "string" || v.trim() !== filter.group_name) return false;
+  }
+  if (filter.sub_category_name) {
+    const v = attrs?.category_name;
+    if (typeof v !== "string" || v.trim() !== filter.sub_category_name) return false;
+  }
+  if (filter.gender) {
+    const v = attrs?.gender;
+    if (typeof v !== "string" || v.trim() !== filter.gender) return false;
+  }
+  return true;
+}
+
 export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
   if (!run.horizon_start || !run.horizon_end) {
     throw new Error("Planning run has no horizon; set horizon_start + horizon_end before running the forecast.");
@@ -383,38 +429,12 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   if (filterActive) {
     const itemBySku = new Map(items.map((i) => [i.id, i]));
     const beforeFilter = pairs.length;
-    pairs = pairs.filter((p) => {
-      // Always keep the (Supply Only) synthetic — filtering it out by
-      // customer_id would lose visibility on incoming inventory.
-      if (p.customer_id === supplyPlaceholder) return true;
-      // Always keep pairs carrying an open future-demand request — a
-      // request the planner explicitly entered should always make it
-      // into the build regardless of the grid's current filter scope.
-      // Without this exemption, a filtered build silently drops the
-      // request's qty + customer + confidence from the forecast.
-      const k = `${p.customer_id}:${p.sku_id}`;
-      if (pairsWithOpenRequest.has(k)) return true;
-      if (filter!.customer_id && p.customer_id !== filter!.customer_id) return false;
-      const item = itemBySku.get(p.sku_id);
-      if (filter!.style_code) {
-        const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
-        if (styleOnSku !== filter!.style_code) return false;
-      }
-      const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
-      if (filter!.group_name) {
-        const v = attrs?.group_name;
-        if (typeof v !== "string" || v.trim() !== filter!.group_name) return false;
-      }
-      if (filter!.sub_category_name) {
-        const v = attrs?.category_name;
-        if (typeof v !== "string" || v.trim() !== filter!.sub_category_name) return false;
-      }
-      if (filter!.gender) {
-        const v = attrs?.gender;
-        if (typeof v !== "string" || v.trim() !== filter!.gender) return false;
-      }
-      return true;
-    });
+    pairs = pairs.filter((p) => pairPassesBuildFilter(filter!, {
+      isSupplyOnly: p.customer_id === supplyPlaceholder,
+      hasOpenRequest: pairsWithOpenRequest.has(`${p.customer_id}:${p.sku_id}`),
+      customerId: p.customer_id,
+      item: itemBySku.get(p.sku_id),
+    }));
     prunedFilterCount = beforeFilter - pairs.length;
   }
 
