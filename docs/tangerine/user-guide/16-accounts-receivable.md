@@ -439,6 +439,19 @@ Response shape:
 
 Backfills `ar_invoices` + `journal_entries` from the existing `ip_sales_history_wholesale` Xoro feed. **Window: 2024-08-01 → today** (per Xoro initial-use cutoff; earlier `gl_periods` are purged and `entities.posting_locked_through` is pinned to `2024-07-31` so nothing earlier can ever be posted).
 
+### Coverage
+
+**AR history now starts 2024-09-01** (loaded 2026-07-10; previously 2025-01-01). The Sep–Dec 2024 gap was closed from the CEO's Xoro invoice-registry + item-detail exports via `scripts/ar2024-backfill/` (stage → post → verify), reusing this same runner end to end:
+
+- **5,350 invoices / $8,302,559.57** posted with SKU-level lines (Sep $1,820,754.10 · Oct $1,554,575.71 · Nov $2,696,785.79 · Dec $2,230,443.97 — each month ties the Xoro registry to the cent). 23 additional $0 registry invoices (promo/internal) are skipped by the runner's `total<=0` convention.
+- Every invoice's lines sum **exactly** to its registry header: item lines are verbatim Xoro detail; any remainder (freight/handling not in the item report) posts as a **`AR2024-FREIGHT`** top-up line routed to the invoice's channel revenue account.
+- **1,051 registry invoices have no item lines in Xoro** (confirmed by two independent exports) and post as a single **`AR2024-NODETAIL`** summary line: Macys micro-invoices (970 / $244,071.98) are consignment-style → revenue-only, NO COGS/inventory legs; the wholesale ones (81 / $1,168,374.25 — Ross, Burlington, Bealls, DD'S, etc.) carry **estimated COGS at the period blended cost ratio** of the SKU-lined invoices per channel.
+- The **8/31/2024 opening balance sheet (incl. opening inventory/equity) is still pending** CEO exports — GL history before 2024-09-01 remains empty by design.
+
+### Suspected year-end re-issues (CEO review)
+
+The registry contains two exact duplicate pairs straddling 2024→2025 — same customer, amount, and FullPaymentDate, adjacent invoice numbers: `ROF-I015528` (12/31, Ross, $262,028.85) ↔ `ROF-I015526` (1/1), and `ROF-I015522` (12/31, Heritage Surf Shop, $2,667.65) ↔ `ROF-I015523` (1/1). The **Dec-31 versions are posted**; the Jan-1 twins are NOT in `ar_invoices` (they were header-only, so the 2025 load skipped them) and **must stay excluded — or be CEO-confirmed — at the 2025 verbatim line re-do** to avoid double-counting.
+
 ### What the runner does
 
 For each month in the window:
@@ -478,9 +491,11 @@ flowchart TD
 SELECT * FROM v_ar_backfill_reconciliation WHERE ABS(variance) > 0.01;
 ```
 
-### Payment-side backfill (deferred)
+### Payment-side backfill
 
-Historical receipts are NOT included in this chunk — historical invoices land with `paid_amount_cents=0`. The operator can mark-paid through the AR Receipts panel using a single bulk receipt per customer. A future chunk will add a Xoro Customer-Receipts CSV importer if needed.
+Historical invoices land with `paid_amount_cents=0`; paid state then flows through the Xoro payment-state pipeline: `ar_xoro_payment_state` (nightly `rest_invoice_sync` push, or a registry-export load like the 2024 backfill) → the daily `ar-receipts-reconcile` cron posts `DR 1051` (factored) / `DR 1030` (house) / `CR` the invoice's AR account at `posting_date = FullPaymentDate` and stamps `paid_amount_cents`.
+
+> **2026-07-10 fix:** receipt JEs previously could NEVER post — the cron tagged them `source_table='ar_invoices'`, which collides with the invoice's own accrual JE under the `uq_je_source_basis` unique index (one JE per `(source_table, source_id, basis)`), so every attempt failed with a duplicate-key error (zero `ar_receipt_xoro` JEs existed). Receipts now post under the provenance token `source_table='ar_receipts'` (same convention as `ap_payment_import`). The Sep–Dec 2024 invoices are receipted; **2025+ historical invoices remain unpaid in the GL until their payment states are loaded** (part of the 2025 verbatim re-do / nightly walk). Note the cron scans the 400 oldest unpaid invoices per run, so a large stateless backlog ahead of newer invoices delays their receipts until the backlog gets states.
 
 ### Trigger safety
 
