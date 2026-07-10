@@ -744,4 +744,9 @@ export default [
   ["/api/cron/bank-mirror-sync"                              , "./cron/bank-mirror-sync.js"],
   ["/api/internal/factor/chargebacks"                        , "./internal/factor/chargebacks/index.js"],
   ["/api/internal/factor/chargebacks/:id"                    , "./internal/factor/chargebacks/[id].js"],
+  ["/api/internal/three-way-match/matches"                   , "./internal/three-way-match/matches.js"],
+  ["/api/internal/three-way-match/run"                       , "./internal/three-way-match/run.js"],
+  ["/api/internal/three-way-match/resolve"                   , "./internal/three-way-match/resolve.js"],
+  ["/api/internal/three-way-match/tolerances"                , "./internal/three-way-match/tolerances.js"],
+  ["/api/cron/three-way-match"                               , "./cron/three-way-match.js"],
 ];
