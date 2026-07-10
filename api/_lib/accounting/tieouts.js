@@ -21,9 +21,12 @@
 // (net debit for AR, net credit for AP) so a healthy tie-out is always
 // gl_cents === subledger_cents, diff_cents = gl_cents − subledger_cents.
 //
-// ⚠️ v_trial_balance column names debit_cents / credit_cents are a historical
-// misnomer — journal_entry_lines.debit/credit are numeric(18,2) DOLLARS, and
-// the view just SUMs them. dollarsToCents() converts at the boundary.
+// v_trial_balance debit_cents / credit_cents are TRUE integer cents as of the
+// gl_reports_true_cents migration (2026-07-09) — the view now returns
+// ROUND(SUM(jel.debit|credit) * 100). We coerce with intCents() (NOT
+// dollarsToCents) so nothing double-scales. NOTE: runCashMirrorTieouts below
+// reads journal_entry_lines.debit/credit DIRECTLY — those are still numeric
+// DOLLARS, so that path keeps dollarsToCents().
 //
 // AR subledger population: every ar_invoices row except gl_status in
 // (draft, pending_approval, void, reversed) — those are by definition not in
@@ -82,8 +85,9 @@ export function intCents(v) {
  * side='credit' → SUM(credit)−SUM(debit). Missing row (no postings) → 0.
  */
 export function glNetCents(tbRow, side) {
-  const d = dollarsToCents(tbRow?.debit_cents ?? 0);
-  const c = dollarsToCents(tbRow?.credit_cents ?? 0);
+  // v_trial_balance now returns TRUE integer cents — coerce, don't ×100.
+  const d = intCents(tbRow?.debit_cents ?? 0);
+  const c = intCents(tbRow?.credit_cents ?? 0);
   return side === "credit" ? c - d : d - c;
 }
 

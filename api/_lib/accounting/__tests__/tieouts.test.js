@@ -47,7 +47,8 @@ describe("intCents", () => {
 });
 
 describe("glNetCents", () => {
-  const row = { debit_cents: "500.00", credit_cents: "120.25" };
+  // v_trial_balance now returns TRUE integer cents (ROUND(SUM(..)*100)).
+  const row = { debit_cents: 50000, credit_cents: 12025 };
   it("nets debit side for AR-style accounts", () => {
     expect(glNetCents(row, "debit")).toBe(37975);
   });
@@ -108,11 +109,12 @@ function baseInputs() {
     ["1108", "id-1108"],
     ["2000", "id-2000"],
   ]);
-  // GL: 1105 $100 DR-net, 1107 $250 DR-net, 1108 $0 (no row), 2000 $80 CR-net.
+  // GL (TRUE integer cents): 1105 $100 DR-net, 1107 $250 DR-net, 1108 $0 (no
+  // row), 2000 $80 CR-net.
   const tbRowByCode = new Map([
-    ["1105", { debit_cents: "150.00", credit_cents: "50.00" }],
-    ["1107", { debit_cents: "250.00", credit_cents: "0" }],
-    ["2000", { debit_cents: "20.00", credit_cents: "100.00" }],
+    ["1105", { debit_cents: 15000, credit_cents: 5000 }],
+    ["1107", { debit_cents: 25000, credit_cents: 0 }],
+    ["2000", { debit_cents: 2000, credit_cents: 10000 }],
   ]);
   const arByAccountId = new Map([
     ["id-1105", 10_000], // ties
@@ -238,8 +240,8 @@ describe("runControlTieouts", () => {
       }],
       v_trial_balance: [{
         data: [
-          { code: "1108", debit_cents: "300.00", credit_cents: "100.00" },
-          { code: "2000", debit_cents: "0", credit_cents: "75.00" },
+          { code: "1108", debit_cents: 30000, credit_cents: 10000 },
+          { code: "2000", debit_cents: 0, credit_cents: 7500 },
         ],
         error: null,
       }],

@@ -541,12 +541,13 @@ async function phaseVerify() {
   const sum = (a, f) => a.reduce((s, x) => s + (f(x) || 0), 0);
   const target = sum(staged, (b) => b.due_cents);
 
-  // GL 2000 (posted, ACCRUAL) via v_trial_balance — NOTE *_cents columns are DOLLARS.
+  // GL 2000 (posted, ACCRUAL) via v_trial_balance — *_cents columns are TRUE
+  // integer cents as of the gl_reports_true_cents migration (2026-07-09).
   const { data: tb, error: tbErr } = await admin.from("v_trial_balance")
     .select("code, debit_cents, credit_cents").eq("entity_id", ctx.entity_id)
     .eq("basis", "ACCRUAL").in("code", ["2000", "1308", "5005", "8002"]);
   if (tbErr) throw new Error(tbErr.message);
-  const toC = (v) => Math.round(Number(v || 0) * 100);
+  const toC = (v) => Math.round(Number(v || 0));
   for (const row of tb || []) {
     const net = toC(row.debit_cents) - toC(row.credit_cents);
     console.log(`GL ${row.code}: net ${net <= 0 ? "CR" : "DR"} $${$(Math.abs(net))}`);

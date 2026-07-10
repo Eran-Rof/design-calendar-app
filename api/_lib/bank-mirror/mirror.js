@@ -53,9 +53,10 @@
 // the operator's manual flow; a stray "Compute" click on a mirror-managed
 // run is healed by the nightly resync.
 //
-// journal_entry_lines.debit/credit are numeric DOLLARS (v_trial_balance
-// misnomer gotcha, #1665) — dollarsToCents at the boundary, integer cents
-// everywhere else.
+// journal_entry_lines.debit/credit are numeric DOLLARS — dollarsToCents at the
+// boundary, integer cents everywhere else. (The v_trial_balance / report-RPC
+// *_cents columns now return TRUE cents; this path reads the raw JE-line
+// columns directly, which remain dollars.)
 
 import { dollarsToCents } from "../accounting/tieouts.js";
 

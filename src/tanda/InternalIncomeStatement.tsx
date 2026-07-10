@@ -355,7 +355,11 @@ export default function InternalIncomeStatement() {
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Refetch whenever the basis or date window changes so the grid + xlsx
+  // export always reflect the operator's current selection (the useSeqGuard
+  // above drops stale responses from rapid changes). Mirrors InternalBalanceSheet.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [basis, from, to]);
 
   // M50 D — per-brand filter. "all" shows every account, grouping brand children
   // under their rollup parent. A specific brand shows that brand's child accounts
