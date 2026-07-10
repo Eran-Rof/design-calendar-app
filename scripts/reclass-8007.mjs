@@ -146,9 +146,11 @@ const HIGH = [
 ];
 
 // Vendors NEVER auto-reclassed even if a default account is set.
-const EXCLUDE = new Map([
-  ["Rosenthal & Rosenthal", "factor — #1670 factor_cost JEs already book statement fees to 6802/6803/6804; reclassing AP-bill 8007 charges risks double-counting. CEO/controller to reconcile the two sources first."],
-]);
+// 2026-07-10 CEO decision: Rosenthal exclusion LIFTED — the controller-reconciled
+// Xoro AP bills are the factoring-cost source of truth; the 12 statement-derived
+// #1670 factor_cost JEs ($515,690.72) were deleted, so the bill reclass to 6802
+// no longer double-counts.
+const EXCLUDE = new Map([]);
 
 // MEDIUM/LOW suggestions for the review CSV — NOT auto-posted.
 const SUGGEST = new Map([
