@@ -8,12 +8,18 @@
 // 2026-07-08 re-rate). Per-bill posting with a vendor subledger makes the AP
 // control account tie out to the bill subledger by construction.
 //
-// Routing model for the Xoro-source period (the bill feed carries NO GL
-// account per line — see ap-bill-sync.js column contract):
+// Routing model (#xoro-account-truth 2026-07-11 — the bill feed now carries
+// the GL account XORO posted each line to; per CEO directive that account is
+// the 100% source of truth). Precedence for the expense side:
+//   bill line's own Xoro account (invoice_line_items.expense_account_id,
+//   resolved at ingest by xoroAccountMap.js) > vendor default expense
+//   account > 8007 Uncategorized Expense.
 //   - item-linked lines (inventory_item_id resolved)  → DR Inventory 1201
 //     (purchases build inventory; the per-invoice AR history posts COGS that
 //     relieves it — coherent periodic-inventory model)
-//   - non-item lines + tax/rounding remainder          → DR the vendor's
+//   - non-item lines WITH a resolved Xoro account     → DR that account
+//     (one JE line per distinct account)
+//   - non-item lines without one + tax/rounding plug  → DR the vendor's
 //     default expense account when one is set (vendors.
 //     default_gl_expense_account_id, passed as accounts.vendorExpense),
 //     else DR Uncategorized Expense 8007 (operator re-routes later;
@@ -26,18 +32,29 @@
 
 export const AP_BILL_ACCOUNT_CODES = ["1201", "8007", "2000"];
 
-/** Integer-cents split of a bill's lines into goods (item-linked) vs other. */
-export function splitBillLineCents(lines) {
+/**
+ * Integer-cents split of a bill's lines into goods (item-linked) vs other.
+ * Non-goods cents are additionally bucketed by the line's resolved Xoro
+ * expense account (expense_account_id; null key = no resolved account) so
+ * the composer can honor bill-level account truth. `allowedAccountIds`
+ * (optional Set) drops ids the caller could not validate (postable,
+ * non-control, active, this entity) back into the null bucket.
+ */
+export function splitBillLineCents(lines, allowedAccountIds = null) {
   let goods = 0n;
   let other = 0n;
+  const other_by_account = new Map();
   for (const l of lines || []) {
     const qty = Number(l.quantity ?? l.qty ?? 0) || 0;
     const unit = Number(l.unit_cost_cents ?? 0) || 0;
     const cents = BigInt(Math.round(qty * unit));
-    if (l.inventory_item_id) goods += cents;
-    else other += cents;
+    if (l.inventory_item_id) { goods += cents; continue; }
+    other += cents;
+    let key = l.expense_account_id || null;
+    if (key && allowedAccountIds && !allowedAccountIds.has(key)) key = null;
+    other_by_account.set(key, (other_by_account.get(key) || 0n) + cents);
   }
-  return { goods_cents: goods, other_cents: other };
+  return { goods_cents: goods, other_cents: other, other_by_account };
 }
 
 function dollars(centsBig) {
@@ -58,14 +75,22 @@ function dollars(centsBig) {
  *                           posting/invoice date fields, total_amount_cents
  * @param {bigint} p.goods_cents  from splitBillLineCents
  * @param {bigint} p.other_cents  from splitBillLineCents
+ * @param {Map<string|null,bigint>} [p.other_by_account]  from
+ *                                   splitBillLineCents — non-goods cents per
+ *                                   resolved Xoro expense account. When
+ *                                   present, each non-null account gets its
+ *                                   own JE line (bill account truth beats
+ *                                   the vendor default); the null bucket +
+ *                                   tax/rounding plug fall through to
+ *                                   vendorExpense/fallbackExpense.
  * @param {object} p.accounts     { inventory, fallbackExpense, ap,
  *                                   vendorExpense? } (uuids). vendorExpense
  *                                   (nullable) is the bill vendor's default
  *                                   expense account; when present it takes
- *                                   the non-item/plug line instead of
- *                                   fallbackExpense.
+ *                                   the unresolved non-item/plug line
+ *                                   instead of fallbackExpense.
  */
-export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, accounts }) {
+export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, other_by_account, accounts }) {
   const total = BigInt(Math.round(Number(bill.total_amount_cents) || 0));
   if (total === 0n) return null;
   if (!bill.vendor_id) return null; // 2000 is control — a vendor subledger is mandatory
@@ -73,7 +98,6 @@ export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, acc
   // Tax + rounding remainder goes to the fallback expense line so the JE
   // always balances to the bill total exactly.
   const plug = total - (goods_cents + other_cents);
-  const expense_cents = other_cents + plug;
 
   const posting_date = bill.posting_date || bill.invoice_date;
   const lines = [];
@@ -89,6 +113,18 @@ export function composeApBillJe({ entity_id, bill, goods_cents, other_cents, acc
     });
   };
   addSigned(accounts.inventory, goods_cents, `Goods — bill ${bill.invoice_number}`);
+  // Expense side. Precedence: line's own Xoro account > vendor default >
+  // 8007. Cents with a resolved account post to it directly; everything
+  // else (unresolved lines + tax/rounding plug) takes the fallback route.
+  let routed = 0n;
+  if (other_by_account instanceof Map) {
+    for (const [acctId, cents] of other_by_account) {
+      if (!acctId || cents === 0n) continue;
+      addSigned(acctId, cents, `Xoro-classified — bill ${bill.invoice_number}`);
+      routed += cents;
+    }
+  }
+  const expense_cents = (other_cents - routed) + plug;
   addSigned(accounts.vendorExpense || accounts.fallbackExpense, expense_cents, `Non-item/tax — bill ${bill.invoice_number}`);
   // AP side: negated total (credit for a normal bill, debit for a credit memo).
   if (total !== 0n) {
