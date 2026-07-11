@@ -29,11 +29,13 @@
 //     'vendor_expense_reclass', source_module 'ap',
 //     source_table 'vendor_expense_reclass', source_id '<vendor_id>:<YYYY-MM>'
 //     (the uq_je_source_basis index makes reruns idempotent).
-//   - 2000 is never touched (expense -> expense only).
-//   - Rosenthal & Rosenthal is EXCLUDED: factoring costs are already booked
-//     by the #1670 factor_cost JEs (6802/6803/6804) from the Rosenthal
-//     statements — reclassing its AP-bill 8007 charges into the 68xx set
-//     could double-count. Flagged for CEO/controller reconciliation instead.
+//   - 2000 is never touched (verify counts reclass lines on 2000 — must be 0).
+//   - CEO-confirmed INVENTORY vendors (e.g. Factory 1, 2026-07-10) reclass
+//     DR 1201 Inventory instead of an expense account, with journal_type
+//     'vendor_inventory_reclass' (a balance-sheet repair: their goods' sales
+//     already relieved 1201 via AR COGS legs, so the missing purchase-side DR
+//     understated inventory). Inventory-SUSPECT vendors are listed for the
+//     CEO and never auto-posted.
 //
 // Usage: node scripts/reclass-8007.mjs <report|set-defaults|reclass|verify> [--dry-run] [--limit=N]
 
@@ -143,6 +145,167 @@ const HIGH = [
   ["SURF EXPO", "6608", "Trade Show Booth - Surf Expo (tailor-made)"],
   ["Southwest Mobile Storage", "6368", "Storage Container Expense (tailor-made)"],
   ["Chabad of Woodland Hills", "6309", "Charitable Contributions"],
+
+  // ── 2026-07-10 CEO-authorized auto-set expansion ("auto set the vendor
+  // expense accounts for the vendors you have bills for") — promoted MEDIUM
+  // suggestions + name-classified tail. ⚠️ Codes must be ROF-entity postable:
+  // 5110/5120/5130/5140/6510/6520/6524 belong to entity SAG and are unusable.
+  // waste / facilities
+  ["Action Carting Environmental Services, Inc.", "6310", "waste removal — Cleaning & Maintenance"],
+  ["Filco carting", "6310", "waste removal — Cleaning & Maintenance"],
+  ["Waste Management", "6310", "waste removal — Cleaning & Maintenance"],
+  ["Coast to Coast Installations, LLC.", "6364", "installations — Repairs & Maintenance"],
+  ["Millennium Steel", "6364", "materials/repairs — Repairs & Maintenance"],
+  ["Coway USA", "6327", "water purifier rental — Equipment Rental"],
+  ["Marlin Business Bank -Peac Solutions", "6327", "equipment lease financing (Peac) — Equipment Rental"],
+  ["JSHU Investments", "6360", "landlord — Rent Expense"],
+  ["Solomar Fixtures Inc.", "6353", "fixtures — Office Equipment"],
+  ["LA DWP", "6350", "water & power — no utilities account in ROF COA; Miscellaneous"],
+  // supplies
+  ["Amazon", "6354", "mixed retail — Office Supplies"],
+  ["Staples", "6354", "office supplies"],
+  ["Dollar Tree", "6354", "misc supplies"],
+  ["Target", "6354", "misc supplies"],
+  ["Avery Dennison", "6374", "tags/labels/trims — Warehouse Supplies"],
+  ["California Supply, Inc.", "6374", "supplies — Warehouse Supplies"],
+  ["Packaging & More", "6374", "packaging — Warehouse Supplies"],
+  ["Fineline Technologies", "6374", "price tickets/RFID tags — Warehouse Supplies"],
+  ["Uline Shipping Supplies", "6374", "shipping supplies — Warehouse Supplies"],
+  ["Uniforms Depot", "6374", "warehouse uniforms — Warehouse Supplies"],
+  ["Costco Warehouse", "6381", "bulk food/supplies — Break Room Supplies"],
+  ["Ralphs", "6381", "groceries — Break Room Supplies"],
+  ["Vons", "6381", "groceries — Break Room Supplies"],
+  ["Whole Foods", "6381", "groceries — Break Room Supplies"],
+  ["Smart & Final", "6381", "groceries — Break Room Supplies"],
+  ["Vallarta Supermarket", "6381", "groceries — Break Room Supplies"],
+  ["7 Eleven", "6381", "snacks — Break Room Supplies"],
+  ["CVS Pharmacy", "6350", "pharmacy/misc — Miscellaneous"],
+  // insurance (promoted)
+  ["The Hartford", "6337", "business insurer — General Liability Insurance"],
+  ["Capital Premium for Travelers EPLI", "6336", "EPLI premium financing — E&O"],
+  ["Banner Health", "6338", "medical — Medical Insurance"],
+  // taxes / licenses / government
+  ["California Department of Tax and Fee Admin", "6386", "state taxes & fees — Taxes & Licenses"],
+  ["City of LA Business Tax", "6307", "LA business tax — Business License"],
+  ["City of Los Angeles-Office of Finance", "6307", "LA business tax — Business License"],
+  ["Los Angeles County Tax Collector", "6359", "property tax"],
+  ["Utah Department of Agriculture and Food", "6346", "licenses & fees"],
+  ["U.S. Customs and Border Protection", "6386", "customs duty — ROF has no Customs Duty account (5110/5120/5130 are entity SAG); Taxes & Licenses"],
+  // software / web / processing
+  ["Remote Techs, Inc.", "6311", "IT services — Computer Consulting"],
+  ["Microsoft", "6314", "software — Computer Software"],
+  ["Ship Station", "6314", "shipping software — Computer Software"],
+  ["Saasant", "6302", "QuickBooks import tool — Accounting Software"],
+  ["GoDaddy", "6709", "domains — Web Hosting"],
+  ["Stamps.com", "6720", "Website Shipping stamps.com (tailor-made)"],
+  ["Shutter Stock", "6325", "stock imagery — Dues and Subscriptions"],
+  ["Route App, Inc dba Safe Order Solutions", "6325", "package protection — Dues and Subscriptions"],
+  ["Pantone", "6321", "color standards — Design Supplies"],
+  ["Intuit Payments", "6318", "Credit Card Processing Fees QB (tailor-made)"],
+  ["Paypal", "6384", "payment processing — Merchant deposit fees"],
+  ["eBay", "6384", "marketplace fees — 6520 is entity SAG; Merchant deposit fees"],
+  ["Etsy, Inc.", "6384", "marketplace fees — 6520 is entity SAG; Merchant deposit fees"],
+  ["Walmart", "6384", "marketplace fees — 6520 is entity SAG; Merchant deposit fees"],
+  ["Attentive Mobile Inc.", "6601", "SMS marketing SaaS — Advertising & Marketing"],
+  // freight tail
+  ["DHL", "5405", "parcel carrier — Shipping Expense"],
+  ["DHL Service", "5405", "parcel carrier — Shipping Expense"],
+  // design / production / marketing services
+  ["Trade Aider", "5204", "QC/inspection platform — Inspections Expense"],
+  ["Ideal Fit Models", "5203", "Fit Model Expense (tailor-made)"],
+  ["E.L.K Design Corp", "5202", "design services — Design Expense Freelance"],
+  ["Nikki Benham Designs & Alterations", "5202", "design/alterations — Design Expense Freelance"],
+  ["Photo Editor Company", "6704", "photo services"],
+  ["BH Photo", "6603", "camera store — Photo Equipment"],
+  ["Brand Model & Talent Agency, Inc", "6719", "models for shoots — Website Model Expense"],
+  ["Expo Solutions", "6604", "trade show services — 5140 is entity SAG; Promotional Events"],
+  ["Hello! Freeman", "6604", "trade show contractor (Freeman) — Promotional Events"],
+  ["Orange County Covention Center Exhibitor", "6604", "trade show venue — Promotional Events"],
+  ["Rosen Music Studio", "6604", "event services — Promotional Events"],
+  // comp shopping (apparel retail purchases = design research/samples)
+  ["Abercrombie & Fitch", "5206", "competitor comp shopping — Samples Expense"],
+  ["Uniqlo", "5206", "competitor comp shopping — Samples Expense"],
+  ["TJ Maxx", "5206", "competitor comp shopping — Samples Expense"],
+  ["Ross Dress for Less", "5206", "competitor comp shopping — Samples Expense"],
+  ["Nordstrom rack", "5206", "competitor comp shopping — Samples Expense"],
+  ["The Levis Store", "5206", "competitor comp shopping — Samples Expense"],
+  // contractors / staffing / commissions
+  ["Freelancer", "6130", "freelance platform — Contractors"],
+  ["Sourcefit", "6130", "offshore staffing/BPO — Contractors"],
+  ["24 Seven LLC", "6130", "fashion staffing agency — Contractors"],
+  ["Irene Navarro", "6130", "individual — Contractors"],
+  ["Josue Gonzalez.", "6130", "individual — Contractors"],
+  ["Ana V Salcedo", "6130", "individual — Contractors"],
+  ["Aaron S. Yun", "6130", "individual — Contractors"],
+  ["Roxy Sanchez", "6130", "individual — Contractors"],
+  ["Robert Prather", "6130", "individual — Contractors"],
+  ["Meghan Tudor", "6130", "individual — Contractors"],
+  ["Henry Chan", "6130", "individual — Contractors"],
+  ["Damian Valencia", "6130", "individual — Contractors"],
+  ["June Macabanti", "6130", "individual — Contractors"],
+  ["Same Bellosillo", "6130", "individual — Contractors"],
+  ["Josefina Higuera", "6130", "individual — Contractors"],
+  ["Raul Ruiz", "6130", "individual — Contractors"],
+  ["Armando J Carlos", "6130", "individual — Contractors"],
+  ["Armando Carlos", "6130", "individual — Contractors"],
+  ["Analia Escalada", "6130", "individual — Contractors"],
+  ["Ron Yoshida", "6130", "individual — Contractors"],
+  ["Robert Halfon", "6130", "individual — Contractors"],
+  ["Rick Garcia", "6130", "individual — Contractors"],
+  ["Reggie B. Pooley", "6130", "individual — Contractors"],
+  ["Marissa Morin", "6130", "individual — Contractors"],
+  ["Dahna Tal", "6130", "individual — Contractors"],
+  ["Efren X Zuniga", "6130", "individual — Contractors"],
+  ["Emilio. Moncada", "6130", "individual — Contractors"],
+  ["Nicole Benham", "6130", "individual — Contractors"],
+  ["Spencer Lem", "6134", "Sales Commission - Spencer Lem (tailor-made)"],
+  // professional / collections
+  ["Caine & Weiner", "6344", "collections agency — Legal & Professional"],
+  ["USCB America", "6344", "collections agency — Legal & Professional"],
+  ["Perpl Fashion Consulting LLC", "6130", "fashion consulting — Contractors"],
+  // misc
+  ["Lehosheet Yad L.A", "6309", "charity — Charitable Contributions"],
+  ["Apple.com", "6312", "hardware — Computer Hardware"],
+  // travel / autos / meals tail
+  ["E360 Travelers", "6370", "travel agency — Travel"],
+  ["Expedia", "6370", "travel bookings — Travel"],
+  ["Alamo", "6370", "car rental — Travel"],
+  ["Lyft Ride", "6370", "rides — Travel"],
+  ["Curb Taxi Las Vegas", "6370", "taxi — Travel"],
+  ["Sidecar", "6370", "rides — Travel"],
+  ["Ace Parking", "6370", "parking — Travel"],
+  ["California Market Center Parking", "6370", "parking — Travel"],
+  ["Hudson", "6351", "airport shop — Misc Travel"],
+  ["SSP America", "6351", "airport food — Misc Travel"],
+  ["The Line LA", "6332", "hotel — Hotel Expense"],
+  ["Chevron Stations Inc.", "6304", "fuel — Auto Expense"],
+  ["West Hills Towing", "6304", "towing — Auto Expense"],
+  ["Ford", "6304", "auto — Auto Expense"],
+  ["Alessa Cucina & Bar", "6349", "restaurant — Meals & Entertainment"],
+  ["Celon Lounge", "6349", "restaurant — Meals & Entertainment"],
+  ["Crumble Cookie", "6349", "food — Meals & Entertainment"],
+  ["Diddy Riese", "6349", "food — Meals & Entertainment"],
+  ["Goop Kitchen", "6349", "food — Meals & Entertainment"],
+  ["Guidos Pizza & Pasta", "6349", "restaurant — Meals & Entertainment"],
+  ["Mama's Donuts", "6349", "food — Meals & Entertainment"],
+  ["Morton's The Steakhouse", "6349", "restaurant — Meals & Entertainment"],
+  ["Mr. Broadway", "6349", "restaurant — Meals & Entertainment"],
+  ["Paoli's Italian Kitchen", "6349", "restaurant — Meals & Entertainment"],
+  ["Pascal Patisserie & Cafe", "6349", "restaurant — Meals & Entertainment"],
+  ["Pogo's", "6349", "restaurant — Meals & Entertainment"],
+  ["Rib Ranch BBQ", "6349", "restaurant — Meals & Entertainment"],
+  ["Stella 34 Trattoria", "6349", "restaurant — Meals & Entertainment"],
+  ["Sushi Gen", "6349", "restaurant — Meals & Entertainment"],
+  ["Susie Cakes", "6349", "food — Meals & Entertainment"],
+  ["Tel Aviv Grill Encino", "6349", "restaurant — Meals & Entertainment"],
+  ["Toloache Restaurant", "6349", "restaurant — Meals & Entertainment"],
+  ["Topanga Social", "6349", "food hall — Meals & Entertainment"],
+  ["Uber Eats", "6349", "food delivery — Meals & Entertainment"],
+  ["Villon Coffee FL", "6349", "coffee — Meals & Entertainment"],
+  ["Wetzel's Pretzels", "6349", "food — Meals & Entertainment"],
+  ["Wokcano Topanga", "6349", "restaurant — Meals & Entertainment"],
+  ["Firefly Studio City", "6349", "restaurant — Meals & Entertainment"],
+  ["Top Golf", "6349", "entertainment — Meals & Entertainment"],
 ];
 
 // Vendors NEVER auto-reclassed even if a default account is set.
@@ -152,71 +315,56 @@ const HIGH = [
 // no longer double-counts.
 const EXCLUDE = new Map([]);
 
-// MEDIUM/LOW suggestions for the review CSV — NOT auto-posted.
-const SUGGEST = new Map([
-  ["Factory 1", ["", "MEDIUM", "garment manufacturer — likely inventory/COGS (1201/5001), not an opex category; out of scope for expense->expense reclass"]],
-  ["CNX America Corp.", ["6348", "MEDIUM", "name suggests logistics but unverified"]],
-  ["Interland Clothing", ["", "MEDIUM", "garment vendor — likely inventory/COGS; CEO confirm"]],
-  ["United Aryan (EPZ) Limited", ["", "MEDIUM", "garment manufacturer (Kenya) — likely inventory/COGS"]],
-  ["NEXT ELEVATION", ["", "LOW", "unknown vendor — CEO identify"]],
-  ["Dynamic Full Ltd.", ["", "MEDIUM", "HK garment vendor — likely inventory/COGS"]],
-  ["Anhui Taihe Jiarun Garment Co Ltd", ["", "MEDIUM", "garment manufacturer — likely inventory/COGS"]],
-  ["2253 Apparel, Inc.", ["", "MEDIUM", "apparel vendor — likely inventory/COGS"]],
-  ["The Luxury Collection", ["", "LOW", "ambiguous (apparel vs hotel brand)"]],
-  ["Bien Roulee Fashion", ["", "MEDIUM", "apparel vendor — likely inventory/COGS"]],
-  ["iWin Group Corp.", ["", "LOW", "unknown vendor"]],
-  ["Aztlan Trading Inc.", ["", "LOW", "unknown vendor"]],
-  ["Lanny K.W. Inc.", ["", "LOW", "unknown vendor"]],
-  ["Avery Dennison", ["6374", "MEDIUM", "tags/labels/trims — Warehouse Supplies, or trim inventory; CEO pick"]],
-  ["California Supply, Inc.", ["6374", "MEDIUM", "supplies vendor — Warehouse Supplies?"]],
-  ["Packaging & More", ["6374", "MEDIUM", "packaging — Warehouse Supplies?"]],
-  ["Fineline Technologies", ["6374", "MEDIUM", "price tickets/RFID tags — Warehouse Supplies or ticket accounts 5022/5023"]],
-  ["Venbrook Group LLC", ["6337", "MEDIUM", "commercial insurance broker — which policy line (GL/WC/property) unknown; no generic Insurance postable account"]],
-  ["The Hartford", ["6337", "MEDIUM", "business insurer — GL vs workers' comp split unknown"]],
-  ["Capital Premium for Travelers EPLI", ["6336", "MEDIUM", "EPLI premium financing — E&O vs GL insurance"]],
-  ["Accordia Life and Annuity Company", ["", "MEDIUM", "life insurance — possibly officer life (may be non-deductible); CEO decide"]],
-  ["American General Life Insurance Company", ["", "MEDIUM", "life insurance — CEO decide"]],
-  ["Banner Life Insurance Company", ["", "MEDIUM", "life insurance — CEO decide"]],
-  ["Banner Health", ["6338", "MEDIUM", "medical provider — Medical Insurance?"]],
-  ["Bitton & Associates", ["6344", "MEDIUM", "related-party name (Bitton) — legal/consulting? CEO confirm"]],
-  ["Isaac Bitton", ["", "MEDIUM", "related party — CEO classify (guaranteed payments / consulting?)"]],
-  ["Remote Techs, Inc.", ["6311", "MEDIUM", "IT services — Computer Consulting?"]],
-  ["Sourcefit", ["6130", "MEDIUM", "offshore staffing/BPO — Contractors?"]],
-  ["Freelancer", ["6130", "MEDIUM", "freelance platform — Contractors or Design Freelance 5202"]],
-  ["U.S. Small Business Administration", ["6342", "MEDIUM", "SBA loan payments — interest portion to 6342, principal is liability not expense; controller split"]],
-  ["State of California Franchise Tax Board", ["6369", "MEDIUM", "income/franchise tax — CEO/CPA decide expense vs equity treatment"]],
-  ["Franchise Tax Board", ["6369", "MEDIUM", "income/franchise tax — CEO/CPA decide"]],
-  ["California Department of Tax and Fee Admin", ["6386", "MEDIUM", "state taxes & fees"]],
-  ["City of Los Angeles-Office of Finance", ["6307", "MEDIUM", "LA business tax — Business License"]],
-  ["City of LA Business Tax", ["6307", "MEDIUM", "LA business tax — Business License"]],
-  ["Los Angeles County Tax Collector", ["6359", "MEDIUM", "property tax"]],
-  ["Utah Department of Agriculture and Food", ["6346", "MEDIUM", "licenses & fees"]],
-  ["U.S. Customs and Border Protection", ["5120", "MEDIUM", "customs duty — ROF has no Customs Duty account (5110 belongs to entity SAG); 5120 Brokerage + Clearance or 5130 Section 301 Tariffs — CEO pick"]],
-  ["Valley Bank", ["6306", "MEDIUM", "bank charges vs loan payment — verify"]],
-  ["Marlin Business Bank -Peac Solutions", ["6327", "MEDIUM", "equipment lease financing — Equipment Rental"]],
-  ["Attentive Mobile Inc.", ["6601", "MEDIUM", "SMS marketing SaaS — Advertising & Marketing"]],
-  ["Shutter Stock", ["6325", "MEDIUM", "stock imagery subscription"]],
-  ["Apple.com", ["6312", "MEDIUM", "hardware — Computer Hardware"]],
-  ["Amazon", ["6354", "MEDIUM", "mixed retail — Office Supplies?"]],
-  ["Costco Warehouse", ["6381", "MEDIUM", "mixed retail — Break Room Supplies?"]],
-  ["E360 Travelers", ["6370", "MEDIUM", "travel agency? verify not Travelers insurance"]],
-  ["Expo Solutions", ["5140", "MEDIUM", "trade show services"]],
-  ["Orange County Covention Center Exhibitor", ["5140", "MEDIUM", "trade show venue"]],
-  ["Hello! Freeman", ["5140", "MEDIUM", "trade show contractor (Freeman)"]],
-  ["Trade Aider", ["5204", "MEDIUM", "QC/inspection platform — Inspections Expense"]],
-  ["Filco carting", ["6310", "MEDIUM", "waste removal — Cleaning & Maintenance"]],
-  ["Action Carting Environmental Services, Inc.", ["6310", "MEDIUM", "waste removal — Cleaning & Maintenance"]],
-  ["Coway USA", ["6327", "MEDIUM", "water purifier rental — Equipment Rental"]],
-  ["JSHU Investments", ["6360", "MEDIUM", "possible landlord — Rent? verify"]],
-  ["Photo Editor Company", ["6704", "MEDIUM", "photo services"]],
-  ["Solomar Fixtures Inc.", ["6353", "MEDIUM", "fixtures — Office Equipment?"]],
-  ["Lehosheet Yad L.A", ["6309", "MEDIUM", "likely charity — verify"]],
-  ["Millennium Steel", ["6364", "MEDIUM", "repairs/materials — verify"]],
-  ["Paypal", ["6384", "MEDIUM", "merchant/deposit fees"]],
-  ["eBay", ["6520", "MEDIUM", "Marketplace Fees"]],
-  ["Etsy, Inc.", ["6520", "MEDIUM", "Marketplace Fees"]],
-  ["Walmart", ["6520", "MEDIUM", "marketplace fees vs supplies — verify"]],
+// CEO-CONFIRMED inventory vendors: their 8007 balance reclasses DR 1201
+// Inventory / CR 8007 (journal_type 'vendor_inventory_reclass'). Rationale:
+// these goods' sales already relieved 1201 via the AR COGS legs at average
+// cost, so the missing purchase-side DR understated inventory — the reclass
+// repairs it. Their default is also set to 1201 so the go-forward sweep
+// routes future non-item lines to inventory. Add names here ONLY on an
+// explicit CEO confirmation.
+const INVENTORY_CONFIRMED = new Map([
+  ["Factory 1", "CEO decision 2026-07-10: Factory 1 bills are inventory purchases"],
 ]);
+
+// Inventory-SUSPECT vendors awaiting the CEO's confirm list (never auto-set;
+// once confirmed, move the name into INVENTORY_CONFIRMED and re-run reclass).
+const INVENTORY_SUSPECT = new Map([
+  ["CNX America Corp.", "lumpy 6-figure bills Jan/Feb-2026 — logistics-or-goods, verify"],
+  ["Interland Clothing", "garment vendor — 2 large bills"],
+  ["United Aryan (EPZ) Limited", "garment manufacturer (Kenya), single $80k bill"],
+  ["Dynamic Full Ltd.", "HK garment vendor, single $40k bill"],
+  ["2253 Apparel, Inc.", "apparel vendor"],
+  ["Anhui Taihe Jiarun Garment Co Ltd", "garment manufacturer"],
+  ["Bien Roulee Fashion", "apparel vendor"],
+  ["NEXT ELEVATION", "unknown — 3 lumpy bills over 20 months, goods-supplier pattern"],
+  ["The Luxury Collection", "ambiguous (apparel supplier vs Marriott hotel brand), single $25k bill"],
+  ["Lanny K.W. Inc.", "unknown trading-co name"],
+  ["iWin Group Corp.", "unknown trading-co name"],
+  ["Aztlan Trading Inc.", "trading-co name"],
+  ["Mass Apparel International", "apparel name ($0.70 — negligible)"],
+]);
+
+// Related-party / financing rows: booked amounts may be distributions or loan
+// principal, NOT P&L expense — flagged for the CEO/controller, never auto-set.
+const FLAG = new Map([
+  ["Bitton & Associates", "related-party name (Bitton) — may be distributions, not P&L"],
+  ["Isaac Bitton", "related party — guaranteed payments / distributions? CEO classify"],
+  ["Tao Rodriguez / Maria Villarreal (MOM's bank info for pymt)", "related-party payment routing — CEO classify"],
+  ["Franchise Tax Board", "income/franchise tax — expense vs equity treatment is a CPA call"],
+  ["State of California Franchise Tax Board", "income/franchise tax — expense vs equity treatment is a CPA call"],
+  ["U.S. Small Business Administration", "SBA loan payments — principal is a liability, interest → 6342; controller split"],
+  ["Venbrook Group LLC", "insurance broker — cannot split policy lines (GL/WC/property) from bill data; CEO/broker statement needed"],
+  ["Valley Bank", "bank — fees vs loan principal unverifiable from bill data"],
+  ["Accordia Life and Annuity Company", "life insurance — possibly officer life / non-deductible"],
+  ["American General Life Insurance Company", "life insurance — possibly officer life / non-deductible"],
+  ["Banner Life Insurance Company", "life insurance — possibly officer life / non-deductible"],
+]);
+
+// MEDIUM/LOW suggestions for the review CSV — NOT auto-posted. (Emptied
+// 2026-07-10: the CEO authorized auto-setting defaults, so every actionable
+// suggestion above was promoted into the auto-set mapping; the remaining
+// unmapped vendors are INVENTORY_SUSPECT / FLAG / zero-signal LOW.)
+const SUGGEST = new Map([]);
 
 async function fetchAll(table, select, mod = (q) => q) {
   const out = [];
@@ -246,8 +394,10 @@ async function loadContext() {
   }
   const a8007 = postableByCode.get("8007");
   const a2000 = accts.find((a) => a.code === "2000");
+  const a1201 = postableByCode.get("1201"); // Inventory - ROF (postable, non-control)
   if (!a8007 || !a2000) throw new Error("GL accounts 8007/2000 missing");
-  return { entity_id: entity.id, a8007, a2000, acctById, postableByCode };
+  if (!a1201) throw new Error("GL account 1201 (Inventory) missing/not postable — required for the inventory tier");
+  return { entity_id: entity.id, a8007, a2000, a1201, acctById, postableByCode };
 }
 
 // All posted 8007 lines from the per-bill AP engine, resolved to
@@ -340,8 +490,11 @@ async function phaseReport() {
     const high = highByName.get(v.name);
     let tier, target, why;
     if (EXCLUDE.has(v.name)) { tier = "EXCLUDED"; target = ""; why = EXCLUDE.get(v.name); }
+    else if (INVENTORY_CONFIRMED.has(v.name)) { tier = "INVENTORY"; target = "1201"; why = INVENTORY_CONFIRMED.get(v.name); }
     else if (high) { tier = "HIGH"; target = high.code; why = high.why; }
     else if (def) { tier = "DEFAULT"; target = def.code; why = "vendor already has an operator-set default expense account"; }
+    else if (INVENTORY_SUSPECT.has(v.name)) { tier = "INVENTORY?"; target = ""; why = `inventory-suspect, awaiting CEO confirmation — ${INVENTORY_SUSPECT.get(v.name)}`; }
+    else if (FLAG.has(v.name)) { tier = "FLAG"; target = ""; why = FLAG.get(v.name); }
     else if (SUGGEST.has(v.name)) { const [code, t, r] = SUGGEST.get(v.name); tier = t; target = code; why = r; }
     else { tier = "LOW"; target = ""; why = "no confident name match — CEO classify"; }
     rows.push({ vendor_id, name: v.name, cents, months: byYm.size, tier, target, why, byYm });
@@ -350,18 +503,18 @@ async function phaseReport() {
 
   const sumTier = (t) => rows.filter((r) => r.tier === t).reduce((s, r) => s + r.cents, 0);
   console.log(`8007 activity: ${lineCount} lines, ${rows.length} vendors, $${$(total)}`);
-  for (const t of ["HIGH", "DEFAULT", "MEDIUM", "LOW", "EXCLUDED"]) {
+  for (const t of ["INVENTORY", "HIGH", "DEFAULT", "INVENTORY?", "FLAG", "MEDIUM", "LOW", "EXCLUDED"]) {
     console.log(`  ${t}: ${rows.filter((r) => r.tier === t).length} vendors  $${$(sumTier(t))}`);
   }
-  console.log("\nauto-reclass set (HIGH + DEFAULT), top 25:");
-  for (const r of rows.filter((r) => r.tier === "HIGH" || r.tier === "DEFAULT").slice(0, 25)) {
+  console.log("\nauto-reclass set (INVENTORY + HIGH + DEFAULT), top 25:");
+  for (const r of rows.filter((r) => r.tier === "INVENTORY" || r.tier === "HIGH" || r.tier === "DEFAULT").slice(0, 25)) {
     console.log(`  ${r.name} -> ${r.target}: $${$(r.cents)} over ${r.months} mo (${r.tier})`);
   }
 
   // review CSV: everything NOT auto-reclassed
   const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
   const csvRows = [["vendor", "total", "months_active", "monthly_totals", "suggested_account", "confidence", "reason"].join(",")];
-  for (const r of rows.filter((x) => x.tier === "MEDIUM" || x.tier === "LOW" || x.tier === "EXCLUDED")) {
+  for (const r of rows.filter((x) => ["INVENTORY?", "FLAG", "MEDIUM", "LOW", "EXCLUDED"].includes(x.tier))) {
     const monthly = [...r.byYm.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([ym, b]) => `${ym}: $${$(b.cents)}`).join("; ");
     const sug = r.target ? `${r.target} — ${(ctx.postableByCode.get(r.target) || {}).name || ""}` : "";
@@ -379,7 +532,11 @@ async function phaseSetDefaults({ dryRun }) {
   const vendors = await loadVendors();
   const byName = new Map([...vendors.values()].map((v) => [v.name, v]));
   let set = 0, kept = 0, missing = 0;
-  for (const [name, code, why] of HIGH) {
+  // CEO-confirmed inventory vendors get default 1201 so the go-forward sweep
+  // routes their future non-item lines to inventory (1201 is postable +
+  // non-control, so it passes the #1666 sweep validation).
+  const mappings = [...INVENTORY_CONFIRMED.keys()].map((n) => [n, "1201", INVENTORY_CONFIRMED.get(n)]).concat(HIGH);
+  for (const [name, code, why] of mappings) {
     const v = byName.get(name);
     if (!v) { missing += 1; console.log(`  vendor not found: ${name}`); continue; }
     const acct = ctx.postableByCode.get(code);
@@ -418,7 +575,10 @@ async function phaseReclass({ dryRun, limit }) {
       console.log(`  EXCLUDED ${w.v.name}: $${$([...w.byYm.values()].reduce((s, b) => s + b.cents, 0))} left in 8007 — ${EXCLUDE.get(w.v.name)}`);
       continue;
     }
-    const target = validDefault(ctx, w.v);
+    // CEO-confirmed inventory vendors reclass to 1201 Inventory with a
+    // distinct journal_type (BS move, not P&L category move).
+    const isInventory = INVENTORY_CONFIRMED.has(w.v.name);
+    const target = isInventory ? ctx.a1201 : validDefault(ctx, w.v);
     if (!target) { skippedNoDefault += 1; continue; }
     if (target.id === ctx.a8007.id) { skippedNoDefault += 1; continue; } // default IS 8007 — nothing to move
 
@@ -450,13 +610,15 @@ async function phaseReclass({ dryRun, limit }) {
       const payload = {
         entity_id: ctx.entity_id,
         basis: "ACCRUAL",
-        journal_type: "vendor_expense_reclass",
+        journal_type: isInventory ? "vendor_inventory_reclass" : "vendor_expense_reclass",
         posting_date,
         source_module: "ap",
         source_table: "vendor_expense_reclass",
         source_id: `${w.vendor_id}:${ym}`,
         description: `8007 reclass — ${w.v.name} — ${ym} -> ${target.code} ${target.name}`,
-        audit_reason: `AP 8007 Uncategorized Expense cleanup: move $${$(b.cents)} of ${ym} charges from vendor ${w.v.name} to its default expense account ${target.code} ${target.name} (vendor default expense mapping; per-vendor-per-month reclass dated to the source month). Expense-to-expense only — AP 2000 untouched.`,
+        audit_reason: isInventory
+          ? `AP 8007 cleanup — ${INVENTORY_CONFIRMED.get(w.v.name)}: move $${$(b.cents)} of ${ym} charges from ${w.v.name} to 1201 Inventory. The goods' sales already relieved 1201 via the AR COGS legs at average cost, so the missing purchase-side DR understated inventory; this repairs it. Per-vendor-per-month reclass dated to the source month — AP 2000 untouched.`
+          : `AP 8007 Uncategorized Expense cleanup: move $${$(b.cents)} of ${ym} charges from vendor ${w.v.name} to its default expense account ${target.code} ${target.name} (vendor default expense mapping; per-vendor-per-month reclass dated to the source month). Expense-to-expense only — AP 2000 untouched.`,
         lines,
       };
       const r = await postJe(payload, () => admin.from("journal_entries").select("id")
@@ -486,8 +648,21 @@ async function phaseVerify() {
   const net8007 = row8007 ? toC(row8007.debit_cents) - toC(row8007.credit_cents) : 0;
   const net2000 = row2000 ? toC(row2000.debit_cents) - toC(row2000.credit_cents) : 0;
   console.log(`GL 8007 net DR: $${$(net8007)}`);
-  console.log(`GL 2000 net CR: $${$(-net2000)}  (must equal $9,947,831.51 -> diff $${$(-net2000 - 994783151)})`);
+  // The 2000 invariant is "unchanged by the reclass" (nightly AP sweeps move
+  // it legitimately) — proven structurally below by counting reclass lines on
+  // 2000, which must be zero. The balance is printed for the operator's
+  // before/after snapshot.
+  console.log(`GL 2000 net CR: $${$(-net2000)}  (reclass must not move it — see reclass-lines-on-2000 check)`);
   console.log(`trial-balance imbalance: $${$(imbalance)} (must be 0.00)`);
+
+  // structural 2000 guard: no reclass JE line may touch the AP control account
+  const { count: n2000, error: g2000Err } = await admin
+    .from("journal_entry_lines")
+    .select("id, journal_entries!inner(journal_type)", { count: "exact", head: true })
+    .eq("account_id", ctx.a2000.id)
+    .in("journal_entries.journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass"]);
+  if (g2000Err) throw new Error(g2000Err.message);
+  console.log(`reclass lines on 2000: ${n2000 ?? 0} (must be 0)`);
 
   // 8007 by month AFTER (all journal types)
   const lines = await fetchAll(
@@ -503,9 +678,9 @@ async function phaseVerify() {
   console.log("\n8007 by month after reclass:");
   for (const [ym, c] of [...byYm.entries()].sort()) console.log(`  ${ym}: $${$(c)}`);
 
-  // every reclass JE balanced?
+  // every reclass JE balanced? (both expense and inventory reclass types)
   const reclassJes = await fetchAll("journal_entries", "id, posting_date, description",
-    (q) => q.eq("journal_type", "vendor_expense_reclass").eq("status", "posted"));
+    (q) => q.in("journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass"]).eq("status", "posted"));
   const jeIds = reclassJes.map((j) => j.id);
   let jeImbalance = 0, checked = 0;
   for (let i = 0; i < jeIds.length; i += 100) {
