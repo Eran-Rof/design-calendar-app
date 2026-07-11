@@ -328,20 +328,45 @@ const INVENTORY_CONFIRMED = new Map([
 
 // Inventory-SUSPECT vendors awaiting the CEO's confirm list (never auto-set;
 // once confirmed, move the name into INVENTORY_CONFIRMED and re-run reclass).
+// 2026-07-10 prepayment probe: register evidence (bill numbers, paid/relief
+// columns) reviewed for every vendor here — see PREPAYMENT_OPEN / NET_ZERO
+// below for the ones that turned out not to be plain goods invoices.
 const INVENTORY_SUSPECT = new Map([
-  ["CNX America Corp.", "lumpy 6-figure bills Jan/Feb-2026 — logistics-or-goods, verify"],
-  ["Interland Clothing", "garment vendor — 2 large bills"],
-  ["United Aryan (EPZ) Limited", "garment manufacturer (Kenya), single $80k bill"],
-  ["Dynamic Full Ltd.", "HK garment vendor, single $40k bill"],
-  ["2253 Apparel, Inc.", "apparel vendor"],
-  ["Anhui Taihe Jiarun Garment Co Ltd", "garment manufacturer"],
-  ["Bien Roulee Fashion", "apparel vendor"],
-  ["NEXT ELEVATION", "unknown — 3 lumpy bills over 20 months, goods-supplier pattern"],
-  ["The Luxury Collection", "ambiguous (apparel supplier vs Marriott hotel brand), single $25k bill"],
-  ["Lanny K.W. Inc.", "unknown trading-co name"],
-  ["iWin Group Corp.", "unknown trading-co name"],
-  ["Aztlan Trading Inc.", "trading-co name"],
-  ["Mass Apparel International", "apparel name ($0.70 — negligible)"],
+  ["CNX America Corp.", "goods invoices, NOT deposits: B005513 $209,690.17 (vendor bill BD/ROHM251109B, $25,000 deposit APPLIED) + B005662 $136,913.72 (R-045/2025-26, fully deposit-settled). Relief JEs already CR'd 1308 for the applied deposits, so cost stands ONCE — no double-count. Big two look like merchandise (verify); 4 small LAX-AR bills look like freight (6348)"],
+  ["Interland Clothing", "garment vendor — real invoices (9163 $220,190.76 cash-paid 2024-09, CI-2025-0002 $2,800)"],
+  ["2253 Apparel, Inc.", "apparel vendor — 5 spread bills, all still OPEN/due, normal invoice pattern"],
+  ["Bien Roulee Fashion", "apparel vendor — 2 real paid invoices"],
+  ["NEXT ELEVATION", "mixed: $79,083.30 of it (2 opening-backfill bills 2024-08-31) was settled by vendor credits — nets to zero vs 5005 (see NET_ZERO); the real cost is B006148 $23,544.00 paid 2026-04"],
+  ["Lanny K.W. Inc.", "real invoices Am751A/787A/788A, paid"],
+  ["iWin Group Corp.", "5 real invoices IWOI-#####, paid"],
+  ["Aztlan Trading Inc.", "real invoice 10280, paid"],
+]);
+
+// OPEN vendor deposits (CEO 2026-07-10: "some of these look like prepayments
+// prior to receiving the invoice"). Evidence: round amount, cash-paid in
+// full, vendor bill number is just the payment date (no real invoice #), and
+// NO subsequent absorbing invoice exists in the register or the live feed.
+// Treatment: DR 1308 Vendor Prepayments & Deposits (asset) / CR 8007,
+// journal_type 'vendor_prepayment_reclass'. The deposit sits in 1308 until
+// the merchandise invoice arrives and the controller applies it. Do NOT set
+// these vendors' defaults to 1308 — their future real invoices must not
+// auto-route to the asset account (deposit routing stays a manual call).
+const PREPAYMENT_OPEN = new Map([
+  ["United Aryan (EPZ) Limited", "ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date), Kenyan garment manufacturer — deposit for a merchandise order; no absorbing invoice through 2026-07-10"],
+  ["The Luxury Collection", "ROF-B005744 $25,000.00 paid 2026-02-25 (ref '022026' = the date) — deposit; no absorbing invoice through 2026-07-10"],
+]);
+
+// NET-ZERO rows: the bill's 8007 DR is exactly offset by the SAME bill's
+// #1668 relief JE credit to 5005 (register said the bill was fully settled
+// by vendor credits/discounts). Net P&L effect is already zero. Whether the
+// "vendor credit" was a true credit (cost never happened) or a deposit
+// application Xoro recorded as a credit (cost real, relief should have hit
+// 1308) is NOT determinable from the data — controller decides; never
+// auto-posted.
+const NET_ZERO = new Map([
+  ["Dynamic Full Ltd.", "PBPT-B005240 $40,000.00 (2025-11-28) settled 100% by vendor credit — relief CR 5005 $40,000 offsets the 8007 DR exactly"],
+  ["Anhui Taihe Jiarun Garment Co Ltd", "ROF-B001818 $14,012.64 (opening backfill 2024-08-31) settled 100% by discount — relief CR 5005 offsets exactly"],
+  ["Mass Apparel International", "ROF-B001815 $0.70 settled by vendor credit — offsets exactly"],
 ]);
 
 // Related-party / financing rows: booked amounts may be distributions or loan
@@ -395,9 +420,11 @@ async function loadContext() {
   const a8007 = postableByCode.get("8007");
   const a2000 = accts.find((a) => a.code === "2000");
   const a1201 = postableByCode.get("1201"); // Inventory - ROF (postable, non-control)
+  const a1308 = postableByCode.get("1308"); // Vendor Prepayments & Deposits (asset)
   if (!a8007 || !a2000) throw new Error("GL accounts 8007/2000 missing");
   if (!a1201) throw new Error("GL account 1201 (Inventory) missing/not postable — required for the inventory tier");
-  return { entity_id: entity.id, a8007, a2000, a1201, acctById, postableByCode };
+  if (!a1308) throw new Error("GL account 1308 (Vendor Prepayments & Deposits) missing/not postable — required for the prepayment tier");
+  return { entity_id: entity.id, a8007, a2000, a1201, a1308, acctById, postableByCode };
 }
 
 // All posted 8007 lines from the per-bill AP engine, resolved to
@@ -491,9 +518,11 @@ async function phaseReport() {
     let tier, target, why;
     if (EXCLUDE.has(v.name)) { tier = "EXCLUDED"; target = ""; why = EXCLUDE.get(v.name); }
     else if (INVENTORY_CONFIRMED.has(v.name)) { tier = "INVENTORY"; target = "1201"; why = INVENTORY_CONFIRMED.get(v.name); }
+    else if (PREPAYMENT_OPEN.has(v.name)) { tier = "PREPAYMENT"; target = "1308"; why = PREPAYMENT_OPEN.get(v.name); }
     else if (high) { tier = "HIGH"; target = high.code; why = high.why; }
     else if (def) { tier = "DEFAULT"; target = def.code; why = "vendor already has an operator-set default expense account"; }
     else if (INVENTORY_SUSPECT.has(v.name)) { tier = "INVENTORY?"; target = ""; why = `inventory-suspect, awaiting CEO confirmation — ${INVENTORY_SUSPECT.get(v.name)}`; }
+    else if (NET_ZERO.has(v.name)) { tier = "NET-ZERO"; target = ""; why = NET_ZERO.get(v.name); }
     else if (FLAG.has(v.name)) { tier = "FLAG"; target = ""; why = FLAG.get(v.name); }
     else if (SUGGEST.has(v.name)) { const [code, t, r] = SUGGEST.get(v.name); tier = t; target = code; why = r; }
     else { tier = "LOW"; target = ""; why = "no confident name match — CEO classify"; }
@@ -503,18 +532,18 @@ async function phaseReport() {
 
   const sumTier = (t) => rows.filter((r) => r.tier === t).reduce((s, r) => s + r.cents, 0);
   console.log(`8007 activity: ${lineCount} lines, ${rows.length} vendors, $${$(total)}`);
-  for (const t of ["INVENTORY", "HIGH", "DEFAULT", "INVENTORY?", "FLAG", "MEDIUM", "LOW", "EXCLUDED"]) {
+  for (const t of ["INVENTORY", "PREPAYMENT", "HIGH", "DEFAULT", "INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED"]) {
     console.log(`  ${t}: ${rows.filter((r) => r.tier === t).length} vendors  $${$(sumTier(t))}`);
   }
-  console.log("\nauto-reclass set (INVENTORY + HIGH + DEFAULT), top 25:");
-  for (const r of rows.filter((r) => r.tier === "INVENTORY" || r.tier === "HIGH" || r.tier === "DEFAULT").slice(0, 25)) {
+  console.log("\nauto-reclass set (INVENTORY + PREPAYMENT + HIGH + DEFAULT), top 25:");
+  for (const r of rows.filter((r) => ["INVENTORY", "PREPAYMENT", "HIGH", "DEFAULT"].includes(r.tier)).slice(0, 25)) {
     console.log(`  ${r.name} -> ${r.target}: $${$(r.cents)} over ${r.months} mo (${r.tier})`);
   }
 
   // review CSV: everything NOT auto-reclassed
   const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
   const csvRows = [["vendor", "total", "months_active", "monthly_totals", "suggested_account", "confidence", "reason"].join(",")];
-  for (const r of rows.filter((x) => ["INVENTORY?", "FLAG", "MEDIUM", "LOW", "EXCLUDED"].includes(x.tier))) {
+  for (const r of rows.filter((x) => ["INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED"].includes(x.tier))) {
     const monthly = [...r.byYm.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([ym, b]) => `${ym}: $${$(b.cents)}`).join("; ");
     const sug = r.target ? `${r.target} — ${(ctx.postableByCode.get(r.target) || {}).name || ""}` : "";
@@ -524,6 +553,20 @@ async function phaseReport() {
   mkdirSync(dirname(csvPath), { recursive: true });
   writeFileSync(csvPath, csvRows.join("\n") + "\n");
   console.log(`\nreview CSV (${csvRows.length - 1} vendors) -> ${csvPath}`);
+
+  // Open Vendor Deposits schedule for the controller (apply/clear worklist).
+  const depRows = [["vendor", "date_paid", "amount", "age_days", "reference", "evidence", "status"].join(",")];
+  const today = new Date();
+  for (const r of rows.filter((x) => x.tier === "PREPAYMENT")) {
+    for (const [ym, b] of [...r.byYm.entries()].sort()) {
+      const paid = b.maxDate || `${ym}-01`;
+      const age = Math.round((today - new Date(paid)) / 86400000);
+      depRows.push([esc(r.name), paid, esc(`$${$(b.cents)}`), age, esc(""), esc(r.why), "OPEN — in 1308, awaiting invoice application"].join(","));
+    }
+  }
+  const depPath = resolve(ROOT, "docs/tangerine/ap-vendor-deposits.csv");
+  writeFileSync(depPath, depRows.join("\n") + "\n");
+  console.log(`open vendor deposits schedule (${depRows.length - 1} rows) -> ${depPath}`);
   return rows;
 }
 
@@ -575,10 +618,12 @@ async function phaseReclass({ dryRun, limit }) {
       console.log(`  EXCLUDED ${w.v.name}: $${$([...w.byYm.values()].reduce((s, b) => s + b.cents, 0))} left in 8007 — ${EXCLUDE.get(w.v.name)}`);
       continue;
     }
-    // CEO-confirmed inventory vendors reclass to 1201 Inventory with a
-    // distinct journal_type (BS move, not P&L category move).
+    // CEO-confirmed inventory vendors reclass to 1201 Inventory; open vendor
+    // deposits reclass to 1308 Vendor Prepayments & Deposits — both with
+    // distinct journal_types (BS moves, not P&L category moves).
     const isInventory = INVENTORY_CONFIRMED.has(w.v.name);
-    const target = isInventory ? ctx.a1201 : validDefault(ctx, w.v);
+    const isPrepayment = !isInventory && PREPAYMENT_OPEN.has(w.v.name);
+    const target = isInventory ? ctx.a1201 : isPrepayment ? ctx.a1308 : validDefault(ctx, w.v);
     if (!target) { skippedNoDefault += 1; continue; }
     if (target.id === ctx.a8007.id) { skippedNoDefault += 1; continue; } // default IS 8007 — nothing to move
 
@@ -610,7 +655,7 @@ async function phaseReclass({ dryRun, limit }) {
       const payload = {
         entity_id: ctx.entity_id,
         basis: "ACCRUAL",
-        journal_type: isInventory ? "vendor_inventory_reclass" : "vendor_expense_reclass",
+        journal_type: isInventory ? "vendor_inventory_reclass" : isPrepayment ? "vendor_prepayment_reclass" : "vendor_expense_reclass",
         posting_date,
         source_module: "ap",
         source_table: "vendor_expense_reclass",
@@ -618,7 +663,9 @@ async function phaseReclass({ dryRun, limit }) {
         description: `8007 reclass — ${w.v.name} — ${ym} -> ${target.code} ${target.name}`,
         audit_reason: isInventory
           ? `AP 8007 cleanup — ${INVENTORY_CONFIRMED.get(w.v.name)}: move $${$(b.cents)} of ${ym} charges from ${w.v.name} to 1201 Inventory. The goods' sales already relieved 1201 via the AR COGS legs at average cost, so the missing purchase-side DR understated inventory; this repairs it. Per-vendor-per-month reclass dated to the source month — AP 2000 untouched.`
-          : `AP 8007 Uncategorized Expense cleanup: move $${$(b.cents)} of ${ym} charges from vendor ${w.v.name} to its default expense account ${target.code} ${target.name} (vendor default expense mapping; per-vendor-per-month reclass dated to the source month). Expense-to-expense only — AP 2000 untouched.`,
+          : isPrepayment
+            ? `AP 8007 cleanup — open vendor deposit (CEO 2026-07-10 prepayment guidance): move $${$(b.cents)} of ${ym} charges from ${w.v.name} to 1308 Vendor Prepayments & Deposits. Evidence: ${PREPAYMENT_OPEN.get(w.v.name)}. Not an expense — it is a deposit asset awaiting application to the merchandise invoice (controller clears via 1308). Dated to the source month — AP 2000 untouched.`
+            : `AP 8007 Uncategorized Expense cleanup: move $${$(b.cents)} of ${ym} charges from vendor ${w.v.name} to its default expense account ${target.code} ${target.name} (vendor default expense mapping; per-vendor-per-month reclass dated to the source month). Expense-to-expense only — AP 2000 untouched.`,
         lines,
       };
       const r = await postJe(payload, () => admin.from("journal_entries").select("id")
@@ -660,7 +707,7 @@ async function phaseVerify() {
     .from("journal_entry_lines")
     .select("id, journal_entries!inner(journal_type)", { count: "exact", head: true })
     .eq("account_id", ctx.a2000.id)
-    .in("journal_entries.journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass"]);
+    .in("journal_entries.journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass", "vendor_prepayment_reclass"]);
   if (g2000Err) throw new Error(g2000Err.message);
   console.log(`reclass lines on 2000: ${n2000 ?? 0} (must be 0)`);
 
@@ -680,7 +727,7 @@ async function phaseVerify() {
 
   // every reclass JE balanced? (both expense and inventory reclass types)
   const reclassJes = await fetchAll("journal_entries", "id, posting_date, description",
-    (q) => q.in("journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass"]).eq("status", "posted"));
+    (q) => q.in("journal_type", ["vendor_expense_reclass", "vendor_inventory_reclass", "vendor_prepayment_reclass"]).eq("status", "posted"));
   const jeIds = reclassJes.map((j) => j.id);
   let jeImbalance = 0, checked = 0;
   for (let i = 0; i < jeIds.length; i += 100) {
