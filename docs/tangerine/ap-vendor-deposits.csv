@@ -1,3 +1,4 @@
 vendor,date_paid,amount,age_days,reference,evidence,status
 "United Aryan (EPZ) Limited",2025-12-05,"$80,000.00",218,"","ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date), Kenyan garment manufacturer — deposit for a merchandise order; no absorbing invoice through 2026-07-10",OPEN — in 1308, awaiting invoice application
-"The Luxury Collection",2026-02-25,"$25,000.00",136,"","ROF-B005744 $25,000.00 paid 2026-02-25 (ref '022026' = the date) — deposit; no absorbing invoice through 2026-07-10",OPEN — in 1308, awaiting invoice application
+"The Luxury Collection",2026-02-25,"$25,000.00",136,"","CORRECTED 2026-07-10 per Xoro GL (CEO): auto lease payment posted in Xoro as rental equipment — NOT a deposit. Repointed 1308 -> 6327 Equipment Rental (correction JE dated 2026-02-28)",CORRECTED — reclassed to 6327 Equipment Rental per Xoro truth
+"United Aryan note",,,,,"United Aryan's $80,000 stays in 1308 PROVISIONALLY — same heuristic evidence class as the corrected row; to be verified against the Xoro GL detail export when it arrives",PENDING XORO VERIFICATION
