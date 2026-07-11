@@ -47,9 +47,15 @@ function parseCsvLine(line) {
   }
   out.push(cur); return out;
 }
-const normSku = (s) => String(s || "").toUpperCase().replace(/\s*-\s*/g, "-").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+// Parens -> dash so kids age-range ItemNumbers match ip_item_master sku_codes
+// (REST "...-XS(5-6)" vs ipm "...-XS-5-6"). The ItemNumber is clean even when
+// the Color field carries the comma-corrupted "XS(5,6)".
+const normSku = (s) => String(s || "").toUpperCase().replace(/[()]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 const ABBR = [["LIGHT", "LT"], ["MEDIUM", "MED"], ["MED", "MD"], ["DARK", "DK"], ["DRK", "DK"], ["BLACK", "BLK"], ["BLCK", "BLK"], ["GREY", "GRY"], ["GRAY", "GRY"], ["HEATHER", "HTHR"], ["CHARCOAL", "CHAR"], ["NATURAL", "NAT"], ["WHITE", "WHT"], ["BLUE", "BLU"], ["GREEN", "GRN"], ["BROWN", "BRN"]];
 const canonColor = (s) => { let c = String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); for (const [a, b] of ABBR) c = c.split(a).join(b); return c; };
+// Canonical size token: strip non-alnum so kids age-ranges match across the
+// comma/dash formats (REST "XS(5,6)" vs ip_item_master "XS(5-6)" -> "XS56").
+const canonSize = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const sqlLit = (v) => v == null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
 
 async function loadIpm() {
@@ -60,7 +66,7 @@ async function loadIpm() {
     for (const x of rows) {
       const k = String(x.sku_code).toUpperCase();
       if (!bySku.has(k)) bySku.set(k, { id: x.id, style_code: x.style_code, color: x.color, size: x.size });
-      const gk = `${(x.style_code || "").toUpperCase()}|${(x.size || "").toUpperCase()}`;
+      const gk = `${(x.style_code || "").toUpperCase()}|${canonSize(x.size)}`;
       if (!byStyleSize.has(gk)) byStyleSize.set(gk, []);
       byStyleSize.get(gk).push({ color: x.color, id: x.id, style_code: x.style_code, size: x.size });
       styleSet.add((x.style_code || "").toUpperCase());
@@ -73,7 +79,7 @@ async function loadIpm() {
 const { bySku, byStyleSize, styleSet } = await loadIpm();
 console.log(`# Mode: ${APPLY ? "APPLY" : "DRY-RUN"} | ipm sku=${bySku.size} groups=${byStyleSize.size}`);
 function candidates(bp, size) {
-  const S = (bp || "").toUpperCase(), Z = (size || "").toUpperCase();
+  const S = (bp || "").toUpperCase(), Z = canonSize(size);
   let c = byStyleSize.get(`${S}|${Z}`); if (c) return c;
   const base = S.replace(/(\d{2})$/, "");
   if (base !== S && styleSet.has(base)) { c = byStyleSize.get(`${base}|${Z}`); if (c) return c; }
