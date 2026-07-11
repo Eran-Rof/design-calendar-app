@@ -15,12 +15,24 @@
 //   - source='xoro_mirror' -> UPDATE in place (real bill supersedes the
 //                             T10 PO-derived synthetic bill)
 //   - source='xoro_ap'     -> UPDATE in place (idempotent re-sync)
+//   - source='xoro_bills_register' -> ENRICH ONLY (#xoro-account-truth
+//     2026-07-11): the #1668 register backfill established header amounts
+//     that tie GL 2000 to the cent, so the header money/status fields are
+//     NEVER touched. The REST bill's LINES (with their Xoro GL expense
+//     accounts) replace the row's line items, and the header-grain
+//     xoro_expense_account_name / expense_account_id are stamped.
 // We do NOT touch the T10 shadow-mirror GL engine (its summary JEs sum only
 // source='xoro_mirror'); this is the operational AP record.
 //
 // Vendor resolution reuses xoro-mirror/ap.js::resolveVendorId (vendors.code
 // then aliases match on Vendor Name). Unmatched vendors are skipped and
 // surfaced in the response so the operator can add a vendor/alias.
+//
+// Xoro account resolution (#xoro-account-truth): each line's 'Expense
+// Account' is stored verbatim and resolved to a ROF gl_accounts id via
+// accounting/xoroAccountMap.js (exact leaf-name matching + curated map — no
+// fuzzy matching). Unresolved names are tallied in the response
+// (unresolved_accounts) and feed the CEO mapping report.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
@@ -29,7 +41,8 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import { resolveVendorId } from "../../_lib/xoro-mirror/ap.js";
-import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber, billSinglePoNumber } from "../../_lib/ap-bill-sync.js";
+import { parseBillRows, buildInvoicePayload, buildLineRows, makeItemResolver, parseItemNumber, billSinglePoNumber, billXoroAccountName } from "../../_lib/ap-bill-sync.js";
+import { buildXoroAccountResolver } from "../../_lib/accounting/xoroAccountMap.js";
 import { runApPostingSweep } from "../internal/ap-backfill/run.js";
 
 // Fetch ip_item_master rows for the styles referenced by a batch of bills so
@@ -140,13 +153,48 @@ export default async function handler(req, res) {
     bills_seen: bills.length,
     inserted: 0,
     updated: 0,
+    enriched_register: 0,
     skipped_manual: 0,
     line_rows_written: 0,
     unmatched_vendors: [],
+    unresolved_accounts: {},
     errors: [],
   };
 
   const vendorCache = new Map();
+
+  // Xoro account-name → ROF gl_accounts resolver (#xoro-account-truth).
+  // Entity-scoped to ROF (SAG shares codes like 5110/652x — never match
+  // across entities). Best-effort: a build failure degrades to name-only.
+  let resolveAccount = null;
+  try {
+    const { data: entity } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
+    if (entity) {
+      const accts = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await admin.from("gl_accounts")
+          .select("id, code, name, is_postable, is_control, status")
+          .eq("entity_id", entity.id).range(from, from + 999);
+        if (error) throw new Error(error.message);
+        accts.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+      resolveAccount = buildXoroAccountResolver(accts);
+    }
+  } catch (e) {
+    result.errors.push({ reason: `xoro account resolver build failed: ${e?.message || String(e)}` });
+  }
+  // Wrap to tally unresolved names (count per distinct name) for the report.
+  const resolveAccountTracked = resolveAccount
+    ? (raw) => {
+        const hit = resolveAccount(raw);
+        if (!hit && raw) {
+          const k = String(raw).trim();
+          result.unresolved_accounts[k] = (result.unresolved_accounts[k] || 0) + 1;
+        }
+        return hit;
+      }
+    : null;
 
   // Item Number → SKU resolver so each bill line links to its ip_item_master
   // row (feeds the Inventory Snapshot Purchased drill). Best-effort: a build
@@ -200,13 +248,49 @@ export default async function handler(req, res) {
       continue;
     }
 
+    // Register-backfill bills (#1668): ENRICH ONLY — replace lines with the
+    // REST bill's lines (carrying Xoro GL accounts) and stamp the header
+    // xoro account fields; never touch the header money/status fields that
+    // tie GL 2000 to the cent.
+    if (existing && existing.source === "xoro_bills_register") {
+      const xoroName = billXoroAccountName(bill);
+      const resolved = (resolveAccountTracked && xoroName) ? resolveAccountTracked(xoroName) : null;
+      const { error: enrErr } = await admin.from("invoices")
+        .update({
+          xoro_expense_account_name: xoroName,
+          expense_account_id: resolved?.account?.id || null,
+          xoro_last_synced_at: nowIso,
+        })
+        .eq("id", existing.id);
+      if (enrErr) {
+        result.errors.push({ invoice_number: bill.invoice_number, reason: `register enrich failed: ${enrErr.message}` });
+        continue;
+      }
+      const lineRows = buildLineRows(bill, existing.id, resolveId, resolveAccountTracked);
+      if (lineRows.length > 0) {
+        const { error: delErr } = await admin.from("invoice_line_items").delete().eq("invoice_id", existing.id);
+        if (delErr) {
+          result.errors.push({ invoice_number: bill.invoice_number, reason: `register line delete failed: ${delErr.message}` });
+          continue;
+        }
+        const { error: insErr } = await admin.from("invoice_line_items").insert(lineRows);
+        if (insErr) {
+          result.errors.push({ invoice_number: bill.invoice_number, reason: `register line insert failed: ${insErr.message}` });
+          continue;
+        }
+        result.line_rows_written += lineRows.length;
+      }
+      result.enriched_register += 1;
+      continue;
+    }
+
     // Preserve operator-typed (and any non-xoro) bills.
     if (existing && existing.source && existing.source !== "xoro_mirror" && existing.source !== "xoro_ap") {
       result.skipped_manual += 1;
       continue;
     }
 
-    const payload = buildInvoicePayload(bill, vendor_id, nowIso);
+    const payload = buildInvoicePayload(bill, vendor_id, nowIso, resolveAccountTracked);
     const singlePo = billSinglePoNumber(bill);
     payload.po_id = (singlePo && poUuidByNumber.get(singlePo)) || null;
 
@@ -238,7 +322,7 @@ export default async function handler(req, res) {
       result.inserted += 1;
     }
 
-    const lineRows = buildLineRows(bill, invoiceId, resolveId);
+    const lineRows = buildLineRows(bill, invoiceId, resolveId, resolveAccountTracked);
     if (lineRows.length > 0) {
       const { error: lineErr } = await admin.from("invoice_line_items").insert(lineRows);
       if (lineErr) {

@@ -8,8 +8,17 @@
 // (do NOT change without coordinating with rest_ap_sync.py):
 //
 //   Bill Number, Bill Date, Due Date, Vendor Code, Vendor Name, Currency,
-//   Item Number, Description, Qty, Unit Price, Amount, Bill Status,
-//   Payment Status
+//   Item Number, PO Number, Expense Account, Item Type, Description, Qty,
+//   Unit Price, Amount, Bill Status, Payment Status
+//
+// 'Expense Account' (#xoro-account-truth 2026-07-11) is the GL account XORO
+// posted the line to (billItemLineArr[].ItemExpenseAccountName, header
+// AccountExpenseName fallback, e.g. '5006 General and
+// Administrative:Logistics Warehouse Expense'). Per CEO directive Xoro's GL
+// is the 100% source of truth for bill classification. 'Item Type' is
+// Xoro's ItemTypeName ('Inventory' = Xoro posts the line to the inventory
+// asset). Both land verbatim on invoice_line_items; the account name also
+// resolves to expense_account_id via accounting/xoroAccountMap.js.
 //
 // This module is IO-free so it's unit-testable; the handler owns formidable,
 // gunzip, Supabase, and vendor resolution.
@@ -116,6 +125,8 @@ export function parseBillRows(csvRows) {
       line_index: bill.lines.length,
       item_number: itemNumber || null,
       po_number: str(r["PO Number"]) || null,
+      xoro_expense_account_name: str(r["Expense Account"]) || null,
+      xoro_item_type: str(r["Item Type"]) || null,
       description: str(r["Description"]) || null,
       qty: qtyRaw === "" ? null : Number(qtyRaw),
       unit_price: str(r["Unit Price"]) === "" ? null : Number(String(r["Unit Price"]).replace(/[$,]/g, "")),
@@ -139,9 +150,27 @@ export function billSinglePoNumber(bill) {
   return pos.size === 1 ? [...pos][0] : null;
 }
 
-export function buildInvoicePayload(bill, vendor_id, nowIso) {
+// The single distinct Xoro expense-account name across a bill's lines, or
+// null when the lines carry zero or more than one distinct name. Stored on
+// invoices.xoro_expense_account_name as the header-grain classification
+// signal (#xoro-account-truth).
+export function billXoroAccountName(bill) {
+  const names = new Set((bill.lines || [])
+    .map((l) => String(l.xoro_expense_account_name || "").trim())
+    .filter(Boolean));
+  return names.size === 1 ? [...names][0] : null;
+}
+
+export function buildInvoicePayload(bill, vendor_id, nowIso, resolveAccount = null) {
   const pay = mapPaymentStatus(bill.payment_status, bill.total_cents);
+  // Header-grain Xoro account (#xoro-account-truth): the single distinct
+  // line-level account name when unambiguous, resolved to a ROF account id
+  // when the name matches exactly.
+  const xoroName = billXoroAccountName(bill);
+  const resolved = (resolveAccount && xoroName) ? resolveAccount(xoroName) : null;
   return {
+    xoro_expense_account_name: xoroName,
+    expense_account_id: resolved?.account?.id || null,
     vendor_id,
     invoice_number: bill.invoice_number,
     invoice_date: bill.invoice_date,
@@ -202,12 +231,20 @@ export function makeItemResolver(masterRows) {
 // SKU (inventory_item_id) so the Inventory Snapshot Purchased drill finds it.
 // Writes BOTH the legacy `unit_price` (numeric money) and the P3 `unit_cost_cents`
 // so cost-by-cents readers (the drill / snapshot) resolve.
-export function buildLineRows(bill, invoice_id, resolveId = null) {
+// `resolveAccount(rawXoroName) → {account}|null` (xoroAccountMap.js) stamps
+// expense_account_id when Xoro's account name resolves to a ROF gl_account —
+// deterministic exact matching only; unresolved names stay name-only.
+export function buildLineRows(bill, invoice_id, resolveId = null, resolveAccount = null) {
   return bill.lines.map((l) => ({
     invoice_id,
     line_index: l.line_index,
     inventory_item_id: resolveId ? (resolveId(l.item_number) || null) : null,
     po_number: l.po_number || null,
+    xoro_expense_account_name: l.xoro_expense_account_name || null,
+    xoro_item_type: l.xoro_item_type || null,
+    expense_account_id: (resolveAccount && l.xoro_expense_account_name)
+      ? (resolveAccount(l.xoro_expense_account_name)?.account?.id || null)
+      : null,
     description: l.description,
     quantity: l.qty,
     quantity_invoiced: l.qty,

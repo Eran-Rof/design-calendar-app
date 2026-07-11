@@ -17,8 +17,30 @@ describe("splitBillLineCents", () => {
     expect(other_cents).toBe(2500n);
   });
   it("handles empty/missing lines", () => {
-    expect(splitBillLineCents([])).toEqual({ goods_cents: 0n, other_cents: 0n });
-    expect(splitBillLineCents(null)).toEqual({ goods_cents: 0n, other_cents: 0n });
+    for (const input of [[], null]) {
+      const r = splitBillLineCents(input);
+      expect(r.goods_cents).toBe(0n);
+      expect(r.other_cents).toBe(0n);
+      expect(r.other_by_account.size).toBe(0);
+    }
+  });
+  it("buckets non-goods cents by resolved Xoro expense account (#xoro-account-truth)", () => {
+    const { other_cents, other_by_account } = splitBillLineCents([
+      { inventory_item_id: null, quantity: 1, unit_cost_cents: 2500, expense_account_id: "acct-freight" },
+      { inventory_item_id: null, quantity: 1, unit_cost_cents: 1000, expense_account_id: "acct-freight" },
+      { inventory_item_id: null, quantity: 1, unit_cost_cents: 700 }, // unresolved
+    ]);
+    expect(other_cents).toBe(4200n);
+    expect(other_by_account.get("acct-freight")).toBe(3500n);
+    expect(other_by_account.get(null)).toBe(700n);
+  });
+  it("drops non-allowlisted account ids into the null bucket", () => {
+    const { other_by_account } = splitBillLineCents(
+      [{ inventory_item_id: null, quantity: 1, unit_cost_cents: 100, expense_account_id: "acct-bogus" }],
+      new Set(["acct-freight"]),
+    );
+    expect(other_by_account.get(null)).toBe(100n);
+    expect(other_by_account.has("acct-bogus")).toBe(false);
   });
 });
 
@@ -92,5 +114,34 @@ describe("composeApBillJe", () => {
       const exp = je.lines.find((l) => l.account_id === "acct-exp");
       expect(exp.debit).toBe("10.00");
     }
+  });
+
+  it("prefers the bill line's own Xoro account over the vendor default (#xoro-account-truth)", () => {
+    const je = composeApBillJe({
+      entity_id: "ent", bill: BILL, goods_cents: 100_00n, other_cents: 5_00n,
+      other_by_account: new Map([["acct-freight", 3_00n], [null, 2_00n]]),
+      accounts: { ...ACCTS, vendorExpense: "acct-vend-exp" },
+    });
+    const freight = je.lines.find((l) => l.account_id === "acct-freight");
+    const vend = je.lines.find((l) => l.account_id === "acct-vend-exp");
+    expect(freight.debit).toBe("3.00");             // Xoro-classified line
+    expect(vend.debit).toBe("7.00");                // unresolved 2.00 + plug 5.00
+    expect(je.lines.some((l) => l.account_id === "acct-exp")).toBe(false);
+    const dr = je.lines.reduce((s, l) => s + Number(l.debit), 0);
+    const cr = je.lines.reduce((s, l) => s + Number(l.credit), 0);
+    expect(dr).toBeCloseTo(cr, 2);                  // still balances to the bill total
+  });
+
+  it("routes everything Xoro classifies even when the whole non-goods slice resolves", () => {
+    const je = composeApBillJe({
+      entity_id: "ent", bill: { ...BILL, total_amount_cents: 105_00 },
+      goods_cents: 100_00n, other_cents: 5_00n,
+      other_by_account: new Map([["acct-freight", 5_00n]]),
+      accounts: ACCTS, // no vendor default
+    });
+    const freight = je.lines.find((l) => l.account_id === "acct-freight");
+    expect(freight.debit).toBe("5.00");
+    // no plug, no unresolved cents -> no 8007 line at all
+    expect(je.lines.some((l) => l.account_id === "acct-exp")).toBe(false);
   });
 });

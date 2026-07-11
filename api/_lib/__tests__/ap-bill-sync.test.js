@@ -9,6 +9,7 @@ import {
   buildLineRows,
   makeItemResolver,
   billSinglePoNumber,
+  billXoroAccountName,
 } from "../ap-bill-sync.js";
 
 describe("billSinglePoNumber", () => {
@@ -152,6 +153,32 @@ describe("buildInvoicePayload / buildLineRows", () => {
     expect(lines[0].inventory_item_id).toBe("sku-1");
     expect(lines[0].unit_cost_cents).toBe(590);
     expect(lines[0].po_number).toBe("ROF-P000080");
+  });
+
+  it("carries the Xoro expense account + item type and resolves expense_account_id (#xoro-account-truth)", () => {
+    const bill = parseBillRows([
+      { "Bill Number": "ROF-B007000", "Bill Date": "06/03/2026", "Vendor Name": "GPA", Currency: "USD", "Item Number": "FREIGHT", "Expense Account": "5006 General and Administrative:Logistics Warehouse Expense", "Item Type": "Service", Description: "Freight", Qty: "1", "Unit Price": "100", Amount: "100.00", "Bill Status": "Open", "Payment Status": "Unpaid" },
+      { "Bill Number": "ROF-B007000", "Bill Date": "06/03/2026", "Vendor Name": "GPA", Currency: "USD", "Item Number": "RYB1042-Khaki-SML", "Expense Account": "", "Item Type": "Inventory", Description: "Jogger", Qty: "24", "Unit Price": "6.20", Amount: "148.80", "Bill Status": "Open", "Payment Status": "Unpaid" },
+    ])[0];
+    expect(bill.lines[0].xoro_expense_account_name).toBe("5006 General and Administrative:Logistics Warehouse Expense");
+    expect(bill.lines[0].xoro_item_type).toBe("Service");
+    expect(bill.lines[1].xoro_expense_account_name).toBeNull();
+    expect(bill.lines[1].xoro_item_type).toBe("Inventory");
+    // single distinct name across the bill -> header-grain name
+    expect(billXoroAccountName(bill)).toBe("5006 General and Administrative:Logistics Warehouse Expense");
+
+    const resolveAccount = (raw) => (String(raw).includes("Logistics") ? { account: { id: "acct-6348" } } : null);
+    const lines = buildLineRows(bill, "inv-uuid", null, resolveAccount);
+    expect(lines[0].expense_account_id).toBe("acct-6348");
+    expect(lines[1].expense_account_id).toBeNull();
+    const payload = buildInvoicePayload(bill, "vendor-uuid", "2026-06-04T12:00:00.000Z", resolveAccount);
+    expect(payload.xoro_expense_account_name).toBe("5006 General and Administrative:Logistics Warehouse Expense");
+    expect(payload.expense_account_id).toBe("acct-6348");
+  });
+
+  it("billXoroAccountName is null when lines disagree", () => {
+    expect(billXoroAccountName({ lines: [{ xoro_expense_account_name: "A" }, { xoro_expense_account_name: "B" }] })).toBeNull();
+    expect(billXoroAccountName({ lines: [] })).toBeNull();
   });
 
   it("falls back to a colour-grain SKU when the Item Number has no size", () => {

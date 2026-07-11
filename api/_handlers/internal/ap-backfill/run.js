@@ -87,6 +87,26 @@ export async function runApPostingSweep(admin, { dry_run = true, limit = 500 } =
     // best-effort — fall back to 8007 for everything
   }
 
+  // Eligible expense accounts for line-level Xoro routing
+  // (#xoro-account-truth): this entity, postable, non-control, active.
+  // Line expense_account_id values outside this set fall back to the vendor
+  // default / 8007 bucket inside splitBillLineCents.
+  let eligibleAccountIds = new Set();
+  try {
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error: gErr } = await admin
+        .from("gl_accounts").select("id")
+        .eq("entity_id", entity.id)
+        .eq("is_postable", true).eq("is_control", false).eq("status", "active")
+        .range(from, from + 999);
+      if (gErr) throw new Error(gErr.message);
+      for (const a of page || []) eligibleAccountIds.add(a.id);
+      if (!page || page.length < 1000) break;
+    }
+  } catch {
+    eligibleAccountIds = new Set(); // degrade: no line-level routing
+  }
+
   const result = { scanned: (bills || []).length, posted: 0, skipped: [], errors: [], dry_run };
 
   for (const bill of bills || []) {
@@ -95,7 +115,7 @@ export async function runApPostingSweep(admin, { dry_run = true, limit = 500 } =
     for (let from = 0; ; from += 1000) {
       const { data: page, error: lErr } = await admin
         .from("invoice_line_items")
-        .select("inventory_item_id, quantity, unit_cost_cents")
+        .select("inventory_item_id, quantity, unit_cost_cents, expense_account_id")
         .eq("invoice_id", bill.id)
         .order("id", { ascending: true })
         .range(from, from + 999);
@@ -104,9 +124,11 @@ export async function runApPostingSweep(admin, { dry_run = true, limit = 500 } =
       if (!page || page.length < 1000) break;
     }
 
-    const { goods_cents, other_cents } = splitBillLineCents(lines);
+    const { goods_cents, other_cents, other_by_account } = splitBillLineCents(lines, eligibleAccountIds);
     const payload = composeApBillJe({
-      entity_id: entity.id, bill, goods_cents, other_cents,
+      entity_id: entity.id, bill, goods_cents, other_cents, other_by_account,
+      // Precedence: bill line's Xoro account (other_by_account) > vendor
+      // default (vendorExpense) > 8007 (fallbackExpense).
       accounts: { ...accounts, vendorExpense: vendorExpenseByVendor.get(bill.vendor_id) || null },
     });
     if (!payload) {
