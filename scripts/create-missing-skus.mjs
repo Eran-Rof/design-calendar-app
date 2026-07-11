@@ -51,7 +51,9 @@ const bySku = new Set(ipm.map((x) => String(x.sku_code).toUpperCase()));
 const grain = new Set(ipm.map((x) => `${(x.style_code || "").toUpperCase()}|${cColor(x.color)}|${cSize(x.size)}`));
 const sm = await fetchAll("style_master?style_code=not.is.null", "style_code");
 const styleSet = new Set(sm.map((x) => String(x.style_code).toUpperCase()));
-console.log(`# Mode: ${APPLY ? "APPLY" : "DRY-RUN"} | ipm skus=${bySku.size} styles=${styleSet.size}`);
+// Already-mapped UPCs (in the spine) — only work the remaining unmapped tail.
+const mappedUpcs = new Set((await fetchAll("upc_item_master", "upc")).map((x) => x.upc));
+console.log(`# Mode: ${APPLY ? "APPLY" : "DRY-RUN"} | ipm skus=${bySku.size} styles=${styleSet.size} mapped-upcs=${mappedUpcs.size}`);
 
 const rl = createInterface({ input: createReadStream(CSV) });
 let hd = null, ix = {};
@@ -64,14 +66,26 @@ for await (const line of rl) {
   const itemNum = cols[ix.ItemNumber], bp = (cols[ix.BasePartNumber] || "").toUpperCase(), color = cols[ix.Color], size = cols[ix.Size], upc = (cols[ix.ItemUpc] || "").trim(), desc = cols[ix.ItemDescription];
   const q = parseFloat(cols[ix.OnHandQty] || 0) || 0;
   if (!itemNum || q <= 0 || !/^\d{6,}$/.test(upc)) continue;
+  if (mappedUpcs.has(upc)) continue;                             // already in the spine
   const sku = normSku(itemNum);
-  if (bySku.has(sku)) continue;                                  // exact sku exists
   const g = `${bp}|${cColor(color)}|${cSize(size)}`;
-  if (grain.has(g)) continue;                                    // canonical grain exists (dedup)
   seen++;
-  if (!styleSet.has(bp)) { const e = ppkBucket.get(bp) || { u: 0, desc }; e.u += q; ppkBucket.set(bp, e); continue; }
-  if (isColorCorrupted(color) || isColorCorrupted(size)) { const k = `${bp} / ${color} / ${size}`; const e = corruptBucket.get(k) || { u: 0 }; e.u += q; corruptBucket.set(k, e); continue; }
-  const e = create.get(g) || { style: bp, color, size, sku, upc, units: 0, desc };
+  // Resolve the style (raw or size-scale-suffix-stripped, e.g. DMB001330 ->
+  // DMB0013). No style in style_master -> defer (PPK/PL need the pack-twin pass).
+  const styleKey = styleSet.has(bp) ? bp : (styleSet.has(bp.replace(/(\d{2})$/, "")) ? bp.replace(/(\d{2})$/, "") : null);
+  if (!styleKey) { const e = ppkBucket.get(bp) || { u: 0, desc }; e.u += q; ppkBucket.set(bp, e); continue; }
+  // Clean color/size: when the Size field is empty and the Color carries a
+  // trailing size token (corruption: "Falcon-LRG"), split it out.
+  let realColor = color, realSize = size;
+  if (!String(realSize).trim()) {
+    const m = String(color).match(/^(.*)-(SML|MED|LRG|XLG|XSM|XXL|2XL|3XL|XS|S|M|L|XL)$/i);
+    if (m) { realColor = m[1].trim(); realSize = m[2]; }
+  }
+  if (!String(realSize).trim()) { const k = `${bp} / ${color}`; const e = corruptBucket.get(k) || { u: 0 }; e.u += q; corruptBucket.set(k, e); continue; } // no size -> review
+  // NOTE: no grain-skip — route grain-existing rows through resolveOrCreateSku
+  // too; it REUSES the existing SKU (deterministic on spelling dups like the RYA
+  // Black/Gray vs Black-Gray fragmentation) and maps the UPC.
+  const e = create.get(g) || { style: styleKey, color: realColor, size: realSize, sku, upc, units: 0, desc };
   e.units += q; create.set(g, e);
 }
 const list = [...create.values()].sort((a, b) => b.units - a.units);
