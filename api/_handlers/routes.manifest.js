@@ -750,4 +750,10 @@ export default [
   ["/api/internal/three-way-match/tolerances"                , "./internal/three-way-match/tolerances.js"],
   ["/api/cron/three-way-match"                               , "./cron/three-way-match.js"],
   ["/api/cron/ap-paid-delta-watcher"                         , "./cron/ap-paid-delta-watcher.js"],
+  ["/api/internal/month-end-close/periods"                   , "./internal/month-end-close/periods.js"],
+  ["/api/internal/month-end-close/checklist"                 , "./internal/month-end-close/checklist.js"],
+  ["/api/internal/month-end-close/run-checks"                , "./internal/month-end-close/run-checks.js"],
+  ["/api/internal/month-end-close/sign-off"                  , "./internal/month-end-close/sign-off.js"],
+  ["/api/internal/month-end-close/close"                     , "./internal/month-end-close/close.js"],
+  ["/api/internal/month-end-close/reopen"                    , "./internal/month-end-close/reopen.js"],
 ];

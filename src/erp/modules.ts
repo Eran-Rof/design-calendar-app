@@ -73,6 +73,7 @@ export type ModuleKey =
   | "bank_reconciliation"
   | "bank_recon_report"
   | "factor_recon"
+  | "month_end_close"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -311,6 +312,8 @@ export const MODULES: ModuleDef[] = [
   { key: "bank_recon_report", label: "Recon Report",      emoji: "⚖️", group: "Accounting" },
   // Factor Module Phase 1 — Rosenthal monthly statements + open-AR detail + GL 1107 tie-out.
   { key: "factor_recon",      label: "Factor (Rosenthal)", emoji: "🏦", group: "Accounting" },
+  // Month-End Close — per-period close checklist (auto tie-outs + manual sign-offs) + period locking.
+  { key: "month_end_close",   label: "Month-End Close",    emoji: "🔒", group: "Accounting" },
   // P7-6: M44 Commission Accruals + Commission Payouts. (Sales Reps master
   // removed — reps are managed as Employees; commission panels read the
   // sales_reps table directly via /api/internal/sales-reps GET.)

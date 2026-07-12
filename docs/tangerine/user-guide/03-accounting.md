@@ -872,3 +872,44 @@ Best-in-class books aren't proven once at close — they're proven **continuousl
 **Where to look when it fires:** open **GL Detail** on the named account (Accounting → GL Detail, or drill from the Trial Balance) and compare against the AR Invoices / AP Bills grid filtered to open balances. The alert body includes any open AR sitting on invoices with *no* AR account assigned — that amount can never tie and should be re-routed first.
 
 Runs as `/api/cron/subledger-tieout`; it can also be invoked manually for an on-demand proof after a backfill batch.
+
+## Month-End Close — the close checklist, tie-outs and period locking (2026-07-10)
+
+**Panel:** Tangerine → Accounting → **Month-End Close** (`?m=month_end_close`).
+
+Best-in-class close discipline in one place: a **per-period checklist** that combines the automated tie-out battery with the human sign-offs, and only lets a month be locked when *everything* is green.
+
+### The close calendar
+
+The strip across the top shows the **last 12 periods** with their status at a glance — gray (not started), blue (in close), amber (in close with failing checks), green (closed). Click any chip to jump to that month, or use the ◀ ▶ arrows next to the month label.
+
+### Automated checks (Run checks)
+
+**Run checks** executes the whole battery server-side in one shot (SQL aggregation — no row caps) and stores each verdict **with the numbers behind it**. Expand any row (▸) to see exactly why it passed or failed:
+
+| Check | Passes when |
+|---|---|
+| **GL balanced** | posted debits = credits for the period, on BOTH bases, to the cent |
+| **AR subledger tie** | 1105 / 1107 / 1108 GL balances = open AR invoices routed to each account (the daily #1665 monitor's math) |
+| **AP subledger tie** | 2000 GL = unpaid posted vendor bills; carries the `pending_payments` waiver while the payments ledger isn't live |
+| **Bank / CC reconciled** | every bank reconciliation run for the period is `reconciled` (and at least one exists) |
+| **No draft JEs** | zero draft / pending-approval / unposted journal entries dated in the period |
+| **8007 Uncategorized** | zero Uncategorized Expense activity in the period — anything else must be reclassed first |
+| **Factor tie** | if a Rosenthal statement covers the month, its ending Net OAR = GL 1107 as of period end |
+| **Revenue posted** | period revenue > $0 (sanity — an empty month means the feed didn't post) |
+
+Checks can be re-run any number of times; each run overwrites the automated verdicts (manual sign-offs are never touched).
+
+### Manual sign-offs
+
+Six judgment items ship per period: **Bank statements reviewed · Factor statement received & reconciled · Chargebacks reviewed · Payroll booked · Depreciation booked · Close sign-off (controller)**. Signing off requires a **note** describing what was reviewed; the panel records **who and when** and shows it on the row. A sign-off can be reverted (with a reason) while the period is still open — every change lands in the T11 audit ledger.
+
+### Closing (and reopening) the period
+
+**Close period** stays disabled until every automated check passes AND every manual item is signed off. Closing asks for a confirmation plus a **reason**, then locks the GL period (`gl_periods` → `closed`) through the audited transition — from that moment the `je_period_lock` triggers reject any posting dated in the month. **Reopen** (admin only, mandatory reason, audit-logged) unlocks the month and drops the close back to *in close* — the checklist and its sign-offs survive, so re-closing is a review, not a restart.
+
+Year-end (`closed_with_closing_jes`) periods are terminal and can be neither closed again nor reopened here.
+
+### Export
+
+The **Export** button delivers the full checklist — status, detail summary, signer, timestamp, note — as xlsx, ready to file as the period's close evidence.

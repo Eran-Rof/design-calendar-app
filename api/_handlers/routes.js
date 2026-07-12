@@ -351,6 +351,12 @@ import r_internal_messages_unread_count from "./internal/messages/unread-count.j
 import r_internal_mfg_boms_id from "./internal/mfg-boms/[id].js";
 import r_internal_mfg_boms_index from "./internal/mfg-boms/index.js";
 import r_internal_mfg_reports_index from "./internal/mfg-reports/index.js";
+import r_internal_month_end_close_checklist from "./internal/month-end-close/checklist.js";
+import r_internal_month_end_close_close from "./internal/month-end-close/close.js";
+import r_internal_month_end_close_periods from "./internal/month-end-close/periods.js";
+import r_internal_month_end_close_reopen from "./internal/month-end-close/reopen.js";
+import r_internal_month_end_close_run_checks from "./internal/month-end-close/run-checks.js";
+import r_internal_month_end_close_sign_off from "./internal/month-end-close/sign-off.js";
 import r_internal_notification_preferences_index from "./internal/notification-preferences/index.js";
 import r_internal_notifications_index from "./internal/notifications/index.js";
 import r_internal_notifications_mark_read from "./internal/notifications/mark-read.js";
@@ -946,14 +952,17 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
+  { pattern: "/api/internal/month-end-close/run-checks", handler: r_internal_month_end_close_run_checks },
   { pattern: "/api/internal/three-way-match/tolerances", handler: r_internal_three_way_match_tolerances },
   { pattern: "/api/internal/xoro-mirror/backfill-range", handler: r_internal_xoro_mirror_backfill_range },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
+  { pattern: "/api/internal/month-end-close/checklist", handler: r_internal_month_end_close_checklist },
   { pattern: "/api/internal/style-master/cbm-estimate", handler: r_internal_style_master_cbm_estimate },
   { pattern: "/api/internal/addresses/postal-suggest", handler: r_internal_addresses_postal_suggest },
   { pattern: "/api/internal/discount-offers/generate", handler: r_internal_discount_offers_generate },
+  { pattern: "/api/internal/month-end-close/sign-off", handler: r_internal_month_end_close_sign_off },
   { pattern: "/api/internal/pim/style-thumbs-by-code", handler: r_internal_pim_style_thumbs_by_code },
   { pattern: "/api/internal/style-matrix/resolve-sku", handler: r_internal_style_matrix_resolve_sku },
   { pattern: "/api/internal/walmart/sync-settlements", handler: r_internal_walmart_sync_settlements },
@@ -961,6 +970,7 @@ export const ROUTES = [
   { pattern: "/api/xoro/writeback/create-buy-request", handler: r_xoro_writeback_create_buy_request },
   { pattern: "/api/internal/analytics/early-payment", handler: r_internal_analytics_early_payment },
   { pattern: "/api/internal/analytics/health-scores", handler: r_internal_analytics_health_scores },
+  { pattern: "/api/internal/month-end-close/periods", handler: r_internal_month_end_close_periods },
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: r_internal_planning_buy_plan_to_po },
   { pattern: "/api/internal/prepack-matrices/needed", handler: r_internal_prepack_matrices_needed },
   { pattern: "/api/internal/procurement/recon-inbox", handler: r_internal_procurement_recon_inbox_index },
@@ -970,6 +980,7 @@ export const ROUTES = [
   { pattern: "/api/internal/three-way-match/resolve", handler: r_internal_three_way_match_resolve },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
   { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
+  { pattern: "/api/internal/month-end-close/reopen", handler: r_internal_month_end_close_reopen },
   { pattern: "/api/internal/price-lists/style-cost", handler: r_internal_price_lists_style_cost },
   { pattern: "/api/internal/xoro-mirror/summary-je", handler: r_internal_xoro_mirror_summary_je },
   { pattern: "/api/vendor/mobile/deregister-device", handler: r_vendor_mobile_deregister_device },
@@ -979,6 +990,7 @@ export const ROUTES = [
   { pattern: "/api/internal/marketplace/benchmark", handler: r_internal_marketplace_benchmark },
   { pattern: "/api/internal/marketplace/inquiries", handler: r_internal_marketplace_inquiries },
   { pattern: "/api/internal/messages/unread-count", handler: r_internal_messages_unread_count },
+  { pattern: "/api/internal/month-end-close/close", handler: r_internal_month_end_close_close },
   { pattern: "/api/internal/payments/virtual-card", handler: r_internal_payments_virtual_card },
   { pattern: "/api/internal/tax/remittance-report", handler: r_internal_tax_remittance_report },
   { pattern: "/api/internal/users-access/override", handler: r_internal_users_access_override },
