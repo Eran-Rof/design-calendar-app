@@ -831,7 +831,7 @@ async function runBatch() {
   // Every DISTINCT REST BasePartNumber that EXACTLY equals an existing
   // style_master.style_code in the ROF entity. SKIP:
   //   - PPK prepacks  (/PPK/i — separate pack-grain world; never cut over)
-  //   - RYB0412       (already cut over in the pilot; verify it's still 48,200)
+  //   - RYB0412       (already cut over in the pilot; verify it hasn't reverted to mirror seeds)
   //   - BPs with no exact style_code match (handled by the DB join below)
   const allBps = bps; // distinct BasePartNumbers from the CSV
   const PPK_RE = /PPK/i;
@@ -889,7 +889,7 @@ async function runBatch() {
     process.exit(9);
   }
 
-  // ── Verify the pilot is intact (RYB0412 still 48,200, xoro_rest_size only). ──
+  // ── Verify the pilot didn't revert to mirror seeds (value is dynamic now). ──
   const admin = await makeProdAdmin();
   const pilotRows = await runSql(`
     SELECT il.source_kind,
@@ -902,8 +902,16 @@ async function runBatch() {
     GROUP BY il.source_kind;`);
   const pilotByKind = pilotRows.reduce((m, r) => (m.set(r.source_kind, Number(r.rem)), m), new Map());
   const pilotTotal = [...pilotByKind.values()].reduce((s, v) => s + v, 0);
-  const pilotOk = pilotTotal === 48200 && [...pilotByKind.keys()].every((k) => k === "xoro_rest_size");
-  console.log(`\n# Pilot RYB0412 check: total=${pilotTotal} byKind=${JSON.stringify(Object.fromEntries(pilotByKind))} -> ${pilotOk ? "OK (skipping)" : "⚠ UNEXPECTED"}`);
+  // Invariant (not a fixed value): the pilot's on-hand is dynamic — it depletes
+  // with sales and is trued up by the spine phantom-clear (was hardcoded 48,200,
+  // now e.g. 11,834). What must hold is that RYB0412 hasn't REVERTED to the
+  // pre-cutover mirror seeds (opening_balance / xoro_onhand_sync): its on-hand
+  // should be positive and overwhelmingly xoro_rest_size. Small native layers
+  // (receipts / adjustments / transfers) are legitimate and tolerated.
+  const pilotRest = pilotByKind.get("xoro_rest_size") || 0;
+  const pilotSeeds = (pilotByKind.get("opening_balance") || 0) + (pilotByKind.get("xoro_onhand_sync") || 0);
+  const pilotOk = pilotTotal > 0 && pilotRest >= pilotTotal * 0.9 && pilotSeeds === 0;
+  console.log(`\n# Pilot RYB0412 (info): total=${pilotTotal} byKind=${JSON.stringify(Object.fromEntries(pilotByKind))} -> ${pilotOk ? "OK (xoro_rest_size, no reverted seeds)" : "⚠ CHECK — reverted to mirror seeds?"}`);
 
   // ── Iterate in chunks, applying + verifying + reversing-on-failure. ─────────
   const succeeded = [];
