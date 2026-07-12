@@ -59,11 +59,32 @@ const locIdByCode = new Map(locs.map(l => [l.code, l.id]));
 const skuCodeById = new Map((await anonAll("ip_item_master?sku_code=not.is.null", "id,sku_code")).map(r => [r.id, r.sku_code]));
 const avgCost = new Map((await anonAll("ip_item_avg_cost", "sku_code,avg_cost")).filter(r => r.avg_cost != null).map(r => [r.sku_code, Number(r.avg_cost)]));
 
+// ── Private-label parts (labels/patches/etc.): Xoro reuses/blanks the UPC across
+// customers, so these can NEVER tie via the UPC spine. Their unique, stable key
+// is Xoro's ItemNumber (= our sku_code, e.g. "JK00001-JACKS SURFBOARDS"). Resolve
+// these AUTHORITATIVELY by normalized ItemNumber instead of UPC. Confined to
+// PRIVATE-LABEL styles so the 99% UPC path is untouched. On a normalized-code
+// collision (a dashless/abbrev duplicate SKU), prefer the on-hand holder, then
+// the longer sku_code — deterministic; the empties get collapsed by the dedup.
+const normSku = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const plRows = await mgmt(`select im.id::text id, im.sku_code, coalesce((select round(sum(remaining_qty)) from inventory_layers l where l.item_id=im.id and l.source_kind='xoro_rest_size' and l.remaining_qty>0),0)::int oh from ip_item_master im join style_master sm on sm.id=im.style_id where sm.description ilike '%PRIVATE LABEL%' and im.sku_code is not null;`);
+const plByNorm = new Map(); const plSkus = new Set();
+for (const r of plRows) {
+  plSkus.add(r.id);
+  const k = normSku(r.sku_code); const prev = plByNorm.get(k);
+  if (!prev) { plByNorm.set(k, r); continue; }
+  const better = (Number(r.oh) > 0 && Number(prev.oh) <= 0) ? r
+    : (Number(prev.oh) > 0 && Number(r.oh) <= 0) ? prev
+    : (r.sku_code.length > prev.sku_code.length ? r : prev);
+  plByNorm.set(k, better);
+}
+const allowedSkus = new Set([...spineSkus, ...plSkus]);
+
 // Xoro-REST target on-hand by (sku_id, loc_code)
 const target = new Map();  // `${sku}|${loc}` -> qty
 {
   const rl = createInterface({ input: createReadStream(newestCsv()) }); let hd = null, ix = {};
-  for await (const line of rl) { if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName"]) ix[c] = hd.indexOf(c); continue; } const cols = pcsv(line); if (cols.length !== hd.length) continue; const upc = (cols[ix.ItemUpc] || "").trim(); const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0 || !/^\d{6,}$/.test(upc)) continue; const sku = upcMap.get(upc); if (!sku) continue; const loc = STORE_TO_LOC_CODE[(cols[ix.StoreName] || "").trim()]; if (!loc) continue; const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q); }
+  for await (const line of rl) { if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName", "ItemNumber"]) ix[c] = hd.indexOf(c); continue; } const cols = pcsv(line); if (cols.length !== hd.length) continue; const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0) continue; let sku = null; const plHit = plByNorm.get(normSku(cols[ix.ItemNumber] || "")); if (plHit) sku = plHit.id; else { const upc = (cols[ix.ItemUpc] || "").trim(); if (/^\d{6,}$/.test(upc)) sku = upcMap.get(upc); } if (!sku) continue; const loc = STORE_TO_LOC_CODE[(cols[ix.StoreName] || "").trim()]; if (!loc) continue; const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q); }
 }
 // current layers by (item, loc): rest + native  (via Mgmt API, join location code)
 const curRows = await mgmt(`select l.item_id::text item, coalesce(loc.code,'?') loc, l.source_kind sk, round(sum(l.remaining_qty))::numeric q from inventory_layers l left join inventory_locations loc on loc.id=l.location_id where l.remaining_qty>0 group by l.item_id, loc.code, l.source_kind;`);
@@ -71,7 +92,7 @@ const restByKey = new Map(), nativeByKey = new Map();
 for (const r of curRows) { const k = `${r.item}|${r.loc}`; if (r.sk === "xoro_rest_size") restByKey.set(k, (restByKey.get(k) || 0) + Number(r.q)); else nativeByKey.set(k, (nativeByKey.get(k) || 0) + Number(r.q)); }
 
 // Plan: for every (sku,loc) that appears in target OR has rest layers (spine only)
-const keys = new Set([...target.keys(), ...restByKey.keys()].filter(k => spineSkus.has(k.split("|")[0])));
+const keys = new Set([...target.keys(), ...restByKey.keys()].filter(k => allowedSkus.has(k.split("|")[0])));
 let inc = 0, dec = 0, incU = 0, decU = 0;
 const plan = [];
 for (const k of keys) {
@@ -87,7 +108,7 @@ for (const k of keys) {
 }
 const restTotalNow = [...restByKey.values()].reduce((s, v) => s + v, 0);
 console.log(`# Mode: ${APPLY ? "APPLY" : "DRY-RUN"} | CSV: ${newestCsv().split(/[\\/]/).pop()}`);
-console.log(`# spine skus=${spineSkus.size} | current xoro_rest_size total=${Math.round(restTotalNow).toLocaleString()}`);
+console.log(`# spine skus=${spineSkus.size} | private-label skus=${plSkus.size} (ItemNumber-resolved) | current xoro_rest_size total=${Math.round(restTotalNow).toLocaleString()}`);
 console.log(`\n# ===== SPINE ON-HAND SYNC PLAN (spine items, per store) =====`);
 console.log(`#   (sku,loc) cells changing: ${plan.length}`);
 console.log(`#   INCREASE: ${inc} cells / +${Math.round(incU).toLocaleString()} u  (receipts/replenish)`);
