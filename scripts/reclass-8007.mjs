@@ -360,8 +360,20 @@ const INVENTORY_SUSPECT = new Map([
 // these vendors' defaults to 1308 — their future real invoices must not
 // auto-route to the asset account (deposit routing stays a manual call).
 const PREPAYMENT_OPEN = new Map([
-  ["United Aryan (EPZ) Limited", "ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date), Kenyan garment manufacturer — deposit for a merchandise order; no absorbing invoice through 2026-07-10"],
-  ["The Luxury Collection", "ROF-B005744 $25,000.00 paid 2026-02-25 (ref '022026' = the date) — deposit; no absorbing invoice through 2026-07-10"],
+  ["United Aryan (EPZ) Limited", "ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date), Kenyan garment manufacturer — deposit for a merchandise order; no absorbing invoice through 2026-07-10. ⚠️ 2026-07-11 #xoro-account-truth: Xoro's bill/getbill returns this bill HEADER-ONLY (no lines, no account) — REST cannot verify; stays PENDING until a Xoro UI/GL check"],
+  // The Luxury Collection was REMOVED 2026-07-11: Xoro GL truth (CEO-verified
+  // in the Xoro UI) says its $25,000 is an auto-lease payment -> 6327
+  // Equipment Rental, not a deposit. Corrected by JE dated 2026-02-28
+  // (source_id '<vendor>:2026-02:xoro-truth-correction', PR #1685); the
+  // xoro-verify phase confirms the bucket now sits at 6327 with no
+  // contradicting REST evidence.
+]);
+
+// Buckets whose money was CORRECTED out of its original reclass target per
+// Xoro GL truth (#xoro-account-truth). Report-only tier so the review CSV
+// tells the truth instead of re-classifying the vendor as LOW/no-signal.
+const XORO_CORRECTED = new Map([
+  ["The Luxury Collection", "corrected 2026-07-10 per Xoro GL truth (CEO-verified in the Xoro UI): $25,000 is an auto-lease payment -> 6327 Equipment Rental, not a vendor deposit. Correction JE dated 2026-02-28 (PR #1685); nothing left in 8007/1308"],
 ]);
 
 // NET-ZERO rows: the bill's 8007 DR is exactly offset by the SAME bill's
@@ -529,6 +541,7 @@ async function phaseReport() {
     const high = highByName.get(v.name);
     let tier, target, why;
     if (EXCLUDE.has(v.name)) { tier = "EXCLUDED"; target = ""; why = EXCLUDE.get(v.name); }
+    else if (XORO_CORRECTED.has(v.name)) { tier = "CORRECTED"; target = ""; why = XORO_CORRECTED.get(v.name); }
     else if (INVENTORY_CONFIRMED.has(v.name)) { tier = "INVENTORY"; target = "1201"; why = INVENTORY_CONFIRMED.get(v.name); }
     else if (PREPAYMENT_OPEN.has(v.name)) { tier = "PREPAYMENT"; target = "1308"; why = PREPAYMENT_OPEN.get(v.name); }
     else if (high) { tier = "HIGH"; target = high.code; why = high.why; }
@@ -544,7 +557,7 @@ async function phaseReport() {
 
   const sumTier = (t) => rows.filter((r) => r.tier === t).reduce((s, r) => s + r.cents, 0);
   console.log(`8007 activity: ${lineCount} lines, ${rows.length} vendors, $${$(total)}`);
-  for (const t of ["INVENTORY", "PREPAYMENT", "HIGH", "DEFAULT", "INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED"]) {
+  for (const t of ["INVENTORY", "PREPAYMENT", "HIGH", "DEFAULT", "INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED", "CORRECTED"]) {
     console.log(`  ${t}: ${rows.filter((r) => r.tier === t).length} vendors  $${$(sumTier(t))}`);
   }
   console.log("\nauto-reclass set (INVENTORY + PREPAYMENT + HIGH + DEFAULT), top 25:");
@@ -555,7 +568,7 @@ async function phaseReport() {
   // review CSV: everything NOT auto-reclassed
   const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
   const csvRows = [["vendor", "total", "months_active", "monthly_totals", "suggested_account", "confidence", "reason"].join(",")];
-  for (const r of rows.filter((x) => ["INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED"].includes(x.tier))) {
+  for (const r of rows.filter((x) => ["INVENTORY?", "NET-ZERO", "FLAG", "MEDIUM", "LOW", "EXCLUDED", "CORRECTED"].includes(x.tier))) {
     const monthly = [...r.byYm.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([ym, b]) => `${ym}: $${$(b.cents)}`).join("; ");
     const sug = r.target ? `${r.target} — ${(ctx.postableByCode.get(r.target) || {}).name || ""}` : "";
