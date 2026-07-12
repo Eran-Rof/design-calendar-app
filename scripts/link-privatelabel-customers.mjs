@@ -45,6 +45,7 @@ const ALIAS = {
   SOUTHCOAST: "SOUTHCOASTSURFSHOP", ELKMONTTRADING: "ELKMONTTRADINGCO",
   THALIA: "THALIASURFSHOP", SB: "SHOREBREAK", SH: "SURFHUT", OH: "OCEANHUTSURFSHOP",
   SC: "SURFCITY", HS: "HOBIESURF",
+  RIVERANDROADS: "RIVERSROADS", // part color "River and Roads" == customer "Rivers & Roads"
 };
 
 const styles = (await anonAll("style_master?description=not.is.null", "id,style_code,description")).filter(s => /PRIVATE LABEL/i.test(s.description || ""));
