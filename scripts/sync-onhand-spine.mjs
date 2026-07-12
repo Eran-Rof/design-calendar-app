@@ -22,8 +22,8 @@
  *   node scripts/sync-onhand-spine.mjs           # dry-run
  *   node scripts/sync-onhand-spine.mjs --apply   # write PROD
  */
-import { readFileSync, createReadStream, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, createReadStream, writeFileSync, readdirSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
@@ -43,7 +43,13 @@ async function anonAll(t, s) { const out = []; for (let off = 0; ; off += 1000) 
 async function mgmt(sql) { const r = await fetch(`https://api.supabase.com/v1/projects/${PROD_REF}/database/query`, { method: "POST", headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: sql }) }); if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`); return r.json(); }
 const sqlLit = (v) => v == null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`;
 
-function newestCsv() { if (argCsv) return argCsv; return "C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs/postAD_invrest_20260711211449.csv"; }
+function newestCsv() {
+  if (argCsv) return argCsv;
+  const dir = process.argv.includes("--rest-dir") ? process.argv[process.argv.indexOf("--rest-dir") + 1] : "C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs";
+  const files = readdirSync(dir).filter((f) => /^postAD_invrest_.*\.csv$/.test(f)).sort();  // timestamped names sort chronologically
+  if (!files.length) throw new Error(`no postAD_invrest_*.csv in ${dir}`);
+  return join(dir, files[files.length - 1]);
+}
 
 // spine + locations + cost
 const upcMap = new Map((await anonAll("upc_item_master", "upc,sku_id")).filter(r => r.sku_id).map(r => [r.upc, r.sku_id]));
@@ -91,4 +97,52 @@ console.log(`\n# top 15 changes (sku | loc | xoro | native | curRest -> targetRe
 plan.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 15).forEach(p => console.log(`  ${(skuCodeById.get(p.sku) || p.sku.slice(0, 8))} | ${p.loc} | xoro=${p.xoro} native=${p.native} ${p.curRest}->${p.targetRest} (${p.delta > 0 ? "+" : ""}${Math.round(p.delta)})`));
 
 if (!APPLY) { console.log(`\n# DRY-RUN — no writes. --apply would true xoro_rest_size to Xoro-REST per store (reversal manifest saved).`); process.exit(0); }
-console.log("\n# APPLY path gated — review the dry-run first.");
+
+// ── APPLY ── per (sku,loc): DECREASE reduce oldest-first; INCREASE add to newest
+// existing rest layer, else CREATE one. FK-safe (no deletes). Reversal manifest.
+const planSkus = [...new Set(plan.map(p => p.sku))];
+const layerRows = [];
+for (let i = 0; i < planSkus.length; i += 200) {
+  const chunk = planSkus.slice(i, i + 200);
+  const rows = await mgmt(`select l.id::text, l.item_id::text item, coalesce(loc.code,'?') loc, l.remaining_qty::numeric q from inventory_layers l left join inventory_locations loc on loc.id=l.location_id where l.source_kind='xoro_rest_size' and l.remaining_qty>0 and l.item_id in (${chunk.map(sqlLit).join(",")}) order by l.item_id, loc.code, l.received_at asc nulls first;`);
+  layerRows.push(...rows);
+}
+const layersByCell = new Map();
+for (const r of layerRows) { const k = `${r.item}|${r.loc}`; if (!layersByCell.has(k)) layersByCell.set(k, []); layersByCell.get(k).push(r); }
+const skuCode = (sku) => skuCodeById.get(sku);
+const costCents = (sku) => { const c = skuCode(sku); return avgCost.has(c) ? Math.round(avgCost.get(c) * 100) : 0; };
+const updates = [], creates = [];
+for (const p of plan) {
+  const ls = layersByCell.get(`${p.sku}|${p.loc}`) || [];
+  if (p.delta < 0) {
+    let toRemove = -p.delta;
+    for (const l of ls) { if (toRemove <= 0.0001) break; const cur = Number(l.q); const take = Math.min(cur, toRemove); updates.push({ id: l.id, old: cur, new: cur - take }); toRemove -= take; }
+  } else if (ls.length) {
+    const l = ls[ls.length - 1]; updates.push({ id: l.id, old: Number(l.q), new: Number(l.q) + p.delta });
+  } else {
+    const locId = locIdByCode.get(p.loc); if (!locId) continue;
+    creates.push({ item: p.sku, locId, qty: p.delta, costC: costCents(p.sku) });
+  }
+}
+const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+const manifestPath = `C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs/spine-onhand-sync-reversal-${stamp}.json`;
+console.log(`\n# ${updates.length} layer updates, ${creates.length} new layers. Reverse = restore 'old' on updates + delete created ids.`);
+let up = 0;
+for (let i = 0; i < updates.length; i += 500) {
+  const chunk = updates.slice(i, i + 500);
+  const vals = chunk.map((u) => `(${sqlLit(u.id)}::uuid, ${u.new}::numeric)`).join(",");
+  await mgmt(`update inventory_layers il set remaining_qty = v.q from (values ${vals}) v(id,q) where il.id = v.id;`);
+  up += chunk.length; console.log(`#   updated ${up}/${updates.length}`);
+}
+const createdIds = [];
+for (let i = 0; i < creates.length; i += 300) {
+  const chunk = creates.slice(i, i + 300);
+  const vals = chunk.map((c) => `(${sqlLit(c.item)}::uuid, ${sqlLit(c.locId)}::uuid, 'xoro_rest_size', ${c.qty}::numeric, ${c.qty}::numeric, ${c.costC}::bigint, now(), ${sqlLit(ROF)}::uuid)`).join(",");
+  const rows = await mgmt(`insert into inventory_layers (item_id, location_id, source_kind, original_qty, remaining_qty, unit_cost_cents, received_at, entity_id) values ${vals} returning id;`);
+  for (const r of rows) createdIds.push(r.id);
+  console.log(`#   created ${createdIds.length}/${creates.length}`);
+}
+writeFileSync(manifestPath, JSON.stringify({ created_at: new Date().toISOString(), csv: newestCsv(), updates, created_ids: createdIds }, null, 2));
+console.log(`# reversal manifest: ${manifestPath}`);
+const [{ t }] = await mgmt(`select round(sum(remaining_qty))::int t from inventory_layers where remaining_qty>0;`);
+console.log(`\n# ✓ DONE. spine on-hand synced to Xoro-REST. inventory_layers total now ${t.toLocaleString()}.`);
