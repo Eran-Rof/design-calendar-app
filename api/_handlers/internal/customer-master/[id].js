@@ -7,7 +7,7 @@
 //          default_currency, tax_exempt, tax_exempt_certificate, credit_limit,
 //          status, billing_address, shipping_address,
 //          parent_customer_id, contact_name, contact_title, email, phone,
-//          website, wechat_id.
+//          website, wechat_id, xoro_customer_id.
 // DELETE — soft-delete: set deleted_at = now(); 404 if already deleted.
 //
 // Tangerine P1 Chunk 7c (M36 Customer Master admin).
@@ -44,6 +44,8 @@ const MUTABLE_FIELDS = new Set([
   "price_list_id",
   "contact_name", "contact_title", "email", "phone", "website", "wechat_id",
   "contacts",
+  // Xoro identity back-fill (rest_customer_locations_sync.py name-match).
+  "xoro_customer_id",
 ]);
 
 // Nullable fields whose empty-string input should be normalized to null.
@@ -252,6 +254,21 @@ export function validatePatch(body) {
 
   if ("tax_exempt" in out && typeof out.tax_exempt !== "boolean") {
     out.tax_exempt = out.tax_exempt === "true" || out.tax_exempt === 1;
+  }
+
+  // Xoro customer id — positive integer, or null to clear.
+  if ("xoro_customer_id" in out) {
+    if (out.xoro_customer_id == null || out.xoro_customer_id === "") {
+      out.xoro_customer_id = null;
+    } else {
+      const n = typeof out.xoro_customer_id === "number"
+        ? out.xoro_customer_id
+        : parseInt(out.xoro_customer_id, 10);
+      if (!Number.isInteger(n) || n <= 0) {
+        return { error: "xoro_customer_id must be a positive integer" };
+      }
+      out.xoro_customer_id = n;
+    }
   }
 
   // Chunk K — customer factoring (operator item 17).
