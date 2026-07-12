@@ -74,6 +74,9 @@ const SEGMENT_MODULE = {
   // to finance_misc (read/write/export) — GETs stay read-gated, the dispute
   // write is enforceable.
   "factor": "finance_misc",
+  // 3-Way Match (PO <-> receipt <-> AP bill) — payables control. Reads +
+  // the accept/dispute + re-run + tolerance writes gate on ap_invoices.
+  "three-way-match": "ap_invoices",
   // Drill-through Phase 2 — aging bucket drill + Segment P&L GL drill. Same
   // read-only report class as scorecards (analytics = read + export).
   "ar-aging": "analytics", "ap-aging": "analytics", "segment-pl": "analytics",

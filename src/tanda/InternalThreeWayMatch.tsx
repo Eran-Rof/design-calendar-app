@@ -1,13 +1,22 @@
 // src/tanda/InternalThreeWayMatch.tsx
 //
-// P13-C4 — Vendor-Invoice 3-Way Match vertical. Stages a vendor's invoice and
-// matches it against the NATIVE purchase_orders + posted tanda_po_receipts
-// before it becomes an AP invoice. DRAFT-ONLY: "Approve" creates an AP invoice
-// DRAFT (gl_status='draft') — the existing AP panel posts the JE later.
+// 3-Way Match — the payables control panel, two tabs:
 //
-// List vendor-invoice drafts → detail modal with the match breakdown + the
-// Re-match / Approve / Reject actions (gated by status). Tolerance (D4): a total
-// is "matched" within $5 OR 2%, whichever is greater.
+// 1. "Bill Match Audit" (default) — the match ENGINE results over every AP
+//    bill in the book (invoices.invoice_kind='vendor_bill'). The engine
+//    (run_three_way_match() SQL RPC, shared with the 06:45 UTC nightly cron)
+//    matches each bill to its PO(s) via explicit invoice_line_items.po_number
+//    refs or a fuzzy vendor+amount+date pass, then checks the bill against
+//    the PO price/amount and the RECEIVING EVIDENCE (po_line_items.qty_
+//    received on the Xoro mirror; purchase_order_lines.qty_received for
+//    native-only POs — the standalone receipt tables are empty in prod, so
+//    received-qty on the PO lines IS the receipt leg). Summary tiles,
+//    exception grid with filters, drill to bill/PO, Accept-variance /
+//    Dispute actions (T11 reason required), tolerance config.
+//
+// 2. "Vendor Invoice Drafts" — the original P13-C4 staging vertical: stage a
+//    NEW vendor invoice against native POs + posted tanda_po_receipts before
+//    it becomes an AP invoice draft. Unchanged.
 //
 // Mirrors InternalReceiving.tsx conventions (C palette, th/td/input/button
 // styles, SearchableSelect, notify/confirmDialog, mandatory ExportButton, Field).
@@ -20,6 +29,9 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import { useSeqGuard } from "./hooks/useSeqGuard";
+import DateRangePresets from "./components/DateRangePresets";
+import { drillToModule } from "./scorecardDrill";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -75,7 +87,498 @@ const EXPORT_COLUMNS: ExportColumn<Record<string, unknown>>[] = [
   { key: "variance_cents", header: "Variance $", format: "currency_cents" },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Bill Match Audit tab — engine results, tiles, exception queue
+// ═══════════════════════════════════════════════════════════════════════════
+
+type MatchPoRef = { po_number: string | null; tanda_po_uuid: string | null; native_po_id: string | null };
+type MatchVarPo = {
+  po_number: string | null; found?: boolean;
+  billed_val?: number | null; billed_qty?: number | null; billed_avg_price?: number | null;
+  ordered_qty?: number | null; ordered_val?: number | null;
+  received_qty?: number | null; received_val?: number | null; po_avg_price?: number | null;
+  cum_billed_val?: number | null; cum_billed_qty?: number | null;
+};
+type MatchRow = {
+  id: string; bill_id: string; status: string; method: string;
+  po_refs: MatchPoRef[];
+  variance: { pos?: MatchVarPo[]; checks?: Record<string, boolean> };
+  matched_at: string; engine_version: number;
+  resolution: "open" | "accepted" | "disputed";
+  resolution_reason: string | null; resolved_by: string | null; resolved_at: string | null;
+  invoice_number: string | null; invoice_date: string | null; total_amount_cents: number;
+  vendor_id: string | null; vendor_name: string | null; po_numbers: string[];
+};
+type MatchSummary = Record<string, { n: number; cents: number; open_n: number; open_cents: number }>;
+type Tolerances = {
+  id: string; qty_tol_pct: number; price_tol_pct: number; price_tol_abs_cents: number;
+  amount_tol_abs_cents: number; fuzzy_amount_tol_pct: number; fuzzy_amount_tol_abs_cents: number;
+  fuzzy_date_back_days: number; fuzzy_date_fwd_days: number;
+};
+
+const MATCH_STATUS_META: Record<string, { label: string; color: string; exception: boolean }> = {
+  matched_3way:            { label: "Matched (3-way)",     color: C.success,   exception: false },
+  matched_2way_po_only:    { label: "2-way (no receipt)",  color: C.primary,   exception: false },
+  price_variance:          { label: "Price variance",      color: C.warn,      exception: true },
+  qty_variance:            { label: "Qty variance",        color: C.warn,      exception: true },
+  over_billed_vs_received: { label: "Over-billed",         color: C.danger,    exception: true },
+  no_po_found:             { label: "No PO found",         color: C.warn,      exception: true },
+  not_applicable:          { label: "Not applicable",      color: C.textMuted, exception: false },
+};
+const MATCH_STATUS_ORDER = [
+  "over_billed_vs_received", "qty_variance", "price_variance", "no_po_found",
+  "matched_2way_po_only", "matched_3way", "not_applicable",
+];
+const METHOD_LABEL: Record<string, string> = {
+  explicit_line_ref: "PO ref on bill lines",
+  fuzzy_vendor_amount_date: "Fuzzy (vendor + amount + date)",
+  none: "—",
+};
+const RESOLUTION_COLOR: Record<string, string> = { open: C.textMuted, accepted: C.success, disputed: C.danger };
+
+const MATCH_EXPORT_COLUMNS: ExportColumn<Record<string, unknown>>[] = [
+  { key: "vendor_name", header: "Vendor" },
+  { key: "invoice_number", header: "Bill #" },
+  { key: "invoice_date", header: "Bill date", format: "date" },
+  { key: "total_amount_cents", header: "Bill $", format: "currency_cents" },
+  { key: "po_numbers", header: "PO(s)" },
+  { key: "status", header: "Match status" },
+  { key: "method", header: "Method" },
+  { key: "resolution", header: "Resolution" },
+  { key: "resolution_reason", header: "Resolution reason" },
+];
+
+function BillMatchTab() {
+  const [rows, setRows] = useState<MatchRow[]>([]);
+  const [summary, setSummary] = useState<MatchSummary>({});
+  const [lastRun, setLastRun] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [resolutionFilter, setResolutionFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [detail, setDetail] = useState<MatchRow | null>(null);
+  const [tolOpen, setTolOpen] = useState(false);
+  const seqGuard = useSeqGuard();
+
+  async function load() {
+    const seq = seqGuard.begin();
+    setLoading(true); setErr(null);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (resolutionFilter) params.set("resolution", resolutionFilter);
+      if (vendorFilter.trim()) params.set("vendor", vendorFilter.trim());
+      if (fromDate) params.set("from", fromDate);
+      if (toDate) params.set("to", toDate);
+      const r = await fetch(`/api/internal/three-way-match/matches?${params.toString()}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      if (!seqGuard.isCurrent(seq)) return;
+      setRows(Array.isArray(j.rows) ? j.rows as MatchRow[] : []);
+      setSummary((j.summary || {}) as MatchSummary);
+      setLastRun(j.last_run || null);
+    } catch (e) {
+      if (seqGuard.isCurrent(seq)) { setErr(e instanceof Error ? e.message : String(e)); setRows([]); }
+    } finally {
+      if (seqGuard.isCurrent(seq)) setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [statusFilter, resolutionFilter, fromDate, toDate]);
+
+  async function rerunEngine() {
+    if (!(await confirmDialog(
+      "Re-run the 3-way match engine over ALL AP bills now? This only recomputes match verdicts — it never touches bills, POs or the GL. The nightly cron does this automatically at 06:45 UTC.",
+      { confirmText: "Re-run engine", title: "Re-run match engine" }))) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/three-way-match/run", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify("Match engine re-ran over the full bill book.", "success");
+      void load();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(rows, {
+    persistKey: "tangerine:threewaymatch:billaudit:sort",
+    accessors: {
+      vendor_name: (r) => r.vendor_name || "",
+      invoice_number: (r) => r.invoice_number || "",
+      total_amount_cents: (r) => Number(r.total_amount_cents ?? 0),
+      po_numbers: (r) => (r.po_numbers || []).join(", "),
+    },
+  });
+
+  const exportRows = useMemo(() => rows.map((r) => ({
+    vendor_name: r.vendor_name || "",
+    invoice_number: r.invoice_number || "",
+    invoice_date: r.invoice_date || "",
+    total_amount_cents: r.total_amount_cents,
+    po_numbers: (r.po_numbers || []).join(", "),
+    status: MATCH_STATUS_META[r.status]?.label || r.status,
+    method: METHOD_LABEL[r.method] || r.method,
+    resolution: r.resolution,
+    resolution_reason: r.resolution_reason || "",
+  })), [rows]);
+
+  const totalBills = Object.values(summary).reduce((s, v) => s + v.n, 0);
+  const inScope = totalBills - (summary.not_applicable?.n || 0);
+  const matchedN = (summary.matched_3way?.n || 0) + (summary.matched_2way_po_only?.n || 0);
+  const matchRate = inScope > 0 ? Math.round((matchedN / inScope) * 1000) / 10 : 0;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        {MATCH_STATUS_ORDER.map((s) => {
+          const meta = MATCH_STATUS_META[s];
+          const v = summary[s] || { n: 0, cents: 0, open_n: 0, open_cents: 0 };
+          const active = statusFilter === s;
+          return (
+            <div key={s} onClick={() => setStatusFilter(active ? "" : s)}
+              style={{ background: active ? "#0b1220" : C.card, border: `1px solid ${active ? meta.color : C.cardBdr}`, borderRadius: 10, padding: "10px 14px", minWidth: 148, cursor: "pointer", flex: "1 1 148px" }}>
+              <div style={{ fontSize: 11, color: meta.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{meta.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums" }}>{v.n.toLocaleString()}</div>
+              <div style={{ fontSize: 12, color: C.textSub, fontVariantNumeric: "tabular-nums" }}>{fmtCents(v.cents)}</div>
+              {meta.exception && v.open_n > 0 && (
+                <div style={{ fontSize: 11, color: meta.color, marginTop: 2 }}>{v.open_n} open · {fmtCents(v.open_cents)}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 190 }}
+          placeholder="All statuses"
+          options={[{ value: "", label: "All statuses" },
+            ...MATCH_STATUS_ORDER.map((s) => ({ value: s, label: MATCH_STATUS_META[s].label }))]} />
+        <SearchableSelect value={resolutionFilter || null} onChange={(v) => setResolutionFilter(v)} inputStyle={{ ...inputStyle, width: 150 }}
+          placeholder="All resolutions"
+          options={[{ value: "", label: "All resolutions" },
+            ...["open", "accepted", "disputed"].map((s) => ({ value: s, label: s }))]} />
+        <input type="text" value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void load(); }} onBlur={() => void load()}
+          placeholder="Vendor contains…" style={{ ...inputStyle, width: 180 }} />
+        <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+        <span style={{ color: C.textMuted }}>–</span>
+        <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inputStyle, width: 150 }} />
+        <DateRangePresets from={fromDate} to={toDate} variant="dropdown"
+          onChange={(f, t) => { setFromDate(f); setToDate(t); }} />
+        <button style={btnSecondary} onClick={() => void load()} disabled={busy}>Refresh</button>
+        <button style={btnSecondary} onClick={() => setTolOpen(true)} disabled={busy}>Tolerances</button>
+        <button style={btnPrimary} onClick={() => void rerunEngine()} disabled={busy}>{busy ? "Running…" : "Re-run engine"}</button>
+        <ExportButton rows={exportRows} columns={MATCH_EXPORT_COLUMNS} filename="three-way-match-bills" sheetName="Bill Matches" />
+      </div>
+
+      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+        {totalBills.toLocaleString()} bills · match rate {matchRate}% of the {inScope.toLocaleString()} in-scope (PO-vendor) bills
+        {lastRun ? ` · last engine change ${fmtDateDisplay(lastRun.slice(0, 10))}` : ""}
+      </div>
+
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 380px)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr>
+            <SortableTh label="Vendor" sortKey="vendor_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Bill #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Date" sortKey="invoice_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Bill $" sortKey="total_amount_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, textAlign: "right" }} />
+            <SortableTh label="PO(s)" sortKey="po_numbers" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Resolution" sortKey="resolution" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
+            {!loading && sorted.length === 0 && (
+              <tr><td style={{ ...td, color: C.textMuted }} colSpan={7}>
+                No match rows{totalBills === 0 ? " yet — run the engine (Re-run engine) or wait for the 06:45 UTC nightly." : " for these filters."}
+              </td></tr>
+            )}
+            {!loading && sorted.map((r) => {
+              const meta = MATCH_STATUS_META[r.status] || { label: r.status, color: C.text, exception: false };
+              return (
+                <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => setDetail(r)}>
+                  <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>(vendor)</span>}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.invoice_number || "—"}</td>
+                  <td style={td}>{r.invoice_date ? fmtDateDisplay(r.invoice_date) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(r.total_amount_cents)}</td>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontSize: 12 }}>
+                    {(r.po_numbers || []).slice(0, 3).join(", ")}{(r.po_numbers || []).length > 3 ? ` +${r.po_numbers.length - 3}` : ""}
+                  </td>
+                  <td style={td}><span style={{ color: meta.color, fontWeight: 600 }}>● {meta.label}</span></td>
+                  <td style={{ ...td, color: RESOLUTION_COLOR[r.resolution] || C.text }}>{r.resolution}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {detail && <MatchDetailModal row={detail} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); void load(); }} />}
+      {tolOpen && <TolerancesModal onClose={() => setTolOpen(false)} />}
+    </div>
+  );
+}
+
+// ── Match detail modal: per-PO variance evidence + resolve actions ──────────
+function MatchDetailModal({ row, onClose, onChanged }: { row: MatchRow; onClose: () => void; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const meta = MATCH_STATUS_META[row.status] || { label: row.status, color: C.text, exception: false };
+  const pos = row.variance?.pos || [];
+  const canResolve = row.status !== "matched_3way" && row.status !== "not_applicable";
+
+  async function resolve(resolution: "accepted" | "disputed" | "open") {
+    let reason = "";
+    if (resolution !== "open") {
+      const verb = resolution === "accepted" ? "accept this variance" : "dispute this bill";
+      const answer = await promptDialog(`Reason to ${verb}? (required — audit-logged)`, {
+        title: resolution === "accepted" ? "Accept variance" : "Dispute bill", multiline: true, required: true,
+      });
+      if (answer === null) return;
+      reason = answer.trim();
+      if (!reason) { notify("A reason is required (audit-logged).", "error"); return; }
+    } else if (!(await confirmDialog("Re-open this exception (clears the current resolution)?", { confirmText: "Re-open", title: "Re-open exception" }))) {
+      return;
+    }
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/internal/three-way-match/resolve", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: row.id, resolution, reason }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify(resolution === "accepted" ? "Variance accepted." : resolution === "disputed" ? "Bill flagged as disputed." : "Exception re-opened.",
+        resolution === "disputed" ? "info" : "success");
+      onChanged();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>{row.vendor_name || "(vendor)"} — {row.invoice_number || "(bill)"}</h3>
+      <div style={{ marginBottom: 14, fontSize: 13, color: C.textSub }}>
+        <span style={{ color: meta.color, fontWeight: 600 }}>● {meta.label}</span>
+        {" · "}{row.invoice_date ? fmtDateDisplay(row.invoice_date) : "—"}
+        {" · "}{fmtCents(row.total_amount_cents)}
+        {" · "}{METHOD_LABEL[row.method] || row.method}
+      </div>
+
+      <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+          <Stat label="Bill total" value={fmtCents(row.total_amount_cents)} />
+          <Stat label="Match method" value={METHOD_LABEL[row.method] || row.method} />
+          <Stat label="Resolution" value={row.resolution} color={RESOLUTION_COLOR[row.resolution]} />
+          <Stat label="Engine ver / matched" value={`v${row.engine_version} · ${fmtDateDisplay(row.matched_at.slice(0, 10))}`} />
+        </div>
+        {row.resolution !== "open" && (
+          <div style={{ marginTop: 10, fontSize: 12, color: C.textSub }}>
+            <span style={{ color: RESOLUTION_COLOR[row.resolution], fontWeight: 600 }}>{row.resolution}</span>
+            {row.resolved_by ? ` by ${row.resolved_by}` : ""}{row.resolved_at ? ` on ${fmtDateDisplay(row.resolved_at.slice(0, 10))}` : ""}
+            {row.resolution_reason ? ` — ${row.resolution_reason}` : ""}
+          </div>
+        )}
+      </div>
+
+      {pos.length > 0 && (
+        <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflowX: "auto", marginBottom: 14 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              <th style={th}>PO</th>
+              <th style={{ ...th, textAlign: "right" }}>Billed qty</th>
+              <th style={{ ...th, textAlign: "right" }}>Billed $</th>
+              <th style={{ ...th, textAlign: "right" }}>Billed unit $</th>
+              <th style={{ ...th, textAlign: "right" }}>PO unit $</th>
+              <th style={{ ...th, textAlign: "right" }}>Ordered qty</th>
+              <th style={{ ...th, textAlign: "right" }}>Received qty</th>
+              <th style={{ ...th, textAlign: "right" }}>Received $</th>
+              <th style={{ ...th, textAlign: "right" }}>Cum billed $</th>
+              <th style={th}></th>
+            </tr></thead>
+            <tbody>
+              {pos.map((p, i) => (
+                <tr key={`${p.po_number || "?"}-${i}`}>
+                  <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>
+                    {p.po_number || "—"}{p.found === false && <span style={{ color: C.danger, marginLeft: 6, fontSize: 11 }}>not found</span>}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.billed_qty != null ? Number(p.billed_qty).toLocaleString() : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.billed_val != null ? `$${Number(p.billed_val).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.billed_avg_price != null ? `$${Number(p.billed_avg_price).toFixed(4)}` : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.po_avg_price != null ? `$${Number(p.po_avg_price).toFixed(4)}` : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.ordered_qty != null ? Number(p.ordered_qty).toLocaleString() : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.received_qty != null ? Number(p.received_qty).toLocaleString() : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.received_val != null ? `$${Number(p.received_val).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{p.cum_billed_val != null ? `$${Number(p.cum_billed_val).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+                  <td style={td}>
+                    {p.po_number && (
+                      <button style={{ ...btnSecondary, padding: "3px 10px", fontSize: 12 }}
+                        onClick={() => drillToModule("purchase_orders", { q: p.po_number! })}>View PO</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {pos.length === 0 && (
+        <div style={{ fontSize: 13, color: C.textMuted, marginBottom: 14 }}>
+          {row.status === "not_applicable"
+            ? "This vendor has no purchase orders — expense / freight / service bill, out of 3-way scope."
+            : "No PO reference found on this bill and no unique fuzzy candidate (vendor + amount + date window)."}
+        </div>
+      )}
+
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+        <div>
+          {row.invoice_number && (
+            <button style={btnSecondary} onClick={() => drillToModule("ap_invoices", { q: row.invoice_number! })}>View bill</button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={btnSecondary} disabled={busy}>Close</button>
+          {canResolve && row.resolution !== "open" && (
+            <button onClick={() => void resolve("open")} style={btnSecondary} disabled={busy}>Re-open</button>
+          )}
+          {canResolve && row.resolution === "open" && (
+            <>
+              <button onClick={() => void resolve("disputed")} style={btnDangerSolid} disabled={busy}>Dispute</button>
+              <button onClick={() => void resolve("accepted")} style={btnSuccess} disabled={busy}>Accept variance</button>
+            </>
+          )}
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+// ── Tolerance config modal ──────────────────────────────────────────────────
+function TolerancesModal({ onClose }: { onClose: () => void }) {
+  const [tol, setTol] = useState<Tolerances | null>(null);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/internal/three-way-match/tolerances")
+      .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.json(); })
+      .then((j: Tolerances | null) => {
+        setTol(j);
+        if (j) setForm({
+          qty_tol_pct: String(j.qty_tol_pct), price_tol_pct: String(j.price_tol_pct),
+          price_tol_abs_cents: String(j.price_tol_abs_cents / 100), amount_tol_abs_cents: String(j.amount_tol_abs_cents / 100),
+          fuzzy_amount_tol_pct: String(j.fuzzy_amount_tol_pct), fuzzy_amount_tol_abs_cents: String(j.fuzzy_amount_tol_abs_cents / 100),
+          fuzzy_date_back_days: String(j.fuzzy_date_back_days), fuzzy_date_fwd_days: String(j.fuzzy_date_fwd_days),
+        });
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      const body: Record<string, number> = {};
+      const num = (k: string) => Number(form[k]);
+      for (const k of ["qty_tol_pct", "price_tol_pct", "fuzzy_amount_tol_pct", "fuzzy_date_back_days", "fuzzy_date_fwd_days"]) {
+        if (!Number.isFinite(num(k)) || num(k) < 0) throw new Error(`Invalid value for ${k}`);
+        body[k] = num(k);
+      }
+      for (const k of ["price_tol_abs_cents", "amount_tol_abs_cents", "fuzzy_amount_tol_abs_cents"]) {
+        if (!Number.isFinite(num(k)) || num(k) < 0) throw new Error(`Invalid value for ${k}`);
+        body[k] = Math.round(num(k) * 100); // form holds dollars
+      }
+      const r = await fetch("/api/internal/three-way-match/tolerances", {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      notify("Tolerances saved. Re-run the engine (or wait for the nightly) to apply them.", "success");
+      onClose();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+
+  const F = (label: string, key: string, suffix: string) => (
+    <Field label={`${label} (${suffix})`}>
+      <input type="text" inputMode="decimal" value={form[key] ?? ""} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} style={inputStyle} />
+    </Field>
+  );
+
+  return (
+    <Overlay onClose={onClose}>
+      <h3 style={{ margin: "0 0 12px", fontSize: 18 }}>Match tolerances</h3>
+      {loading && <div style={{ color: C.textMuted }}>Loading…</div>}
+      {!loading && tol && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {F("Qty tolerance", "qty_tol_pct", "%")}
+            {F("Price tolerance", "price_tol_pct", "%")}
+            {F("Price tolerance floor", "price_tol_abs_cents", "$")}
+            {F("Amount tolerance", "amount_tol_abs_cents", "$")}
+            {F("Fuzzy amount tolerance", "fuzzy_amount_tol_pct", "%")}
+            {F("Fuzzy amount floor", "fuzzy_amount_tol_abs_cents", "$")}
+            {F("Fuzzy window back", "fuzzy_date_back_days", "days")}
+            {F("Fuzzy window forward", "fuzzy_date_fwd_days", "days")}
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 12 }}>
+            Defaults: qty ±2%, price ±1% or $50 (whichever is greater), amount $100. Changes apply on the next engine run.
+          </div>
+        </>
+      )}
+      {!loading && !tol && !err && <div style={{ color: C.textMuted, marginBottom: 12 }}>No tolerance row found — apply the 3-way match migration.</div>}
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button onClick={onClose} style={btnSecondary} disabled={busy}>Close</button>
+        {tol && <button onClick={() => void save()} style={btnPrimary} disabled={busy}>{busy ? "Saving…" : "Save"}</button>}
+      </div>
+    </Overlay>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Panel shell — tabs
+// ═══════════════════════════════════════════════════════════════════════════
+
 export default function InternalThreeWayMatch() {
+  const [tab, setTab] = useState<"audit" | "drafts">("audit");
+  const tabBtn = (active: boolean): React.CSSProperties => ({
+    background: active ? C.primary : "transparent",
+    color: active ? "white" : C.textSub,
+    border: active ? 0 : `1px solid ${C.cardBdr}`,
+    padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600,
+  });
+  return (
+    <div style={{ color: C.text }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 22 }}>3-Way Match</h2>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={tabBtn(tab === "audit")} onClick={() => setTab("audit")}>Bill Match Audit</button>
+          <button style={tabBtn(tab === "drafts")} onClick={() => setTab("drafts")}>Vendor Invoice Drafts</button>
+        </div>
+      </div>
+      {tab === "audit" ? <BillMatchTab /> : <VendorInvoiceDraftsTab />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vendor Invoice Drafts tab — the original P13-C4 staging vertical (unchanged)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function VendorInvoiceDraftsTab() {
   const [rows, setRows] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -132,8 +635,7 @@ export default function InternalThreeWayMatch() {
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>3-Way Match</h2>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <button style={btnPrimary} onClick={() => { setCreating(true); setEditingId(null); setModalOpen(true); }}>+ New vendor invoice</button>
       </div>
 
