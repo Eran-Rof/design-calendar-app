@@ -16,15 +16,21 @@
  *   node scripts/retire-soldthrough.mjs           # dry-run
  *   node scripts/retire-soldthrough.mjs --apply   # write PROD
  */
-import { readFileSync, createReadStream, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, createReadStream, writeFileSync, readdirSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const APPLY = process.argv.includes("--apply");
-const CSV = process.argv.includes("--csv") ? process.argv[process.argv.indexOf("--csv") + 1]
-  : "C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs/postAD_invrest_20260711211449.csv";
+function newestCsv() {
+  if (process.argv.includes("--csv")) return process.argv[process.argv.indexOf("--csv") + 1];
+  const dir = process.argv.includes("--rest-dir") ? process.argv[process.argv.indexOf("--rest-dir") + 1] : "C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs";
+  const files = readdirSync(dir).filter((f) => /^postAD_invrest_.*\.csv$/.test(f)).sort();
+  if (!files.length) throw new Error(`no postAD_invrest_*.csv in ${dir}`);
+  return join(dir, files[files.length - 1]);
+}
+const CSV = newestCsv();
 function loadEnv(f) { try { return Object.fromEntries(readFileSync(resolve(ROOT, f), "utf8").split("\n").filter(l => l.includes("=") && !l.startsWith("#")).map(l => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; })); } catch { return {}; } }
 const env = { ...loadEnv(".env"), ...loadEnv(".env.local") };
 const SB_URL = env.VITE_SUPABASE_URL, ANON = env.VITE_SUPABASE_ANON_KEY, PAT = env.SUPABASE_PAT;
