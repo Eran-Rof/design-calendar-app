@@ -16,7 +16,31 @@ import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createClient } from "@supabase/supabase-js";
-import { buildXoroAccountResolver } from "../api/_lib/accounting/xoroAccountMap.js";
+import { parseXoroAccountName } from "../api/_lib/accounting/xoroAccountMap.js";
+
+// Curated Xoro-name -> ROF code map for the TB RECON. Unlike the AP classifier
+// (which resolves only postable, non-control expense accounts), the recon must
+// bridge STRUCTURAL / control / balance-sheet accounts too. Keys are lowercased
+// (leaf or full). Only high-confidence structural correspondences — everything
+// else falls to exact name/code auto-match or is reported unmapped.
+const RECON_MAP = {
+  // Banks: Xoro's "Bank Leumi" register names post to the VALLEY GL accounts (#1671).
+  "bank leumi  7801 main": "1001",
+  "bank leumi 7801 main": "1001",
+  "bank leumi 1300 payroll account": "1002",
+  "bank leumi 1500 web account": "1003",
+  // COGS: Xoro's bare/boys COGS -> ROF main / kids COGS.
+  "cogs": "5001",
+  "cost of goods sold boys": "5011",
+  // Inventory asset (also in the AP classifier map).
+  "inventory": "1201",
+  // Revenue: Xoro channels -> ROF revenue routing (business correspondence;
+  // recon variance will flag any mis-map for CEO review — marked via 'recon-map').
+  "revenue": "4005",
+  "sales": "4005",
+  "sales revenue - website": "4011",
+  "sales revenue - boys": "4006",
+};
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -52,7 +76,34 @@ async function main() {
   if (!entity) throw new Error("ROF entity not found");
   const accts = await fetchAll("gl_accounts", "id, code, name, is_postable, is_control, status",
     (q) => q.eq("entity_id", entity.id));
-  const resolve1 = buildXoroAccountResolver(accts);
+  // Broadened recon resolver: match across ALL active accounts (INCLUDING
+  // control / balance-sheet, unlike the AP classifier), so AR (1105/07/08),
+  // AP (2000) and other structural accounts bridge by exact name/code.
+  const active = accts.filter((a) => a && a.status === "active");
+  const byCode = new Map();
+  for (const a of active) if (!byCode.has(String(a.code))) byCode.set(String(a.code), a);
+  const AMB = Symbol("amb");
+  const byName = new Map();
+  for (const a of active) {
+    const k = String(a.name || "").trim().toLowerCase();
+    if (k) byName.set(k, byName.has(k) ? AMB : a);
+  }
+  const resolve1 = (raw) => {
+    const p = parseXoroAccountName(raw);
+    if (!p) return null;
+    const leafKey = p.leaf.toLowerCase();
+    const nameKey = p.name.toLowerCase();
+    // 1. curated recon map (leaf or full)
+    const code = RECON_MAP[leafKey] ?? RECON_MAP[nameKey] ?? RECON_MAP[String(raw).trim().toLowerCase()];
+    if (code && byCode.get(String(code))) return { account: byCode.get(String(code)), via: "recon-map" };
+    // 2. code + name agree
+    if (p.code) { const a = byCode.get(p.code); if (a && String(a.name).trim().toLowerCase() === nameKey) return { account: a, via: "code+name" }; }
+    // 3. unique exact name (code prefix stripped)
+    const n = byName.get(nameKey); if (n && n !== AMB) return { account: n, via: "name" };
+    // 4. unique exact whole-leaf
+    const l = byName.get(leafKey); if (l && l !== AMB) return { account: l, via: "leaf" };
+    return null;
+  };
 
   // Distinct (accounting_name -> type) from the mirror. Keyset-page over id so
   // we cover every row regardless of table size (distinct names are only a few
