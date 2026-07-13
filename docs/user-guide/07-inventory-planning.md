@@ -65,6 +65,9 @@ The **Planning run** card at the top of the grid is your starting point:
 1. Use the **run dropdown** to pick an existing run (each option shows name · status · horizon dates).
 2. Or click **+ New run** to create one — name it, set a **Horizon start/end** (the months to forecast) and a **Snapshot date** (the on-hand cut-off), then **Create run**.
 3. With a run selected, click **Build forecast** to compute the forecast for every (customer, SKU) pair in the run.
+4. **Edit run** — change a run's **name**, **Horizon start/end**, **Snapshot date** or note after it's created. If the run is already built, changing the horizon makes the existing forecast stale, so the modal offers **Save & rebuild** — it saves your changes and then opens the usual rebuild dialog (preserve edits vs. wipe + rebuild) so the forecast recomputes for the new dates.
+
+> **If a build reports "0 rows"** it means the build scope matched nothing — almost always a **grid filter left active** (the button reads **Build (filtered)** instead of **Build forecast**), or a **period filter whose months fall outside the run's horizon**. Clear the grid filters and check the run's horizon dates, then rebuild. (A period filter that doesn't overlap the horizon is now ignored with a warning rather than silently producing an empty build.)
 
 ### Forecast method
 

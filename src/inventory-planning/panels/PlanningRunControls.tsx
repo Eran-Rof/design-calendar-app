@@ -40,6 +40,7 @@ export default function PlanningRunControls({
   scope = "wholesale", showBuild = true, buildFilter = null,
 }: PlanningRunControlsProps) {
   const [showNew, setShowNew] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [building, setBuilding] = useState(false);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
@@ -142,10 +143,29 @@ export default function PlanningRunControls({
       const appliedNote = result.requests_applied > 0
         ? ` · ${result.requests_applied} request${result.requests_applied === 1 ? "" : "s"} marked applied`
         : "";
-      onToast({
-        text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${appliedNote}${lyNote}${deadNote}${filterNote}`,
-        kind: "success",
-      });
+      // A 0-row build almost always means the scope matched nothing — a
+      // leftover grid filter, or a period filter whose months fall outside
+      // this run's horizon. Never report that as a plain success; tell the
+      // planner why and how to fix it.
+      if (result.forecast_rows_written === 0) {
+        const why = result.period_filter_out_of_horizon
+          ? "your period filter selects months outside this run's horizon"
+          : filterActive
+            ? "the active grid filters matched no (customer, SKU) pairs in the horizon"
+            : "no (customer, SKU) pairs had demand or inventory in the horizon";
+        onToast({
+          text: `Build wrote 0 forecast rows — ${why}. Clear the grid filters (the button should read “Build forecast”, not “Build (filtered)”) and check the run's horizon dates, then rebuild.`,
+          kind: "error",
+        });
+      } else {
+        const horizonNote = result.period_filter_out_of_horizon
+          ? " · ⚠ period filter ignored (outside horizon)"
+          : "";
+        onToast({
+          text: `Forecast built — ${result.forecast_rows_written} rows, ${result.recommendations_written} recs${appliedNote}${lyNote}${deadNote}${filterNote}${horizonNote}`,
+          kind: "success",
+        });
+      }
       await onChange();
     } catch (e) {
       if (e instanceof BuildCancelledError) {
@@ -347,6 +367,10 @@ export default function PlanningRunControls({
         </div>
         <button style={S.btnSecondary} onClick={() => setShowNew(true)}>+ New run</button>
         {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
+          <button style={S.btnSecondary} onClick={() => setShowEdit(true)}
+                  title="Edit this run's name and horizon dates — rebuild afterwards to apply new dates">Edit run</button>
+        )}
+        {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
           <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
                   title="Permanently delete this planning run and all its data">Delete run</button>
         )}
@@ -465,6 +489,21 @@ export default function PlanningRunControls({
                        onToast({ text: "Planning run created", kind: "success" });
                        await onChange();
                      }} />
+      )}
+      {showEdit && selected && (
+        <EditRunModal run={selected}
+                      alreadyBuilt={hasExistingBuild}
+                      onClose={() => setShowEdit(false)}
+                      onToast={onToast}
+                      onSaved={async (rebuild) => {
+                        setShowEdit(false);
+                        onToast({ text: "Planning run updated", kind: "success" });
+                        // Reload so the selector + selected run reflect the new
+                        // name/horizon, THEN (if asked) open the existing
+                        // preserve-vs-wipe rebuild dialog against the fresh run.
+                        await onChange();
+                        if (rebuild) setPendingRebuildConfirm(true);
+                      }} />
       )}
       {showSaveModal && selected && (
         <div
@@ -810,6 +849,105 @@ function NewRunModal({ onClose, onCreated, onToast, scope }: {
               <button style={S.btnPrimary} onClick={save} disabled={saving}>
                 {saving ? "Creating…" : "Create run"}
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Edit an existing run's name + horizon dates (+ snapshot / note). Mirrors
+// NewRunModal but pre-filled and calls updatePlanningRun. When the run is
+// already built, offers "Save & rebuild" — changing the horizon leaves the
+// prior forecast stale, so the planner is nudged to rebuild; the actual
+// rebuild reuses the parent's preserve-vs-wipe confirm dialog.
+function EditRunModal({ run, alreadyBuilt, onClose, onSaved, onToast }: {
+  run: IpPlanningRun;
+  alreadyBuilt: boolean;
+  onClose: () => void;
+  onSaved: (rebuild: boolean) => Promise<void>;
+  onToast: (t: ToastMessage) => void;
+}) {
+  const [name, setName] = useState(run.name);
+  const [horizonStart, setHorizonStart] = useState(run.horizon_start ?? "");
+  const [horizonEnd, setHorizonEnd] = useState(run.horizon_end ?? "");
+  const [snapshot, setSnapshot] = useState(run.source_snapshot_date);
+  const [note, setNote] = useState(run.note ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const horizonChanged = horizonStart !== (run.horizon_start ?? "")
+    || horizonEnd !== (run.horizon_end ?? "")
+    || snapshot !== run.source_snapshot_date;
+
+  async function save(rebuild: boolean) {
+    if (!name.trim()) { onToast({ text: "Name is required", kind: "error" }); return; }
+    if (!horizonStart || !horizonEnd) { onToast({ text: "Horizon start and end are required", kind: "error" }); return; }
+    if (horizonEnd < horizonStart) { onToast({ text: "Horizon end is before start", kind: "error" }); return; }
+    setSaving(true);
+    try {
+      await wholesaleRepo.updatePlanningRun(run.id, {
+        name: name.trim(),
+        horizon_start: horizonStart,
+        horizon_end: horizonEnd,
+        source_snapshot_date: snapshot,
+        note: note.trim() || null,
+      });
+      await onSaved(rebuild);
+    } catch (e) {
+      onToast({ text: "Couldn't update run — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={S.drawerOverlay} onClick={onClose}>
+      <div style={S.drawer} onClick={(e) => e.stopPropagation()}>
+        <div style={S.drawerHeader}>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Edit planning run</h3>
+          <button style={S.btnGhost} onClick={onClose}>✕</button>
+        </div>
+        <div style={S.drawerBody}>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div>
+              <label style={S.label}>Name</label>
+              <input style={{ ...S.input, width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={S.label}>Horizon start</label>
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={horizonStart} onCommit={setHorizonStart} />
+              </div>
+              <div>
+                <label style={S.label}>Horizon end</label>
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={horizonEnd} onCommit={setHorizonEnd} />
+              </div>
+              <div>
+                <label style={S.label}>Snapshot date</label>
+                <AppDatePicker style={{ ...S.input, width: "100%" }} value={snapshot} onCommit={setSnapshot} />
+              </div>
+            </div>
+            <div>
+              <label style={S.label}>Note</label>
+              <input style={{ ...S.input, width: "100%" }} value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            {alreadyBuilt && horizonChanged && (
+              <div style={{ padding: "8px 10px", background: `${PAL.yellow}11`, border: `1px solid ${PAL.yellow}55`, borderRadius: 6, color: PAL.textDim, fontSize: 12 }}>
+                This run is already built. You changed the horizon/snapshot, so the existing forecast is now stale — use <strong style={{ color: PAL.text }}>Save & rebuild</strong> to recompute for the new dates.
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+              <button style={S.btnSecondary} onClick={onClose} disabled={saving}>Cancel</button>
+              <button style={S.btnSecondary} onClick={() => void save(false)} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+              {alreadyBuilt && (
+                <button style={S.btnPrimary} onClick={() => void save(true)} disabled={saving}
+                        title="Save the changes, then open the rebuild dialog to recompute the forecast for the new horizon">
+                  {saving ? "Saving…" : "Save & rebuild"}
+                </button>
+              )}
             </div>
           </div>
         </div>
