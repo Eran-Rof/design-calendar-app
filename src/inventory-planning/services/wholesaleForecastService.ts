@@ -129,7 +129,12 @@ export interface BuildFilter {
   customer_id?: string | null;
   // Style identity. When set, the build only processes pairs whose
   // item.style_code (or, for items without a style, sku_code) matches.
+  // style_codes (array) scopes a build to SEVERAL styles at once — the
+  // planner picks N styles in the grid's Style filter and rebuilds just
+  // those. The single style_code stays for legacy callers; when both are
+  // present, style_codes wins.
   style_code?: string | null;
+  style_codes?: string[] | null;
   group_name?: string | null;
   sub_category_name?: string | null;
   gender?: string | null;
@@ -188,7 +193,10 @@ export function pairPassesBuildFilter(
   const { isSupplyOnly, hasOpenRequest, customerId, item } = opts;
   if (!isSupplyOnly && hasOpenRequest) return true;
   if (!isSupplyOnly && filter.customer_id && customerId !== filter.customer_id) return false;
-  if (filter.style_code) {
+  if (filter.style_codes && filter.style_codes.length > 0) {
+    const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
+    if (!styleOnSku || !filter.style_codes.includes(styleOnSku)) return false;
+  } else if (filter.style_code) {
     const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
     if (styleOnSku !== filter.style_code) return false;
   }
@@ -430,7 +438,8 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   let prunedFilterCount = 0;
   const filter = options.filter;
   const filterActive = !!filter && (
-    filter.customer_id || filter.style_code || filter.group_name || filter.sub_category_name || filter.gender
+    filter.customer_id || filter.style_code || (filter.style_codes && filter.style_codes.length > 0)
+    || filter.group_name || filter.sub_category_name || filter.gender
   );
   if (filterActive) {
     const itemBySku = new Map(items.map((i) => [i.id, i]));

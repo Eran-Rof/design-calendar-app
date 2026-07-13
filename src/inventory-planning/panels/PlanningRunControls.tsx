@@ -384,7 +384,7 @@ export default function PlanningRunControls({
                 title={filterActive
                   ? `Build only the rows matching the current grid filters: ${[
                       buildFilter?.customer_id ? "customer" : null,
-                      buildFilter?.style_code ? `style=${buildFilter.style_code}` : null,
+                      buildFilter?.style_codes?.length ? `${buildFilter.style_codes.length} styles` : buildFilter?.style_code ? `style=${buildFilter.style_code}` : null,
                       buildFilter?.group_name ? `category=${buildFilter.group_name}` : null,
                       buildFilter?.sub_category_name ? `sub-cat=${buildFilter.sub_category_name}` : null,
                       buildFilter?.gender ? `gender=${buildFilter.gender}` : null,

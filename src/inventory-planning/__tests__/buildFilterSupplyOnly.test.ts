@@ -55,4 +55,30 @@ describe("pairPassesBuildFilter — supply-only rows respect product filters", (
       isSupplyOnly: true, hasOpenRequest: false, customerId: "__supply__", item: noAttrs,
     })).toBe(false);
   });
+
+  // Multi-style filtered build: style_codes scopes to SEVERAL styles at once.
+  it("style_codes keeps a pair whose style is in the selected set", () => {
+    const multi: BuildFilter = { style_codes: ["CARGO1", "DENIM1"] };
+    expect(pairPassesBuildFilter(multi, {
+      isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: denimItem,
+    })).toBe(true);
+  });
+
+  it("style_codes drops a pair whose style is NOT in the selected set", () => {
+    const multi: BuildFilter = { style_codes: ["CARGO1", "DENIM1"] };
+    const other = { style_code: "JOGGER9", sku_code: "JOGGER9-BLK", attributes: {} };
+    expect(pairPassesBuildFilter(multi, {
+      isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: other,
+    })).toBe(false);
+  });
+
+  it("style_codes scopes supply-only rows too (only in-set styles survive)", () => {
+    const multi: BuildFilter = { style_codes: ["CARGO1"] };
+    expect(pairPassesBuildFilter(multi, {
+      isSupplyOnly: true, hasOpenRequest: false, customerId: "__supply__", item: denimItem,
+    })).toBe(false);
+    expect(pairPassesBuildFilter(multi, {
+      isSupplyOnly: true, hasOpenRequest: false, customerId: "__supply__", item: cargoItem,
+    })).toBe(true);
+  });
 });
