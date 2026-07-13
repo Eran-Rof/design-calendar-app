@@ -193,10 +193,12 @@ export interface WholesalePlanningGridProps {
   onFiltersChange?: (filters: {
     customer_id: string | null;
     style_code: string | null;
+    style_codes: string[] | null;
     group_name: string | null;
     sub_category_name: string | null;
     gender: string | null;
     period_code: string | null;
+    period_codes: string[] | null;
     recommended_action: string | null;
     confidence_level: string | null;
     forecast_method: string | null;
@@ -421,6 +423,10 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       // for legacy callsites that only check the single value.
       customer_id: filterCustomer[0] ?? null,
       style_code: filterStyle[0] ?? null,
+      // Full style array so a filtered BUILD honors every selected style,
+      // not just the first (mirrors period_codes). The grid's display filter
+      // already scopes to all selected styles.
+      style_codes: filterStyle.length > 0 ? filterStyle : null,
       group_name: filterCategory[0] ?? null,
       sub_category_name: filterSubCat[0] ?? null,
       gender: filterGender[0] ?? null,

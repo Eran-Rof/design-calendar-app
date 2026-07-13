@@ -132,6 +132,7 @@ export default function WholesalePlanningWorkbench() {
   const [buildFilter, setBuildFilter] = useState<{
     customer_id: string | null;
     style_code: string | null;
+    style_codes: string[] | null;
     group_name: string | null;
     sub_category_name: string | null;
     gender: string | null;
