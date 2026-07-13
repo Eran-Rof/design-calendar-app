@@ -122,6 +122,8 @@ A row whose style isn't yet in the item master shows an amber **NEW** badge; it 
 
 > **+ Add row** creates TBD rows in bulk. **Customers**, **Periods**, and now **Colors** are all multi-select — each combination becomes its own row. Pick your color(s) with the color picker (existing colorways or type a brand-new one, added as a removable chip); pick the customers and periods; the confirm step tells you exactly how many rows will be created (customers × periods × colors). Leave colors empty for a single **TBD**-color row.
 
+> **↶ Undo** in the toolbar reverses your **+ Add row** actions — up to the **last 4** batches. The button shows the depth (`↶ Undo (3)` means three adds are still undoable). Each press removes the *entire* most-recent batch — every customer × period × color row it created for that style/color — and refreshes the grid. Editing a TBD row's customer, color, or style, or switching to another run, clears the undo history.
+
 ### Future demand requests
 
 The second tab on the Wholesale screen, **Future demand requests**, is where buyer-submitted future demand lives (with its own per-category sales-history readout). Applied requests fold into the next build and the build toast tells you how many were marked applied.
