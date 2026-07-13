@@ -756,4 +756,5 @@ export default [
   ["/api/internal/month-end-close/sign-off"                  , "./internal/month-end-close/sign-off.js"],
   ["/api/internal/month-end-close/close"                     , "./internal/month-end-close/close.js"],
   ["/api/internal/month-end-close/reopen"                    , "./internal/month-end-close/reopen.js"],
+  ["/api/xoro/sync-gl"                                       , "./xoro/sync-gl.js"],
 ];
