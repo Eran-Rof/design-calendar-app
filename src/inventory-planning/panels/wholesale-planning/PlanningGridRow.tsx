@@ -405,7 +405,12 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
         />
       </td>
       <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700, ...colHide("final") }}>
-        {formatQty(r.final_forecast_qty)}
+        {/* Final is the live sum of its preceding editable columns
+            (System + Buyer + Override, floored at 0) so it updates the instant
+            any of them is edited — never a stale stored value. Aggregate rows
+            keep their rolled-up total (sum of each child's own floored Final,
+            which can differ from flooring the summed parts). */}
+        {formatQty(r.is_aggregate ? r.final_forecast_qty : Math.max(0, r.system_forecast_qty + r.buyer_request_qty + r.override_qty))}
       </td>
       <td style={{ ...S.td, ...colHide("confidence") }}>
         <span style={{ ...S.chip, background: CONFIDENCE_COLOR[r.confidence_level] + "33", color: CONFIDENCE_COLOR[r.confidence_level] }}>
