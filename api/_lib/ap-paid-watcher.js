@@ -30,11 +30,20 @@
 //      date — the register's application-date proxy, per #1668).
 //      invoices.paid_amount_cents is re-aligned to (total − due) so the
 //      06:00 subledger tie-out compares GL against the FRESH register state.
-//   3. Anomalies (alerted, never auto-posted):
+//   3. Anomalies (alerted; only header_drift_repaired is auto-fixed):
 //        paid_decreased      register Amount Paid went DOWN vs the baseline
-//        total_changed       register total ≠ posted invoice total (needs the
-//                            post-bills-register `deltas` phase; auto-clears
-//                            once invoices.total_amount_cents is aligned)
+//        total_changed       REGISTER total moved vs the processed baseline
+//                            (needs the post-bills-register `deltas` phase;
+//                            auto-clears once invoices.total_amount_cents
+//                            matches the new register total)
+//        header_drift_repaired  the FROZEN invoice header was rewritten by
+//                            something else while the register total is
+//                            unchanged (2026-07-12: the Xoro-account-truth
+//                            enrich window rewrote 2,679 headers to REST
+//                            line-sums, collapsing the AP subledger by
+//                            $10.13M while GL 2000 stayed correct) — the
+//                            watcher restores the header to the register
+//                            total (GL truth) and reports it; no JE.
 //        relief_decreased    discounts/credits/prepayments went DOWN
 //        new_bill            register row never accrued (fresh-import bill —
 //                            run the post-bills-register phases / AP sweep)
@@ -43,6 +52,10 @@
 //                            posted 8002 residuals ≠ 0 for a vendor (e.g. a
 //                            register landed without its Payments export).
 //                            Stateless — re-alerts nightly until resolved.
+//                            While a vendor drifts, its bills' paid baselines
+//                            do NOT advance and their invoices keep the
+//                            uncovered cash slice OPEN — the subledger only
+//                            ever moves atomically with the GL.
 //   4. Run log: one ap_paid_watcher_runs row per run (drives the Sync Health
 //      'ap_paid_watcher' feed row).
 //
@@ -127,6 +140,9 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
     relief_posted_cents: 0,
     paid_delta_bills: 0,
     paid_delta_cents: 0,
+    paid_delta_pending: 0,
+    paid_delta_pending_cents: 0,
+    headers_repaired: 0,
     invoices_realigned: 0,
     baselines_initialized: 0,
     anomalies: [],
@@ -172,15 +188,68 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
 
   // ── 2. Register bills: relief deltas + paid-baseline movement ─────────────
   const bills = await fetchAll(admin, "ap_bill_register_import",
-    "id, bill_number, bill_date, modified_date, status, vendor_id, vendor_name, invoice_id, accrual_je_id, relief_je_id, skip_reason, total_cents, paid_cents, due_cents, discounts_cents, credits_cents, vendor_credits_cents, prepayments_cents, paid_processed_cents, relief_5005_processed_cents, relief_1308_processed_cents",
+    "id, bill_number, bill_date, modified_date, status, vendor_id, vendor_name, invoice_id, accrual_je_id, relief_je_id, skip_reason, total_cents, paid_cents, due_cents, discounts_cents, credits_cents, vendor_credits_cents, prepayments_cents, paid_processed_cents, total_processed_cents, relief_5005_processed_cents, relief_1308_processed_cents",
     (q) => q.order("bill_number", { ascending: true }));
 
   // Posted invoice totals, for total-change detection + paid re-alignment.
   const invByNumber = new Map();
+  const invById = new Map();
   for (const inv of await fetchAll(admin, "invoices",
     "id, invoice_number, source, gl_status, total_amount_cents, paid_amount_cents",
     (q) => q.in("source", ["xoro_ap", "xoro_bills_register"]).order("id", { ascending: true }))) {
-    invByNumber.set(inv.invoice_number, inv);
+    invById.set(inv.id, inv);
+    // by-number is a fallback only — zero-total xoro_ap stubs share bill
+    // numbers with register bills (2026-07-12 false-anomaly storm), so the
+    // staging row's invoice_id linkage always wins.
+    if (!invByNumber.has(inv.invoice_number) || inv.source === "xoro_bills_register") {
+      invByNumber.set(inv.invoice_number, inv);
+    }
+  }
+
+  // ── 2a. Per-vendor cash drift (stateless; re-alerts until resolved) ───────
+  // register Σ Amount Paid − posted payment-doc cash − posted 8002 residuals
+  // must be 0 per vendor. Non-zero = payments export missing/incomplete for
+  // that vendor. Computed BEFORE the bill loop because paid-state may only
+  // move ATOMICALLY with the GL: bills of drifted vendors keep their paid
+  // baseline and their invoices keep the uncovered cash slice OPEN until the
+  // cash actually posts (2026-07-12 follow-up hardening).
+  const driftByVendor = new Map();
+  try {
+    const regPaid = new Map(), payCash = new Map(), resid = new Map();
+    for (const b of bills) if (b.vendor_id) regPaid.set(b.vendor_id, (regPaid.get(b.vendor_id) || 0) + (Number(b.paid_cents) || 0));
+    if (dryRun) {
+      // Count rows that HAVE a JE plus rows step 1 would have posted.
+      for (const p of pays) {
+        const wouldPost = !p.je_id && (Number(p.paid_amount_cents) || 0) > 0 && p.vendor_id && p.gl_account_id;
+        if ((p.je_id || wouldPost) && p.vendor_id) payCash.set(p.vendor_id, (payCash.get(p.vendor_id) || 0) + (Number(p.paid_amount_cents) || 0));
+      }
+    } else {
+      // Re-read: the in-memory `pays` rows don't reflect step 1's je_id writes.
+      const fresh = await fetchAll(admin, "ap_payment_import", "vendor_id, paid_amount_cents", (q) => q.not("je_id", "is", null));
+      for (const p of fresh) if (p.vendor_id) payCash.set(p.vendor_id, (payCash.get(p.vendor_id) || 0) + (Number(p.paid_amount_cents) || 0));
+    }
+    const residJes = await fetchAll(admin, "journal_entries", "id, source_id",
+      (q) => q.eq("source_table", "ap_bill_register_import").eq("basis", "ACCRUAL").like("source_id", "residual:%").eq("status", "posted"));
+    if (residJes.length) {
+      const lines = await fetchAll(admin, "journal_entry_lines", "journal_entry_id, account_id, debit, credit, subledger_id",
+        (q) => q.in("journal_entry_id", residJes.map((j) => j.id)).eq("account_id", ctx.acct["2000"]));
+      for (const l of lines) {
+        const cents = Math.round(Number(l.debit || 0) * 100) - Math.round(Number(l.credit || 0) * 100);
+        if (l.subledger_id) resid.set(l.subledger_id, (resid.get(l.subledger_id) || 0) + cents);
+      }
+    }
+    for (const [v, cents] of regPaid) {
+      const drift = cents - (payCash.get(v) || 0) - (resid.get(v) || 0);
+      if (drift !== 0) driftByVendor.set(v, drift);
+    }
+    if (driftByVendor.size) {
+      const ids = [...driftByVendor.keys()].slice(0, 100);
+      const { data: vnames } = await admin.from("vendors").select("id, name").in("id", ids);
+      const nameById = new Map((vnames || []).map((v) => [v.id, v.name]));
+      for (const [v, cents] of driftByVendor) anomaly("vendor_cash_drift", { vendor_name: nameById.get(v) || v, drift_cents: cents });
+    }
+  } catch (e) {
+    result.errors.push({ error: `vendor cash-drift check failed: ${e?.message || String(e)}` });
   }
 
   for (const b of bills) {
@@ -197,11 +266,13 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
       }
       // Just accrued by the script/sweep: initialize baselines from posted state.
       b.paid_processed_cents = n(b.paid_cents);
+      b.total_processed_cents = n(b.total_cents);
       b.relief_5005_processed_cents = b.relief_je_id ? n(b.discounts_cents) + n(b.vendor_credits_cents) : 0;
       b.relief_1308_processed_cents = b.relief_je_id ? n(b.prepayments_cents) : 0;
       if (!dryRun) {
         const { error } = await admin.from("ap_bill_register_import").update({
           paid_processed_cents: b.paid_processed_cents,
+          total_processed_cents: b.total_processed_cents,
           relief_5005_processed_cents: b.relief_5005_processed_cents,
           relief_1308_processed_cents: b.relief_1308_processed_cents,
         }).eq("id", b.id);
@@ -210,14 +281,47 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
       result.baselines_initialized++;
     }
 
-    const inv = invByNumber.get(b.bill_number);
+    // The staging row's invoice_id linkage is authoritative; by-number is a
+    // fallback for rows linked before invoice_id was stamped.
+    const inv = (b.invoice_id && invById.get(b.invoice_id)) || invByNumber.get(b.bill_number);
 
-    // Bill total changed on a posted bill → the accrual in the GL is stale.
-    // Needs the post-bills-register `deltas` phase (true-up JE + invoice
-    // alignment); auto-clears here once invoices.total_amount_cents matches.
-    if (inv && inv.gl_status === "posted" && n(inv.total_amount_cents) !== n(b.total_cents)) {
-      anomaly("total_changed", { bill_number: b.bill_number, vendor_name: b.vendor_name, register_cents: n(b.total_cents), posted_cents: n(inv.total_amount_cents) });
-      continue;
+    // Total drift — two distinct cases:
+    //   (a) REGISTER-side change (fresh import changed the bill total vs the
+    //       processed baseline): the GL accrual is stale → alert; needs the
+    //       post-bills-register `deltas` phase (true-up JE + invoice
+    //       alignment). Auto-clears once invoices.total_amount_cents matches
+    //       the new register total (deltas ran), adopting the new baseline.
+    //   (b) INVOICE-side corruption (register total unchanged but the frozen
+    //       invoice header was rewritten — 2026-07-12: the Xoro-account-truth
+    //       enrich window rewrote 2,679 headers to REST line-sums, collapsing
+    //       the AP subledger by $10.13M while the GL stayed right): the GL is
+    //       correct → AUTO-REPAIR the header back to the register total and
+    //       report it loudly (header_drift_repaired) so recurrence is visible.
+    if (n(b.total_cents) !== n(b.total_processed_cents)) {
+      if (inv && n(inv.total_amount_cents) === n(b.total_cents)) {
+        // deltas phase already re-aligned the GL/invoice → adopt new baseline.
+        if (!dryRun) {
+          const { error } = await admin.from("ap_bill_register_import").update({ total_processed_cents: n(b.total_cents) }).eq("id", b.id);
+          if (error) { result.errors.push({ bill_number: b.bill_number, error: `total baseline adopt failed: ${error.message}` }); continue; }
+        }
+        b.total_processed_cents = n(b.total_cents);
+      } else {
+        anomaly("total_changed", { bill_number: b.bill_number, vendor_name: b.vendor_name, register_cents: n(b.total_cents), processed_cents: n(b.total_processed_cents), invoice_cents: inv ? n(inv.total_amount_cents) : null });
+        continue;
+      }
+    } else if (inv && inv.gl_status === "posted" && n(inv.total_amount_cents) !== n(b.total_cents)) {
+      const wasCents = n(inv.total_amount_cents);
+      if (!dryRun) {
+        const { error } = await admin.from("invoices").update({
+          total_amount_cents: n(b.total_cents),
+          subtotal: Number(dollars(n(b.total_cents))),
+          total: Number(dollars(n(b.total_cents))),
+        }).eq("id", inv.id);
+        if (error) { result.errors.push({ bill_number: b.bill_number, error: `header repair failed: ${error.message}` }); continue; }
+      }
+      inv.total_amount_cents = n(b.total_cents);
+      result.headers_repaired++;
+      anomaly("header_drift_repaired", { bill_number: b.bill_number, vendor_name: b.vendor_name, register_cents: n(b.total_cents), was_cents: wasCents, auto_fixed: true });
     }
 
     // Relief deltas (register application state beyond what relief JEs posted).
@@ -266,30 +370,43 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
     }
 
     // AmountPaid movement vs baseline. Cash itself posts from payment docs
-    // (step 1); the per-vendor drift check (step 3) screams if it didn't.
+    // (step 1). ATOMICITY (2026-07-12 hardening): the subledger may only move
+    // with the GL — if the vendor's cash drift is non-zero (payments export
+    // missing/incomplete), the paid baseline does NOT advance and the
+    // invoice keeps the uncovered cash slice OPEN; the drift anomaly nags
+    // nightly until the payments land, then everything advances together.
+    const vendorDrift = driftByVendor.get(b.vendor_id) || 0;
     const dPaid = n(b.paid_cents) - n(b.paid_processed_cents);
     if (dPaid < 0) {
       anomaly("paid_decreased", { bill_number: b.bill_number, vendor_name: b.vendor_name, register_cents: n(b.paid_cents), baseline_cents: n(b.paid_processed_cents) });
       continue;
     }
     if (dPaid > 0) {
-      result.paid_delta_bills++; result.paid_delta_cents += dPaid;
-      if (!dryRun) {
-        const { error } = await admin.from("ap_bill_register_import").update({ paid_processed_cents: n(b.paid_cents) }).eq("id", b.id);
-        if (error) { result.errors.push({ bill_number: b.bill_number, error: `paid baseline update failed: ${error.message}` }); continue; }
+      if (vendorDrift !== 0) {
+        result.paid_delta_pending++; result.paid_delta_pending_cents += dPaid;
+      } else {
+        result.paid_delta_bills++; result.paid_delta_cents += dPaid;
+        if (!dryRun) {
+          const { error } = await admin.from("ap_bill_register_import").update({ paid_processed_cents: n(b.paid_cents) }).eq("id", b.id);
+          if (error) { result.errors.push({ bill_number: b.bill_number, error: `paid baseline update failed: ${error.message}` }); continue; }
+        }
       }
     }
 
     // Re-align the AP subledger to the register (invoices open = Amount Due),
     // exactly like #1668 link-invoices, so the 06:00 tie-out checks GL
-    // against FRESH register state. Source dates only (modified/bill date).
+    // against FRESH register state — but only to the extent the GL actually
+    // moved: the uncovered cash slice (dPaid while the vendor drifts) stays
+    // open. Source dates only (modified/bill date).
     if (inv && !dryRun) {
-      const paidAmt = n(b.total_cents) - n(b.due_cents);
+      const uncovered = vendorDrift !== 0 ? dPaid : 0;
+      const paidAmt = n(b.total_cents) - n(b.due_cents) - uncovered;
       if (n(inv.paid_amount_cents) !== paidAmt) {
+        const fullyCovered = uncovered === 0;
         const { error } = await admin.from("invoices").update({
           paid_amount_cents: paidAmt,
-          status: b.status === "Paid" ? "paid" : "approved",
-          paid_at: b.status === "Paid" ? (b.modified_date || b.bill_date) : null,
+          status: b.status === "Paid" && fullyCovered ? "paid" : "approved",
+          paid_at: b.status === "Paid" && fullyCovered ? (b.modified_date || b.bill_date) : null,
         }).eq("id", inv.id);
         if (error) result.errors.push({ bill_number: b.bill_number, error: `invoice re-align failed: ${error.message}` });
         else result.invoices_realigned++;
@@ -297,50 +414,7 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
     }
   }
 
-  // ── 3. Per-vendor cash drift (stateless; re-alerts until resolved) ────────
-  // register Σ Amount Paid  −  posted payment-doc cash  −  posted 8002
-  // residuals  must be 0 per vendor. Non-zero = payments export missing /
-  // incomplete for that vendor (post-bills-register `residuals` is the
-  // documented manual resolution — the watcher never auto-posts to 8002).
-  try {
-    const regPaid = new Map(), payCash = new Map(), resid = new Map();
-    for (const b of bills) if (b.vendor_id) regPaid.set(b.vendor_id, (regPaid.get(b.vendor_id) || 0) + (Number(b.paid_cents) || 0));
-    if (dryRun) {
-      // Count rows that HAVE a JE plus rows step 1 would have posted.
-      for (const p of pays) {
-        const wouldPost = !p.je_id && (Number(p.paid_amount_cents) || 0) > 0 && p.vendor_id && p.gl_account_id;
-        if ((p.je_id || wouldPost) && p.vendor_id) payCash.set(p.vendor_id, (payCash.get(p.vendor_id) || 0) + (Number(p.paid_amount_cents) || 0));
-      }
-    } else {
-      // Re-read: the in-memory `pays` rows don't reflect step 1's je_id writes.
-      const fresh = await fetchAll(admin, "ap_payment_import", "vendor_id, paid_amount_cents", (q) => q.not("je_id", "is", null));
-      for (const p of fresh) if (p.vendor_id) payCash.set(p.vendor_id, (payCash.get(p.vendor_id) || 0) + (Number(p.paid_amount_cents) || 0));
-    }
-    const residJes = await fetchAll(admin, "journal_entries", "id, source_id",
-      (q) => q.eq("source_table", "ap_bill_register_import").eq("basis", "ACCRUAL").like("source_id", "residual:%").eq("status", "posted"));
-    if (residJes.length) {
-      const lines = await fetchAll(admin, "journal_entry_lines", "journal_entry_id, account_id, debit, credit, subledger_id",
-        (q) => q.in("journal_entry_id", residJes.map((j) => j.id)).eq("account_id", ctx.acct["2000"]));
-      for (const l of lines) {
-        const cents = Math.round(Number(l.debit || 0) * 100) - Math.round(Number(l.credit || 0) * 100);
-        if (l.subledger_id) resid.set(l.subledger_id, (resid.get(l.subledger_id) || 0) + cents);
-      }
-    }
-    const drifted = [];
-    for (const [v, cents] of regPaid) {
-      const drift = cents - (payCash.get(v) || 0) - (resid.get(v) || 0);
-      if (drift !== 0) drifted.push({ vendor_id: v, drift_cents: drift });
-    }
-    if (drifted.length) {
-      const { data: vnames } = await admin.from("vendors").select("id, name").in("id", drifted.slice(0, 100).map((d) => d.vendor_id));
-      const nameById = new Map((vnames || []).map((v) => [v.id, v.name]));
-      for (const d of drifted) anomaly("vendor_cash_drift", { vendor_name: nameById.get(d.vendor_id) || d.vendor_id, drift_cents: d.drift_cents });
-    }
-  } catch (e) {
-    result.errors.push({ error: `vendor cash-drift check failed: ${e?.message || String(e)}` });
-  }
-
-  // ── 4. Run log (Sync Health freshness) ────────────────────────────────────
+  // ── 3. Run log (Sync Health freshness) ────────────────────────────────────
   if (!dryRun) {
     const { error } = await admin.from("ap_paid_watcher_runs").insert({
       entity_id: ctx.entity_id,
@@ -356,6 +430,9 @@ export async function runApPaidWatcher(admin, { dryRun = false } = {}) {
       details: {
         invoices_realigned: result.invoices_realigned,
         baselines_initialized: result.baselines_initialized,
+        headers_repaired: result.headers_repaired,
+        paid_delta_pending: result.paid_delta_pending,
+        paid_delta_pending_cents: result.paid_delta_pending_cents,
         anomalies: result.anomalies.slice(0, 50),
         errors: result.errors.slice(0, 50),
       },

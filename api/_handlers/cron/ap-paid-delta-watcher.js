@@ -43,7 +43,9 @@ function anomalyLine(a) {
     case "paid_decreased":
       return `• ${a.bill_number} (${a.vendor_name}): Amount Paid DECREASED — register ${usd(a.register_cents)} vs reconciled ${usd(a.baseline_cents)}`;
     case "total_changed":
-      return `• ${a.bill_number} (${a.vendor_name}): bill total changed — register ${usd(a.register_cents)} vs posted ${usd(a.posted_cents)} (run post-bills-register \`deltas\`)`;
+      return `• ${a.bill_number} (${a.vendor_name}): register bill total changed — now ${usd(a.register_cents)} vs reconciled ${usd(a.processed_cents)} (run post-bills-register \`deltas\`)`;
+    case "header_drift_repaired":
+      return `• ${a.bill_number} (${a.vendor_name}): frozen invoice header was rewritten to ${usd(a.was_cents)} by another process — AUTO-REPAIRED back to the register total ${usd(a.register_cents)} (no JE; the GL was never wrong). Find and stop the writer.`;
     case "relief_decreased":
       return `• ${a.bill_number} (${a.vendor_name}): discounts/credits/prepayments went DOWN (Δ5005 ${usd(a.d5005_cents)}, Δ1308 ${usd(a.d1308_cents)})`;
     case "new_bill":
@@ -82,8 +84,11 @@ export default async function handler(req, res) {
         (out.anomalies.length > 30 ? `\n… and ${out.anomalies.length - 30} more.` : "") +
         (out.errors.length ? `\n\n${out.errors.length} posting error(s) — see app_errors / run details.` : "") +
         `\n\nThis run: ${out.payments_posted} payment JE(s) ${usd(out.payments_posted_cents)}, ${out.relief_posted} relief JE(s) ${usd(out.relief_posted_cents)}, ` +
-        `${out.paid_delta_bills} bill(s) with Amount Paid up ${usd(out.paid_delta_cents)}.` +
-        `\n\nAnomalies are never auto-posted. Runbook: docs/tangerine/user-guide/13-accounts-payable.md (paid-delta watcher section).`;
+        `${out.paid_delta_bills} bill(s) with Amount Paid up ${usd(out.paid_delta_cents)}` +
+        (out.headers_repaired ? `, ${out.headers_repaired} corrupted invoice header(s) auto-repaired to register totals` : "") +
+        (out.paid_delta_pending ? `, ${out.paid_delta_pending} paid delta(s) ${usd(out.paid_delta_pending_cents)} HELD until the vendor's cash drift clears` : "") +
+        `.` +
+        `\n\nApart from header repairs (subledger metadata only), anomalies are never auto-posted. Runbook: docs/tangerine/user-guide/13-accounts-payable.md (paid-delta watcher section).`;
       try {
         await enqueueNotification(admin, {
           entity_id: out.entity_id,
