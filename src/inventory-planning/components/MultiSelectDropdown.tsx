@@ -40,19 +40,40 @@ export function MultiSelectDropdown({
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
+  // Always surface currently-selected values as options, even when they're
+  // absent from `options` (e.g. a filter selection persisted from a prior
+  // session while the grid is empty, or a value that no longer exists in the
+  // current data). Without this the planner sees "N selected" but an empty
+  // list and can only clear it via Reset. Synthetic entries are labelled by
+  // their raw value and sorted after the real options.
+  const displayOptions = useMemo(() => {
+    const known = new Set(options.map((o) => o.value));
+    const extra = selected.filter((v) => !known.has(v)).map((v) => ({ value: v, label: v }));
+    return extra.length ? [...options, ...extra] : options;
+  }, [options, selected]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, query]);
+    if (!q) return displayOptions;
+    return displayOptions.filter((o) => o.label.toLowerCase().includes(q));
+  }, [displayOptions, query]);
 
-  const buttonLabel = (() => {
-    if (selected.length === 0) return allLabel;
-    if (selected.length === 1) {
-      return options.find((o) => o.value === selected[0])?.label ?? selected[0];
-    }
-    return `${selected.length} selected`;
-  })();
+  // Labels of the current selections (for the trigger + its tooltip).
+  const selectedLabels = useMemo(
+    () => selected.map((v) => displayOptions.find((o) => o.value === v)?.label ?? v),
+    [selected, displayOptions],
+  );
+
+  // Show the actual selected item(s) in the trigger — joined and truncated by
+  // the ellipsis span so a couple fit; the full list is in the tooltip. Beats
+  // an opaque "N selected" count.
+  const buttonLabel = selected.length === 0 ? allLabel : selectedLabels.join(", ");
+
+  // Tooltip: the complete selection ("all on mouse over") plus the static help
+  // text, so hovering the closed control always reveals every selected item.
+  const triggerTitle = selected.length > 0
+    ? `${selectedLabels.length} selected: ${selectedLabels.join(", ")}${title ? ` — ${title}` : ""}`
+    : title;
 
   // Position the popover relative to the trigger when it opens, and
   // refresh on scroll / resize so it tracks if the page moves.
@@ -184,7 +205,7 @@ export function MultiSelectDropdown({
           gap: 8,
           ...(compact ? { padding: "5px 10px", fontSize: 12 } : {}),
         }}
-        title={title}
+        title={triggerTitle}
         onClick={() => setOpen((v) => !v)}
         onMouseEnter={closeOnMouseLeave ? cancelCloseTimer : undefined}
         onMouseLeave={closeOnMouseLeave ? scheduleClose : undefined}

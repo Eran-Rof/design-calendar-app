@@ -263,6 +263,7 @@ Every planning table behaves consistently:
 - **Sort any column** — click a column header to sort ascending (▲); click again for descending (▼); a third click clears the sort and returns to the screen's natural order. The active sort is remembered per screen. Computed/action columns (badges, inline editors, buttons) stay un-sortable by design.
 - **Search boxes select-all on focus** — clicking into a search/filter box highlights the current text so you can type a new term straight over it.
 - **Cascading filters** — where a screen has a search box plus more than one category filter (for example the Ecom grid's **Channel** and **Category**), each filter only offers values that still have rows under the other active filters, so you never pick a combination that shows nothing.
+- **Filter dropdowns show what's selected** — a multi-select filter (Gender, Color, Customer, etc.) lists your chosen values right in the button and reveals the full list on hover, instead of an opaque "N selected." Your selections persist across sessions, so if a dropdown looks empty but still shows a selection, the current run just has no rows for it yet — the selected value stays visible and removable, and hitting **Reset** (or clearing it) restores the full list once the run is built. (Gender and Color options come from the run's forecast rows, so they populate after a successful build.)
 
 ## Exports
 
