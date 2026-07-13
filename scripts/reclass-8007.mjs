@@ -360,7 +360,7 @@ const INVENTORY_SUSPECT = new Map([
 // these vendors' defaults to 1308 — their future real invoices must not
 // auto-route to the asset account (deposit routing stays a manual call).
 const PREPAYMENT_OPEN = new Map([
-  ["United Aryan (EPZ) Limited", "ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date), Kenyan garment manufacturer — deposit for a merchandise order; no absorbing invoice through 2026-07-10. ⚠️ 2026-07-11 #xoro-account-truth: Xoro's bill/getbill returns this bill HEADER-ONLY (no lines, no account) — REST cannot verify; stays PENDING until a Xoro UI/GL check"],
+  ["United Aryan (EPZ) Limited", "ROF-B005300 $80,000.00 paid 2025-12-05 (vendor bill ref '12052025' = the date). ⚠️ RESOLVED 2026-07-12 #xoro-gl-truth: the Xoro GL mirror (accounting/getgltransactions) shows this bill posts DR 'Accrued Legal Settlement' (OtherCurrentLiability) $80,000 / CR Accounts Payable — it is NOT a merchandise deposit at all, it is settling a legal-settlement liability routed through United Aryan. Currently parked in 1308 Vendor Prepayments & Deposits by the #1675 prepayment reclass; that is WRONG — controller must move it to the legal-settlement liability (no ROF COA equivalent to 'Accrued Legal Settlement' yet, so gl-verify reports it, does not auto-post). Report-only until the controller books the liability."],
   // The Luxury Collection was REMOVED 2026-07-11: Xoro GL truth (CEO-verified
   // in the Xoro UI) says its $25,000 is an auto-lease payment -> 6327
   // Equipment Rental, not a deposit. Corrected by JE dated 2026-02-28
@@ -1136,6 +1136,24 @@ async function phaseXoroVerify({ dryRun, limit }) {
 // (the control credit legs of a bill). Excluded from the debit-leg rollup.
 const GL_NON_EVIDENCE_TYPES = new Set(["accountspayable"]);
 
+// AUTO-POST safety gate for gl-verify corrections. Xoro's GL truthfully posts
+// some bills to BALANCE-SHEET accounts that are NOT ROF expense — most notably
+// '1455 Notes Receivable Noize (Love Gen)' (an intercompany receivable: ROF
+// paid a related brand's vendor bills and booked a note receivable, NOT a ROF
+// expense) and liability accruals like '2015 Shipping Accrual'. Those are real
+// Xoro truth and are REPORTED, but moving 8007/expense into an intercompany
+// receivable / liability / equity account is a controller call, never an
+// auto-post (aligns with the task's related-party/loan/equity guard). We
+// auto-post a correction ONLY when its TARGET is a P&L account (COGS 5xxx /
+// opex 6xxx / other 7xxx) or 1201 Inventory (the established inventory-repair
+// target). Everything else is report-only. Deterministic from the ROF code.
+function isAutoPostTarget(acct) {
+  if (!acct) return false;
+  const code = String(acct.code || "");
+  if (code === "1201") return true;              // inventory-purchase repair
+  return /^[567]/.test(code);                    // COGS / opex / other-expense
+}
+
 async function loadGlBillEvidence() {
   // Pull every Bill / Credit Memo GL leg from the mirror, grouped by ref_number.
   // Bills are a small slice of the GL (2-6 legs each), so this is cheap.
@@ -1272,7 +1290,7 @@ async function phaseGlVerify({ dryRun, limit }) {
   const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
   const acctLabel = (id) => { const a = ctx.acctById.get(id); return a ? `${a.code} ${a.name}` : id; };
   const reportRows = [["vendor", "month", "bucket_total", "current_placement", "xoro_gl_says", "match", "diff_moves", "unmapped", "no_signal", "action"].join(",")];
-  let tMatch = 0, tDiff = 0, tUnmapped = 0, tNosignal = 0;
+  let tMatch = 0, tDiff = 0, tReportOnly = 0, tUnmapped = 0, tNosignal = 0;
   let posted = 0, healed = 0, errors = 0, flaggedOnly = 0, done = 0;
   const diffList = [];
 
@@ -1318,35 +1336,44 @@ async function phaseGlVerify({ dryRun, limit }) {
         g[1] -= take; remaining -= take;
       }
     }
-    const diffCents = moves.reduce((s, m) => s + m.cents, 0);
-    const unmappedCents = [...agg.unmapped.values()].reduce((s, c) => s + c, 0);
-    tMatch += match; tDiff += diffCents; tUnmapped += unmappedCents; tNosignal += agg.nosignal;
-
     const isFlagged = FLAG.has(w.v.name) || NET_ZERO.has(w.v.name) || EXCLUDE.has(w.v.name);
+    // Split moves: auto-postable (P&L / 1201 target) vs report-only
+    // (intercompany receivable / liability / equity target). Flagged vendors
+    // are entirely report-only regardless of target.
+    const postMoves = isFlagged ? [] : moves.filter((m) => isAutoPostTarget(ctx.acctById.get(m.to)));
+    const reportMoves = moves.filter((m) => !postMoves.includes(m));
+    const diffCents = postMoves.reduce((s, m) => s + m.cents, 0);
+    const reportCents = reportMoves.reduce((s, m) => s + m.cents, 0);
+    const unmappedCents = [...agg.unmapped.values()].reduce((s, c) => s + c, 0);
+    tMatch += match; tDiff += diffCents; tReportOnly += reportCents; tUnmapped += unmappedCents; tNosignal += agg.nosignal;
+
     let action = "none";
-    if (moves.length) {
-      action = isFlagged ? "FLAG — report only (related-party/financing/net-zero: controller decides)" : "correction JE";
-      diffList.push({ vendor: w.v.name, ym: w.ym, moves, flagged: isFlagged });
+    if (postMoves.length) action = "correction JE";
+    if (reportMoves.length) {
+      const why = isFlagged ? "related-party/financing/net-zero" : "balance-sheet target (intercompany receivable / liability / equity) — controller decides";
+      action = action === "correction JE" ? `correction JE (+ report-only: ${why})` : `report only — ${why}`;
     }
+    if (moves.length) diffList.push({ vendor: w.v.name, ym: w.ym, postMoves, reportMoves, flagged: isFlagged });
 
     reportRows.push([
       esc(w.v.name), w.ym, esc(`$${$(w.b.cents)}`),
       esc([...placements.entries()].map(([a, c]) => `${acctLabel(a)}: $${$(c)}`).join("; ")),
       esc([...agg.resolved.entries()].map(([a, c]) => `${acctLabel(a)}: $${$(c)}`).join("; ")),
       esc(`$${$(match)}`),
-      esc(moves.map((m) => `${acctLabel(m.from)} -> ${acctLabel(m.to)}: $${$(m.cents)}`).join("; ")),
+      esc([...postMoves, ...reportMoves.map((m) => ({ ...m, ro: true }))].map((m) => `${m.ro ? "[report] " : ""}${acctLabel(m.from)} -> ${acctLabel(m.to)}: $${$(m.cents)}`).join("; ")),
       esc([...agg.unmapped.entries()].map(([n, c]) => `${n}: $${$(c)}`).join("; ")),
       esc(`$${$(agg.nosignal)}`),
       esc(action),
     ].join(","));
 
-    if (!moves.length || isFlagged) { if (moves.length) flaggedOnly += 1; continue; }
+    if (reportMoves.length && !postMoves.length) flaggedOnly += 1;
+    if (!postMoves.length) continue;
     if (limit && done >= limit) continue;
     done += 1;
     if (dryRun) { posted += 1; continue; }
 
     const net = new Map();
-    for (const m of moves) {
+    for (const m of postMoves) {
       net.set(m.to, (net.get(m.to) || 0) + m.cents);
       net.set(m.from, (net.get(m.from) || 0) - m.cents);
     }
@@ -1365,7 +1392,7 @@ async function phaseGlVerify({ dryRun, limit }) {
     }
     const priorCorrections = correctionCountByBucket.get(key) || 0;
     const source_id = `${key}:gl-correction${priorCorrections ? `-${priorCorrections + 1}` : ""}`;
-    const evidenceDesc = moves.map((m) => `$${$(m.cents)} ${acctLabel(m.from)} -> ${acctLabel(m.to)}`).join("; ");
+    const evidenceDesc = postMoves.map((m) => `$${$(m.cents)} ${acctLabel(m.from)} -> ${acctLabel(m.to)}`).join("; ");
     const payload = {
       entity_id: ctx.entity_id,
       basis: "ACCRUAL",
@@ -1390,17 +1417,19 @@ async function phaseGlVerify({ dryRun, limit }) {
   console.log("coverage (8007-origin bills vs the Xoro GL mirror):");
   console.log(`  8007-origin bills: ${covBills}; found in GL mirror: ${covBillsInGl} (${(covBillsInGl / Math.max(1, covBills) * 100).toFixed(1)}%)`);
   console.log("\n8007-origin verification vs Xoro GL truth:");
-  console.log(`  MATCH     $${$(tMatch)} (Xoro GL agrees with current placement)`);
-  console.log(`  DIFF      $${$(tDiff)} (Xoro GL says a different account — corrections)`);
-  console.log(`  UNMAPPED  $${$(tUnmapped)} (Xoro GL name has no ROF COA equivalent — CEO mapping table)`);
-  console.log(`  NO-SIGNAL $${$(tNosignal)} (bill absent from the GL mirror — stays put)`);
+  console.log(`  MATCH       $${$(tMatch)} (Xoro GL agrees with current placement)`);
+  console.log(`  DIFF        $${$(tDiff)} (Xoro GL says a different P&L/1201 account — corrections posted)`);
+  console.log(`  REPORT-ONLY $${$(tReportOnly)} (Xoro posts to intercompany-receivable/liability/equity or a flagged vendor — controller decides)`);
+  console.log(`  UNMAPPED    $${$(tUnmapped)} (Xoro GL name has no ROF COA equivalent — CEO mapping table)`);
+  console.log(`  NO-SIGNAL   $${$(tNosignal)} (bill absent from the GL mirror — stays put)`);
   if (diffList.length) {
-    console.log(`\nDIFF list (${diffList.length} vendor-months):`);
+    console.log(`\nDIFF list (${diffList.length} vendor-months; [report] = not posted):`);
     for (const d of diffList) {
-      for (const m of d.moves) console.log(`  ${d.flagged ? "[FLAG] " : ""}${d.vendor} ${d.ym}: ${acctLabel(m.from)} -> ${acctLabel(m.to)} $${$(m.cents)}`);
+      for (const m of d.postMoves) console.log(`  ${d.vendor} ${d.ym}: ${acctLabel(m.from)} -> ${acctLabel(m.to)} $${$(m.cents)}`);
+      for (const m of d.reportMoves) console.log(`  [report]${d.flagged ? "[FLAG]" : ""} ${d.vendor} ${d.ym}: ${acctLabel(m.from)} -> ${acctLabel(m.to)} $${$(m.cents)}`);
     }
   }
-  console.log(`\ncorrections${dryRun ? " (dry-run)" : ""}: ${posted} JEs (${healed} healed/pre-existing), ${flaggedOnly} FLAG/NET-ZERO report-only, ${errors} errors`);
+  console.log(`\ncorrections${dryRun ? " (dry-run)" : ""}: ${posted} JEs (${healed} healed/pre-existing), ${flaggedOnly} report-only vendor-months, ${errors} errors`);
 
   // append round 2 to ap-xoro-verify.csv (task: DIFF corrections listed there)
   const csvPath = resolve(ROOT, "docs/tangerine/ap-xoro-verify.csv");

@@ -37,6 +37,13 @@ export const XORO_TO_ROF_CODE = {
   // Xoro 'Rental Equipment' is ROF '6327 Equipment Rental' (word order) —
   // the account behind The Luxury Collection correction (PR #1685).
   "rental equipment": "6327",
+  // Xoro's bare inventory-asset account is named just 'Inventory'
+  // (F_AccountingTypeName 'OtherCurrentAsset'). ROF's inventory asset is
+  // '1201 Inventory'. Confirmed by the GL mirror (#xoro-gl-truth, 2026-07-12):
+  // $1.28M of 8007-origin bill legs post to Xoro 'Inventory' — the same
+  // inventory-purchase truth as the Item Type='Inventory' signal, just carried
+  // on the GL account name instead of the item type. Deterministic.
+  "inventory": "1201",
 };
 
 // Xoro ItemTypeName values whose lines Xoro posts to the INVENTORY asset
