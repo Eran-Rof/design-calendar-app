@@ -334,8 +334,10 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     sub_category_name: string | null;
     period_codes: string[];
     style_code: string;
-    color: string;
-    is_new_color: boolean;
+    // Multi-color: each chosen color makes its own row (× customer × period).
+    // is_new flags a colorway not yet in the master (badged NEW). An empty
+    // list means a single TBD-color row.
+    colors: Array<{ color: string; is_new: boolean }>;
     description: string;
   }>({
     customer_ids: [],
@@ -343,8 +345,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     sub_category_name: null,
     period_codes: [],
     style_code: "TBD",
-    color: "TBD",
-    is_new_color: false,
+    colors: [],
     description: "",
   });
   const [addRowSaving, setAddRowSaving] = useState(false);
@@ -2276,8 +2277,10 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   // save-time (workbench falls back to every period).
                   period_codes: filterPeriod.length > 0 ? filterPeriod : [],
                   style_code: filterStyle[0] ?? "TBD",
-                  color: filterColor[0] ?? "TBD",
-                  is_new_color: false,
+                  // Seed the color chips from an active Color filter (each
+                  // becomes its own row); otherwise start empty = a single
+                  // TBD-color row.
+                  colors: filterColor.length > 0 ? filterColor.map((c) => ({ color: c, is_new: false })) : [],
                   description: "",
                 });
                 setAddRowOpen(true);
@@ -2344,8 +2347,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   setAddRowDraft((d) => ({
                     ...d,
                     style_code: top.sku_style ?? "TBD",
-                    color: top.sku_color ?? "TBD",
-                    is_new_color: !!top.is_new_color,
+                    colors: top.sku_color && top.sku_color.toUpperCase() !== "TBD"
+                      ? [{ color: top.sku_color, is_new: !!top.is_new_color }]
+                      : [],
                     description: top.sku_description ?? "",
                     customer_ids: top.customer_id ? [top.customer_id] : d.customer_ids,
                     group_name: top.group_name ?? d.group_name,
@@ -2434,38 +2438,49 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   />
                 );
               })()}
-              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Color:</span>
-              {/* Color — reuse the in-grid TbdColorCell so the form's
-                  picker is byte-for-byte identical (same TBD/NEW
-                  badges, search bar, "Add as NEW" footer). Scoped to
-                  the form's selected category's known colors when
-                  one is picked; falls back to every color in the run
-                  when the category is unset. Defaults to TBD. */}
+              <span style={{ color: PAL.textMuted, fontSize: 11 }}>Colors:</span>
+              {/* Multi-color: chips of the chosen colors + a TbdColorCell that
+                  ADDS each pick/created color to the list (instead of setting a
+                  single value). Each color makes its own row (× customer ×
+                  period). Empty = one TBD-color row. The adder keeps the rich
+                  TbdColorCell so existing colorways AND brand-new ones (with the
+                  "Add as NEW" footer) both work. */}
+              {addRowDraft.colors.map((c) => (
+                <span key={c.color} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: PAL.bg, border: `1px solid ${c.is_new ? PAL.yellow : PAL.border}`, borderRadius: 12, padding: "2px 8px", fontSize: 12, color: PAL.text }}>
+                  {c.color}{c.is_new ? <span style={{ color: PAL.yellow, fontSize: 9, fontWeight: 700 }}>NEW</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => setAddRowDraft((d) => ({ ...d, colors: d.colors.filter((x) => x.color !== c.color) }))}
+                    title={`Remove ${c.color}`}
+                    style={{ background: "transparent", border: "none", color: PAL.textMuted, cursor: "pointer", fontSize: 12, lineHeight: 1, padding: 0 }}
+                  >✕</button>
+                </span>
+              ))}
               {(() => {
                 const knownColors = Array.from(
                   colorsByGroupName.get(addRowDraft.group_name ?? "—") ?? new Set<string>(),
                 ).sort();
-                const colorVal = addRowDraft.color || "TBD";
-                const colorLower = colorVal.trim().toLowerCase();
-                const inAnyMaster = colorLower !== "" && colorLower !== "tbd"
-                  && (allKnownColorsLower.has(colorLower) || (masterColorsLower?.has(colorLower) ?? false));
-                const styleColors = masterColorsByStyleLower?.get(addRowDraft.style_code);
-                const inThisStyleMaster = colorLower !== "" && (styleColors?.has(colorLower) ?? false);
-                const isNewForStyle = !addRowDraft.is_new_color && inAnyMaster && !inThisStyleMaster;
                 return (
                   <TbdColorCell
-                    value={colorVal}
-                    isNewColor={!!addRowDraft.is_new_color}
-                    isNewForStyle={isNewForStyle}
+                    value="TBD"
+                    isNewColor={false}
+                    isNewForStyle={false}
                     knownColors={knownColors}
                     allKnownColorsLower={allKnownColorsLower}
                     masterColorsLower={masterColorsLower}
                     onSave={async (color, isNew) => {
-                      setAddRowDraft((d) => ({ ...d, color, is_new_color: isNew }));
+                      const cc = color.trim();
+                      if (!cc || cc.toUpperCase() === "TBD") return;
+                      setAddRowDraft((d) =>
+                        d.colors.some((x) => x.color.toLowerCase() === cc.toLowerCase())
+                          ? d
+                          : { ...d, colors: [...d.colors, { color: cc, is_new: isNew }] },
+                      );
                     }}
                   />
                 );
               })()}
+              <span style={{ color: PAL.textMuted, fontSize: 10 }}>{addRowDraft.colors.length === 0 ? "(TBD — pick one or more)" : `${addRowDraft.colors.length} color${addRowDraft.colors.length === 1 ? "" : "s"}`}</span>
               <input
                 type="text"
                 placeholder="Description"
@@ -2512,7 +2527,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                     ? addRowDraft.period_codes.length
                     : periods.length;
                   const customerCount = addRowDraft.customer_ids.length;
-                  const totalRows = customerCount * periodCount;
+                  // Empty color list = one TBD-color row; otherwise one row per
+                  // color (× customer × period).
+                  const colorEntries = addRowDraft.colors.length > 0
+                    ? addRowDraft.colors
+                    : [{ color: "TBD", is_new: false }];
+                  const colorCount = colorEntries.length;
+                  const totalRows = customerCount * periodCount * colorCount;
                   const customerNames = addRowDraft.customer_ids
                     .map((id) => customers.find((c) => c.id === id)?.name ?? id)
                     .slice(0, 3);
@@ -2522,24 +2543,29 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   const periodSummary = addRowDraft.period_codes.length > 0
                     ? addRowDraft.period_codes.map(formatPeriodCode).join(", ")
                     : "every period in the run";
+                  const colorSummary = colorEntries.map((c) => c.color).join(", ");
                   const ok = await askConfirm(
                     `Create ${totalRows} TBD row${totalRows === 1 ? "" : "s"}?`,
-                    `${totalRows} row${totalRows === 1 ? "" : "s"} will be created — ${customerCount} customer${customerCount === 1 ? "" : "s"} (${customerSummary}) × ${periodCount} period${periodCount === 1 ? "" : "s"} (${periodSummary}).\n\nStyle: ${addRowDraft.style_code || "TBD"} · Color: ${addRowDraft.color || "TBD"}${addRowDraft.description.trim() ? ` · Description: ${addRowDraft.description.trim()}` : ""}`,
+                    `${totalRows} row${totalRows === 1 ? "" : "s"} will be created — ${customerCount} customer${customerCount === 1 ? "" : "s"} (${customerSummary}) × ${periodCount} period${periodCount === 1 ? "" : "s"} (${periodSummary}) × ${colorCount} color${colorCount === 1 ? "" : "s"} (${colorSummary}).\n\nStyle: ${addRowDraft.style_code || "TBD"}${addRowDraft.description.trim() ? ` · Description: ${addRowDraft.description.trim()}` : ""}`,
                     "Create rows",
                   );
                   if (!ok) return;
                   setAddRowSaving(true);
                   try {
-                    await onAddTbdRow({
-                      style_code: addRowDraft.style_code || "TBD",
-                      color: addRowDraft.color || "TBD",
-                      is_new_color: addRowDraft.is_new_color,
-                      customer_ids: addRowDraft.customer_ids,
-                      group_name: addRowDraft.group_name,
-                      sub_category_name: addRowDraft.sub_category_name,
-                      period_codes: addRowDraft.period_codes,
-                      notes: addRowDraft.description.trim() || null,
-                    });
+                    // One onAddTbdRow call per color; the workbench fans each
+                    // out over the selected customers × periods.
+                    for (const ce of colorEntries) {
+                      await onAddTbdRow({
+                        style_code: addRowDraft.style_code || "TBD",
+                        color: ce.color || "TBD",
+                        is_new_color: ce.is_new,
+                        customer_ids: addRowDraft.customer_ids,
+                        group_name: addRowDraft.group_name,
+                        sub_category_name: addRowDraft.sub_category_name,
+                        period_codes: addRowDraft.period_codes,
+                        notes: addRowDraft.description.trim() || null,
+                      });
+                    }
                   } catch { /* error toast surfaces from workbench */ }
                   finally {
                     // Close the form whether or not the save succeeded —
