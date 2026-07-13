@@ -116,6 +116,16 @@ export function cmpNum(a: number | null | undefined, b: number | null | undefine
   return (a - b) * sign;
 }
 
+// Multi-column comparator: walk the sort stack in priority order (parent
+// first) and return the first non-zero comparison. Empty stack → keep order.
+export function cmpMulti(a: IpPlanningGridRow, b: IpPlanningGridRow, stack: Array<{ key: SortKey; dir: "asc" | "desc" }>): number {
+  for (const s of stack) {
+    const c = cmp(a, b, s.key, s.dir);
+    if (c !== 0) return c;
+  }
+  return 0;
+}
+
 export function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "asc" | "desc"): number {
   const sign = d === "asc" ? 1 : -1;
   switch (k) {
