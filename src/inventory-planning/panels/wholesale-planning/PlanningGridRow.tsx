@@ -27,6 +27,7 @@ import { TbdDescriptionCell } from "../../components/cells/TbdDescriptionCell";
 import { TbdCustomerCell } from "../../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../../components/cells/TbdColorCell";
 import { buildStyleCellContext, buildColorCellContext, type MasterStyle } from "./tbdRowHelpers";
+import { ppkMultiplier } from "../../../shared/prepack";
 
 // `StatCell` is imported only to satisfy a stray reference in the old
 // JSX in case it gets revived; remove if still unused after merge.
@@ -130,6 +131,18 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
 
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
+
+  // PPK styles are bought/planned in whole packs, so a demand or buy quantity
+  // entered in eaches is rounded UP to the next full pack on commit — e.g. a
+  // PPK-24 style: 1,190 → 1,200 (50 packs). Non-PPK rows have packSize 1 and
+  // pass through untouched. Applied to the System / Buyer / Override / Buy
+  // cells (see their onSave wrappers below).
+  const packSize = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style, r.sku_code);
+  const roundToPack = (qty: number | null): number | null => {
+    if (packSize <= 1 || qty == null || qty === 0) return qty;
+    const sign = qty < 0 ? -1 : 1;
+    return sign * Math.ceil(Math.abs(qty) / packSize) * packSize;
+  };
 
   // Aggregate row visual treatment — distinctly tinted from the panel
   // background so the planner can spot rolled-up rows at a glance,
@@ -371,7 +384,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
             original={r.system_forecast_qty_original}
             overriddenAt={r.system_forecast_qty_overridden_at}
             overriddenBy={r.system_forecast_qty_overridden_by}
-            onSave={(qty) => onUpdateSystemOverride(r.forecast_id, qty)}
+            onSave={(qty) => onUpdateSystemOverride(r.forecast_id, roundToPack(qty))}
           />
         )}
       </td>
@@ -380,7 +393,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           value={r.buyer_request_qty}
           accent={PAL.accent}
           allowNegative={false}
-          onSave={(qty) => saveAggBuyerOrOverride(r, qty, "buyer_request_qty", onUpdateBuyerRequest, false)}
+          onSave={(qty) => saveAggBuyerOrOverride(r, roundToPack(qty) ?? 0, "buyer_request_qty", onUpdateBuyerRequest, false)}
         />
       </td>
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }} onClick={(e) => e.stopPropagation()}>
@@ -388,7 +401,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           value={r.override_qty}
           accent={PAL.yellow}
           allowNegative={true}
-          onSave={(qty) => saveAggBuyerOrOverride(r, qty, "override_qty", onUpdateOverride, true)}
+          onSave={(qty) => saveAggBuyerOrOverride(r, roundToPack(qty) ?? 0, "override_qty", onUpdateOverride, true)}
         />
       </td>
       <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700, ...colHide("final") }}>
@@ -427,7 +440,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buy") }} onClick={(e) => e.stopPropagation()}>
         <BuyCell
           value={r.planned_buy_qty}
-          onSave={(qty) => saveAggBuy(r, qty)}
+          onSave={(qty) => saveAggBuy(r, roundToPack(qty))}
         />
       </td>
       <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace", ...colHide("avgCost") }}>

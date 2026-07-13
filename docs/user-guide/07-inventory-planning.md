@@ -107,6 +107,8 @@ Each row is a customer × style × color × period demand line. Columns can be s
 - **Buy** — type a planned buy quantity (comma-formatted when idle, e.g. "10,000"). Clearing it removes the planned buy. To seed the whole plan at once, use **Copy Final → Buy** (above the grid): it sets Buy = Final forecast for every row currently in view (matching your filters/search), so you can start from the forecast and adjust from there. It only touches rows in view and asks to confirm the count first.
 - **Unit Cost** — click the cell, type a cost, Enter to commit / Esc to cancel.
 
+> **Prepack (PPK) styles round up to full packs.** On a PPK style, any quantity you type into **System / Buyer / Override / Buy** is rounded **up to the next whole pack** when you commit it (Tab / Enter / click out) — e.g. on a **PPK-24** style, entering **1,190** becomes **1,200** (50 packs). This keeps the plan orderable in whole prepacks. Non-prepack styles are left exactly as typed.
+
 > Overrides are remembered per row. A normal **Rebuild (preserve edits)** keeps your Buyer / Override / Buy / Unit Cost edits on rows that get recomputed. Only a **Wipe + rebuild** discards them (see below).
 
 ### TBD stock-buy rows
