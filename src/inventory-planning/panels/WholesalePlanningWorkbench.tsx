@@ -131,11 +131,15 @@ export default function WholesalePlanningWorkbench() {
   // populates this; PlanningRunControls reads it as buildFilter.
   const [buildFilter, setBuildFilter] = useState<{
     customer_id: string | null;
+    customer_ids: string[] | null;
     style_code: string | null;
     style_codes: string[] | null;
     group_name: string | null;
+    group_names: string[] | null;
     sub_category_name: string | null;
+    sub_category_names: string[] | null;
     gender: string | null;
+    genders: string[] | null;
     period_code: string | null;
     period_codes: string[] | null;
     recommended_action: string | null;

@@ -81,4 +81,27 @@ describe("pairPassesBuildFilter — supply-only rows respect product filters", (
       isSupplyOnly: true, hasOpenRequest: false, customerId: "__supply__", item: cargoItem,
     })).toBe(true);
   });
+
+  // Every input dimension honors a multi-value array.
+  it("customer_ids keeps in-set customers and drops out-of-set", () => {
+    const f: BuildFilter = { customer_ids: ["ross", "walmart"] };
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "walmart", item: cargoItem })).toBe(true);
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "target", item: cargoItem })).toBe(false);
+    // supply-only rows are customer-agnostic → survive a customer-only filter
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: true, hasOpenRequest: false, customerId: "__supply__", item: cargoItem })).toBe(true);
+  });
+
+  it("group_names + genders match any value in their set", () => {
+    const f: BuildFilter = { group_names: ["Cargo Shorts", "Denim"], genders: ["M", "W"] };
+    const menCargo = { style_code: "C1", sku_code: "C1", attributes: { group_name: "Cargo Shorts", gender: "M" } };
+    const kidsCargo = { style_code: "C2", sku_code: "C2", attributes: { group_name: "Cargo Shorts", gender: "C" } };
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: menCargo })).toBe(true);
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: kidsCargo })).toBe(false); // gender C not in set
+  });
+
+  it("combines multiple array dimensions (AND across dims, OR within)", () => {
+    const f: BuildFilter = { style_codes: ["CARGO1"], group_names: ["Cargo Shorts"] };
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: cargoItem })).toBe(true);
+    expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: denimItem })).toBe(false); // right group? no — denim, and style not CARGO1
+  });
 });

@@ -125,8 +125,16 @@ export interface RunForecastPassResult {
 // "no filter on this dimension". customer_id matches forecast rows;
 // the three string filters match against item-master attributes
 // (group_name / category_name / gender).
+// Every INPUT dimension the planner can filter the grid by is honored as a
+// multi-value array (customer_ids / style_codes / group_names /
+// sub_category_names / genders / period_codes) so a filtered build scopes to
+// exactly the grid's current selection — the whole point of a filtered build.
+// The single-value fields (customer_id / style_code / …) are kept for legacy
+// callers; when both are present, the array wins. (recommended_action /
+// confidence_level / forecast_method are build OUTPUTS, not inputs — see below.)
 export interface BuildFilter {
   customer_id?: string | null;
+  customer_ids?: string[] | null;
   // Style identity. When set, the build only processes pairs whose
   // item.style_code (or, for items without a style, sku_code) matches.
   // style_codes (array) scopes a build to SEVERAL styles at once — the
@@ -136,8 +144,11 @@ export interface BuildFilter {
   style_code?: string | null;
   style_codes?: string[] | null;
   group_name?: string | null;
+  group_names?: string[] | null;
   sub_category_name?: string | null;
+  sub_category_names?: string[] | null;
   gender?: string | null;
+  genders?: string[] | null;
   // Period scoping is post-compute: forecast rows for non-matching
   // periods are dropped before upsert. The build still walks the
   // full horizon for rolling supply continuity, then trims at the
@@ -192,27 +203,35 @@ export function pairPassesBuildFilter(
 ): boolean {
   const { isSupplyOnly, hasOpenRequest, customerId, item } = opts;
   if (!isSupplyOnly && hasOpenRequest) return true;
-  if (!isSupplyOnly && filter.customer_id && customerId !== filter.customer_id) return false;
+  // Customer filter applies to real demand pairs only (supply-only rows carry
+  // the placeholder customer = customer-agnostic incoming inventory).
+  if (!isSupplyOnly) {
+    if (filter.customer_ids && filter.customer_ids.length > 0) {
+      if (!filter.customer_ids.includes(customerId)) return false;
+    } else if (filter.customer_id && customerId !== filter.customer_id) {
+      return false;
+    }
+  }
+  const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
   if (filter.style_codes && filter.style_codes.length > 0) {
-    const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
     if (!styleOnSku || !filter.style_codes.includes(styleOnSku)) return false;
   } else if (filter.style_code) {
-    const styleOnSku = item?.style_code ?? item?.sku_code ?? null;
     if (styleOnSku !== filter.style_code) return false;
   }
   const attrs = (item?.attributes ?? null) as Record<string, unknown> | null;
-  if (filter.group_name) {
-    const v = attrs?.group_name;
-    if (typeof v !== "string" || v.trim() !== filter.group_name) return false;
-  }
-  if (filter.sub_category_name) {
-    const v = attrs?.category_name;
-    if (typeof v !== "string" || v.trim() !== filter.sub_category_name) return false;
-  }
-  if (filter.gender) {
-    const v = attrs?.gender;
-    if (typeof v !== "string" || v.trim() !== filter.gender) return false;
-  }
+  // Match a trimmed string attribute against a single value or an array.
+  const attrMatches = (raw: unknown, one: string | null | undefined, many: string[] | null | undefined): boolean => {
+    if (many && many.length > 0) {
+      return typeof raw === "string" && many.includes(raw.trim());
+    }
+    if (one) {
+      return typeof raw === "string" && raw.trim() === one;
+    }
+    return true; // no filter on this dimension
+  };
+  if (!attrMatches(attrs?.group_name, filter.group_name, filter.group_names)) return false;
+  if (!attrMatches(attrs?.category_name, filter.sub_category_name, filter.sub_category_names)) return false;
+  if (!attrMatches(attrs?.gender, filter.gender, filter.genders)) return false;
   return true;
 }
 
@@ -437,9 +456,13 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   // so we only process those pairs.
   let prunedFilterCount = 0;
   const filter = options.filter;
+  const anyArray = (a?: string[] | null) => !!a && a.length > 0;
   const filterActive = !!filter && (
-    filter.customer_id || filter.style_code || (filter.style_codes && filter.style_codes.length > 0)
-    || filter.group_name || filter.sub_category_name || filter.gender
+    filter.customer_id || anyArray(filter.customer_ids)
+    || filter.style_code || anyArray(filter.style_codes)
+    || filter.group_name || anyArray(filter.group_names)
+    || filter.sub_category_name || anyArray(filter.sub_category_names)
+    || filter.gender || anyArray(filter.genders)
   );
   if (filterActive) {
     const itemBySku = new Map(items.map((i) => [i.id, i]));
