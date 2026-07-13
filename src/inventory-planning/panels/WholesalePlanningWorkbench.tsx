@@ -320,10 +320,8 @@ export default function WholesalePlanningWorkbench() {
   }, []);
 
   useEffect(() => {
-    // Clear any "just-added" marker — it pinned a row from the
-    // previous run and would now mis-pin in the new run if the
-    // 4-tuple happened to match.
-    setLastAddedTbdMarker(null);
+    // Clear the add-undo stack — its batches belong to the previous run.
+    setAddUndoStack([]);
     if (!selectedRun) {
       // No run to load — bootstrap is done as soon as masters were.
       setBootstrapPhase((prev) => (prev === "run-data" ? "ready" : prev));
@@ -751,12 +749,17 @@ export default function WholesalePlanningWorkbench() {
   // recent add. Identified by the (style, color, customer, period)
   // tuple since the synthetic forecast_id round-trips through a
   // rebuild.
-  const [lastAddedTbdMarker, setLastAddedTbdMarker] = useState<{
+  // Undo stack for "+ Add row" — the last up-to-4 add batches, newest last.
+  // Each entry captures the batch's grain set so Undo removes the WHOLE batch
+  // (every customer × period × color it created), and pressing Undo repeatedly
+  // walks back up to 4 adds.
+  const ADD_UNDO_DEPTH = 4;
+  const [addUndoStack, setAddUndoStack] = useState<Array<{
     style_code: string;
     color: string;
-    customer_id: string;
-    period_code: string;
-  } | null>(null);
+    customer_ids: string[];
+    period_codes: string[];
+  }>>([]);
 
   // Customers tagged as planner-added — surfaces the orange NEW
   // badge on the customer cell. Seeded from the master each load
@@ -847,8 +850,12 @@ export default function WholesalePlanningWorkbench() {
       // count user-added rows as real duplicates.
       if (!r.is_user_added) continue;
       if (excludeForecastId && r.forecast_id === excludeForecastId) continue;
-      if ((r.sku_style ?? "") !== style) continue;
-      if ((r.sku_color ?? "") !== color) continue;
+      // Trim + case-insensitive so "Espresso" vs "espresso" (or stray
+      // whitespace) still counts as the same grain — otherwise a re-add slips
+      // past the guard and piles up duplicate rows.
+      const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+      if (norm(r.sku_style) !== norm(style)) continue;
+      if (norm(r.sku_color) !== norm(color)) continue;
       if (r.customer_id !== customerId) continue;
       if (r.period_code !== periodCode) continue;
       return r;
@@ -856,8 +863,16 @@ export default function WholesalePlanningWorkbench() {
     return null;
   }
 
-  async function addTbdRow(args: AddTbdRowArgs) {
+  async function addTbdRow(argsRaw: AddTbdRowArgs) {
     if (!selectedRun) return;
+    // Dedup the selection up front so a single add can never emit the same
+    // (customer, period) grain twice (which the grid would then collapse into
+    // an aggregate).
+    const args: AddTbdRowArgs = {
+      ...argsRaw,
+      customer_ids: Array.from(new Set(argsRaw.customer_ids)),
+      period_codes: Array.from(new Set(argsRaw.period_codes)),
+    };
     if (args.customer_ids.length === 0) {
       setToast({ text: "Pick at least one customer.", kind: "error" });
       return;
@@ -976,16 +991,18 @@ export default function WholesalePlanningWorkbench() {
         notes: null,
       }));
       setRows((prev) => [...prev, ...optimisticRows]);
-      // Pin the freshly-added "first" row (earliest period × first
-      // customer) to the top so the planner sees the new style.
-      const sortedCombos = [...combos].sort((a, b) => a.period.period_start.localeCompare(b.period.period_start));
-      const primary = sortedCombos[0];
-      setLastAddedTbdMarker({
-        style_code: args.style_code,
-        color: args.color,
-        customer_id: primary.customer_id,
-        period_code: primary.period.period_code,
-      });
+      // Push this batch onto the add-undo stack (newest last, cap at
+      // ADD_UNDO_DEPTH). Undo removes the WHOLE batch — every customer × period
+      // it created — and repeated Undo walks back up to 4 adds.
+      setAddUndoStack((prev) => [
+        ...prev.slice(-(ADD_UNDO_DEPTH - 1)),
+        {
+          style_code: args.style_code,
+          color: args.color,
+          customer_ids: args.customer_ids,
+          period_codes: periodSamples.map((p) => p.period_code),
+        },
+      ]);
       // Fire all inserts in parallel; stamp tbd_id + reconcile drift
       // (planner edits during flight) when each settles.
       for (const c of combos) {
@@ -1082,54 +1099,45 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
-  // Undo the most recent + Add row. Looks up the row matching
-  // lastAddedTbdMarker and deletes it via the same path the per-row
-  // ✕ button uses. Distinct UX from the row-level ✕ so the planner
-  // can hit Undo from the toolbar after Add without hunting for the
-  // row.
+  // Undo the most recent + Add row batch (Undo can be pressed up to 4 times to
+  // walk back the last 4 adds). Pops the newest batch off the stack and deletes
+  // EVERY user-added TBD row it created — all customer × period combos for that
+  // (style, color) — including any duplicates that share the same grain. Uses
+  // the same delete path as the per-row ✕.
   async function undoLastAddedTbd() {
-    if (!selectedRun || !lastAddedTbdMarker) return;
-    const target = rows.find((r) =>
+    if (!selectedRun || addUndoStack.length === 0) return;
+    const batch = addUndoStack[addUndoStack.length - 1];
+    setAddUndoStack((prev) => prev.slice(0, -1));
+    const custSet = new Set(batch.customer_ids);
+    const periodSet = new Set(batch.period_codes);
+    const targets = rows.filter((r) =>
       r.is_tbd
       && r.is_user_added
-      && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
-      && (r.sku_color ?? "") === lastAddedTbdMarker.color
-      && r.customer_id === lastAddedTbdMarker.customer_id
-      && r.period_code === lastAddedTbdMarker.period_code,
+      && (r.sku_style ?? "") === batch.style_code
+      && (r.sku_color ?? "") === batch.color
+      && custSet.has(r.customer_id)
+      && periodSet.has(r.period_code),
     );
-    if (!target) {
-      setToast({ text: "No recent row to undo.", kind: "error" });
-      setLastAddedTbdMarker(null);
+    if (targets.length === 0) {
+      setToast({ text: "Nothing left to undo for that add.", kind: "info" });
       return;
     }
-    if (!target.tbd_id) {
-      // Synthetic row that never persisted (rare race with rebuild).
-      setLastAddedTbdMarker(null);
-      setRows((prev) => prev.filter((r) => r.forecast_id !== target.forecast_id));
-      setToast({ text: "Discarded.", kind: "success" });
-      return;
-    }
-    const fid = target.forecast_id;
-    setLastAddedTbdMarker(null);
-    setRows((prev) => prev.filter((r) => r.forecast_id !== fid));
+    const fids = new Set(targets.map((r) => r.forecast_id));
+    setRows((prev) => prev.filter((r) => !fids.has(r.forecast_id)));
     try {
-      await wholesaleRepo.deleteTbdRow(target.tbd_id);
-      setToast({ text: "Last add undone.", kind: "success" });
+      // Delete the persisted rows (skip synthetic ones that never got a tbd_id).
+      await Promise.all(targets.filter((t) => t.tbd_id).map((t) => wholesaleRepo.deleteTbdRow(t.tbd_id!)));
+      setToast({ text: `Undid add — removed ${targets.length} row${targets.length === 1 ? "" : "s"} (${batch.style_code} / ${batch.color}).`, kind: "success" });
+    } catch (e) {
+      setToast({ text: `Undo failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    } finally {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
           const refreshed = await buildGridRows(selectedRun);
-          if (seq !== rebuildSeq.current) return;
-          setRows(refreshed);
+          if (seq === rebuildSeq.current) setRows(refreshed);
         } catch (e) { console.warn("[ip rebuild]", e); }
       })();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setToast({ text: `Undo failed — ${msg}`, kind: "error" });
-      const seq = ++rebuildSeq.current;
-      const refreshed = await buildGridRows(selectedRun);
-      if (seq !== rebuildSeq.current) return;
-      setRows(refreshed);
     }
   }
 
@@ -1234,14 +1242,8 @@ export default function WholesalePlanningWorkbench() {
     // identity check (style+color+customer+period) misses, the row
     // de-pins, and a planner who picked a brand-new style sees
     // "saved" with no visible row in their viewport.
-    setLastAddedTbdMarker((prev) => {
-      if (!prev) return prev;
-      if (prev.style_code !== (row.sku_style ?? "")) return prev;
-      if (prev.color !== (row.sku_color ?? "")) return prev;
-      if (prev.customer_id !== row.customer_id) return prev;
-      if (prev.period_code !== row.period_code) return prev;
-      return { ...prev, style_code: styleCode };
-    });
+    // Editing a TBD row's dimensions invalidates the add-undo history.
+    setAddUndoStack([]);
     const fireRebuild = () => {
       const seq = ++rebuildSeq.current;
       void (async () => {
@@ -1502,14 +1504,8 @@ export default function WholesalePlanningWorkbench() {
       if (placeholderSiblingFids.has(r.forecast_id)) return { ...r, customer_id: customerId, customer_name: customerName };
       return r;
     }));
-    setLastAddedTbdMarker((prev) => {
-      if (!prev) return prev;
-      if (prev.style_code !== (row.sku_style ?? "")) return prev;
-      if (prev.color !== (row.sku_color ?? "")) return prev;
-      if (prev.customer_id !== row.customer_id) return prev;
-      if (prev.period_code !== row.period_code) return prev;
-      return { ...prev, customer_id: customerId };
-    });
+    // Editing a TBD row's dimensions invalidates the add-undo history.
+    setAddUndoStack([]);
     try {
       await saveTbdField(row, { customer_id: customerId });
       const patchableSiblings = placeholderSiblings.filter((s) => !!s.tbd_id);
@@ -1765,14 +1761,8 @@ export default function WholesalePlanningWorkbench() {
       if (placeholderSiblingFids.has(r.forecast_id)) return { ...r, sku_color: color, is_new_color: isNewColor };
       return r;
     }));
-    setLastAddedTbdMarker((prev) => {
-      if (!prev) return prev;
-      if (prev.style_code !== (row.sku_style ?? "")) return prev;
-      if (prev.color !== (row.sku_color ?? "")) return prev;
-      if (prev.customer_id !== row.customer_id) return prev;
-      if (prev.period_code !== row.period_code) return prev;
-      return { ...prev, color };
-    });
+    // Editing a TBD row's dimensions invalidates the add-undo history.
+    setAddUndoStack([]);
     try {
       await saveTbdField(row, { color, is_new_color: isNewColor });
       // PATCH only siblings with a real tbd_id — optimistic ones
@@ -2380,7 +2370,13 @@ export default function WholesalePlanningWorkbench() {
               onPromoteTbdRow={promoteTbdStyleColor}
               promotedTbdKeys={promotedTbdKeys}
               onUndoLastAdd={undoLastAddedTbd}
-              lastAddedTbdMarker={lastAddedTbdMarker}
+              undoDepth={addUndoStack.length}
+              lastAddedTbdMarker={addUndoStack.length > 0 ? {
+                style_code: addUndoStack[addUndoStack.length - 1].style_code,
+                color: addUndoStack[addUndoStack.length - 1].color,
+                customer_id: addUndoStack[addUndoStack.length - 1].customer_ids[0],
+                period_code: addUndoStack[addUndoStack.length - 1].period_codes[0],
+              } : undefined}
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}

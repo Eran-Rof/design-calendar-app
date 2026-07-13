@@ -92,7 +92,7 @@ Each row is a customer × style × color × period demand line. Columns can be s
 | **System** | The system's forecast suggestion — **type to override it** | **Yes** |
 | Buyer | Buyer-requested future demand | Via Future Demand Requests |
 | Override | The adjustment you've made | derived from System edits |
-| Final | The committed forecast for the line | No (computed) |
+| Final | The committed forecast — the **live sum of System + Buyer + Override** (floored at 0). It recomputes the instant you edit any of those cells, so it always reflects the columns to its left. | No (computed) |
 | Conf. / Method | Confidence band + method used for the line | No |
 | On hand / On SO / Receipts / Hist Recv / **ATS** | Supply context | No |
 | **Buy** | Your planned buy quantity for the line | **Yes** |
@@ -121,6 +121,8 @@ Some buys aren't tied to a known style yet — you're buying ahead into stock. T
 A row whose style isn't yet in the item master shows an amber **NEW** badge; it auto-clears once a future build sees that style in the master.
 
 > **+ Add row** creates TBD rows in bulk. **Customers**, **Periods**, and now **Colors** are all multi-select — each combination becomes its own row. Pick your color(s) with the color picker (existing colorways or type a brand-new one, added as a removable chip); pick the customers and periods; the confirm step tells you exactly how many rows will be created (customers × periods × colors). Leave colors empty for a single **TBD**-color row.
+
+> **↶ Undo** in the toolbar reverses your **+ Add row** actions — up to the **last 4** batches. The button shows the depth (`↶ Undo (3)` means three adds are still undoable). Each press removes the *entire* most-recent batch — every customer × period × color row it created for that style/color — and refreshes the grid. Editing a TBD row's customer, color, or style, or switching to another run, clears the undo history.
 
 ### Future demand requests
 
