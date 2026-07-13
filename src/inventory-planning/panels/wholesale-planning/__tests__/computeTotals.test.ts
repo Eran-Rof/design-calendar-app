@@ -81,6 +81,8 @@ describe("computeTotals", () => {
 
   it("returns zeros for empty input", () => {
     const t = computeTotals([], new Map());
-    expect(t).toEqual({ final: 0, shortage: 0, excess: 0, actions: {}, methods: {} });
+    // `columns` always carries the deduped supply totals (shortage/excess),
+    // which are 0 for empty input but still present as keys.
+    expect(t).toEqual({ final: 0, shortage: 0, excess: 0, actions: {}, methods: {}, columns: { shortage: 0, excess: 0 } });
   });
 });
