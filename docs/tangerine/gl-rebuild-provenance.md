@@ -201,15 +201,35 @@ loading ecom's cost onto ROF wholesale).
   **$9,592,240.80 UNCHANGED**; Gross Profit unchanged. Global GL imbalance
   **$0.00**.
 
-### 6.3 Psycho Tuna ecom — NOT applicable (Xoro records none)
+### 6.3 Psycho Tuna ecom: 4009→4008 revenue + 5012→5013 COGS  (#1729, 2026-07-13, CEO-directed)
 
-Xoro records **no PT ecom sales or COGS**. All PT activity is wholesale
-(**4009 "Sales Revenue - PT"** / **"Cost of Goods Sold PT"**, store
-"Psycho Tuna"); 4009 has **zero** `PT ECOM-` prefixed lines and 5010 has none
-either. The **"Psycho Tuna Ecom" store** (406 lines total) carries only ecom
-**operating expenses** — Shopify fees/hosting, Meta + Google ads, logistics —
-~$100K, and $0 sales/COGS. So PT **4008 "Sales Revenue - PT Ecom"** and
-**5013 "Cost of Goods Sold PT Ecom"** remain **$0 by design** — there is no
-PT-ecom-tagged sales/COGS population to reclass. **Flagged to CEO** as a
-Xoro-side data-flow question (are PT Shopify sales flowing into Xoro's GL as
-revenue?), not a GL misposting fixable here.
+CEO (2026-07-13): *"in xoro all pt ecom invoices carry Shopify psychotuna as the
+customer … can you do the same for invoices and Cogs."* Companion to §6.1/§6.2 so
+the PT ecom channel shows a true gross margin.
+
+**Correcting an earlier wrong read:** a first probe keyed off the Xoro *store*
+dimension and concluded PT ecom was $0 — because the store "Psycho Tuna Ecom"
+(406 lines) carries only ecom **operating expenses** (Shopify fees/hosting, Meta +
+Google ads, logistics, ~$100K). The PT ecom **sales and COGS** actually post under
+store "Psycho Tuna" and are tagged by the **customer** — not a store or an invoice
+prefix (every PT sale is `PT-I…`). Xoro puts all PT sales on **4009 "Sales Revenue
+- PT"** and all PT COGS on **5012 "Cost of Goods Sold PT"**; the ecom slice is the
+subset whose contact is **"Shopify psychotuna"** (both spellings, incl. a trailing
+space). This is the same customer Tangerine uses to separate PT ecom inventory.
+
+- **Migration:** `20260987000000_channel_reclass_pt_ecom.sql`.
+- **Channel signal:** `xoro_gl_transactions.entity_full_name ILIKE '%shopify psychotuna%'`.
+  The customer lives on the raw mirror **leg**, not the mirror JE lines, so PT-ecom
+  transactions are the set of Xoro `txn_id`s with that customer, matched to mirror
+  JEs via `journal_entries.source_id = txn_id` (one mirror JE = one Xoro txn).
+  (Direct leg↔JE-line join would cartesian-explode — the raw table is ~7 legs/txn.)
+- **Postings:** two balanced `channel_reclass` JEs per month —
+  `DR 4009 / CR 4008` (revenue) and `DR 5013 / CR 5012` (COGS). **46 JEs**
+  (23 rev + 23 COGS), Sep-2024 → Jul-2026.
+- **Totals moved:** revenue **$190,772.06** (4009 $-631,165.29→**$-440,393.23**;
+  4008 $0→**$-190,772.06**); COGS **$62,105.09** (5012 $429,116.06→**$367,010.97**;
+  5013 $0→**$62,105.09**). PT ecom gross margin ≈ **67.4%**.
+- **Net effect:** revenue-internal + COGS-internal, net-zero — PT total revenue
+  ($-631,165.29) and PT total COGS ($429,116.06) **UNCHANGED**; Net Sales / Gross
+  Profit unchanged; global GL imbalance **$0.00**. Idempotent (`source_id`
+  `channel_reclass:pt_ecom_rev:4009->4008:YYYY-MM` and `…pt_ecom_cogs:5012->5013:…`).
