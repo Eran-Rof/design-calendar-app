@@ -2,6 +2,21 @@
 
 These three panels form the accountant's daily / monthly workflow. The order matters: **Chart of Accounts must be populated before Journal Entries can be posted**, because every JE line references an account.
 
+> ## 📌 The General Ledger IS the Xoro mirror (2026-07-13 rebuild)
+>
+> As of the full-ledger rebuild (#1720), **Tangerine's General Ledger is a faithful 1:1 double-entry mirror of Xoro's complete GL** — not a bottom-up reconstruction from the AR/AP subledgers. Every posted transaction in Xoro (`xoro_gl_transactions`, the nightly mirror of Xoro's `accounting/getgltransactions`) becomes exactly **one journal entry** in Tangerine:
+>
+> - **journal_type** = `xoro_gl_mirror`, **source_id** = the Xoro `TxnId` (idempotent — a re-run posts nothing new).
+> - **posting_date** = the Xoro transaction date (never today's date).
+> - Each Xoro leg's signed `amount_home` maps to a Tangerine line: **positive = debit, negative = credit**; the Xoro account name resolves to a ROF account via `xoro_account_map`.
+> - Every JE balances by construction (each Xoro transaction nets to $0). Sub-cent rounding from Xoro's higher-precision legs is absorbed into **8001 Penny Rounding Adjustments** (whole-ledger total under $1).
+>
+> **Why:** the old GL was rebuilt from invoices/bills, so it never captured Xoro's GL-only entries (payroll, provisions, inventory adjustments, closing/opening entries) and overstated net income. The mirror captures the whole ledger, so **Tangerine's trial balance now equals Xoro's account-by-account and month-by-month, to the cent** (AR, Inventory, AP, cash, expense, equity), and `8007 Uncategorized Expense` fell to ~$0 on its own.
+>
+> **Subledger detail still lives in Tangerine** (`ar_invoices`/`ar_invoice_lines`, `invoices`/`invoice_line_items`) — every invoice and bill survives and its `accrual_je_id` re-links to the mirror JE by document number (`invoice_number` = Xoro `ref_number`). The GL amount is now Xoro's number; where a subledger line total disagrees (a known 2025 line-total defect), the detail row is the one to true up (see `docs/tangerine/gl-rebuild-amount-recon.csv`).
+>
+> **Operationally:** the mirror is kept current nightly by the Xoro GL sync; new Xoro transactions post themselves. Native Tangerine JEs (operator-entered) still post through the normal Journal Entry panel below and are validated by the posting guards — the rebuild deleted only the superseded bottom-up reconstructions, never a native entry.
+
 ## 📒 Chart of Accounts (COA)
 
 ### Concept
