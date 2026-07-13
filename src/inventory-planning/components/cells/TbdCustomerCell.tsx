@@ -10,9 +10,10 @@
 // insert + row reassignment. Falls through silently when no
 // onAddNew is wired (the cell stays read-only-with-search).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { S, PAL } from "../styles";
+import { useAnchoredPopover } from "./useAnchoredPopover";
 
 export function TbdCustomerCell({
   value, isSupplyOnly, isNewCustomer, customers, newCustomerIds, onSave, onAddNew,
@@ -32,54 +33,10 @@ export function TbdCustomerCell({
   onSave: (customerId: string, customerName: string) => Promise<void>;
   onAddNew?: (customerName: string) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, triggerRef, popoverRef, pos: menuPos } = useAnchoredPopover();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  // The menu renders in a portal on document.body with FIXED positioning so
-  // the grid's horizontal-scroll overflow can't clip it (it was rendering
-  // behind later rows). Position is anchored to the trigger's rect and
-  // recomputed on scroll/resize; it flips above the cell when there's more
-  // room up top (rows near the viewport bottom).
-  const [menuPos, setMenuPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
 
-  useEffect(() => {
-    if (!open) { setMenuPos(null); return; }
-    function reposition() {
-      const el = triggerRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - r.bottom;
-      const spaceAbove = r.top;
-      const openUp = spaceBelow < 260 && spaceAbove > spaceBelow;
-      const maxHeight = Math.max(160, Math.min(360, (openUp ? spaceAbove : spaceBelow) - 12));
-      setMenuPos(openUp
-        ? { left: r.left, bottom: window.innerHeight - r.top + 4, maxHeight }
-        : { left: r.left, top: r.bottom + 4, maxHeight });
-    }
-    reposition();
-    // Capture-phase scroll catches scrolling of the inner grid container too
-    // (scroll events don't bubble), so the menu tracks the cell.
-    window.addEventListener("scroll", reposition, true);
-    window.addEventListener("resize", reposition);
-    function onDocClick(e: MouseEvent) {
-      const t = e.target as Node;
-      if (ref.current?.contains(t)) return;
-      if (menuRef.current?.contains(t)) return;
-      setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("scroll", reposition, true);
-      window.removeEventListener("resize", reposition);
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
   const filtered = useMemo(() => {
@@ -114,7 +71,7 @@ export function TbdCustomerCell({
   }
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       <button
         ref={triggerRef}
         type="button"
@@ -147,7 +104,7 @@ export function TbdCustomerCell({
       </button>
       {open && menuPos && createPortal(
         <div
-          ref={menuRef}
+          ref={popoverRef}
           style={{
             position: "fixed",
             top: menuPos.top,

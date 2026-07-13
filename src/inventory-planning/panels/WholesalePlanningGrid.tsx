@@ -823,7 +823,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       // pointed out that rows with non-zero receipts / system_forecast
       // / ly_reference / etc. were getting hidden, so the check now
       // covers every numeric column the grid renders.
-      if (!showZeroRows) {
+      //
+      // Planner-added TBD rows are exempt: a freshly-added row starts at
+      // zero qty (the planner adds it precisely to fill in), so hiding it
+      // for being empty makes their deliberate addition vanish the moment
+      // any other filter narrows the view (only the single pinned row
+      // survived otherwise). Same rationale as the untagged-gender bypass
+      // above — never hide a row the planner explicitly created.
+      if (!showZeroRows && !(r.is_tbd && r.is_user_added)) {
         const hasAnyQty =
           (r.final_forecast_qty ?? 0) !== 0 ||
           (r.system_forecast_qty ?? 0) !== 0 ||

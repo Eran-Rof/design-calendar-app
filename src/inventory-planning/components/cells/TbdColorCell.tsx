@@ -9,8 +9,10 @@
 // flag, surfaces an orange "NEW" badge, and stays until the master
 // catches up.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { S, PAL } from "../styles";
+import { useAnchoredPopover } from "./useAnchoredPopover";
 
 export function TbdColorCell({
   value, isNewColor, isNewForStyle, knownColors, allKnownColorsLower, masterColorsLower, onSave,
@@ -37,24 +39,10 @@ export function TbdColorCell({
   blocked?: boolean;
   onBlocked?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, triggerRef, popoverRef, pos } = useAnchoredPopover();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
   useEffect(() => { if (!open) setQuery(""); }, [open]);
 
   // Always offer TBD as the first option so the planner can revert
@@ -99,8 +87,9 @@ export function TbdColorCell({
   // Trigger: shows current color + (NEW) badge or (TBD) hint.
   const isPlaceholder = value === "TBD";
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6 }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6 }}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           if (blocked) { onBlocked?.(); return; }
@@ -137,18 +126,20 @@ export function TbdColorCell({
         )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={popoverRef}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 60,
+            position: "fixed",
+            top: pos.top,
+            bottom: pos.bottom,
+            left: pos.left,
+            zIndex: 4000,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
             minWidth: 240,
-            maxHeight: 320,
+            maxHeight: pos.maxHeight,
             overflowY: "auto",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
           }}
@@ -234,7 +225,8 @@ export function TbdColorCell({
               <strong>{queryTrim}</strong>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

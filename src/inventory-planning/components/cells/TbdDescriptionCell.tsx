@@ -2,8 +2,10 @@
 // on blur or Enter. Empty string clears the override (falls back to
 // master description). Same hover affordances as the other Tbd cells.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { S, PAL } from "../styles";
+import { useAnchoredPopover } from "./useAnchoredPopover";
 
 export function TbdDescriptionCell({
   value, isNew, knownDescriptions, masterDescriptionsLower, onSave,
@@ -23,24 +25,10 @@ export function TbdDescriptionCell({
   masterDescriptionsLower?: Set<string>;
   onSave: (description: string) => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, triggerRef, popoverRef, pos } = useAnchoredPopover();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
   // Prefill the search box with the current value when opening so
   // re-editing an existing description works inline. A blank prefill
   // looked like the description had vanished as soon as the picker
@@ -70,8 +58,9 @@ export function TbdDescriptionCell({
   }
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center", maxWidth: "100%" }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", maxWidth: "100%" }}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         title={isNew
@@ -102,18 +91,20 @@ export function TbdDescriptionCell({
         )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={popoverRef}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 60,
+            position: "fixed",
+            top: pos.top,
+            bottom: pos.bottom,
+            left: pos.left,
+            zIndex: 4000,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
             minWidth: 280,
-            maxHeight: 360,
+            maxHeight: pos.maxHeight,
             overflowY: "auto",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
           }}
@@ -237,7 +228,8 @@ export function TbdDescriptionCell({
               <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>NEW</span>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
