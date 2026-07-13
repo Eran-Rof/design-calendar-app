@@ -320,6 +320,7 @@ import r_internal_hts_codes_id from "./internal/hts-codes/[id].js";
 import r_internal_hts_codes_index from "./internal/hts-codes/index.js";
 import r_internal_hts_backfill from "./internal/hts/backfill.js";
 import r_internal_hts_suggest from "./internal/hts/suggest.js";
+import r_internal_income_statement_monthly_index from "./internal/income-statement-monthly/index.js";
 import r_internal_income_statement_index from "./internal/income-statement/index.js";
 import r_internal_insights_id from "./internal/insights/[id].js";
 import r_internal_insights_index from "./internal/insights/index.js";
@@ -1212,6 +1213,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/rfqs/:id", handler: r_vendor_rfqs_id_index },
   { pattern: "/api/b2b/orders/:id", handler: r_b2b_orders_id },
   { pattern: "/api/internal/inventory-purchased-detail", handler: r_internal_inventory_purchased_detail },
+  { pattern: "/api/internal/income-statement-monthly", handler: r_internal_income_statement_monthly_index },
   { pattern: "/api/internal/notification-preferences", handler: r_internal_notification_preferences_index },
   { pattern: "/api/cron/xoro-mirror-backfill-worker", handler: r_cron_xoro_mirror_backfill_worker },
   { pattern: "/api/cron/customer-contact-reminders", handler: r_cron_customer_contact_reminders },
