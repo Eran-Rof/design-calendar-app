@@ -295,6 +295,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // freshly-renamed SKUs that may not have data attached yet. Default
   // ON so renames / migrations don't silently disappear from the view.
   const [showZeroRows, setShowZeroRows] = usePersistedBool("showZeroRows", true);
+  // Trailing-history window shown in the Hist-T column: 3 / 6 / 9 / 12 months.
+  // Persisted; the value is remapped onto historical_trailing_qty below so the
+  // cell, sort and column totals all follow the selection instantly.
+  const [trailingWindow, setTrailingWindow] = useState<number>(() => {
+    try { const v = Number(localStorage.getItem("ws_planning_trailing_window")); return [3, 6, 9, 12].includes(v) ? v : 3; } catch { return 3; }
+  });
+  useEffect(() => { try { localStorage.setItem("ws_planning_trailing_window", String(trailingWindow)); } catch { /* ignore */ } }, [trailingWindow]);
   // EXPLODE PPK toggle. When ON (default), supply-side qtys for
   // prepack rows are multiplied by units-per-pack (e.g. 5 packs of
   // PPK24 → 120 units) so the grid reads in selling units. When
@@ -738,6 +745,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Step 1: filter + mute (post-user-filters, post-system-suggestions toggle,
   // pre-aggregate, pre-roll). This is the canonical "rows in scope" set
   // used by per-row math, totals, and MonthlyTotalsCards.
+  // Remap historical_trailing_qty to the selected trailing window (T3/6/9/12)
+  // once, up front — every downstream consumer (filter, sort, cell, column
+  // totals) reads historical_trailing_qty, so this single swap makes them all
+  // reflect the toggle without touching the cell/sort/aggregate code.
+  const windowedRows = useMemo(() => {
+    if (trailingWindow === 3) return rows;
+    return rows.map((r) => (
+      r.historical_trailing_windows
+        ? { ...r, historical_trailing_qty: r.historical_trailing_windows[trailingWindow] ?? r.historical_trailing_qty }
+        : r
+    ));
+  }, [rows, trailingWindow]);
+
   const mutedRows = useMemo(() => {
     const q = deferredSearch.trim().toUpperCase();
     // Pre-compute Sets for O(1) membership checks. Without this, 30k
@@ -753,7 +773,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     const setAction = filterAction.length > 0 ? new Set(filterAction) : null;
     const setConfidence = filterConfidence.length > 0 ? new Set(filterConfidence) : null;
     const setMethod = filterMethod.length > 0 ? new Set(filterMethod) : null;
-    const base = rows.filter((r) => {
+    const base = windowedRows.filter((r) => {
       if (setCustomer && !setCustomer.has(r.customer_id)) return false;
       if (setCategory && !setCategory.has(r.group_name ?? "—")) return false;
       if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) return false;
@@ -852,7 +872,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [rows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
+  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -2200,6 +2220,27 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
+        {/* Hist-T window selector — sets how many trailing months the Hist T
+            column sums (through each row's same period last year). */}
+        <div
+          title="Hist column: trailing 3 / 6 / 9 / 12 months, each ending at the row's same period last year"
+          style={{ display: "inline-flex", alignItems: "center", gap: 2, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "2px 3px", background: PAL.panel }}
+        >
+          <span style={{ color: PAL.textDim, fontSize: 11, padding: "0 4px" }}>Hist</span>
+          {[3, 6, 9, 12].map((w) => (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setTrailingWindow(w)}
+              style={{
+                background: trailingWindow === w ? PAL.accent : "transparent",
+                color: trailingWindow === w ? "#fff" : PAL.textDim,
+                border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11,
+                cursor: "pointer", fontFamily: "inherit", fontWeight: trailingWindow === w ? 700 : 400,
+              }}
+            >T{w}</button>
+          ))}
+        </div>
         {/* Freeze through column. Pins the chosen column + everything
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
@@ -2644,7 +2685,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th widths={dynamicColWidths} label="Period"      k="period"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortStack={sortStack} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
-              <Th widths={dynamicColWidths} label="Hist T3"     k="histT3"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
+              <Th widths={dynamicColWidths} label={`Hist T${trailingWindow}`} k="histT3" sortStack={sortStack} onSort={toggleSort} numeric title={`Trailing ${trailingWindow} months through this row's same period last year — change the window in the T3/T6/T9/T12 selector above the grid`} hidden={hiddenColumns.has("histT3")} />
               <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortStack={sortStack} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
               <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortStack={sortStack} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
               <Th widths={dynamicColWidths} label="System"      k="system"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
