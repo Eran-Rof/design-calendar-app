@@ -24,14 +24,20 @@ import DocumentAttachmentList from "../../shared/documents/DocumentAttachmentLis
 import RowHistory from "./RowHistory";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
 import { drillToModule, type DrillModuleKey } from "../scorecardDrill";
+import SourceDocumentModal, { type SourceDocOpen } from "./SourceDocumentModal";
 
 // A source document reachable from this JE (invoice / bill / receipt / …).
+// AR/AP docs also carry id + docType + party so they open in place (the
+// QuickBooks-style document viewer) rather than only navigating to a list.
 type SourceDocRef = {
   kind: string;
   number: string | null;
   module: DrillModuleKey | string | null;
   q: string | null;
   leg?: string | null;
+  id?: string | null;
+  docType?: "ar" | "ap" | null;
+  party?: string | null;
 };
 type SourceDocResult = {
   label: string;
@@ -190,6 +196,18 @@ export default function JEDetailModal({
   const [srcDoc, setSrcDoc] = useState<SourceDocResult | null>(null);
   // When a multi-doc JE is expanded, the picker list is shown inline.
   const [showDocPicker, setShowDocPicker] = useState(false);
+  // QuickBooks-style: the actual invoice/bill opened IN PLACE (over this modal).
+  const [docOpen, setDocOpen] = useState<SourceDocOpen | null>(null);
+
+  // Open an AR/AP document in the in-place viewer when we have its id; otherwise
+  // fall back to navigating the owning list module (receipts, adjustments, …).
+  function openSourceDoc(d: SourceDocRef) {
+    if (d.id && (d.docType === "ar" || d.docType === "ap")) {
+      setDocOpen({ docType: d.docType, id: d.id, number: d.number, party: d.party, module: d.module as string | null });
+      return;
+    }
+    if (d.module && d.q) { onClose(); drillToModule(d.module as DrillModuleKey, { q: d.q }); }
+  }
 
   useEffect(() => { setJumpId(null); }, [je.id]);
 
@@ -269,6 +287,7 @@ export default function JEDetailModal({
   const seedStatus = je.status || "posted";
 
   return (
+    <>
     <div
       onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1100, paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}
@@ -330,8 +349,8 @@ export default function JEDetailModal({
                                 key={`${d.module}-${d.number}-${i}`}
                                 type="button"
                                 disabled={!d.module || !d.q}
-                                onClick={() => { onClose(); if (d.module && d.q) drillToModule(d.module as DrillModuleKey, { q: d.q }); }}
-                                title={d.module && d.q ? "Open this document" : "No panel for this document"}
+                                onClick={() => openSourceDoc(d)}
+                                title={d.id && (d.docType === "ar" || d.docType === "ap") ? "Open this document" : d.module && d.q ? "Open in the owning module" : "No panel for this document"}
                                 style={{
                                   display: "flex", justifyContent: "space-between", gap: 10, width: "100%",
                                   background: "transparent", border: "none", borderBottom: `1px solid ${C.cardBdr}`,
@@ -341,7 +360,7 @@ export default function JEDetailModal({
                                 onMouseEnter={(e) => { if (d.module && d.q) e.currentTarget.style.background = "#162033"; }}
                                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                               >
-                                <span>{d.kind}{d.number ? ` ${d.number}` : ""}</span>
+                                <span>{d.kind}{d.number ? ` ${d.number}` : ""}{d.party ? ` · ${d.party}` : ""}</span>
                                 <span style={{ color: C.textMuted }}>{d.leg === "cash" ? "payment" : d.leg === "accrual" ? "accrual" : ""} ↗</span>
                               </button>
                             ))}
@@ -355,15 +374,17 @@ export default function JEDetailModal({
                       </div>
                     );
                   }
-                  // Exactly one document — a direct link.
+                  // Exactly one document — a direct link. AR/AP open the actual
+                  // invoice/bill IN PLACE; anything else navigates its module.
                   if (srcDoc && srcDoc.module && srcDoc.q) {
+                    const only = docs[0];
                     return (
                       <button
                         type="button"
-                        onClick={() => { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); }}
+                        onClick={() => { if (only) openSourceDoc(only); else { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); } }}
                         title="Open the document this entry was posted from"
                         style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>
-                        {srcDoc.label} ↗
+                        {srcDoc.label}{only?.party ? ` · ${only.party}` : ""} ↗
                       </button>
                     );
                   }
@@ -514,5 +535,9 @@ export default function JEDetailModal({
         </div>
       </div>
     </div>
+
+    {/* QuickBooks-style: the actual invoice/bill, opened in place over the JE. */}
+    {docOpen && <SourceDocumentModal doc={docOpen} onClose={() => setDocOpen(null)} />}
+    </>
   );
 }

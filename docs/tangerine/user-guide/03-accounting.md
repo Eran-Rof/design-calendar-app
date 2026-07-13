@@ -611,6 +611,18 @@ A single GL-detail line shows only *this account's* side of a posting. To see th
 - **Editing a posted entry is by reversal, not in-place edits** (this keeps the books audit-safe). If the entry is **posted** and not already reversed, a **Reverse** button appears: it creates the offsetting reversal (you may supply a posting date, or leave blank for today), and the GL detail behind it refreshes automatically. Draft entries surface their draft status. This is the same JE detail/reverse view used in the **Journal Entries** module — opening it here just pre-loads the entry behind the line you clicked.
 - Close the JE modal with **Close** / **Esc** / clicking outside to return to the GL Detail list.
 
+### Drill from a journal entry to the actual invoice or bill (QuickBooks-style)
+
+The Journal entry detail modal has a **Source document** row. For an entry that came from an AR invoice or an AP bill, clicking it now **opens the actual document in place** — the way double-clicking a number in a QuickBooks Desktop report opens the transaction:
+
+- A read-only **Invoice** (or **Bill**) opens on top of the journal entry, showing the **customer / vendor**, invoice & due dates, status, and the **line items** — each resolved to its **SKU** (style · color · size), quantity, unit price, and amount — with subtotal / tax / total (and paid / balance for an invoice). No hunting through a list.
+- If the entry settles **many** documents (e.g. a single payment across dozens of invoices), the Source document row expands to a **picker** listing each one (with its customer/vendor); pick any to open it.
+- Entries with no single source document (payroll, adjustments, the monthly channel-reclass entries, manufacturing mirror JEs) show a plain label instead of a dead link — the journal entry itself is the detail.
+- Need the full editable panel? The document viewer keeps an **Open in AR / AP module ↗** button that jumps to the invoice/bill in its own module.
+- Close the document with **Close** / **Esc** / clicking outside to return to the journal entry.
+
+So the full path is now one continuous drill: **Income Statement account → GL detail line → journal entry → the actual invoice/bill with its SKU lines** — never leaving the report.
+
 ### Which date range each report passes through
 
 | Report | Range passed to the GL detail |
@@ -829,7 +841,7 @@ QuickBooks-style descent, now wired end to end:
 2. **Activity line → journal entry.** Both the GL-detail modal *and* the standalone GL Detail panel now open the entry: click the JE number (or double-click the row).
 3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it.
    - Because the GL is now a **1:1 Xoro mirror**, most entries carry the Xoro transaction (not the invoice) as their own source. The resolver handles this by running the **reverse lookup** — it finds the AR invoice(s)/AP bill(s) whose `accrual_je_id` or `cash_je_id` points *at* this entry — so a revenue account still drills to the customer invoice and an expense/AP account still drills to the vendor bill.
-   - **One document** → a direct link (opens the AR/AP invoice list filtered to that invoice number). **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`); expand it and click any invoice/bill to open it. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
+   - **One document** → a direct link that **opens the actual invoice/bill in place** — a read-only document with the customer/vendor, dates, status, and SKU line items (see [Drill from a journal entry to the actual invoice or bill](#drill-from-a-journal-entry-to-the-actual-invoice-or-bill-quickbooks-style)); an **Open in AR/AP module ↗** button remains for the full editable panel. **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`) with each counterparty; expand it and click any invoice/bill to open it in place. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
    - **No document** (payroll, adjustment, or manufacturing mirror entries) → the row reads **"GL journal entry (no source document)"**; the entry detail itself (Xoro txn ref + memo + all lines) is the drill target, so the walk never dead-ends.
 4. **Related entries.** Sibling (cash-basis twin), "reverses", and "reversed by" numbers in the entry modal are links — the modal re-loads in place, so an audit walk never dead-ends.
 5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
