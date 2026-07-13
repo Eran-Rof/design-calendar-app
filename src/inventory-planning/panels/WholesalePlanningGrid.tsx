@@ -24,7 +24,7 @@ import { TbdCustomerCell } from "../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../components/cells/TbdColorCell";
 import { usePersistedString, usePersistedStringArray, usePersistedBool } from "../hooks/usePersistedFilter";
 import { aggregateRows } from "./aggregateGridRows";
-import type { SortKey } from "./wholesale-planning/types";
+import type { SortKey, SortEntry } from "./wholesale-planning/types";
 import { COLLAPSE_OPTIONS, NO_COLLAPSE } from "./wholesale-planning/constants";
 import {
   collapseToKeys,
@@ -32,7 +32,7 @@ import {
   distributeAcrossChildren,
   cmpStr,
   cmpNum,
-  cmp,
+  cmpMulti,
 } from "./wholesale-planning/gridUtils";
 import { Th } from "./wholesale-planning/Th";
 import {
@@ -230,6 +230,10 @@ export interface WholesalePlanningGridProps {
 // import block above. Pure-helper unit tests live alongside in
 // wholesale-planning/__tests__/gridUtils.test.ts.
 
+// localStorage key for the persisted multi-column sort stack (same
+// ws_planning_* convention as the hidden-columns preference).
+const SORT_STORAGE_KEY = "ws_planning_sort_stack";
+
 export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
@@ -256,8 +260,31 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // through Buyer / Override edits.
   const setSystemSuggestionsOnPersistent = onSystemSuggestionsChange;
   const [filterMethod, setFilterMethod] = usePersistedStringArray("method");
-  const [sortKey, setSortKey] = useState<SortKey>("period");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  // Multi-column sort stack — index 0 is the parent (primary) sort, later
+  // entries are children (tie-breakers). Plain header click = single-column
+  // sort; Shift+click adds/toggles a child. Defaults to a single Period sort
+  // (the prior behaviour) so the initial view is unchanged. Persisted to
+  // localStorage (like the hidden-columns preference) so a planner's sort
+  // survives a reload. Bad/stale entries are filtered on read.
+  const [sortStack, setSortStack] = useState<SortEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(SORT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(
+            (e): e is SortEntry => e && typeof e.key === "string" && (e.dir === "asc" || e.dir === "desc"),
+          );
+          if (clean.length > 0) return clean;
+        }
+      }
+    } catch { /* ignore malformed storage */ }
+    return [{ key: "period", dir: "asc" }];
+  });
+  const sortSig = sortStack.map((s) => `${s.key}:${s.dir}`).join(",");
+  useEffect(() => {
+    try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sortStack)); } catch { /* ignore */ }
+  }, [sortSig]); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterPeriod, setFilterPeriod] = usePersistedStringArray("period");
   const [filterStyle, setFilterStyle] = usePersistedStringArray("style");
   const [filterColor, setFilterColor] = usePersistedStringArray("color");
@@ -410,7 +437,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortKey, sortDir, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortSig, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -1306,7 +1333,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           if (aKey !== bKey) return aKey.localeCompare(bKey);
           return a.period_start.localeCompare(b.period_start);
         })
-      : [...collapsed].sort((a, b) => cmp(a, b, sortKey, sortDir));
+      : [...collapsed].sort((a, b) => cmpMulti(a, b, sortStack));
     // Top-down rolling pool: per-row ATS = on_hand − on_so + receipts +
     // buy; the next row inherits this row's ATS as its on_hand. Receipts
     // and buy contribute once per (sku, period) so multi-customer rows
@@ -1391,7 +1418,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         action_reason: liveRec.action_reason,
       };
     });
-  }, [mutedRows, mutedById, skuPeriodMath, sortKey, sortDir, collapse, anyCollapsed]);
+  }, [mutedRows, mutedById, skuPeriodMath, sortSig, collapse, anyCollapsed]);
 
   // Interleave expanded aggregate children below their parent row. The
   // parent retains its rolled values (computed in `filtered`); children
@@ -1469,7 +1496,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           const c = mutedById.get(fid);
           if (c) childRows.push(c);
         }
-        childRows.sort((a, b) => cmp(a, b, sortKey, sortDir));
+        childRows.sort((a, b) => cmpMulti(a, b, sortStack));
         if (pinnedChildFid) {
           const pinnedIdx = childRows.findIndex((c) => c.forecast_id === pinnedChildFid);
           if (pinnedIdx > 0) {
@@ -1578,7 +1605,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       }
     }
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, deferredSearch, sortKey, sortDir]);
+  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, deferredSearch, sortSig]);
 
   // computeTotals moved to ./wholesale-planning/computeTotals (tested).
   const totals = useMemo(() => computeTotals(mutedRows, skuPeriodMath), [mutedRows, skuPeriodMath]);
@@ -1594,9 +1621,33 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Per-column width compute moved to useDynamicColWidths.
   const dynamicColWidths = useDynamicColWidths(displayRows);
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("asc"); }
+  // Header click handler.
+  //   Plain click  → single-column sort by `key`; a repeat plain-click on the
+  //                  same lone key flips asc↔desc.
+  //   Shift+click  → add `key` as a child sort (keeps existing columns as
+  //                  parents); if already in the stack, cycle asc → desc →
+  //                  remove. This is how the planner builds "Customer, then
+  //                  Period within customer, then …".
+  function toggleSort(key: SortKey, additive: boolean) {
+    setSortStack((prev) => {
+      const idx = prev.findIndex((s) => s.key === key);
+      if (!additive) {
+        if (prev.length === 1 && idx === 0) {
+          return [{ key, dir: prev[0].dir === "asc" ? "desc" : "asc" }];
+        }
+        return [{ key, dir: "asc" }];
+      }
+      if (idx === -1) return [...prev, { key, dir: "asc" }];
+      if (prev[idx].dir === "asc") {
+        const next = prev.slice();
+        next[idx] = { key, dir: "desc" };
+        return next;
+      }
+      // desc → drop this level (but never leave the stack empty — fall back to
+      // a single Period sort so the grid always has a deterministic order).
+      const dropped = prev.filter((s) => s.key !== key);
+      return dropped.length > 0 ? dropped : [{ key: "period", dir: "asc" }];
+    });
   }
 
   // Open the ATS-style right-click context menu for an On Hand,
@@ -2558,36 +2609,36 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         <table style={{ ...S.table, tableLayout: "fixed" as const }}>
           <thead>
             <tr className="planning-grid-row">
-              <Th widths={dynamicColWidths} label="Category"    k="category"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
-              <Th widths={dynamicColWidths} label="Sub Cat"     k="subCat"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
-              <Th widths={dynamicColWidths} label="Style"       k="style"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
-              <Th widths={dynamicColWidths} label="Description" k="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
-              <Th widths={dynamicColWidths} label="Color"       k="color"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
-              <Th widths={dynamicColWidths} label="Inseam"      k="inseam"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Inseam length (denim/pants) from the item master — each inseam is its own planning line" hidden={hiddenColumns.has("inseam")} />
-              <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
-              <Th widths={dynamicColWidths} label="Period"      k="period"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
-              <Th widths={dynamicColWidths} label="Class"       k="class"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
-              <Th widths={dynamicColWidths} label="Hist T3"     k="histT3"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
-              <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
-              <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
-              <Th widths={dynamicColWidths} label="System"      k="system"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
-              <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
-              <Th widths={dynamicColWidths} label="Override"    k="override"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
-              <Th widths={dynamicColWidths} label="Final"       k="final"       sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("final")} />
-              <Th widths={dynamicColWidths} label="Conf."       k="confidence"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
-              <Th widths={dynamicColWidths} label="Method"      k="method"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
-              <Th widths={dynamicColWidths} label="On hand"     k="onHand"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
-              <Th widths={dynamicColWidths} label="On SO"       k="onSo"        sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
-              <Th widths={dynamicColWidths} label="Receipts"    k="receipts"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
-              <Th widths={dynamicColWidths} label="Hist Recv"   k="histRecv"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
-              <Th widths={dynamicColWidths} label="ATS"         k="ats"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
-              <Th widths={dynamicColWidths} label="Buy"         k="buy"         sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buy")} />
-              <Th widths={dynamicColWidths} label="Avg Cost"    k="avgCost"     sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
-              <Th widths={dynamicColWidths} label="Unit Cost"   k="unitCost"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
-              <Th widths={dynamicColWidths} label="Buy $"       k="buyDollars"  sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
-              <Th widths={dynamicColWidths} label="Short"       k="shortage"    sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
-              <Th widths={dynamicColWidths} label="Excess"      k="excess"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
-              <Th widths={dynamicColWidths} label="Action"      k="action"      sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} hidden={hiddenColumns.has("action")} />
+              <Th widths={dynamicColWidths} label="Category"    k="category"    sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("category")} />
+              <Th widths={dynamicColWidths} label="Sub Cat"     k="subCat"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("subCat")} />
+              <Th widths={dynamicColWidths} label="Style"       k="style"       sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("style")} />
+              <Th widths={dynamicColWidths} label="Description" k="description" sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("description")} />
+              <Th widths={dynamicColWidths} label="Color"       k="color"       sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("color")} />
+              <Th widths={dynamicColWidths} label="Inseam"      k="inseam"      sortStack={sortStack} onSort={toggleSort} title="Inseam length (denim/pants) from the item master — each inseam is its own planning line" hidden={hiddenColumns.has("inseam")} />
+              <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
+              <Th widths={dynamicColWidths} label="Period"      k="period"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
+              <Th widths={dynamicColWidths} label="Class"       k="class"       sortStack={sortStack} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
+              <Th widths={dynamicColWidths} label="Hist T3"     k="histT3"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("histT3")} />
+              <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortStack={sortStack} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
+              <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortStack={sortStack} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
+              <Th widths={dynamicColWidths} label="System"      k="system"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
+              <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
+              <Th widths={dynamicColWidths} label="Override"    k="override"    sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
+              <Th widths={dynamicColWidths} label="Final"       k="final"       sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("final")} />
+              <Th widths={dynamicColWidths} label="Conf."       k="confidence"  sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
+              <Th widths={dynamicColWidths} label="Method"      k="method"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
+              <Th widths={dynamicColWidths} label="On hand"     k="onHand"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
+              <Th widths={dynamicColWidths} label="On SO"       k="onSo"        sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
+              <Th widths={dynamicColWidths} label="Receipts"    k="receipts"    sortStack={sortStack} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
+              <Th widths={dynamicColWidths} label="Hist Recv"   k="histRecv"    sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
+              <Th widths={dynamicColWidths} label="ATS"         k="ats"         sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
+              <Th widths={dynamicColWidths} label="Buy"         k="buy"         sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buy")} />
+              <Th widths={dynamicColWidths} label="Avg Cost"    k="avgCost"     sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
+              <Th widths={dynamicColWidths} label="Unit Cost"   k="unitCost"    sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
+              <Th widths={dynamicColWidths} label="Buy $"       k="buyDollars"  sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
+              <Th widths={dynamicColWidths} label="Short"       k="shortage"    sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
+              <Th widths={dynamicColWidths} label="Excess"      k="excess"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
+              <Th widths={dynamicColWidths} label="Action"      k="action"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("action")} />
             </tr>
           </thead>
           <tbody>
