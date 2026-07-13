@@ -225,6 +225,35 @@ export default function PlanningRunControls({
     }
   }
 
+  // Clear a run's BUILD without deleting the run. Wipes every row the build
+  // produced (forecast / recommendations / TBD stock-buys / bucket buys / the
+  // override audit log incl. Buyer/Override/Buy/Unit Cost edits) but keeps the
+  // run itself — its name, horizon and snapshot — so the planner can rebuild
+  // from a clean slate. Same wipe the "Wipe + rebuild" path uses, minus the
+  // rebuild. Guarded by a confirm because planner edits are lost.
+  async function clearBuild() {
+    if (!selected) return;
+    if (building) { onToast({ text: "A build is in progress — wait for it to finish first.", kind: "info" }); return; }
+    const ok = await confirmDialog(
+      `Clear the forecast build for "${selected.name}"?\n\n` +
+      `This permanently deletes ALL of this run's build data — forecast rows, recommendations, ` +
+      `TBD stock-buy rows, bucket buys, and your Buyer / Override / Buy / Unit Cost edits — but ` +
+      `KEEPS the run itself (name, horizon, snapshot). You can rebuild it afterwards. It cannot be undone.`,
+      { title: "Clear build", confirmText: "Clear build" },
+    );
+    if (!ok) return;
+    try {
+      const wiped = await wholesaleRepo.wipePlanningRunData(selected.id);
+      onToast({
+        text: `Cleared build — removed ${wiped.forecast.toLocaleString()} forecast · ${wiped.recs.toLocaleString()} recs · ${wiped.tbd.toLocaleString()} TBD · ${wiped.buckets.toLocaleString()} bucket buys · ${wiped.overrides.toLocaleString()} overrides. The run is kept — rebuild when ready.`,
+        kind: "info",
+      });
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Clear build failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
+
   // Load the saved-build list once on mount and again after any
   // mutation (save / fork / delete). Filtered to scenario_type
   // 'saved_build' so what-if/promo scenarios stay on their own page.
@@ -370,6 +399,10 @@ export default function PlanningRunControls({
           <button style={S.btnSecondary} onClick={() => setShowEdit(true)}
                   title="Edit this run's name and horizon dates — rebuild afterwards to apply new dates">Edit run</button>
         )}
+        {selected && hasExistingBuild && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
+          <button style={{ ...S.btnSecondary, color: PAL.yellow, borderColor: PAL.yellow }} onClick={clearBuild}
+                  title="Clear this run's forecast/recommendations/edits but KEEP the run (name + horizon) so you can rebuild from scratch">Clear build</button>
+        )}
         {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
           <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
                   title="Permanently delete this planning run and all its data">Delete run</button>
@@ -383,11 +416,11 @@ export default function PlanningRunControls({
                 disabled={building}
                 title={filterActive
                   ? `Build only the rows matching the current grid filters: ${[
-                      buildFilter?.customer_id ? "customer" : null,
+                      buildFilter?.customer_ids?.length ? `${buildFilter.customer_ids.length} customers` : buildFilter?.customer_id ? "customer" : null,
                       buildFilter?.style_codes?.length ? `${buildFilter.style_codes.length} styles` : buildFilter?.style_code ? `style=${buildFilter.style_code}` : null,
-                      buildFilter?.group_name ? `category=${buildFilter.group_name}` : null,
-                      buildFilter?.sub_category_name ? `sub-cat=${buildFilter.sub_category_name}` : null,
-                      buildFilter?.gender ? `gender=${buildFilter.gender}` : null,
+                      buildFilter?.group_names?.length ? `${buildFilter.group_names.length} categories` : buildFilter?.group_name ? `category=${buildFilter.group_name}` : null,
+                      buildFilter?.sub_category_names?.length ? `${buildFilter.sub_category_names.length} sub-cats` : buildFilter?.sub_category_name ? `sub-cat=${buildFilter.sub_category_name}` : null,
+                      buildFilter?.genders?.length ? `${buildFilter.genders.length} genders` : buildFilter?.gender ? `gender=${buildFilter.gender}` : null,
                       buildFilter?.period_code ? `period=${buildFilter.period_code}` : null,
                       // Action / confidence / method are output dims —
                       // surfaced here so the planner sees they're scoped

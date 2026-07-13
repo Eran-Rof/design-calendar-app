@@ -192,11 +192,15 @@ export interface WholesalePlanningGridProps {
   // hint (they're outputs of the build, not inputs).
   onFiltersChange?: (filters: {
     customer_id: string | null;
+    customer_ids: string[] | null;
     style_code: string | null;
     style_codes: string[] | null;
     group_name: string | null;
+    group_names: string[] | null;
     sub_category_name: string | null;
+    sub_category_names: string[] | null;
     gender: string | null;
+    genders: string[] | null;
     period_code: string | null;
     period_codes: string[] | null;
     recommended_action: string | null;
@@ -421,15 +425,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       // multiple periods to build, and the build pass honors the
       // entire array. period_code stays as the first selection too
       // for legacy callsites that only check the single value.
+      // Every INPUT dimension is passed as its FULL array so a filtered build
+      // honors the grid's entire selection (not just the first of each). The
+      // single-value fields stay for legacy callers. period_codes already did
+      // this; the rest now match.
       customer_id: filterCustomer[0] ?? null,
+      customer_ids: filterCustomer.length > 0 ? filterCustomer : null,
       style_code: filterStyle[0] ?? null,
-      // Full style array so a filtered BUILD honors every selected style,
-      // not just the first (mirrors period_codes). The grid's display filter
-      // already scopes to all selected styles.
       style_codes: filterStyle.length > 0 ? filterStyle : null,
       group_name: filterCategory[0] ?? null,
+      group_names: filterCategory.length > 0 ? filterCategory : null,
       sub_category_name: filterSubCat[0] ?? null,
+      sub_category_names: filterSubCat.length > 0 ? filterSubCat : null,
       gender: filterGender[0] ?? null,
+      genders: filterGender.length > 0 ? filterGender : null,
       period_code: filterPeriod[0] ?? null,
       period_codes: filterPeriod.length > 0 ? filterPeriod : null,
       recommended_action: filterAction[0] ?? null,
