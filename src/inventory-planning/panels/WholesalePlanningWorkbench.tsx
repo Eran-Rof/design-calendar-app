@@ -1011,10 +1011,15 @@ export default function WholesalePlanningWorkbench() {
         },
       ]);
       // Fire all inserts in parallel; stamp tbd_id + reconcile drift
-      // (planner edits during flight) when each settles.
+      // (planner edits during flight) when each settles. Collect the promises
+      // so the rebuild below can wait for EVERY insert to commit before it
+      // re-reads the DB — otherwise buildGridRows races the in-flight inserts,
+      // reads a partial set, and setRows clobbers the optimistic rows (e.g.
+      // "9 created, only 4 shown" when the rebuild fired after 4 committed).
+      const insertPromises: Array<Promise<void>> = [];
       for (const c of combos) {
         const synthFid = synthFidFor(c.customer_id, c.period.period_code);
-        void wholesaleRepo.insertTbdRow(selectedRun.id, {
+        insertPromises.push(wholesaleRepo.insertTbdRow(selectedRun.id, {
           style_code: args.style_code,
           color: args.color,
           is_new_color: args.is_new_color,
@@ -1058,7 +1063,7 @@ export default function WholesalePlanningWorkbench() {
             // Drop the optimistic row so the planner sees the failure
             // (instead of a phantom row that will never persist).
             setRows((prev) => prev.filter((row) => row.forecast_id !== synthFid));
-          });
+          }));
       }
       // Warn when the current grid filters don't match the new row's
       // dimensions — it'd otherwise vanish from the visible set and
@@ -1094,6 +1099,12 @@ export default function WholesalePlanningWorkbench() {
       const seq = ++rebuildSeq.current;
       void (async () => {
         try {
+          // Wait for EVERY insert to commit before re-reading, or buildGridRows
+          // reads a partial set and setRows drops the just-added rows that
+          // haven't landed yet. allSettled: a single failed insert already
+          // dropped its own optimistic row above and shouldn't block the rest.
+          await Promise.allSettled(insertPromises);
+          if (seq !== rebuildSeq.current) return;
           const refreshed = await buildGridRows(selectedRun);
           if (seq !== rebuildSeq.current) return;
           setRows(refreshed);
