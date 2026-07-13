@@ -34,7 +34,22 @@ All steps are idempotent / resumable.
   `accrual_je_id` to the mirror JE by document number (`invoice_number` = Xoro
   `ref_number`). AR 27,510 / AP 3,574 linked. Unmatched + amount-recon exported
   to `docs/tangerine/gl-rebuild-*.csv`. `cash_je_id` is NOT matchable by
-  doc-number (Xoro payment txns carry their own payment refs), left null.
+  doc-number (Xoro payment txns carry their own payment refs) — done in Stage 4.
+- **Stage 4** `stage4_cash_relink.sql` — re-link `ar_invoices` / `invoices`
+  **`cash_je_id`** to the paying mirror JE. Key: Xoro payment legs name the
+  document in their **memo** — *Invoice Payment* → `Invoice Ref # <invoice_number>`,
+  *Bill Payment* → `…Bill# <invoice_number> Amount Paid …`; the paying JE is the
+  mirror JE whose `source_id` = the payment `txn_id`. Deterministic
+  single-payment matches only (paid across >1 txn → left null; a single FK can't
+  hold several payment JEs). Result: **AR 8,755 / AP 3,186** cash-linked. FK-only
+  on the subledger; no GL change. Idempotent.
+
+## Audit / provenance
+- Migration `20260983000000_gl_rebuild_audit_record.sql` writes the durable
+  approved-event record to `audit_logs` (`entity_type='gl_rebuild'`): one row for
+  the bulk mirror load, one for the Stage-4 cash re-link. Per-JE provenance is
+  `source_id`=Xoro `TxnId` (triggers were disabled for the bulk load, so there
+  are no per-JE T11 rows). Full controller record: `docs/tangerine/gl-rebuild-provenance.md`.
 
 ## Rollback
 Restore `journal_entries` / `journal_entry_lines` from `je_backup_20260713` /
