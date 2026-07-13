@@ -126,3 +126,59 @@ in lieu of 99,160 individual audit rows.
 5. **Known residual.** A 2025 subledger line-total defect means some invoice
    detail line totals disagree with the (authoritative) mirror GL amount — the
    detail row is the one to true up (`docs/tangerine/gl-rebuild-amount-recon.csv`).
+
+---
+
+## 6. Intentional divergences from the pure Xoro mirror
+
+The mirror is a faithful 1:1 copy of Xoro's GL. Where ROF's chart is more
+granular than Xoro's and the correct split is *deterministically recoverable*
+from the mirrored data, we layer a visible, reversible correction on top of the
+mirror rather than mutating it. Each such divergence is **revenue-/expense-
+group-internal and net-zero**, so the Trial Balance, Net Income, and any
+period total (incl. Net Sales) are UNCHANGED — only the account-level split
+differs from Xoro's lump. These are the only places Tangerine's GL intentionally
+disagrees with Xoro account-by-account.
+
+### 6.1 ROF Ecom revenue: 4005 → 4011  (#1725, 2026-07-13, CEO-directed)
+
+**CEO:** *"sales revenue ecom should be on the sales revenue ecom account not
+the rof brands income account."*
+
+Xoro posts both ROF **wholesale** and ROF **ecom** sales into one account,
+"Sales Revenue ROF Brands" → ROF **4005**; Xoro's website-revenue account is $0,
+so ROF **4011 "Sales Revenue - ROF Ecom"** was empty. The channel is recovered
+from the **invoice-number prefix** embedded in every mirror JE description
+(`Xoro GL mirror - Invoice ROF ECOM-I##### (date)`): `ROF ECOM-I…` = ROF ecom,
+`ROF-I…` = ROF wholesale. (`ar_invoices.channel_id` is **NOT** usable — 100% of
+mirrored invoices default to "Wholesale / EDI", incl. all 13,379 ecom invoices;
+the invoice prefix is the authoritative signal.)
+
+- **Migration:** `20260985000000_channel_revenue_reclass_ecom.sql`.
+- **Mechanism:** `channel_reclass` JEs via `gl_post_journal_entry()` (T11-audited
+  posting path — sets `app.audit_reason`, fires all guard triggers). Chosen over
+  mutating the mirror lines so pure Xoro provenance is preserved and the
+  correction is visible/reversible.
+- **Postings:** one balanced JE per calendar month with ROF-ecom revenue on 4005
+  — `DR 4005 / CR 4011` for the month's net ecom credit. **23 JEs**, Sep-2024 →
+  Jul-2026, dated to the **max ecom posting_date** in each month (a real Xoro
+  txn date in-period; never today).
+- **Total moved:** **$620,441.47** (4005 → 4011). Idempotent (guarded on
+  `source_table='channel_reclass'`, `source_id='channel_reclass:rof_ecom:4005->4011:YYYY-MM'`);
+  amount recomputed live from the original mirror lines, so apply-now +
+  apply-on-merge is a safe no-op after the first.
+- **Invariance proof (May-2026):** revenue-account net = **$3,136,128.01** and
+  revenue-less-contra = **$3,127,848.14** are **unchanged**; 4005 fell exactly
+  **$18,619.35** (→ $2,225,093.92) and 4011 rose exactly **$18,619.35**
+  (→ $18,619.35). Global DR−CR imbalance = **$0.00**. The IS panel's **Net Sales
+  = revenue 4000–4899 − contra_revenue = $3,127,848.14 − $2,566.02 =
+  $3,125,282.12 — UNCHANGED** (both 4005 and 4011 sit in the 4000–4899 Net Sales
+  band, so moving between them cannot change the total; the only Net-Sales input
+  that changed is the 4005-vs-4011 split).
+- **NOT reclassed (flagged for CEO):** COGS is commingled the same way — account
+  **5010 "Cost of Goods Sold ROF Brands"** carries **$193,033.72** of
+  ROF-ecom-prefixed COGS (26,690 lines) that mirrors this revenue split, while
+  **5014 "Cost of Goods Sold ROF Ecom"** is $0. Left untouched pending CEO
+  confirmation to keep this change revenue-only per the CEO's wording. A tiny
+  amount of PT-prefixed revenue ($1,397.70) and "PBPT" ($332.10) also sits on
+  4005; left in place (out of the ecom scope).

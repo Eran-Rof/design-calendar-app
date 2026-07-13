@@ -1,66 +1,95 @@
 // src/tanda/InternalIncomeStatement.tsx
 //
-// Tangerine P5-3 / M6 — Income Statement (P&L) admin panel.
-// Per docs/tangerine/P5-close-core-financials-architecture.md §5.
+// Tangerine P5-3 / M6 — Income Statement (P&L) panel, best-in-class.
 //
-// Reads /api/internal/income-statement?basis=ACCRUAL|CASH&from=YYYY-MM-DD&to=YYYY-MM-DD.
+// The GL is now a 1:1 mirror of Xoro (full colon-path chart: parent groups with
+// sub-accounts, contra_revenue, COGS + payroll). This panel presents that the
+// way the CEO reads a P&L:
 //
-// Layout:
-//   1. Revenue        — account_type='revenue'                              → REVENUE
-//   2. Dilution       — contra_revenue, account_subtype='dilution'          → DILUTION  (deduction)
-//   3. Returns & Disc — other contra_revenue                                → (deduction)
-//      → NET REVENUE = Revenue − Dilution − Returns
-//   4. COGS           — account_type='expense' AND code LIKE '5%'           → COGS
-//   5. Operating Exp. — account_type='expense' AND NOT code LIKE '5%'       → OPEX
+//   • PARENT GROUP HEADERS with indented sub-accounts + a group subtotal
+//     (hierarchy = gl_accounts.parent_account_id, surfaced by the RPC as
+//     parent_code / parent_name). Collapsible groups + collapsible sections.
+//   • The Xoro "Income Statement By Store" BAND structure, top to bottom:
+//        Revenue
+//        Less: Returns, Discounts & Chargebacks
+//        = NET SALES
+//        Cost of Goods Sold
+//        = GROSS PROFIT
+//        Operating Expenses
+//        = NET OPERATING INCOME
+//        Other Income & Expense
+//        = NET INCOME
+//   • % of Net Sales column for every line + subtotal (toggle).
+//   • MONTHLY COLUMNS across any date range (Jan | Feb | … | Total) — the
+//     spreadsheet P&L — plus a single-period mode.
 //
-// Subtotals:
-//   Net Revenue
-//   COGS
-//   Gross Margin   = Net Revenue − COGS    (green if positive, red if negative)
-//   OPEX
-//   Operating Income = Gross Margin − OPEX
-//   Net Income       = Operating Income     (until M22 adds depreciation)
+// Data: GET /api/internal/income-statement-monthly?basis=&from=&to= → one row
+// per (account, year, month) with parent_code/parent_name/account_id + TRUE
+// integer cents (mig 20260984000000). The panel pivots months into columns,
+// sums them for the Total column, classifies each account into a band, and
+// groups sub-accounts under their parent.
 //
-// Sections are collapsible (default open). Currency right-aligned + tabular-nums.
+// Band classification (matches the CEO's Xoro export; reconciles May-2026 to the
+// cent on Net Sales and within GL rounding on the cost bands):
+//   Revenue      revenue accounts, code 4000–4899
+//   Contra       all contra_revenue (deducted to reach Net Sales)
+//   COGS         expense 5000–5999, EXCEPT non-product operating accounts
+//                (Manufacturing Expense Clearing, price/label Tickets, Shipping
+//                Expense — name ~ clearing|ticket|shipping), which Xoro's
+//                by-store P&L treats as operating
+//   Operating    expense 6000–7999 + the excluded 5xxx operating accounts
+//   Other Income revenue accounts, code ≥ 4900 (FX, gains, misc income)
+//   Other Exp    expense accounts, code ≥ 8000 (misc / rounding)
+//
+// Preserves: ACCRUAL/CASH basis toggle, date-refetch on [basis, from, to] with
+// useSeqGuard, click-through to GL detail, ExportButton (xlsx). Dark theme.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSeqGuard } from "./hooks/useSeqGuard";
-import ExportButton from "./exports/ExportButton";
-import type { ExportColumn } from "./exports/useTableExport";
+import IncomeStatementExportButton from "./exports/IncomeStatementExportButton";
+import type { StatementModel, StmtLine } from "./exports/incomeStatementExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
-import SearchableSelect from "./components/SearchableSelect";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
-type ISRow = {
-  entity_id: string;
-  basis: string;
+// ── Raw row from the monthly RPC ─────────────────────────────────────────────
+type MRow = {
+  year: number;
+  month: number;
+  account_id: string | null;
   account_type: "revenue" | "contra_revenue" | "expense" | string;
-  account_id?: string | null;
+  account_subtype: string | null;
   code: string;
   name: string;
+  parent_code: string | null;
+  parent_name: string | null;
   amount_cents: number | string;
-  // M50 D — brand metadata (optional; present once brands are configured).
-  brand_id?: string | null;
-  brand_code?: string | null;
-  brand_name?: string | null;
-  parent_code?: string | null;
-  brand_rollup?: boolean;
-  is_brand_child?: boolean;
 };
 
-type Brand = { id: string; code: string; name: string; is_default?: boolean };
+type BandId = "revenue" | "contra" | "cogs" | "opex" | "other_inc" | "other_exp";
 
-// A rendered line in a section: either a standalone account, or a brand-rollup
-// group (parent header → indented brand-child rows → subtotal).
-type DisplayItem =
-  | { kind: "row"; row: ISRow }
-  | { kind: "group"; parentCode: string; parentName: string; children: ISRow[]; subtotal: number };
+type Acct = {
+  code: string;
+  name: string;
+  accountId: string | null;
+  accountType: string;
+  parentCode: string | null;
+  parentName: string | null;
+  band: BandId;
+  byMonth: Record<string, number>; // monthKey → cents
+  total: number;
+};
+
+type MonthCol = { y: number; m: number; key: string; label: string };
+type Totalset = { byMonth: Record<string, number>; total: number };
 
 const C = {
-  bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
+  card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
+  band: "#0b1220",
 };
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const btnSecondary: React.CSSProperties = {
   background: C.card, color: C.textSub, border: `1px solid ${C.cardBdr}`,
@@ -68,21 +97,15 @@ const btnSecondary: React.CSSProperties = {
 };
 const inputStyle: React.CSSProperties = {
   background: "#0b1220", color: C.text, border: `1px solid ${C.cardBdr}`,
-  padding: "6px 10px", borderRadius: 4, fontSize: 13, width: "100%",
+  padding: "6px 10px", borderRadius: 4, fontSize: 13,
 };
-const th: React.CSSProperties = {
-  background: "#0b1220", color: C.textMuted, fontSize: 11, fontWeight: 600,
-  textAlign: "left", padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
-  textTransform: "uppercase", letterSpacing: 0.5,
-};
-const td: React.CSSProperties = {
+const thBase: React.CSSProperties = {
+  background: "#0b1220", color: C.textMuted, fontSize: 10.5, fontWeight: 600,
   padding: "8px 10px", borderBottom: `1px solid ${C.cardBdr}`,
-  color: C.text, fontSize: 13,
-};
-const tdNum: React.CSSProperties = {
-  ...td, textAlign: "right", fontVariantNumeric: "tabular-nums",
+  textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap", position: "sticky", top: 0,
 };
 
+// ── Money / percent formatting ───────────────────────────────────────────────
 function fmtCents(c: number | string | null | undefined): string {
   const n = Number(c ?? 0);
   if (!Number.isFinite(n)) return "—";
@@ -92,245 +115,125 @@ function fmtCents(c: number | string | null | undefined): string {
   const frac = abs - whole * 100;
   return `${neg ? "-" : ""}$${whole.toLocaleString()}.${String(frac).padStart(2, "0")}`;
 }
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+function fmtPct(v: number, base: number): string {
+  if (!base) return "";
+  return `${((v / base) * 100).toFixed(1)}%`;
 }
-function fyStartISO(): string {
-  return `${new Date().getUTCFullYear()}-01-01`;
-}
-
-// Compute net amount sign:
-//   revenue          → amount_cents (already CR-DR positive)
-//   contra_revenue   → amount_cents (already DR-CR positive, REDUCES revenue)
-//   expense          → amount_cents (already DR-CR positive)
-//
-// For NET REVENUE we sum revenue rows MINUS contra_revenue rows.
-function rowAmount(r: ISRow): number {
-  return Number(r.amount_cents || 0);
+function todayISO(): string { return new Date().toISOString().slice(0, 10); }
+function fyStartISO(): string { return `${new Date().getUTCFullYear()}-01-01`; }
+// "2026-07-13" → "July 13, 2026" (TZ-safe: parse the parts, no Date drift).
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function fmtLongDate(iso: string): string {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || "";
+  return `${MONTH_FULL[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
 }
 
-function classifyRow(r: ISRow): "revenue" | "dilution" | "contra_revenue" | "cogs" | "opex" | "other" {
-  if (r.account_type === "revenue") return "revenue";
-  if (r.account_type === "contra_revenue") {
-    // Dilution accounts are contra_revenue tagged account_subtype='dilution';
-    // they get their own P&L line between Revenue and Net Revenue. Other
-    // contra_revenue (returns/discounts) stays in the contra bucket.
-    return String(r.account_subtype || "").toLowerCase() === "dilution" ? "dilution" : "contra_revenue";
+// ── Band classification (see header comment) ─────────────────────────────────
+const OPER_5XXX = /(clearing|ticket|shipping)/i;
+export function classifyBand(accountType: string, code: string, name: string): BandId {
+  if (accountType === "revenue") return code < "4900" ? "revenue" : "other_inc";
+  if (accountType === "contra_revenue") return "contra";
+  // expense
+  if (code >= "5000" && code < "6000" && !OPER_5XXX.test(name)) return "cogs";
+  if (code >= "8000") return "other_exp";
+  return "opex";
+}
+
+// ── Enumerate the inclusive list of months spanning [from, to] ────────────────
+export function monthsInRange(from: string, to: string): MonthCol[] {
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  if (!fy || !fm || !ty || !tm) return [];
+  const out: MonthCol[] = [];
+  let y = fy, m = fm;
+  while ((y < ty || (y === ty && m <= tm)) && out.length < 240) {
+    out.push({ y, m, key: `${y}-${String(m).padStart(2, "0")}`, label: `${MONTH_ABBR[m - 1]} '${String(y).slice(2)}` });
+    m++; if (m > 12) { m = 1; y++; }
   }
-  if (r.account_type === "expense") {
-    const code = String(r.code || "");
-    if (code.startsWith("5")) return "cogs";
-    return "opex";
-  }
-  return "other";
+  return out;
 }
 
-// M50 D — turn a flat list of section rows into display items, grouping each
-// brand-rollup parent's child accounts under a header with a subtotal. Rows are
-// pre-sorted by code, so a parent (e.g. 6000) precedes its children (6000-PT,
-// 6000-WS); the child branch also emits the group, so either ordering is safe.
-// Rollup parents with no children render as a normal row; non-brand accounts
-// render as normal rows.
-function buildDisplayItems(rows: ISRow[]): DisplayItem[] {
-  const childrenByParent = new Map<string, ISRow[]>();
+// ── Aggregate raw rows into per-account records keyed by code ─────────────────
+function aggregate(rows: MRow[]): Acct[] {
+  const map = new Map<string, Acct>();
   for (const r of rows) {
-    if (r.is_brand_child && r.parent_code) {
-      const arr = childrenByParent.get(r.parent_code) || [];
-      arr.push(r);
-      childrenByParent.set(r.parent_code, arr);
+    const cents = Number(r.amount_cents || 0);
+    const key = `${r.year}-${String(r.month).padStart(2, "0")}`;
+    let a = map.get(r.code);
+    if (!a) {
+      a = {
+        code: r.code, name: r.name, accountId: r.account_id, accountType: r.account_type,
+        parentCode: r.parent_code, parentName: r.parent_name,
+        band: classifyBand(r.account_type, r.code, r.name),
+        byMonth: {}, total: 0,
+      };
+      map.set(r.code, a);
     }
+    a.byMonth[key] = (a.byMonth[key] || 0) + cents;
+    a.total += cents;
   }
-  const items: DisplayItem[] = [];
-  const emitted = new Set<string>();
-  const emitGroup = (parentCode: string, parentName: string, parentAmt: number) => {
-    if (emitted.has(parentCode)) return;
-    const children = childrenByParent.get(parentCode) || [];
-    const subtotal = children.reduce((s, c) => s + rowAmount(c), 0) + parentAmt;
-    items.push({ kind: "group", parentCode, parentName, children, subtotal });
-    emitted.add(parentCode);
-  };
-  for (const r of rows) {
-    if (r.is_brand_child && r.parent_code) {
-      const parent = rows.find((x) => x.code === r.parent_code);
-      emitGroup(r.parent_code, parent?.name || r.parent_code, parent ? rowAmount(parent) : 0);
-      continue;
-    }
-    if (r.brand_rollup && childrenByParent.has(r.code)) {
-      emitGroup(r.code, r.name, rowAmount(r));
-      continue;
-    }
-    items.push({ kind: "row", row: r });
-  }
-  return items;
+  return Array.from(map.values()).sort((x, y) => (x.code < y.code ? -1 : x.code > y.code ? 1 : 0));
 }
 
-function countAccounts(items: DisplayItem[]): number {
-  return items.reduce((n, it) => n + (it.kind === "group" ? it.children.length : 1), 0);
-}
+// A rendered item inside a section: a standalone account, or a parent group with
+// indented children + a subtotal.
+type SectionItem =
+  | { kind: "acct"; acct: Acct }
+  | { kind: "group"; parentCode: string; parentName: string; children: Acct[]; byMonth: Record<string, number>; total: number };
 
-type SectionProps = {
-  title: string;
-  items: DisplayItem[];
-  total: number;
-  open: boolean;
-  onToggle: () => void;
-  totalLabel?: string;
-  totalColor?: string;
-  hideAccountNum: boolean;
-  onDrill: (row: ISRow) => void;
-};
-
-function Section({ title, items, total, open, onToggle, totalLabel, totalColor, hideAccountNum, onDrill }: SectionProps) {
-  const accountCount = countAccounts(items);
-  const codeCell = (code: string, indent = false) =>
-    hideAccountNum ? null : (
-      <td style={{ ...td, color: C.textMuted, fontVariantNumeric: "tabular-nums", paddingLeft: indent ? 28 : 10 }}>{code}</td>
-    );
-  return (
-    <div style={{ marginBottom: 16, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
-      <button
-        onClick={onToggle}
-        style={{
-          width: "100%", textAlign: "left", padding: "10px 14px",
-          background: "#0b1220", color: C.text, border: "none", cursor: "pointer",
-          display: "flex", justifyContent: "space-between", alignItems: "center",
-          fontSize: 14, fontWeight: 600,
-        }}
-      >
-        <span>
-          <span style={{ marginRight: 8, color: C.textMuted }}>{open ? "▼" : "▶"}</span>
-          {title}
-          <span style={{ color: C.textMuted, marginLeft: 8, fontWeight: 400, fontSize: 12 }}>
-            ({accountCount} {accountCount === 1 ? "account" : "accounts"})
-          </span>
-        </span>
-        <span style={{ ...tdNum, padding: 0, fontWeight: 700, color: totalColor || C.text, fontSize: 14 }}>
-          {totalLabel ? `${totalLabel} ` : ""}{fmtCents(total)}
-        </span>
-      </button>
-      {open && accountCount > 0 && (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {!hideAccountNum && <th style={{ ...th, width: 140 }}>Code</th>}
-              <th style={th}>Account</th>
-              <th style={{ ...th, textAlign: "right" }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it) => {
-              if (it.kind === "row") {
-                const amt = rowAmount(it.row);
-                const drillable = !!it.row.account_id;
-                return (
-                  <tr
-                    key={`r-${it.row.account_type}-${it.row.code}`}
-                    onClick={() => onDrill(it.row)}
-                    onDoubleClick={() => onDrill(it.row)}
-                    title={drillable ? "Open GL detail for this account" : undefined}
-                    style={drillable ? { cursor: "pointer" } : undefined}
-                    onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
-                  >
-                    {codeCell(it.row.code)}
-                    <td style={td}>
-                      {it.row.name}
-                      {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
-                    </td>
-                    <td style={{ ...tdNum, color: amt < 0 ? C.danger : C.text }}>{fmtCents(amt)}</td>
-                  </tr>
-                );
-              }
-              // group: header → indented children → subtotal
-              return (
-                <Fragment key={`g-${it.parentCode}`}>
-                  <tr>
-                    {!hideAccountNum && (
-                      <td style={{ ...td, color: C.textSub, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{it.parentCode}</td>
-                    )}
-                    <td style={{ ...td, fontWeight: 600 }}>{it.parentName}</td>
-                    <td style={{ ...tdNum, color: C.textMuted }} />
-                  </tr>
-                  {it.children.map((c) => {
-                    const amt = rowAmount(c);
-                    const drillable = !!c.account_id;
-                    return (
-                      <tr
-                        key={`c-${c.code}`}
-                        onClick={() => onDrill(c)}
-                        onDoubleClick={() => onDrill(c)}
-                        title={drillable ? "Open GL detail for this account" : undefined}
-                        style={drillable ? { cursor: "pointer" } : undefined}
-                        onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
-                      >
-                        {codeCell(c.code, true)}
-                        <td style={{ ...td, paddingLeft: hideAccountNum ? 28 : 10, color: C.textSub }}>
-                          {c.brand_name || c.name}
-                          {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
-                        </td>
-                        <td style={{ ...tdNum, color: amt < 0 ? C.danger : C.text }}>{fmtCents(amt)}</td>
-                      </tr>
-                    );
-                  })}
-                  <tr>
-                    {!hideAccountNum && <td style={{ ...td, borderBottom: `1px solid ${C.cardBdr}` }} />}
-                    <td style={{ ...td, fontStyle: "italic", color: C.textMuted, textAlign: "right" }}>
-                      Subtotal — {it.parentName}
-                    </td>
-                    <td style={{ ...tdNum, fontWeight: 700, color: it.subtotal < 0 ? C.danger : C.text }}>
-                      {fmtCents(it.subtotal)}
-                    </td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-      {open && accountCount === 0 && (
-        <div style={{ padding: 14, color: C.textMuted, fontSize: 12, fontStyle: "italic" }}>
-          No activity in this section for the selected range.
-        </div>
-      )}
-    </div>
+// Turn a band's accounts into ordered items: accounts sharing a parent_code roll
+// up under one group header (positioned at the first child's spot); accounts with
+// no parent render standalone. Order follows account code (accts pre-sorted).
+function buildItems(accts: Acct[]): SectionItem[] {
+  const groups = new Map<string, { parentCode: string; parentName: string; children: Acct[]; byMonth: Record<string, number>; total: number }>();
+  const order: Array<{ type: "acct"; acct: Acct } | { type: "group"; parentCode: string }> = [];
+  for (const a of accts) {
+    if (a.parentCode) {
+      let g = groups.get(a.parentCode);
+      if (!g) {
+        g = { parentCode: a.parentCode, parentName: a.parentName || a.parentCode, children: [], byMonth: {}, total: 0 };
+        groups.set(a.parentCode, g);
+        order.push({ type: "group", parentCode: a.parentCode });
+      }
+      g.children.push(a);
+      g.total += a.total;
+      for (const [k, v] of Object.entries(a.byMonth)) g.byMonth[k] = (g.byMonth[k] || 0) + v;
+    } else {
+      order.push({ type: "acct", acct: a });
+    }
+  }
+  return order.map((o) =>
+    o.type === "acct"
+      ? ({ kind: "acct", acct: o.acct } as SectionItem)
+      : ({ kind: "group", ...groups.get(o.parentCode)! } as SectionItem),
   );
 }
 
+function sumByMonth(accts: Acct[], months: MonthCol[]): Totalset {
+  const byMonth: Record<string, number> = {};
+  let total = 0;
+  for (const a of accts) {
+    total += a.total;
+    for (const mc of months) byMonth[mc.key] = (byMonth[mc.key] || 0) + (a.byMonth[mc.key] || 0);
+  }
+  return { byMonth, total };
+}
+
 export default function InternalIncomeStatement() {
-  const [rows, setRows] = useState<ISRow[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [brandFilter, setBrandFilter] = useState<string>("all"); // "all" | brand id
-  const [hideAccountNum, setHideAccountNum] = useState(false);
+  const [rows, setRows] = useState<MRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [basis, setBasis] = useState<"ACCRUAL" | "CASH">("ACCRUAL");
   const [from, setFrom] = useState<string>(fyStartISO());
   const [to, setTo] = useState<string>(todayISO());
-  const [openRev, setOpenRev] = useState(true);
-  const [openDilution, setOpenDilution] = useState(true);
-  const [openReturns, setOpenReturns] = useState(true);
-  const [openCogs, setOpenCogs] = useState(true);
-  const [openOpex, setOpenOpex] = useState(true);
+  const [showMonthly, setShowMonthly] = useState(true);
+  const [showPct, setShowPct] = useState(false);
+  const [hideAccountNum, setHideAccountNum] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [drill, setDrill] = useState<GLDetailTarget | null>(null);
 
-  // Open the GL-account drill-down scoped to the report's current from/to/basis.
-  function openDrill(r: ISRow) {
-    if (!r.account_id) return;
-    setDrill({
-      accountId: r.account_id,
-      code: r.code,
-      name: r.name,
-      accountType: r.account_type,
-      from,
-      to,
-      basis,
-    });
-  }
-
-  // Fetch-race guard: rapid basis/date changes fire overlapping load()s; a
-  // slower earlier response must never clobber the newest state.
   const seqGuard = useSeqGuard();
 
   async function load() {
@@ -342,12 +245,11 @@ export default function InternalIncomeStatement() {
       params.set("basis", basis);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
-      const r = await fetch(`/api/internal/income-statement?${params.toString()}`);
+      const r = await fetch(`/api/internal/income-statement-monthly?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
-      if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
-      setRows((data.rows || []) as ISRow[]);
-      setBrands((data.brands || []) as Brand[]);
+      if (!seqGuard.isCurrent(seq)) return;
+      setRows((data.rows || []) as MRow[]);
     } catch (e: unknown) {
       if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -355,322 +257,334 @@ export default function InternalIncomeStatement() {
     }
   }
 
-  // Refetch whenever the basis or date window changes so the grid + xlsx
-  // export always reflect the operator's current selection (the useSeqGuard
-  // above drops stale responses from rapid changes). Mirrors InternalBalanceSheet.
+  // Refetch on basis / date-window change (seq-guard drops stale responses).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [basis, from, to]);
 
-  // M50 D — per-brand filter. "all" shows every account, grouping brand children
-  // under their rollup parent. A specific brand shows that brand's child accounts
-  // plus shared/unallocated accounts (no brand, not a rollup parent) — a clean
-  // single-brand P&L — and skips grouping (every line already belongs to one brand).
-  const grouping = brandFilter === "all";
-  const visibleRows = grouping
-    ? rows
-    : rows.filter((r) => r.brand_id === brandFilter || (!r.brand_id && !r.brand_rollup));
+  const accts = useMemo(() => aggregate(rows), [rows]);
+  const allMonths = useMemo(() => monthsInRange(from, to), [from, to]);
+  // In single-period mode (or a one-month range) collapse to just the Total col.
+  const months = showMonthly && allMonths.length > 1 ? allMonths : [];
 
-  // Partition rows into buckets. Dilution (contra_revenue subtype='dilution')
-  // gets its own line between Revenue and Net Revenue; other contra_revenue
-  // (returns/discounts) keeps its own "Returns & Discounts" section.
-  const revenueRows  = visibleRows.filter((r) => classifyRow(r) === "revenue");
-  const dilutionRows = visibleRows.filter((r) => classifyRow(r) === "dilution");
-  const contraRows   = visibleRows.filter((r) => classifyRow(r) === "contra_revenue");
-  const cogsRows     = visibleRows.filter((r) => classifyRow(r) === "cogs");
-  const opexRows     = visibleRows.filter((r) => classifyRow(r) === "opex");
+  // Band buckets.
+  const byBand = useMemo(() => {
+    const b: Record<BandId, Acct[]> = { revenue: [], contra: [], cogs: [], opex: [], other_inc: [], other_exp: [] };
+    for (const a of accts) b[a.band].push(a);
+    return b;
+  }, [accts]);
 
-  const grossRevenue = revenueRows.reduce((s, r) => s + rowAmount(r), 0);
-  const dilutionTotal = dilutionRows.reduce((s, r) => s + rowAmount(r), 0);
-  const contraTotal  = contraRows.reduce((s, r) => s + rowAmount(r), 0);
-  const netRevenue   = grossRevenue - dilutionTotal - contraTotal;
-  const cogs         = cogsRows.reduce((s, r) => s + rowAmount(r), 0);
-  const opex         = opexRows.reduce((s, r) => s + rowAmount(r), 0);
-  const grossMargin  = netRevenue - cogs;
-  const operatingIncome = grossMargin - opex;
-  const netIncome    = operatingIncome; // M22 will add depreciation later
+  // Section + band-subtotal totals (per month + grand total).
+  const totals = useMemo(() => {
+    const revenue = sumByMonth(byBand.revenue, allMonths);
+    const contra = sumByMonth(byBand.contra, allMonths);
+    const cogs = sumByMonth(byBand.cogs, allMonths);
+    const opex = sumByMonth(byBand.opex, allMonths);
+    const otherInc = sumByMonth(byBand.other_inc, allMonths);
+    const otherExp = sumByMonth(byBand.other_exp, allMonths);
+    const combine = (a: Record<string, number>, b: Record<string, number>, sign: number): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const mc of allMonths) out[mc.key] = (a[mc.key] || 0) + sign * (b[mc.key] || 0);
+      return out;
+    };
+    const netSales: Totalset = { byMonth: combine(revenue.byMonth, contra.byMonth, -1), total: revenue.total - contra.total };
+    const grossProfit: Totalset = { byMonth: combine(netSales.byMonth, cogs.byMonth, -1), total: netSales.total - cogs.total };
+    const noi: Totalset = { byMonth: combine(grossProfit.byMonth, opex.byMonth, -1), total: grossProfit.total - opex.total };
+    const otherNet: Totalset = { byMonth: combine(otherInc.byMonth, otherExp.byMonth, -1), total: otherInc.total - otherExp.total };
+    const netIncome: Totalset = { byMonth: combine(noi.byMonth, otherNet.byMonth, 1), total: noi.total + otherNet.total };
+    return { revenue, contra, cogs, opex, otherInc, otherExp, netSales, grossProfit, noi, otherNet, netIncome };
+  }, [byBand, allMonths]);
 
-  const toItems = (rs: ISRow[]): DisplayItem[] =>
-    grouping ? buildDisplayItems(rs) : rs.map((row) => ({ kind: "row", row }));
-  const revenueItems  = toItems(revenueRows);
-  const dilutionItems = toItems(dilutionRows);
-  const returnsItems  = toItems(contraRows);
-  const cogsItems     = toItems(cogsRows);
-  const opexItems     = toItems(opexRows);
+  const nsBase = totals.netSales.total || 0;
+  const leadCols = hideAccountNum ? 1 : 2; // (code?) + account
+
+  function toggleSection(id: string) {
+    setCollapsedSections((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleGroup(id: string) {
+    setCollapsedGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function openDrill(a: Acct) {
+    if (!a.accountId) return;
+    setDrill({ accountId: a.accountId, code: a.code, name: a.name, accountType: a.accountType, from, to, basis });
+  }
+
+  // ── Cell renderers ─────────────────────────────────────────────────────────
+  const cellNum = (v: number, opts: { bold?: boolean; color?: string; zeroMuted?: boolean } = {}) => (
+    <td style={{
+      padding: "6px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+      fontSize: 12.5, whiteSpace: "nowrap",
+      color: opts.color || (v < 0 ? C.danger : C.text),
+      fontWeight: opts.bold ? 700 : 400,
+      borderBottom: "1px solid #1f2a3d",
+    }}>
+      {v === 0 && opts.zeroMuted ? <span style={{ color: C.textMuted }}>–</span> : fmtCents(v)}
+    </td>
+  );
+  const cellPct = (v: number, opts: { bold?: boolean } = {}) => (
+    showPct ? (
+      <td style={{
+        padding: "6px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+        fontSize: 11.5, color: C.textMuted, whiteSpace: "nowrap", fontWeight: opts.bold ? 700 : 400,
+        borderBottom: "1px solid #1f2a3d",
+      }}>
+        {fmtPct(v, nsBase)}
+      </td>
+    ) : null
+  );
+
+  // A data row's value cells: each month + Total + optional %. `sign` flips the
+  // display (e.g. other-expense shown as a reduction).
+  const valueCells = (byMonth: Record<string, number>, total: number, opts: { bold?: boolean; color?: string; sign?: number } = {}) => {
+    const sign = opts.sign ?? 1;
+    return (
+      <>
+        {months.map((mc) => <Fragment key={mc.key}>{cellNum(sign * (byMonth[mc.key] || 0), { bold: opts.bold, color: opts.color, zeroMuted: true })}</Fragment>)}
+        {cellNum(sign * total, { bold: opts.bold, color: opts.color })}
+        {cellPct(sign * total, { bold: opts.bold })}
+      </>
+    );
+  };
+
+  function cellCode(indent: boolean): React.CSSProperties {
+    return { padding: "5px 10px", paddingLeft: indent ? 26 : 10, color: C.textMuted, fontVariantNumeric: "tabular-nums", fontSize: 12, whiteSpace: "nowrap", borderBottom: "1px solid #1f2a3d" };
+  }
+  function cellName(indent: boolean): React.CSSProperties {
+    return { padding: "5px 10px", paddingLeft: hideAccountNum && indent ? 26 : 10, color: C.text, fontSize: 12.5, borderBottom: "1px solid #1f2a3d" };
+  }
+
+  function renderAcctRow(a: Acct, indent: boolean, sign: number) {
+    const drillable = !!a.accountId;
+    return (
+      <tr
+        key={`a-${a.band}-${a.code}`}
+        onClick={() => openDrill(a)}
+        title={drillable ? "Open GL detail for this account" : undefined}
+        style={drillable ? { cursor: "pointer" } : undefined}
+        onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+      >
+        {!hideAccountNum && <td style={cellCode(indent)}>{a.code}</td>}
+        <td style={{ ...cellName(indent), color: C.textSub }}>
+          {a.name}
+          {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
+        </td>
+        {valueCells(a.byMonth, a.total, { sign })}
+      </tr>
+    );
+  }
+
+  // ── Section (Revenue / Deductions / COGS / OpEx / Other) ─────────────────────
+  function renderSection(id: string, title: string, accounts: Acct[], sectionTotal: Totalset, sign = 1) {
+    const collapsed = collapsedSections.has(id);
+    const items = buildItems(accounts);
+    const acctCount = accounts.length;
+    return (
+      <Fragment key={id}>
+        <tr>
+          <td colSpan={leadCols} style={{ padding: "9px 10px", background: C.band, borderTop: `1px solid ${C.cardBdr}`, cursor: "pointer", fontWeight: 600, fontSize: 13 }}
+            onClick={() => toggleSection(id)}>
+            <span style={{ marginRight: 8, color: C.textMuted }}>{collapsed ? "▶" : "▼"}</span>
+            {title}
+            <span style={{ color: C.textMuted, marginLeft: 8, fontWeight: 400, fontSize: 11 }}>
+              ({acctCount} {acctCount === 1 ? "account" : "accounts"})
+            </span>
+          </td>
+          {valueCells(sectionTotal.byMonth, sectionTotal.total, { bold: true, color: C.textSub, sign })}
+        </tr>
+        {!collapsed && items.map((it) => {
+          if (it.kind === "acct") return renderAcctRow(it.acct, false, sign);
+          const gid = `${id}:${it.parentCode}`;
+          const gCollapsed = collapsedGroups.has(gid);
+          return (
+            <Fragment key={gid}>
+              <tr onClick={() => toggleGroup(gid)} style={{ cursor: "pointer" }}>
+                {!hideAccountNum && <td style={cellCode(false)}>{it.parentCode}</td>}
+                <td style={{ ...cellName(false), fontWeight: 600 }}>
+                  <span style={{ marginRight: 6, color: C.textMuted, fontSize: 10 }}>{gCollapsed ? "▶" : "▼"}</span>
+                  {it.parentName}
+                </td>
+                {valueCells(it.byMonth, it.total, { color: C.textSub, sign })}
+              </tr>
+              {!gCollapsed && it.children.map((c) => renderAcctRow(c, true, sign))}
+              {!gCollapsed && (
+                <tr>
+                  {!hideAccountNum && <td style={cellCode(true)} />}
+                  <td style={{ ...cellName(true), fontStyle: "italic", color: C.textMuted, textAlign: "right" }}>
+                    Subtotal — {it.parentName}
+                  </td>
+                  {valueCells(it.byMonth, it.total, { bold: true, color: C.textSub, sign })}
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </Fragment>
+    );
+  }
+
+  // ── Band subtotal row (Net Sales, Gross Profit, NOI, Net Income) ─────────────
+  function bandRow(label: string, t: Totalset, opts: { strong?: boolean; positiveColor?: boolean } = {}) {
+    const color = opts.positiveColor ? (t.total >= 0 ? C.success : C.danger) : C.text;
+    const bg = opts.strong ? "#132132" : C.band;
+    const cell: React.CSSProperties = { padding: "10px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", background: bg, borderTop: `2px solid ${C.cardBdr}`, fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap" };
+    return (
+      <tr>
+        <td colSpan={leadCols} style={{ padding: "10px 10px", background: bg, borderTop: `2px solid ${C.cardBdr}`, fontWeight: 800, fontSize: opts.strong ? 14 : 13, letterSpacing: 0.3 }}>
+          {label}
+        </td>
+        {months.map((mc) => (
+          <td key={mc.key} style={{ ...cell, color: (t.byMonth[mc.key] || 0) < 0 ? C.danger : color }}>
+            {fmtCents(t.byMonth[mc.key] || 0)}
+          </td>
+        ))}
+        <td style={{ ...cell, fontSize: opts.strong ? 14 : 13, color }}>{fmtCents(t.total)}</td>
+        {showPct && <td style={{ ...cell, fontSize: 11.5, fontWeight: 700, color: C.textMuted }}>{fmtPct(t.total, nsBase)}</td>}
+      </tr>
+    );
+  }
+
+  // ── Statement export model (NetSuite-style: header block + banded body) ──────
+  // Built lazily on export click from the same numbers on screen. `sign` flips
+  // Other-Expense so it reads as a reduction (parity with the grid).
+  function buildStatementModel(): StatementModel {
+    const lines: StmtLine[] = [];
+    const scale = (m: Record<string, number>, sign: number): Record<string, number> => {
+      if (sign === 1) return m;
+      const out: Record<string, number> = {};
+      for (const k of Object.keys(m)) out[k] = sign * m[k];
+      return out;
+    };
+    const pushSection = (title: string, accounts: Acct[], sectionTotal: Totalset, sign = 1, spacerBefore = true) => {
+      if (spacerBefore) lines.push({ kind: "spacer", label: "" });
+      lines.push({ kind: "section", label: title, indent: 0, hasValues: false });
+      for (const it of buildItems(accounts)) {
+        if (it.kind === "acct") {
+          lines.push({ kind: "account", code: it.acct.code, label: it.acct.name, indent: 1, byMonth: scale(it.acct.byMonth, sign), total: sign * it.acct.total });
+          continue;
+        }
+        lines.push({ kind: "group", code: it.parentCode, label: it.parentName, indent: 1, byMonth: scale(it.byMonth, sign), total: sign * it.total });
+        for (const c of it.children) lines.push({ kind: "account", code: c.code, label: c.name, indent: 2, byMonth: scale(c.byMonth, sign), total: sign * c.total });
+        lines.push({ kind: "subtotal", label: `Subtotal — ${it.parentName}`, indent: 2, byMonth: scale(it.byMonth, sign), total: sign * it.total });
+      }
+      lines.push({ kind: "subtotal", label: `Total ${title}`, indent: 0, byMonth: scale(sectionTotal.byMonth, sign), total: sign * sectionTotal.total });
+    };
+    const band = (label: string, t: Totalset, strong = false) =>
+      lines.push({ kind: strong ? "band_strong" : "band", label, indent: 0, byMonth: t.byMonth, total: t.total });
+
+    pushSection("Revenue", byBand.revenue, totals.revenue, 1, false);
+    if (byBand.contra.length) pushSection("Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra);
+    band("NET SALES", totals.netSales, true);
+    pushSection("Cost of Goods Sold", byBand.cogs, totals.cogs);
+    band("GROSS PROFIT", totals.grossProfit);
+    pushSection("Operating Expenses", byBand.opex, totals.opex);
+    band("NET OPERATING INCOME", totals.noi);
+    if (byBand.other_inc.length) pushSection("Other Income", byBand.other_inc, totals.otherInc);
+    if (byBand.other_exp.length) pushSection("Other Expense", byBand.other_exp, totals.otherExp, -1);
+    band("NET INCOME", totals.netIncome, true);
+
+    return {
+      company: "Ring of Fire",
+      reportTitle: "Income Statement",
+      periodLabel: `${fmtLongDate(from)} through ${fmtLongDate(to)}`,
+      basisLabel: basis === "CASH" ? "Cash basis" : "Accrual basis",
+      printedLabel: `Printed ${new Date().toLocaleString()}`,
+      months: months.map((mc) => ({ key: mc.key, label: `${MONTH_ABBR[mc.m - 1]} ${mc.y}` })),
+      showPct,
+      hideAccountNum,
+      netSalesBase: nsBase,
+      lines,
+    };
+  }
+
+  const rangeLabel = `${from} → ${to}`;
 
   return (
     <div style={{ color: C.text }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>Income Statement</h2>
-        <div style={{ fontSize: 11, color: C.textMuted }}>
-          basis: <strong>{basis}</strong>
-        </div>
+        <div style={{ fontSize: 11, color: C.textMuted }}>basis: <strong>{basis}</strong> · {rangeLabel}</div>
       </div>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 0, border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
+      {/* Controls */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
           {(["ACCRUAL", "CASH"] as const).map((b) => (
-            <button
-              key={b}
-              onClick={() => setBasis(b)}
-              style={{
-                padding: "6px 14px",
-                background: basis === b ? C.primary : C.card,
-                color: basis === b ? "white" : C.textSub,
-                border: "none",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              {b}
-            </button>
+            <button key={b} onClick={() => setBasis(b)} style={{ padding: "6px 14px", background: basis === b ? C.primary : C.card, color: basis === b ? "white" : C.textSub, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{b}</button>
           ))}
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
-          From:
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            style={{ ...inputStyle, width: 160 }}
-          />
+          From:<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
-          To:
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            style={{ ...inputStyle, width: 160 }}
-          />
+          To:<input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: 150 }} />
         </label>
-        <DateRangePresets variant="dropdown"
-          from={from}
-          to={to}
-          onChange={(f, t) => { setFrom(f); setTo(t); }}
-        />
-        <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
-        {brands.length > 0 && (
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
-            Brand:
-            <div style={{ width: 220 }}>
-              <SearchableSelect
-                value={brandFilter}
-                onChange={(v) => setBrandFilter(v || "all")}
-                options={[
-                  { value: "all", label: "All brands (consolidated)" },
-                  ...brands.map((b) => ({ value: b.id, label: `${b.name}${b.is_default ? " (default)" : ""}` })),
-                ]}
-                placeholder="Brand…"
-              />
-            </div>
-          </label>
-        )}
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
-          <input type="checkbox" checked={hideAccountNum} onChange={(e) => setHideAccountNum(e.target.checked)} />
-          Hide account #
-        </label>
-        <ExportButton
-          rows={(() => {
-            const out: Array<Record<string, unknown>> = [];
-            const push = (section: string, kind: string, r: ISRow | null, name?: string, amt?: number) =>
-              out.push({
-                section, kind,
-                code: r ? r.code : "",
-                name: r ? r.name : (name || ""),
-                brand: r?.brand_name || "",
-                amount_cents: r ? rowAmount(r) : (amt ?? 0),
-              });
-            for (const r of revenueRows) push("Revenue", "row", r);
-            push("Revenue", "subtotal", null, "REVENUE", grossRevenue);
-            for (const r of dilutionRows) push("Dilution", "row", r);
-            if (dilutionRows.length) push("Dilution", "subtotal", null, "DILUTION", dilutionTotal);
-            for (const r of contraRows) push("Returns & Discounts", "row", r);
-            if (contraRows.length) push("Returns & Discounts", "subtotal", null, "RETURNS & DISCOUNTS", contraTotal);
-            push("Net Revenue", "subtotal", null, "NET REVENUE", netRevenue);
-            for (const r of cogsRows) push("Cost of Goods Sold", "row", r);
-            push("Cost of Goods Sold", "subtotal", null, "COGS", cogs);
-            push("Gross Margin", "subtotal", null, "Gross Margin", grossMargin);
-            for (const r of opexRows) push("Operating Expenses", "row", r);
-            push("Operating Expenses", "subtotal", null, "OPEX", opex);
-            push("Operating Income", "subtotal", null, "Operating Income", operatingIncome);
-            push("Net Income", "total", null, "NET INCOME", netIncome);
-            return out;
-          })()}
-          filename={`income-statement-${basis}-${from}-to-${to}`}
-          sheetName="Income Statement"
-          columns={[
-            { key: "section",      header: "Section" },
-            { key: "kind",         header: "Kind" },
-            { key: "code",         header: "Code" },
-            { key: "name",         header: "Account" },
-            { key: "brand",        header: "Brand" },
-            { key: "amount_cents", header: "Amount", format: "currency_cents" },
-          ] as ExportColumn<Record<string, unknown>>[]}
-        />
-      </div>
+        <DateRangePresets variant="dropdown" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
 
-      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 12 }}>
-        Tip: click any account row to open its GL detail (↗) for the selected range and basis.
-      </div>
-
-      {err && (
-        <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
-          Error: {err}
+        <div style={{ display: "flex", border: `1px solid ${C.cardBdr}`, borderRadius: 6, overflow: "hidden" }}>
+          {([["monthly", "Monthly"], ["single", "Single period"]] as const).map(([v, lbl]) => {
+            const active = (showMonthly ? "monthly" : "single") === v;
+            return (
+              <button key={v} onClick={() => setShowMonthly(v === "monthly")}
+                style={{ padding: "6px 12px", background: active ? C.primary : C.card, color: active ? "white" : C.textSub, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+            );
+          })}
         </div>
-      )}
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
+          <input type="checkbox" checked={showPct} onChange={(e) => setShowPct(e.target.checked)} /> % of Net Sales
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
+          <input type="checkbox" checked={hideAccountNum} onChange={(e) => setHideAccountNum(e.target.checked)} /> Hide account #
+        </label>
+        <button onClick={() => { setCollapsedSections(new Set()); setCollapsedGroups(new Set()); }} style={btnSecondary}>Expand all</button>
+        <IncomeStatementExportButton
+          model={buildStatementModel}
+          filename={`income-statement-${basis}-${from}-to-${to}`}
+          disabled={loading || accts.length === 0}
+        />
+      </div>
+
+      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 10 }}>
+        Tip: click any account row to open its GL detail (↗) for the selected range and basis. Click a section or group header to collapse it.
+      </div>
+
+      {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: C.textMuted }}>Loading…</div>
+      ) : accts.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontStyle: "italic" }}>No posted activity for the selected range and basis.</div>
       ) : (
-        <>
-          <Section
-            title="Revenue"
-            items={revenueItems}
-            total={grossRevenue}
-            totalLabel="REVENUE"
-            open={openRev}
-            onToggle={() => setOpenRev((v) => !v)}
-            hideAccountNum={hideAccountNum}
-            onDrill={openDrill}
-          />
-          {dilutionRows.length > 0 && (
-            <Section
-              title="Dilution"
-              items={dilutionItems}
-              total={dilutionTotal}
-              totalLabel="DILUTION"
-              totalColor={C.warn}
-              open={openDilution}
-              onToggle={() => setOpenDilution((v) => !v)}
-              hideAccountNum={hideAccountNum}
-              onDrill={openDrill}
-            onDrill={openDrill}
-            />
-          )}
-          {contraRows.length > 0 && (
-            <Section
-              title="Returns & Discounts"
-              items={returnsItems}
-              total={contraTotal}
-              totalLabel="RETURNS & DISCOUNTS"
-              totalColor={C.warn}
-              open={openReturns}
-              onToggle={() => setOpenReturns((v) => !v)}
-              hideAccountNum={hideAccountNum}
-              onDrill={openDrill}
-            onDrill={openDrill}
-            />
-          )}
-          {/* Net Revenue bar = Revenue − Dilution − Returns. */}
-          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, fontSize: 14 }}>
-            <span>NET REVENUE</span>
-            <span style={{ fontVariantNumeric: "tabular-nums", color: netRevenue >= 0 ? C.text : C.danger }}>{fmtCents(netRevenue)}</span>
-          </div>
-          <Section
-            title="Cost of Goods Sold"
-            items={cogsItems}
-            total={cogs}
-            totalLabel="COGS"
-            open={openCogs}
-            onToggle={() => setOpenCogs((v) => !v)}
-            hideAccountNum={hideAccountNum}
-            onDrill={openDrill}
-          />
-          <Section
-            title="Operating Expenses"
-            items={opexItems}
-            total={opex}
-            totalLabel="OPEX"
-            open={openOpex}
-            onToggle={() => setOpenOpex((v) => !v)}
-            hideAccountNum={hideAccountNum}
-            onDrill={openDrill}
-          />
-
-          {/* Footer subtotals — Gross Margin, Operating Income, Net Income. */}
-          <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px", marginTop: 8 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <tbody>
-                <tr>
-                  <td style={{ ...td, border: "none", color: C.textSub }}>Revenue</td>
-                  <td style={{ ...tdNum, border: "none" }}>{fmtCents(grossRevenue)}</td>
-                </tr>
-                {dilutionTotal !== 0 && (
-                  <tr>
-                    <td style={{ ...td, border: "none", color: C.textSub }}>− Dilution</td>
-                    <td style={{ ...tdNum, border: "none" }}>{fmtCents(dilutionTotal)}</td>
-                  </tr>
-                )}
-                {contraTotal !== 0 && (
-                  <tr>
-                    <td style={{ ...td, border: "none", color: C.textSub }}>− Returns &amp; Discounts</td>
-                    <td style={{ ...tdNum, border: "none" }}>{fmtCents(contraTotal)}</td>
-                  </tr>
-                )}
-                <tr>
-                  <td style={{ ...td, borderTop: `1px solid ${C.cardBdr}`, borderBottom: "none", fontWeight: 700 }}>Net Revenue</td>
-                  <td style={{ ...tdNum, borderTop: `1px solid ${C.cardBdr}`, border: "none", fontWeight: 700 }}>{fmtCents(netRevenue)}</td>
-                </tr>
-                <tr>
-                  <td style={{ ...td, border: "none", color: C.textSub }}>− Cost of Goods Sold</td>
-                  <td style={{ ...tdNum, border: "none" }}>{fmtCents(cogs)}</td>
-                </tr>
-                <tr>
-                  <td style={{ ...td, borderTop: `1px solid ${C.cardBdr}`, borderBottom: "none", fontWeight: 700 }}>
-                    Gross Margin
-                  </td>
-                  <td style={{
-                    ...tdNum,
-                    borderTop: `1px solid ${C.cardBdr}`,
-                    borderBottom: "none",
-                    fontWeight: 700,
-                    color: grossMargin >= 0 ? C.success : C.danger,
-                  }}>
-                    {fmtCents(grossMargin)}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ ...td, border: "none", color: C.textSub }}>− Operating Expenses</td>
-                  <td style={{ ...tdNum, border: "none" }}>{fmtCents(opex)}</td>
-                </tr>
-                <tr>
-                  <td style={{ ...td, borderTop: `1px solid ${C.cardBdr}`, borderBottom: "none", fontWeight: 700 }}>
-                    Operating Income
-                  </td>
-                  <td style={{
-                    ...tdNum,
-                    borderTop: `1px solid ${C.cardBdr}`,
-                    borderBottom: "none",
-                    fontWeight: 700,
-                    color: operatingIncome >= 0 ? C.success : C.danger,
-                  }}>
-                    {fmtCents(operatingIncome)}
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ ...td, borderTop: `2px solid ${C.cardBdr}`, borderBottom: "none", fontWeight: 700, fontSize: 14 }}>
-                    NET INCOME
-                  </td>
-                  <td style={{
-                    ...tdNum,
-                    borderTop: `2px solid ${C.cardBdr}`,
-                    borderBottom: "none",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    color: netIncome >= 0 ? C.success : C.danger,
-                  }}>
-                    {fmtCents(netIncome)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div style={{ marginTop: 10, color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>
-              Net Income = Operating Income until M22 (Fixed Assets / Depreciation) ships.
-            </div>
-          </div>
-        </>
+        <div style={{ overflowX: "auto", border: `1px solid ${C.cardBdr}`, borderRadius: 10, background: C.card }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead>
+              <tr>
+                {!hideAccountNum && <th style={{ ...thBase, width: 90, textAlign: "left" }}>Code</th>}
+                <th style={{ ...thBase, textAlign: "left", minWidth: 220 }}>Account</th>
+                {months.map((mc) => <th key={mc.key} style={{ ...thBase, textAlign: "right" }}>{mc.label}</th>)}
+                <th style={{ ...thBase, textAlign: "right" }}>{months.length ? "Total" : "Amount"}</th>
+                {showPct && <th style={{ ...thBase, textAlign: "right" }}>% NS</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {renderSection("revenue", "Revenue", byBand.revenue, totals.revenue)}
+              {byBand.contra.length > 0 && renderSection("contra", "Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra)}
+              {bandRow("NET SALES", totals.netSales, { strong: true })}
+              {renderSection("cogs", "Cost of Goods Sold", byBand.cogs, totals.cogs)}
+              {bandRow("GROSS PROFIT", totals.grossProfit, { positiveColor: true })}
+              {renderSection("opex", "Operating Expenses", byBand.opex, totals.opex)}
+              {bandRow("NET OPERATING INCOME", totals.noi, { positiveColor: true })}
+              {byBand.other_inc.length > 0 && renderSection("other_inc", "Other Income", byBand.other_inc, totals.otherInc)}
+              {byBand.other_exp.length > 0 && renderSection("other_exp", "Other Expense", byBand.other_exp, totals.otherExp, -1)}
+              {bandRow("NET INCOME", totals.netIncome, { strong: true, positiveColor: true })}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <div style={{ marginTop: 10, color: C.textMuted, fontSize: 11, fontStyle: "italic" }}>
+        Bands mirror Xoro's Income Statement By Store. Net Sales = Revenue − Returns/Discounts/Chargebacks; Gross Profit = Net Sales − COGS; Net Operating Income = Gross Profit − Operating Expenses; Net Income = Net Operating Income + Other Income &amp; Expense.
+      </div>
 
       {drill && <GLDetailModal target={drill} onClose={() => setDrill(null)} />}
     </div>

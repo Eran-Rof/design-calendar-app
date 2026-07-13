@@ -322,42 +322,58 @@ Once `status='posted'`, the JE is immutable by design. PATCH and DELETE on `/api
 
 **Where:** Tangerine → 💼 Accounting → 📈 **Income Statement**.
 
-The Income Statement (P&L) report aggregates posted journal entries from revenue and expense accounts into the three standard sections operators expect on a financial statement. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
+The Income Statement (P&L) is a best-in-class report that mirrors how the CEO reads a P&L — the same band structure as Xoro's **Income Statement By Store**, the full colon-path account hierarchy (parent **group headers** with indented sub-accounts and group subtotals), and **monthly columns** across any date range. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
 
 > **Drill into any account:** click an account row (look for the **↗**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
-### The three sections
+### The band structure (top to bottom)
 
-1. **Revenue** — every account with `account_type IN ('revenue','contra_revenue')`. Contra-revenue accounts (returns, discounts) display alongside revenue rows but reduce the section total. The footer of this section shows **Net Revenue** = gross revenue minus contra revenue.
+The GL is now a 1:1 mirror of Xoro, so the report presents the standard multi-step P&L bands:
 
-2. **Cost of Goods Sold (COGS)** — expense accounts whose `code` starts with `'5'`. This is a convention-based heuristic following ROF's chart-of-accounts layout where the 5xxx range is reserved for direct product cost.
-
-3. **Operating Expenses (OPEX)** — every other expense account (`account_type='expense'` and code does NOT start with `'5'`). Typically 6xxx-7xxx in ROF's COA (rent, salaries, marketing, etc).
-
-Each section is collapsible (default open). Accounts within a section list code + name + amount, right-aligned with tabular numerals so columns align cleanly.
-
-### Subtotals + Net Income
-
-The footer below the three sections shows the standard P&L roll-up:
-
-| Line | Formula |
+| Band | What it is |
 |---|---|
-| Net Revenue | Revenue section total |
-| − COGS | COGS section total |
-| **Gross Margin** | Net Revenue − COGS — green if positive, red if negative |
-| − Operating Expenses | OPEX section total |
-| **Operating Income** | Gross Margin − OPEX |
-| **NET INCOME** | Operating Income (until M22 Fixed Assets adds depreciation) |
+| **Revenue** | Operating sales accounts (chart codes 4000–4899) |
+| Less: Returns, Discounts & Chargebacks | All `contra_revenue` accounts — deducted to reach Net Sales |
+| **NET SALES** | Revenue − deductions (this is the 100% base for the % column) |
+| **Cost of Goods Sold** | Direct product cost (see the COGS rule below) |
+| **GROSS PROFIT** | Net Sales − COGS — green if positive, red if negative |
+| **Operating Expenses** | Payroll, G&A, marketing, factoring, etc. |
+| **NET OPERATING INCOME** | Gross Profit − Operating Expenses |
+| Other Income & Expense | Non-operating income/expense (FX, gains, misc — codes ≥ 4900 / ≥ 8000) |
+| **NET INCOME** | Net Operating Income + Other Income & Expense |
+
+### Group headers + sub-accounts
+
+The ROF/Xoro chart is hierarchical: accounts belong to a **parent group** (e.g. `6300 General and Administrative`, `6100 Payroll`, `4216 Chargebacks`). The report renders each parent as a **group header row** with its sub-accounts indented beneath and a **group subtotal**. Both the **sections** and the individual **groups** are collapsible — click any section header or group header to fold it. Use **Expand all** to reset.
+
+### Monthly columns (the spreadsheet P&L)
+
+Pick any From/To range and the report lays out **one column per month** (e.g. `Jan '26 | Feb '26 | Mar '26 | … | Total`), each account's value per month, with a **Total** column on the right — exactly like a spreadsheet P&L. The Total column always equals the sum of the month columns. Switch to **Single period** to collapse the months into just the Total (useful for a one-month or full-range snapshot). A single-month range automatically shows just the Total column.
+
+### % of Net Sales
+
+Tick **% of Net Sales** to add a `% NS` column: every line, group subtotal and band subtotal is shown as a percentage of Net Sales for the period (Net Sales itself = 100.0%). This is the fastest way to read margin structure and cost ratios.
+
+### The COGS rule
+
+COGS = expense accounts in the **5000–5999** range, **except** non-product operating accounts that Xoro's by-store P&L treats as operating — Manufacturing Expense Clearing, private-label/price Tickets, and Shipping Expense (account names matching *clearing / ticket / shipping*). Those roll into **Operating Expenses** instead, along with all 6000–7999 accounts. This reproduces the CEO's Xoro Net Sales figure to the cent and the cost bands within GL rounding. If your COA evolves, the classification lives in one place in the panel and can be tuned without a schema change.
+
+### Export
+
+**Export statement** (Excel / PDF) emits a **best-in-class, NetSuite-style financial statement** — not a raw grid dump. Every export carries:
+
+- a **report header block** — the **Ring of Fire** logo, the report title, the period (`July 1, 2026 through July 13, 2026`), the **basis** (Accrual / Cash), and the "as printed" timestamp, centered above the columns;
+- the **banded statement body** — indented **section headers → sub-accounts → bold group subtotals → "Total <Section>"**, with the running bands (**Net Sales, Gross Profit, Net Operating Income, Net Income**) bold and ruled (the headline bands get a heavier top/bottom rule);
+- **right-aligned currency** with thousands separators and **parentheses for negatives** (`($3,450.00)`), the **% of Net Sales** column when that toggle is on, and the **monthly columns** (Month | Month | … | Total) when in Monthly mode (a single **Amount** column in Single-period mode);
+- a single blue accent, professional Calibri sizing, no decorative color — and in Excel the **header block and the account-label column are frozen** so the labels stay in view as you scroll the months. Values are real numeric cells (parenthesis number format), so they still sum in Excel.
+
+It reads like a statement a CFO would hand to a bank, and matches exactly what's on screen (same range, basis, monthly/single mode, % toggle, hide-account-# toggle).
 
 ### Per-style revenue / COGS / returns routing
 
 Revenue and COGS are carried **per AR-invoice line** (`ar_invoice_lines.revenue_account_id`), so a line *can* point at a specific account. At posting time each line resolves **line account → invoice/entity default revenue (4000) → COGS (5000)** (see [`ar-invoices/post.js`](../../../api/_handlers/internal/ar-invoices/post.js)).
 
 > **Important — there is NO per-style GL mapping today.** `style_master` has no Revenue/COGS/Returns account columns, and nothing populates the per-line `revenue_account_id` from a style. So in practice all sales currently resolve to the **shared** entity-default accounts (revenue 4000, COGS 5000). To see revenue/COGS/margin broken out by brand, channel, warehouse or gender, use the **[Segment P&L](#segment-pl-p26)** report (P26), which pivots shared accounts into configurable columns rather than relying on per-style accounts. Per-style GL routing is a possible future enhancement, not a shipped feature.
-
-### The COGS heuristic (code starts with '5')
-
-The system identifies COGS rows by checking whether the gl_accounts code begins with `5`. This is a convention, not a hard schema rule. If your COA uses a different numbering scheme (e.g., 50000-series instead of 5xxx, or you have non-COGS accounts that happen to start with 5), you'll see misclassifications — talk to engineering about adding an explicit `gl_accounts.is_cogs boolean` flag. Per arch §13, the heuristic is the MVP default; the flag ships only if range-based detection turns out wrong for your COA.
 
 ### Post-close caveat (important)
 
@@ -811,7 +827,10 @@ QuickBooks-style descent, now wired end to end:
 
 1. **Report line → account activity.** Trial Balance / Income Statement / Balance Sheet rows already opened the account's GL detail (date- and basis-scoped, running balance).
 2. **Activity line → journal entry.** Both the GL-detail modal *and* the standalone GL Detail panel now open the entry: click the JE number (or double-click the row).
-3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it. Mirror-posted daily summaries label themselves as such (no single document).
+3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it.
+   - Because the GL is now a **1:1 Xoro mirror**, most entries carry the Xoro transaction (not the invoice) as their own source. The resolver handles this by running the **reverse lookup** — it finds the AR invoice(s)/AP bill(s) whose `accrual_je_id` or `cash_je_id` points *at* this entry — so a revenue account still drills to the customer invoice and an expense/AP account still drills to the vendor bill.
+   - **One document** → a direct link (opens the AR/AP invoice list filtered to that invoice number). **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`); expand it and click any invoice/bill to open it. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
+   - **No document** (payroll, adjustment, or manufacturing mirror entries) → the row reads **"GL journal entry (no source document)"**; the entry detail itself (Xoro txn ref + memo + all lines) is the drill target, so the walk never dead-ends.
 4. **Related entries.** Sibling (cash-basis twin), "reverses", and "reversed by" numbers in the entry modal are links — the modal re-loads in place, so an audit walk never dead-ends.
 5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
 6. **Deep link:** `/tangerine?m=journal_entries&je=<id>` opens the Journal Entries panel with that entry's modal already open (one-shot param).
