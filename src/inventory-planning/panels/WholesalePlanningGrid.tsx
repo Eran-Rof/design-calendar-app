@@ -230,6 +230,10 @@ export interface WholesalePlanningGridProps {
 // import block above. Pure-helper unit tests live alongside in
 // wholesale-planning/__tests__/gridUtils.test.ts.
 
+// localStorage key for the persisted multi-column sort stack (same
+// ws_planning_* convention as the hidden-columns preference).
+const SORT_STORAGE_KEY = "ws_planning_sort_stack";
+
 export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
@@ -259,9 +263,28 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Multi-column sort stack — index 0 is the parent (primary) sort, later
   // entries are children (tie-breakers). Plain header click = single-column
   // sort; Shift+click adds/toggles a child. Defaults to a single Period sort
-  // (the prior behaviour) so the initial view is unchanged.
-  const [sortStack, setSortStack] = useState<SortEntry[]>([{ key: "period", dir: "asc" }]);
+  // (the prior behaviour) so the initial view is unchanged. Persisted to
+  // localStorage (like the hidden-columns preference) so a planner's sort
+  // survives a reload. Bad/stale entries are filtered on read.
+  const [sortStack, setSortStack] = useState<SortEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(SORT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(
+            (e): e is SortEntry => e && typeof e.key === "string" && (e.dir === "asc" || e.dir === "desc"),
+          );
+          if (clean.length > 0) return clean;
+        }
+      }
+    } catch { /* ignore malformed storage */ }
+    return [{ key: "period", dir: "asc" }];
+  });
   const sortSig = sortStack.map((s) => `${s.key}:${s.dir}`).join(",");
+  useEffect(() => {
+    try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sortStack)); } catch { /* ignore */ }
+  }, [sortSig]); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterPeriod, setFilterPeriod] = usePersistedStringArray("period");
   const [filterStyle, setFilterStyle] = usePersistedStringArray("style");
   const [filterColor, setFilterColor] = usePersistedStringArray("color");

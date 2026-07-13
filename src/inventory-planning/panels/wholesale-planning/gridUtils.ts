@@ -121,7 +121,10 @@ export function cmpNum(a: number | null | undefined, b: number | null | undefine
 export function cmpMulti(a: IpPlanningGridRow, b: IpPlanningGridRow, stack: Array<{ key: SortKey; dir: "asc" | "desc" }>): number {
   for (const s of stack) {
     const c = cmp(a, b, s.key, s.dir);
-    if (c !== 0) return c;
+    // Guard against a stale persisted key that's no longer a valid SortKey —
+    // cmp() has no default case, so an unknown key returns undefined; skip it
+    // rather than feed NaN into Array.sort.
+    if (typeof c === "number" && c !== 0) return c;
   }
   return 0;
 }
