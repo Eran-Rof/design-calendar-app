@@ -110,6 +110,12 @@ export interface RunForecastPassResult {
   // them (e.g. "build only for Joggers / Customer X"). Zero when the
   // build was unfiltered.
   pairs_pruned_filter: number;
+  // True when the grid's period filter selected only month(s) OUTSIDE the
+  // run's horizon. Applying it would have dropped every computed row and
+  // silently written an empty build, so the build IGNORES the period filter
+  // and sets this flag — the UI warns the planner their period filter didn't
+  // match the horizon.
+  period_filter_out_of_horizon: boolean;
   methods: Record<IpForecastMethod, number>;
 }
 
@@ -501,10 +507,23 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     if (filter?.period_code) set.add(filter.period_code);
     return set;
   })();
+  // The period_codes present in the computed rows ARE the run's horizon.
+  // If the planner's period filter overlaps none of them, applying it would
+  // drop every row and write an empty build (a common footgun: a period
+  // filter left over from browsing a different run whose months don't fall
+  // in this run's horizon). Ignore the period filter in that case and flag
+  // it, rather than silently producing 0 rows.
+  let periodFilterOutOfHorizon = false;
   if (periodScope.size > 0) {
-    const before = forecastRows.length;
-    forecastRows = forecastRows.filter((f) => periodScope.has(f.period_code));
-    prunedFilterCount += before - forecastRows.length;
+    const horizonCodes = new Set(forecastRows.map((f) => f.period_code));
+    const overlaps = [...periodScope].some((c) => horizonCodes.has(c));
+    if (!overlaps) {
+      periodFilterOutOfHorizon = true;
+    } else {
+      const before = forecastRows.length;
+      forecastRows = forecastRows.filter((f) => periodScope.has(f.period_code));
+      prunedFilterCount += before - forecastRows.length;
+    }
   }
 
   // Compute the in-scope grain keys up front. Used twice: first to
@@ -710,6 +729,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     pairs_considered: pairs.length,
     pairs_pruned_dead: prunedDeadCount,
     pairs_pruned_filter: prunedFilterCount,
+    period_filter_out_of_horizon: periodFilterOutOfHorizon,
     methods,
   };
 }
