@@ -108,7 +108,10 @@ describe("<PlanningGridRow /> — basic rendering", () => {
   });
 
   it("renders the formatted final qty as bold green", () => {
-    renderRow(defaultProps({ row: row({ final_forecast_qty: 150 }) }));
+    // Final recomputes live from System + Buyer + Override (#1715), so it no
+    // longer reads the stored final_forecast_qty for non-aggregate rows.
+    // 100 + 30 + 20 = 150; each input is distinct so "150" appears only in Final.
+    renderRow(defaultProps({ row: row({ system_forecast_qty: 100, buyer_request_qty: 30, override_qty: 20 }) }));
     expect(screen.getByText("150")).toBeInTheDocument();
   });
 
