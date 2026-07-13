@@ -2,7 +2,8 @@
 // set (highlighted yellow + italic), otherwise the computed system
 // suggestion in muted color. Tooltip carries the audit trail
 // "Changed from X to Y by USER on DATE" so planners know who/when.
-// Empty input clears the override (reverts to suggestion).
+// Clearing the field overrides System to 0 (so Final drops that
+// contribution); re-typing the suggested value clears the override.
 
 import { useEffect, useRef, useState } from "react";
 import { PAL } from "../styles";
@@ -15,30 +16,39 @@ export function SystemCell({ value, original, overriddenAt, overriddenBy, onSave
   onSave: (qty: number | null) => Promise<void>;
 }) {
   const overridden = overriddenAt != null && value !== original;
-  const [str, setStr] = useState(value === 0 ? "" : String(value));
+  // Show a bare "0" only when it's an explicit override-to-zero; a
+  // naturally-zero suggestion stays blank so it reads as "no forecast".
+  const display = (v: number): string => (v === 0 && !(overriddenAt != null && v !== original)) ? "" : String(v);
+  const [str, setStr] = useState(display(value));
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(false);
   const focused = useRef(false);
 
   useEffect(() => {
-    if (!focused.current) setStr(value === 0 ? "" : String(value));
-  }, [value]);
+    if (!focused.current) setStr(display(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, original, overriddenAt]);
 
   async function commit(raw: string) {
     const trimmed = raw.trim();
-    // Empty / 0 = clear the override (revert to suggestion). Anything
-    // else becomes the override; we pass even "= original" as a no-op
-    // so the audit timestamp doesn't bump when the planner re-types
-    // the same value.
+    // Clearing the field = override System to 0 so Final = Buyer +
+    // Override (the planner is explicitly removing the system forecast).
+    // To restore the suggestion, re-type it — that clears the override.
     let nextOverride: number | null;
-    if (trimmed === "" || trimmed === "0") {
-      nextOverride = null;
+    if (trimmed === "") {
+      nextOverride = 0;
     } else {
       const n = Number(trimmed);
       if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) { setErr(true); focused.current = false; return; }
-      if (n === original && !overridden) { focused.current = false; return; }
       nextOverride = n;
     }
+    // Typing (or clearing to) the suggested value means "no override" —
+    // revert to the clean suggested state instead of stamping an
+    // override equal to it.
+    if (nextOverride === original) nextOverride = null;
+    // No-op when nothing actually changes (avoids a needless write +
+    // audit-timestamp bump).
+    if ((nextOverride == null && !overridden) || nextOverride === value) { focused.current = false; return; }
     setErr(false);
     setSaving(true);
     try { await onSave(nextOverride); } catch { setErr(true); } finally { setSaving(false); focused.current = false; }
@@ -52,9 +62,9 @@ export function SystemCell({ value, original, overriddenAt, overriddenBy, onSave
       const when = new Date(overriddenAt);
       if (!isNaN(when.getTime())) titleParts.push(`on ${when.toLocaleString()}`);
     }
-    titleParts.push("(empty input reverts to suggestion)");
+    titleParts.push(`(clear to zero it; re-type ${original.toLocaleString()} to restore the suggestion)`);
   } else {
-    titleParts.push(`System suggestion: ${original.toLocaleString()}. Type a value to override.`);
+    titleParts.push(`System suggestion: ${original.toLocaleString()}. Type a value to override, or clear to set 0.`);
   }
   const title = titleParts.join(" · ");
   const baseColor = err ? PAL.red : overridden ? PAL.yellow : PAL.textMuted;

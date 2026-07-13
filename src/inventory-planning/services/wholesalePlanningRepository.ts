@@ -266,6 +266,42 @@ export const wholesaleRepo = {
     }
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
   },
+
+  // Units-per-pack for every active Prepack Matrix in Tangerine, keyed
+  // by lowercased ppk_style_code. unitsPerPack = Σ qty_per_pack across
+  // the matrix's sizes — the authoritative pack size when a style's
+  // PPK token carries no digit (e.g. "RYB0412PPK"). Mirrors the
+  // server's ppkUnitsPerPackByStyle so the planning grid can convert
+  // eaches ⇄ packs consistently with the rest of the suite. Styles with
+  // no active matrix are simply absent from the map (caller warns).
+  async listPrepackUnitsPerPack(): Promise<Map<string, number>> {
+    type Matrix = { id: string; ppk_style_code: string | null };
+    type Size = { matrix_id: string; qty_per_pack: number | null };
+    const matrices = await sbGetAll<Matrix>(
+      "prepack_matrices?select=id,ppk_style_code&is_active=eq.true&ppk_style_code=not.is.null",
+    );
+    const out = new Map<string, number>();
+    if (matrices.length === 0) return out;
+    const byId = new Map(matrices.map((m) => [m.id, m] as const));
+    // Batch the size fetch by matrix id (PostgREST `in.()`), chunked to
+    // keep the URL well under length limits.
+    const ids = matrices.map((m) => m.id);
+    const unitsByMatrix = new Map<string, number>();
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const list = chunk.map((id) => `"${id}"`).join(",");
+      const sizes = await sbGetAll<Size>(`prepack_matrix_sizes?select=matrix_id,qty_per_pack&matrix_id=in.(${list})`);
+      for (const s of sizes) {
+        const q = Number(s.qty_per_pack) || 0;
+        if (q > 0) unitsByMatrix.set(s.matrix_id, (unitsByMatrix.get(s.matrix_id) ?? 0) + q);
+      }
+    }
+    for (const [id, units] of unitsByMatrix) {
+      const m = byId.get(id);
+      if (m?.ppk_style_code && units > 0) out.set(m.ppk_style_code.trim().toLowerCase(), units);
+    }
+    return out;
+  },
   async listItems(): Promise<IpItem[]> {
     // Cursor pagination (sku_code > last) instead of OFFSET. Deep
     // OFFSET on a 10k+ row table forces the planner to read+skip

@@ -77,6 +77,31 @@ export function ppkMultiplier(
   );
 }
 
+/** True when any of the given fields carries a "PPK" token — the identity
+ *  signal that a row is a prepack, regardless of whether a pack SIZE could be
+ *  resolved. Used to decide when a missing pack size warrants a warning. */
+export function looksPpk(...fields: Array<string | null | undefined>): boolean {
+  return fields.some((f) => !!f && /PPK/i.test(f));
+}
+
+/** Resolve the units-per-pack, preferring the SKU/size-encoded "PPKn" token
+ *  and falling back to Tangerine's Prepack Matrix (Σ qty_per_pack) keyed by
+ *  lowercased style_code. Returns 1 when neither yields a size > 1 — callers
+ *  pair this with `looksPpk(...)` to warn on unresolved prepacks. */
+export function resolvePackSize(
+  tokenMult: number,
+  style: string | null | undefined,
+  matrixUnitsByStyleLower: Map<string, number>,
+): number {
+  if (tokenMult > 1) return tokenMult;
+  const key = style?.trim().toLowerCase();
+  if (key) {
+    const u = matrixUnitsByStyleLower.get(key);
+    if (u && u > 1) return u;
+  }
+  return 1;
+}
+
 /** Convenience for ATS-shape rows where SKU and description are the
  *  only fields likely to carry the PPK token. SKU is the canonical
  *  place we'd see "PPK" since the parser folds color into the SKU

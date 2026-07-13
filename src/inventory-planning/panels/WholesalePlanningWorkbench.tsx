@@ -101,6 +101,11 @@ export default function WholesalePlanningWorkbench() {
   // Distinct (style_code, group_name, sub_category_name) tuples from
   // the master. Drives the TBD style picker's category-wide list.
   const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>>([]);
+  // Units-per-pack for PPK styles from Tangerine's Prepack Matrix, keyed by
+  // lowercased style_code. Supplements the SKU/size "PPKn" token so a
+  // digit-less prepack style (e.g. RYB0412PPK) still converts eaches ⇄ packs
+  // when Explode PPK is off. Styles absent here + with no token get a warning.
+  const [ppkUnitsByStyle, setPpkUnitsByStyle] = useState<Map<string, number>>(new Map());
   const [requests, setRequests] = useState<IpFutureDemandRequest[]>([]);
   const [rows, setRows] = useState<IpPlanningGridRow[]>([]);
   const [overrides, setOverrides] = useState<IpPlannerOverride[]>([]);
@@ -235,7 +240,7 @@ export default function WholesalePlanningWorkbench() {
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? null, [runs, selectedRunId]);
 
   const loadMasters = useCallback(async () => {
-    const [cs, cats, its, reqs, rs, mcl, mst, mcs] = await Promise.all([
+    const [cs, cats, its, reqs, rs, mcl, mst, mcs, ppk] = await Promise.all([
       wholesaleRepo.listCustomers(),
       wholesaleRepo.listCategories(),
       wholesaleRepo.listItems(),
@@ -247,6 +252,7 @@ export default function WholesalePlanningWorkbench() {
       wholesaleRepo.listMasterColorsLower(),
       wholesaleRepo.listMasterStyles(),
       wholesaleRepo.listMasterColorsByStyleLower(),
+      wholesaleRepo.listPrepackUnitsPerPack(),
     ]);
     setCustomers(cs);
     setCategories(cats);
@@ -255,6 +261,7 @@ export default function WholesalePlanningWorkbench() {
     setMasterColorsLower(mcl);
     setMasterStyles(mst);
     setMasterColorsByStyleLower(mcs);
+    setPpkUnitsByStyle(ppk);
     setRuns(rs);
     // If the persisted run no longer exists in the fetched list,
     // drop the stale id so the fallback runs and the planner doesn't
@@ -2380,6 +2387,7 @@ export default function WholesalePlanningWorkbench() {
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}
+              ppkUnitsByStyle={ppkUnitsByStyle}
               masterCustomers={customers}
               onFiltersChange={setBuildFilter}
               bucketBuys={bucketBuys}

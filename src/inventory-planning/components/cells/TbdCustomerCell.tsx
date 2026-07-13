@@ -11,6 +11,7 @@
 // onAddNew is wired (the cell stays read-only-with-search).
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { S, PAL } from "../styles";
 
 export function TbdCustomerCell({
@@ -35,16 +36,46 @@ export function TbdCustomerCell({
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // The menu renders in a portal on document.body with FIXED positioning so
+  // the grid's horizontal-scroll overflow can't clip it (it was rendering
+  // behind later rows). Position is anchored to the trigger's rect and
+  // recomputed on scroll/resize; it flips above the cell when there's more
+  // room up top (rows near the viewport bottom).
+  const [menuPos, setMenuPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setMenuPos(null); return; }
+    function reposition() {
+      const el = triggerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      const openUp = spaceBelow < 260 && spaceAbove > spaceBelow;
+      const maxHeight = Math.max(160, Math.min(360, (openUp ? spaceAbove : spaceBelow) - 12));
+      setMenuPos(openUp
+        ? { left: r.left, bottom: window.innerHeight - r.top + 4, maxHeight }
+        : { left: r.left, top: r.bottom + 4, maxHeight });
+    }
+    reposition();
+    // Capture-phase scroll catches scrolling of the inner grid container too
+    // (scroll events don't bubble), so the menu tracks the cell.
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
     function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
     return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKey);
     };
@@ -85,6 +116,7 @@ export function TbdCustomerCell({
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{
@@ -113,18 +145,20 @@ export function TbdCustomerCell({
         )}
         <span style={{ color: PAL.textMuted, fontSize: 9 }}>▾</span>
       </button>
-      {open && (
+      {open && menuPos && createPortal(
         <div
+          ref={menuRef}
           style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 60,
+            position: "fixed",
+            top: menuPos.top,
+            bottom: menuPos.bottom,
+            left: menuPos.left,
+            zIndex: 4000,
             background: PAL.panel,
             border: `1px solid ${PAL.border}`,
             borderRadius: 8,
             minWidth: 260,
-            maxHeight: 360,
+            maxHeight: menuPos.maxHeight,
             overflowY: "auto",
             boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
           }}
@@ -198,7 +232,8 @@ export function TbdCustomerCell({
               <span style={{ background: PAL.yellow, color: "#000", borderRadius: 3, padding: "0 4px", fontSize: 9, fontWeight: 700 }}>NEW</span>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

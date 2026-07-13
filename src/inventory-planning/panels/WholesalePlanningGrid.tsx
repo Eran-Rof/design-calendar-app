@@ -4,7 +4,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ppkMultiplier } from "../../shared/prepack";
+import { ppkMultiplier, resolvePackSize, looksPpk } from "../../shared/prepack";
 import { useArrowKeyScroll } from "../../shared/grid/useArrowKeyScroll";
 import { GridScrollbarStyles } from "../../shared/grid/GridScrollbarStyles";
 import type { IpPlanningGridRow } from "../types/wholesale";
@@ -66,6 +66,10 @@ import type {
   SummaryCtxMenu,
 } from "../../ats/types";
 
+// Stable empty fallback for the optional ppkUnitsByStyle prop so the per-row
+// resolvePackSize() call doesn't allocate a fresh Map every render.
+const EMPTY_PACK_MAP: Map<string, number> = new Map();
+
 export interface WholesalePlanningGridProps {
   rows: IpPlanningGridRow[];
   // Active planning run's horizon. Used to seed the Period filter
@@ -122,6 +126,10 @@ export interface WholesalePlanningGridProps {
   // master. Drives the TBD style picker's category-wide list AND lets
   // the Category / Sub Cat filters populate before a build.
   masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
+  // Units-per-pack per PPK style_code (lowercased) from Tangerine's Prepack
+  // Matrix. Supplements the SKU/size "PPKn" token when resolving the pack size
+  // for the Explode-PPK eaches ⇄ packs conversion.
+  ppkUnitsByStyle?: Map<string, number>;
   // Full customer master (id + name). Seeds the Customer filter so it's
   // usable before a build — without it the dropdown was empty until the
   // run's forecast was built (rows are the only other source).
@@ -237,7 +245,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -845,34 +853,62 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     // divide them by n to get per-unit cost. Demand fields (forecast
     // / buyer / override) and planned_buy_qty are entered in selling
     // units already and stay unchanged.
+    const packMap = ppkUnitsByStyle ?? new Map<string, number>();
     const expanded = base.map((r) => {
-      // EXPLODE PPK toggle off → skip the multiplier entirely so
-      // supply qtys stay in pack grain and costs stay per-pack.
-      if (!explodePpk) return r;
-      const mult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style);
-      if (mult === 1) return r;
-      const divCost = (c: number | null | undefined): number | null => {
-        if (c == null) return c ?? null;
-        return c / mult;
-      };
-      // unit_cost may be a planner-entered override (already in unit
-      // terms) OR derived from the master's pack-cost. Only divide
-      // when there's no override — preserves overrides as-is.
-      const unit_cost = r.unit_cost_override != null
-        ? r.unit_cost
-        : divCost(r.unit_cost);
+      // Resolve units-per-pack from the SKU/size "PPKn" token first, then
+      // Tangerine's Prepack Matrix (digit-less styles like RYB0412PPK). 1 = not
+      // a prepack (or unresolved — handled below).
+      const tokenMult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style, r.sku_code);
+      const mult = resolvePackSize(tokenMult, r.sku_style ?? r.sku_code, packMap);
+      if (mult <= 1) return r;
+      if (explodePpk) {
+        // Explode ON → everything in selling units (eaches). Supply is Xoro-
+        // native pack grain, so multiply it up; costs are per-pack, so divide.
+        // Demand + Buy are already entered in eaches, so they pass through.
+        const divCost = (c: number | null | undefined): number | null => {
+          if (c == null) return c ?? null;
+          return c / mult;
+        };
+        // unit_cost may be a planner-entered override (already in unit terms)
+        // OR derived from the master's pack-cost. Only divide when there's no
+        // override — preserves overrides as-is.
+        const unit_cost = r.unit_cost_override != null ? r.unit_cost : divCost(r.unit_cost);
+        return {
+          ...r,
+          on_hand_qty: r.on_hand_qty == null ? r.on_hand_qty : r.on_hand_qty * mult,
+          on_so_qty: r.on_so_qty * mult,
+          on_po_qty: r.on_po_qty == null ? r.on_po_qty : r.on_po_qty * mult,
+          receipts_due_qty: r.receipts_due_qty == null ? r.receipts_due_qty : r.receipts_due_qty * mult,
+          historical_receipts_qty: r.historical_receipts_qty == null ? r.historical_receipts_qty : r.historical_receipts_qty * mult,
+          available_supply_qty: r.available_supply_qty * mult,
+          avg_cost: divCost(r.avg_cost),
+          ats_avg_cost: divCost(r.ats_avg_cost),
+          item_cost: divCost(r.item_cost),
+          unit_cost,
+        };
+      }
+      // Explode OFF → everything in PACK grain. Supply + costs are already
+      // Xoro-native packs, so they pass through. Demand + Buy + demand-history
+      // are stored in eaches, so divide them down to packs for display (round-
+      // to-pack on entry keeps these whole; a stray remainder rounds to the
+      // nearest pack). system_forecast_qty_original is divided too so the
+      // System cell's override math (value vs. original) stays in one grain.
+      const toPacks = (q: number | null | undefined): number => q == null ? 0 : Math.round(q / mult);
+      const toPacksN = (q: number | null | undefined): number | null => q == null ? q ?? null : Math.round(q / mult);
+      const system_forecast_qty = toPacks(r.system_forecast_qty);
+      const buyer_request_qty = toPacks(r.buyer_request_qty);
+      const override_qty = toPacks(r.override_qty);
       return {
         ...r,
-        on_hand_qty: r.on_hand_qty == null ? r.on_hand_qty : r.on_hand_qty * mult,
-        on_so_qty: r.on_so_qty * mult,
-        on_po_qty: r.on_po_qty == null ? r.on_po_qty : r.on_po_qty * mult,
-        receipts_due_qty: r.receipts_due_qty == null ? r.receipts_due_qty : r.receipts_due_qty * mult,
-        historical_receipts_qty: r.historical_receipts_qty == null ? r.historical_receipts_qty : r.historical_receipts_qty * mult,
-        available_supply_qty: r.available_supply_qty * mult,
-        avg_cost: divCost(r.avg_cost),
-        ats_avg_cost: divCost(r.ats_avg_cost),
-        item_cost: divCost(r.item_cost),
-        unit_cost,
+        system_forecast_qty,
+        system_forecast_qty_original: toPacks(r.system_forecast_qty_original),
+        buyer_request_qty,
+        override_qty,
+        final_forecast_qty: Math.max(0, system_forecast_qty + buyer_request_qty + override_qty),
+        planned_buy_qty: toPacksN(r.planned_buy_qty),
+        recommended_qty: toPacksN(r.recommended_qty),
+        historical_trailing_qty: toPacksN(r.historical_trailing_qty),
+        ly_reference_qty: toPacksN(r.ly_reference_qty),
       };
     });
     return systemSuggestionsOn ? expanded : expanded.map((r) => ({
@@ -880,7 +916,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
+  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk, ppkUnitsByStyle]);
 
   // Bulk "Copy Final → Buy": set Buy = Final for every row currently in view
   // (i.e. matching the active filters/search), so the planner can seed the buy
@@ -2768,6 +2804,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             {displayRows.slice(page * pageSize, (page + 1) * pageSize).map((r) => {
               const aggExpansionKey = r.aggregate_key ?? r.forecast_id;
               const rowKey = (r as IpPlanningGridRow & { _displayKey?: string })._displayKey ?? r.forecast_id;
+              // Pack context for the eaches ⇄ packs conversion on save + the
+              // unresolved-prepack warning. packSize resolves the SKU/size
+              // "PPKn" token first, then Tangerine's Prepack Matrix.
+              const rowTokenMult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style, r.sku_code);
+              const rowPackSize = resolvePackSize(rowTokenMult, r.sku_style ?? r.sku_code, ppkUnitsByStyle ?? EMPTY_PACK_MAP);
+              const rowPpkUnresolved = looksPpk(r.sku_code, r.sku_style, r.sku_size) && rowPackSize <= 1;
               return (
                 <PlanningGridRow
                   key={rowKey}
@@ -2775,6 +2817,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   isChild={childIds.has(r.forecast_id)}
                   isExpanded={!!(r.is_aggregate && expandedAggs.has(aggExpansionKey))}
                   aggExpansionKey={aggExpansionKey}
+                  explodePpk={explodePpk}
+                  packSize={rowPackSize}
+                  ppkUnresolved={rowPpkUnresolved}
                   rows={rows}
                   masterStyles={masterStyles}
                   masterColorsLower={masterColorsLower}
