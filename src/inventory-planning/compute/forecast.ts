@@ -264,19 +264,29 @@ export function buildWholesaleBaselineForecast(
   const horizon = monthsBetween(input.horizon_start, input.horizon_end);
   if (horizon.length === 0) return [];
 
-  // Cache baselines per pair — the baseline is horizon-independent in MVP
-  // (we assign the same qty to every month of the horizon). A seasonality
-  // layer is Phase 2 territory.
+  // Cache the method decision + waterfall baseline per pair (this part IS
+  // horizon-independent: which method wins, and the fallback qty for non-LY
+  // methods). The LY-derived numbers below are computed PER horizon month.
   const baselineCache = new Map<string, PairBaselineResult>();
   const out: IpForecastComputeOutput[] = [];
 
-  // LY reference is shown in the grid's HIST LY column for every row,
-  // not only when ly_sales wins the method race — planners use it as a
-  // diagnostic ("what did this pair do same period last year?") even
-  // when forecasting on trailing avg or cadence. baselineForPairLy is
-  // gated on method preference inside baselineForPair, so we compute
-  // it again unconditionally here and cache by pair.
-  const lyCache = new Map<string, number | null>();
+  // Exact (customer, sku) sales by calendar month. Drives a period-specific
+  // "same period last year": for horizon month M we look up the actual sales
+  // in month M−12. Previously the LY value was computed ONCE from the snapshot
+  // month and repeated across every horizon month — so a Dec horizon row and a
+  // Jan horizon row showed the SAME SP/LY (and the same ly_sales forecast),
+  // which is wrong for any seasonal style. qty here is already unit-grain
+  // (service maps qty_units ?? qty into history.qty).
+  const histByPairMonth = new Map<string, number>();
+  for (const h of input.history) {
+    const mk = `${h.customer_id}:${h.sku_id}:${monthOf(h.txn_date).period_code}`;
+    histByPairMonth.set(mk, (histByPairMonth.get(mk) ?? 0) + h.qty);
+  }
+  const lyForPeriod = (customerId: string, skuId: string, periodStart: string): number => {
+    // 12 months before this horizon month = the same month one year prior.
+    const lyCode = monthOffset(periodStart, 12).period_code;
+    return histByPairMonth.get(`${customerId}:${skuId}:${lyCode}`) ?? 0;
+  };
 
   for (const pair of input.pairs) {
     const key = `${pair.customer_id}:${pair.sku_id}`;
@@ -285,18 +295,16 @@ export function buildWholesaleBaselineForecast(
       baseline = baselineForPair(input, pair.customer_id, pair.sku_id, pair.category_id, input.methodPreference);
       baselineCache.set(key, baseline);
     }
-
-    let lyRef = lyCache.get(key);
-    if (lyRef === undefined) {
-      lyRef = baseline.ly_reference_qty ?? null;
-      if (lyRef == null) {
-        const ly = baselineForPairLy(input.history, input.source_snapshot_date, pair.customer_id, pair.sku_id);
-        lyRef = ly?.ly_reference_qty ?? null;
-      }
-      lyCache.set(key, lyRef);
-    }
+    // When ly_sales is the winning method the forecast IS the same-period-LY,
+    // so it must be period-specific too (Dec forecasts last Dec, Jan last Jan).
+    // Other methods (trailing avg / cadence / fallbacks) keep their flat rate.
+    const useLyPerPeriod = baseline.method === "ly_sales";
 
     for (const period of horizon) {
+      // SP/LY column: always the exact same-month-last-year actuals, for every
+      // row, regardless of which method won — it's a diagnostic.
+      const lyThisPeriod = lyForPeriod(pair.customer_id, pair.sku_id, period.period_start);
+      const sysQty = useLyPerPeriod ? lyThisPeriod : baseline.qty;
       out.push({
         planning_run_id: input.planning_run_id,
         customer_id: pair.customer_id,
@@ -305,14 +313,14 @@ export function buildWholesaleBaselineForecast(
         period_start: period.period_start,
         period_end: period.period_end,
         period_code: period.period_code,
-        system_forecast_qty: baseline.qty,
+        system_forecast_qty: sysQty,
         buyer_request_qty: 0,
         override_qty: 0,
-        final_forecast_qty: baseline.qty,
+        final_forecast_qty: sysQty,
         confidence_level: baseline.confidence,
         forecast_method: baseline.method,
         history_months_used: baseline.history_months_used,
-        ly_reference_qty: lyRef,
+        ly_reference_qty: lyThisPeriod,
         // Margin is computed in wholesaleForecastService — it needs the
         // raw sales rows (with margin_amount + net_amount), which this
         // pure compute layer doesn't see. Service post-processes the
