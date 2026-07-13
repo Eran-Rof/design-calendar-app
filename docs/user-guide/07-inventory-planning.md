@@ -118,6 +118,8 @@ Some buys aren't tied to a known style yet — you're buying ahead into stock. T
 
 A row whose style isn't yet in the item master shows an amber **NEW** badge; it auto-clears once a future build sees that style in the master.
 
+> **+ Add row** creates TBD rows in bulk. **Customers**, **Periods**, and now **Colors** are all multi-select — each combination becomes its own row. Pick your color(s) with the color picker (existing colorways or type a brand-new one, added as a removable chip); pick the customers and periods; the confirm step tells you exactly how many rows will be created (customers × periods × colors). Leave colors empty for a single **TBD**-color row.
+
 ### Future demand requests
 
 The second tab on the Wholesale screen, **Future demand requests**, is where buyer-submitted future demand lives (with its own per-category sales-history readout). Applied requests fold into the next build and the build toast tells you how many were marked applied.
