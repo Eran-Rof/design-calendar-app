@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractPpk, ppkMultiplier, ppkMultiplierForAts,
   packTotal, explodePacks, packsToUnits,
+  looksPpk, resolvePackSize,
 } from "../index";
 
 const PPK24 = [
@@ -185,5 +186,35 @@ describe("packsToUnits", () => {
   it("non-positive → 0", () => {
     expect(packsToUnits(0, PPK24)).toBe(0);
     expect(packsToUnits(-1, PPK24)).toBe(0);
+  });
+});
+
+describe("looksPpk", () => {
+  it("true when any field carries a PPK token (digit or not)", () => {
+    expect(looksPpk("RYB0412PPK", null)).toBe(true);      // digit-less style
+    expect(looksPpk(null, "PPK24")).toBe(true);
+    expect(looksPpk(null, null, "TECH PPK")).toBe(true);
+  });
+  it("false when no field mentions PPK", () => {
+    expect(looksPpk("RYB0412", "Black", "30")).toBe(false);
+    expect(looksPpk(null, undefined)).toBe(false);
+  });
+});
+
+describe("resolvePackSize", () => {
+  const matrix = new Map<string, number>([["ryb0412ppk", 24], ["abc123ppk", 12]]);
+  it("prefers the token multiplier when > 1", () => {
+    // Numbered PPK: the token already resolved to 24, matrix not consulted.
+    expect(resolvePackSize(24, "PPK24-STYLE", matrix)).toBe(24);
+  });
+  it("falls back to the Tangerine matrix for a digit-less PPK style", () => {
+    // ppkMultiplier returns 1 for "RYB0412PPK" (no digits) → matrix supplies 24.
+    expect(resolvePackSize(1, "RYB0412PPK", matrix)).toBe(24);
+    expect(resolvePackSize(1, "ryb0412ppk", matrix)).toBe(24); // case-insensitive
+  });
+  it("returns 1 when neither token nor matrix resolves (unresolved prepack)", () => {
+    expect(resolvePackSize(1, "RYB9999PPK", matrix)).toBe(1);
+    expect(resolvePackSize(1, null, matrix)).toBe(1);
+    expect(resolvePackSize(1, "NONPPK", new Map())).toBe(1);
   });
 });

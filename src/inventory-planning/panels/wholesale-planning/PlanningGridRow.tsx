@@ -27,7 +27,6 @@ import { TbdDescriptionCell } from "../../components/cells/TbdDescriptionCell";
 import { TbdCustomerCell } from "../../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../../components/cells/TbdColorCell";
 import { buildStyleCellContext, buildColorCellContext, type MasterStyle } from "./tbdRowHelpers";
-import { ppkMultiplier } from "../../../shared/prepack";
 
 // `StatCell` is imported only to satisfy a stray reference in the old
 // JSX in case it gets revived; remove if still unused after merge.
@@ -43,6 +42,18 @@ export interface PlanningGridRowProps {
   isExpanded: boolean;
   /** Pre-computed inside the parent map (aggregate_key ?? forecast_id). */
   aggExpansionKey: string;
+
+  /** Explode-PPK toggle state. When OFF, the editable qty cells display + accept
+   *  PACK counts, so a typed value is multiplied back to eaches on save. */
+  explodePpk: boolean;
+  /** Units-per-pack for this row, resolved by the parent from the SKU/size
+   *  "PPKn" token first, then Tangerine's Prepack Matrix. 1 = not a prepack (or
+   *  unresolved). Drives round-to-pack and the packs ⇄ eaches save conversion. */
+  packSize: number;
+  /** True when the row is a prepack (carries a PPK token) but no pack size could
+   *  be resolved from the token OR Tangerine's matrix — surfaces a ⚠ warning so
+   *  the planner sets up the Prepack Matrix in Tangerine. */
+  ppkUnresolved: boolean;
 
   /** Master + planner-added reference data. */
   rows: IpPlanningGridRow[];
@@ -98,6 +109,9 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
     isChild,
     isExpanded,
     aggExpansionKey,
+    explodePpk,
+    packSize,
+    ppkUnresolved,
     rows,
     masterStyles,
     masterColorsLower,
@@ -132,16 +146,22 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
 
-  // PPK styles are bought/planned in whole packs, so a demand or buy quantity
-  // entered in eaches is rounded UP to the next full pack on commit — e.g. a
-  // PPK-24 style: 1,190 → 1,200 (50 packs). Non-PPK rows have packSize 1 and
-  // pass through untouched. Applied to the System / Buyer / Override / Buy
-  // cells (see their onSave wrappers below).
-  const packSize = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style, r.sku_code);
+  // PPK styles are bought/planned in whole packs. `packSize` (units per pack)
+  // is resolved by the parent from the SKU/size "PPKn" token first, then
+  // Tangerine's Prepack Matrix. Non-PPK rows have packSize 1 and pass through.
   const roundToPack = (qty: number | null): number | null => {
     if (packSize <= 1 || qty == null || qty === 0) return qty;
     const sign = qty < 0 ? -1 : 1;
     return sign * Math.ceil(Math.abs(qty) / packSize) * packSize;
+  };
+  // Turn an edited cell value into the STORED eaches quantity. When Explode is
+  // OFF the cell is in PACK grain, so the typed value is multiplied back up to
+  // eaches; when ON the value is already eaches and is rounded UP to a whole
+  // pack (PPK-24: 1,190 → 1,200). Applied to System / Buyer / Override / Buy.
+  const toStoredEaches = (typed: number | null): number | null => {
+    if (typed == null) return null;
+    if (!explodePpk && packSize > 1) return typed * packSize; // packs → eaches
+    return roundToPack(typed);
   };
 
   // Aggregate row visual treatment — distinctly tinted from the panel
@@ -213,6 +233,12 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           );
         })() : (
           r.sku_style ?? r.sku_code
+        )}
+        {ppkUnresolved && !r.is_aggregate && (
+          <span
+            style={{ marginLeft: 6, color: PAL.yellow, cursor: "help", fontSize: 12 }}
+            title="Prepack style with no pack size — its Prepack Matrix isn't set up in Tangerine and the SKU carries no PPKn count. Quantities can't convert to packs when Explode PPK is off. Set up the Prepack Matrix in Tangerine, or encode the count in the SKU (e.g. PPK24)."
+          >⚠</span>
         )}
       </td>
       <td
@@ -384,7 +410,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
             original={r.system_forecast_qty_original}
             overriddenAt={r.system_forecast_qty_overridden_at}
             overriddenBy={r.system_forecast_qty_overridden_by}
-            onSave={(qty) => onUpdateSystemOverride(r.forecast_id, roundToPack(qty))}
+            onSave={(qty) => onUpdateSystemOverride(r.forecast_id, toStoredEaches(qty))}
           />
         )}
       </td>
@@ -393,7 +419,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           value={r.buyer_request_qty}
           accent={PAL.accent}
           allowNegative={false}
-          onSave={(qty) => saveAggBuyerOrOverride(r, roundToPack(qty) ?? 0, "buyer_request_qty", onUpdateBuyerRequest, false)}
+          onSave={(qty) => saveAggBuyerOrOverride(r, toStoredEaches(qty) ?? 0, "buyer_request_qty", onUpdateBuyerRequest, false)}
         />
       </td>
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("override") }} onClick={(e) => e.stopPropagation()}>
@@ -401,7 +427,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
           value={r.override_qty}
           accent={PAL.yellow}
           allowNegative={true}
-          onSave={(qty) => saveAggBuyerOrOverride(r, roundToPack(qty) ?? 0, "override_qty", onUpdateOverride, true)}
+          onSave={(qty) => saveAggBuyerOrOverride(r, toStoredEaches(qty) ?? 0, "override_qty", onUpdateOverride, true)}
         />
       </td>
       <td style={{ ...S.tdNum, color: PAL.green, fontWeight: 700, ...colHide("final") }}>
@@ -445,7 +471,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("buy") }} onClick={(e) => e.stopPropagation()}>
         <BuyCell
           value={r.planned_buy_qty}
-          onSave={(qty) => saveAggBuy(r, roundToPack(qty))}
+          onSave={(qty) => saveAggBuy(r, toStoredEaches(qty))}
         />
       </td>
       <td style={{ ...S.tdNum, color: r.avg_cost ? PAL.text : PAL.textMuted, fontFamily: "monospace", ...colHide("avgCost") }}>

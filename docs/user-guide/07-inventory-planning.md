@@ -103,11 +103,13 @@ Each row is a customer × style × color × period demand line. Columns can be s
 
 **Editing cells:**
 
-- **System** — type a whole number to override the suggestion; the cell turns yellow + italic and remembers who changed it from what (hover for the audit note). **Clear the box (or type 0)** to revert to the system suggestion.
+- **System** — type a whole number to override the suggestion; the cell turns yellow + italic and remembers who changed it from what (hover for the audit note). **Clearing the box sets System to 0** (so **Final** drops to Buyer + Override) — use this when you want to remove the system forecast from a row. To bring the suggestion back, **re-type the suggested number** (the tooltip always shows it).
 - **Buy** — type a planned buy quantity (comma-formatted when idle, e.g. "10,000"). Clearing it removes the planned buy. To seed the whole plan at once, use **Copy Final → Buy** (above the grid): it sets Buy = Final forecast for every row currently in view (matching your filters/search), so you can start from the forecast and adjust from there. It only touches rows in view and asks to confirm the count first.
 - **Unit Cost** — click the cell, type a cost, Enter to commit / Esc to cancel.
 
-> **Prepack (PPK) styles round up to full packs.** On a PPK style, any quantity you type into **System / Buyer / Override / Buy** is rounded **up to the next whole pack** when you commit it (Tab / Enter / click out) — e.g. on a **PPK-24** style, entering **1,190** becomes **1,200** (50 packs). This keeps the plan orderable in whole prepacks. Non-prepack styles are left exactly as typed.
+> **Prepack (PPK) styles round up to full packs.** On a PPK style, any quantity you type into **System / Buyer / Override / Buy** is rounded **up to the next whole pack** when you commit it (Tab / Enter / click out) — e.g. on a **PPK-24** style, entering **1,190** becomes **1,200** (50 packs). This keeps the plan orderable in whole prepacks. Non-prepack styles are left exactly as typed. The pack size comes from the SKU/size **PPKn** token when present, otherwise from the style's **Prepack Matrix in Tangerine** — so digit-less styles like `RYB0412PPK` round up too. A **⚠** on a PPK style means no pack size could be found (no `PPKn` token and no Prepack Matrix in Tangerine); set up its matrix in Tangerine to enable pack rounding + conversion.
+
+> **Explode PPK toggle (packs vs. eaches).** The **Explode PPK** button above the grid switches the whole grid between two grains. **ON** (default) shows everything in **selling units (eaches)**. **OFF** shows everything in **pack grain**: supply, demand, Buy and demand-history all read as **pack counts**, and the demand/Buy cells are **editable in packs** — type **50** on a PPK-24 row and it stores **1,200** eaches (50 × 24). Flip the toggle any time; a value entered as 1,200 eaches with Explode ON shows as 50 with Explode OFF.
 
 > Overrides are remembered per row. A normal **Rebuild (preserve edits)** keeps your Buyer / Override / Buy / Unit Cost edits on rows that get recomputed. Only a **Wipe + rebuild** discards them (see below).
 
