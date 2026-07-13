@@ -104,7 +104,7 @@ Each row is a customer × style × color × period demand line. Columns can be s
 **Editing cells:**
 
 - **System** — type a whole number to override the suggestion; the cell turns yellow + italic and remembers who changed it from what (hover for the audit note). **Clear the box (or type 0)** to revert to the system suggestion.
-- **Buy** — type a planned buy quantity (comma-formatted when idle, e.g. "10,000"). Clearing it removes the planned buy.
+- **Buy** — type a planned buy quantity (comma-formatted when idle, e.g. "10,000"). Clearing it removes the planned buy. To seed the whole plan at once, use **Copy Final → Buy** (above the grid): it sets Buy = Final forecast for every row currently in view (matching your filters/search), so you can start from the forecast and adjust from there. It only touches rows in view and asks to confirm the count first.
 - **Unit Cost** — click the cell, type a cost, Enter to commit / Esc to cancel.
 
 > Overrides are remembered per row. A normal **Rebuild (preserve edits)** keeps your Buyer / Override / Buy / Unit Cost edits on rows that get recomputed. Only a **Wipe + rebuild** discards them (see below).

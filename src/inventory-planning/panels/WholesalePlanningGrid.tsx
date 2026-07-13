@@ -302,6 +302,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     try { const v = Number(localStorage.getItem("ws_planning_trailing_window")); return [3, 6, 9, 12].includes(v) ? v : 3; } catch { return 3; }
   });
   useEffect(() => { try { localStorage.setItem("ws_planning_trailing_window", String(trailingWindow)); } catch { /* ignore */ } }, [trailingWindow]);
+  // Busy flag for the "Copy Final → Buy" bulk action.
+  const [copyingBuy, setCopyingBuy] = useState(false);
   // EXPLODE PPK toggle. When ON (default), supply-side qtys for
   // prepack rows are multiplied by units-per-pack (e.g. 5 packs of
   // PPK24 → 120 units) so the grid reads in selling units. When
@@ -873,6 +875,35 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
   }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk]);
+
+  // Bulk "Copy Final → Buy": set Buy = Final for every row currently in view
+  // (i.e. matching the active filters/search), so the planner can seed the buy
+  // plan from the forecast in one click instead of typing each cell. Scoped to
+  // mutedRows (the filtered base rows, pre-aggregation) and batched to avoid a
+  // thundering herd of PATCHes. Only rows whose Buy differs from Final are sent.
+  async function copyFinalToBuy() {
+    if (copyingBuy) return;
+    const targets = mutedRows.filter((r) => r.forecast_id && (r.final_forecast_qty ?? 0) !== (r.planned_buy_qty ?? 0));
+    if (targets.length === 0) {
+      await askConfirm("Nothing to copy", "Every row in view already has Buy equal to its Final forecast.", "OK");
+      return;
+    }
+    const ok = await askConfirm(
+      `Copy Final → Buy for ${targets.length.toLocaleString()} row${targets.length === 1 ? "" : "s"}?`,
+      `Sets Buy = Final forecast for the ${targets.length.toLocaleString()} row${targets.length === 1 ? "" : "s"} currently in view (matching your filters/search). This overwrites any Buy you've already typed on those rows; you can still edit individual Buy cells afterwards.`,
+      "Copy Final → Buy",
+    );
+    if (!ok) return;
+    setCopyingBuy(true);
+    try {
+      for (let i = 0; i < targets.length; i += 25) {
+        const chunk = targets.slice(i, i + 25);
+        await Promise.all(chunk.map((r) => onUpdateBuyQty(r.forecast_id, r.final_forecast_qty)));
+      }
+    } finally {
+      setCopyingBuy(false);
+    }
+  }
 
   // Notify the workbench when the visible (filter+mute) row set changes
   // so MonthlyTotalsCards uses the same subset (drives the top FINAL
@@ -2241,6 +2272,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             >T{w}</button>
           ))}
         </div>
+        {/* Bulk seed: set Buy = Final forecast for every row in view. */}
+        <button
+          type="button"
+          onClick={() => { void copyFinalToBuy(); }}
+          disabled={copyingBuy}
+          title="Set Buy = Final forecast for every row currently in view (matching your filters). You can still edit individual Buy cells afterwards."
+          style={{
+            background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
+            borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: copyingBuy ? "wait" : "pointer",
+            fontFamily: "inherit", opacity: copyingBuy ? 0.6 : 1,
+          }}
+        >{copyingBuy ? "Copying…" : "Copy Final → Buy"}</button>
         {/* Freeze through column. Pins the chosen column + everything
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
