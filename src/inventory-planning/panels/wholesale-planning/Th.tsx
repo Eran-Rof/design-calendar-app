@@ -9,12 +9,14 @@
 // columns as parents. Each sorted column shows its direction (▲/▼) and, when
 // more than one column is sorted, its priority number (1 = parent).
 
-import { S, PAL } from "../../components/styles";
+import { S, PAL, formatQty } from "../../components/styles";
 import type { SortKey, SortEntry } from "./types";
 
-export function Th({ label, k, sortStack, onSort, numeric, tint, title, hidden, widths }: {
+export function Th({ label, k, sortStack, onSort, numeric, tint, title, hidden, widths, total }: {
   label: string; k: SortKey; sortStack: SortEntry[];
   onSort: (k: SortKey, additive: boolean) => void; numeric?: boolean; tint?: string; title?: string; hidden?: boolean;
+  // When set (column-totals toggle on), a sum shown under the header label.
+  total?: number | null;
   // Per-column widths computed by the grid component from the current
   // displayRows content set. Drives the freeze-through-column CSS
   // offsets too (see the IIFE that emits the sticky-left style block).
@@ -46,6 +48,12 @@ export function Th({ label, k, sortStack, onSort, numeric, tint, title, hidden, 
     >
       {label}{active ? ` ${arrow}` : ""}
       {badge ? <sup style={{ fontSize: 9, color: PAL.accent, marginLeft: 1 }}>{badge}</sup> : ""}
+      {total != null && (
+        <div
+          title="Total across the rows currently in view"
+          style={{ fontSize: 11, fontWeight: 700, color: PAL.accent, marginTop: 2, fontFamily: "monospace" }}
+        >{formatQty(total)}</div>
+      )}
     </th>
   );
 }

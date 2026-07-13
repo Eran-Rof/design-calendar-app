@@ -307,6 +307,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   useEffect(() => { try { localStorage.setItem("ws_planning_trailing_window", String(trailingWindow)); } catch { /* ignore */ } }, [trailingWindow]);
   // Busy flag for the "Copy Final → Buy" bulk action.
   const [copyingBuy, setCopyingBuy] = useState(false);
+  // Column-totals header row — sums each numeric column across the rows in
+  // view, shown under the header labels. Persisted; off by default.
+  const [showColumnTotals, setShowColumnTotals] = usePersistedBool("showColumnTotals", false);
   // EXPLODE PPK toggle. When ON (default), supply-side qtys for
   // prepack rows are multiplied by units-per-pack (e.g. 5 packs of
   // PPK24 → 120 units) so the grid reads in selling units. When
@@ -1664,6 +1667,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
 
   // computeTotals moved to ./wholesale-planning/computeTotals (tested).
   const totals = useMemo(() => computeTotals(mutedRows, skuPeriodMath), [mutedRows, skuPeriodMath]);
+  // Column total to pass to a Th header (undefined = totals toggle off, no row).
+  const ct = (key: string): number | undefined => (showColumnTotals ? (totals.columns[key] ?? 0) : undefined);
 
   // Auto-shrink columns to fit the widest content currently displayed
   // plus ~2 chars of breathing room each side. table-layout: fixed
@@ -2254,6 +2259,11 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
+        <CollapseToggle
+          label={showColumnTotals ? "Totals: ON" : "Totals: OFF"}
+          active={showColumnTotals}
+          onToggle={() => setShowColumnTotals(!showColumnTotals)}
+        />
         {/* Hist-T window selector — sets how many trailing months the Hist T
             column sums (through each row's same period last year). */}
         <div
@@ -2731,26 +2741,26 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <Th widths={dynamicColWidths} label="Customer"    k="customer"    sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("customer")} />
               <Th widths={dynamicColWidths} label="Period"      k="period"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("period")} />
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortStack={sortStack} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
-              <Th widths={dynamicColWidths} label={`Hist T${trailingWindow}`} k="histT3" sortStack={sortStack} onSort={toggleSort} numeric title={`Trailing ${trailingWindow} months through this row's same period last year — change the window in the T3/T6/T9/T12 selector above the grid`} hidden={hiddenColumns.has("histT3")} />
-              <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortStack={sortStack} onSort={toggleSort} title="Same Period Last Year" numeric hidden={hiddenColumns.has("histLY")} />
+              <Th widths={dynamicColWidths} label={`Hist T${trailingWindow}`} k="histT3" sortStack={sortStack} onSort={toggleSort} numeric total={ct("histT3")} title={`Trailing ${trailingWindow} months through this row's same period last year — change the window in the T3/T6/T9/T12 selector above the grid`} hidden={hiddenColumns.has("histT3")} />
+              <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortStack={sortStack} onSort={toggleSort} title="Same Period Last Year" numeric total={ct("histLY")} hidden={hiddenColumns.has("histLY")} />
               <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortStack={sortStack} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
-              <Th widths={dynamicColWidths} label="System"      k="system"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("system")} />
-              <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("buyer")} />
-              <Th widths={dynamicColWidths} label="Override"    k="override"    sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("override")} />
-              <Th widths={dynamicColWidths} label="Final"       k="final"       sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("final")} />
+              <Th widths={dynamicColWidths} label="System"      k="system"      sortStack={sortStack} onSort={toggleSort} numeric total={ct("system")} hidden={hiddenColumns.has("system")} />
+              <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortStack={sortStack} onSort={toggleSort} numeric total={ct("buyer")} hidden={hiddenColumns.has("buyer")} />
+              <Th widths={dynamicColWidths} label="Override"    k="override"    sortStack={sortStack} onSort={toggleSort} numeric total={ct("override")} hidden={hiddenColumns.has("override")} />
+              <Th widths={dynamicColWidths} label="Final"       k="final"       sortStack={sortStack} onSort={toggleSort} numeric total={ct("final")} hidden={hiddenColumns.has("final")} />
               <Th widths={dynamicColWidths} label="Conf."       k="confidence"  sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("confidence")} />
               <Th widths={dynamicColWidths} label="Method"      k="method"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("method")} />
-              <Th widths={dynamicColWidths} label="On hand"     k="onHand"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("onHand")} />
-              <Th widths={dynamicColWidths} label="On SO"       k="onSo"        sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("onSo")} />
-              <Th widths={dynamicColWidths} label="Receipts"    k="receipts"    sortStack={sortStack} onSort={toggleSort} numeric title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
-              <Th widths={dynamicColWidths} label="Hist Recv"   k="histRecv"    sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
-              <Th widths={dynamicColWidths} label="ATS"         k="ats"         sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("ats")} />
-              <Th widths={dynamicColWidths} label="Buy"         k="buy"         sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buy")} />
+              <Th widths={dynamicColWidths} label="On hand"     k="onHand"      sortStack={sortStack} onSort={toggleSort} numeric total={ct("onHand")} hidden={hiddenColumns.has("onHand")} />
+              <Th widths={dynamicColWidths} label="On SO"       k="onSo"        sortStack={sortStack} onSort={toggleSort} numeric total={ct("onSo")} hidden={hiddenColumns.has("onSo")} />
+              <Th widths={dynamicColWidths} label="Receipts"    k="receipts"    sortStack={sortStack} onSort={toggleSort} numeric total={ct("receipts")} title="Open POs scheduled to land in this period (drives supply math)" hidden={hiddenColumns.has("receipts")} />
+              <Th widths={dynamicColWidths} label="Hist Recv"   k="histRecv"    sortStack={sortStack} onSort={toggleSort} numeric total={ct("histRecv")} tint={PAL.textMuted} title="Past actual receipts in this period — display only, already in On hand" hidden={hiddenColumns.has("histRecv")} />
+              <Th widths={dynamicColWidths} label="ATS"         k="ats"         sortStack={sortStack} onSort={toggleSort} numeric total={ct("ats")} hidden={hiddenColumns.has("ats")} />
+              <Th widths={dynamicColWidths} label="Buy"         k="buy"         sortStack={sortStack} onSort={toggleSort} numeric total={ct("buy")} tint={PAL.green} hidden={hiddenColumns.has("buy")} />
               <Th widths={dynamicColWidths} label="Avg Cost"    k="avgCost"     sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.textMuted} title="From ip_item_avg_cost (Xoro / Excel ingest)" hidden={hiddenColumns.has("avgCost")} />
               <Th widths={dynamicColWidths} label="Unit Cost"   k="unitCost"    sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.accent2} title="Auto-filled from Avg Cost — editable" hidden={hiddenColumns.has("unitCost")} />
-              <Th widths={dynamicColWidths} label="Buy $"       k="buyDollars"  sortStack={sortStack} onSort={toggleSort} numeric tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
-              <Th widths={dynamicColWidths} label="Short"       k="shortage"    sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("shortage")} />
-              <Th widths={dynamicColWidths} label="Excess"      k="excess"      sortStack={sortStack} onSort={toggleSort} numeric hidden={hiddenColumns.has("excess")} />
+              <Th widths={dynamicColWidths} label="Buy $"       k="buyDollars"  sortStack={sortStack} onSort={toggleSort} numeric total={ct("buyDollars")} tint={PAL.green} hidden={hiddenColumns.has("buyDollars")} />
+              <Th widths={dynamicColWidths} label="Short"       k="shortage"    sortStack={sortStack} onSort={toggleSort} numeric total={ct("shortage")} hidden={hiddenColumns.has("shortage")} />
+              <Th widths={dynamicColWidths} label="Excess"      k="excess"      sortStack={sortStack} onSort={toggleSort} numeric total={ct("excess")} hidden={hiddenColumns.has("excess")} />
               <Th widths={dynamicColWidths} label="Action"      k="action"      sortStack={sortStack} onSort={toggleSort} hidden={hiddenColumns.has("action")} />
             </tr>
           </thead>

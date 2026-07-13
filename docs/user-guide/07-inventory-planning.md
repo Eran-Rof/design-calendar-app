@@ -81,7 +81,7 @@ Above the grid, pick the baseline method the build uses:
 
 ### Reading and editing the grid
 
-Each row is a customer × style × color × period demand line. Columns can be shown or hidden with the **Columns** button; the key ones:
+Each row is a customer × style × color × period demand line. Columns can be shown or hidden with the **Columns** button. Flip **Totals: ON** (above the grid) to show a **sum under each numeric column header** for the rows currently in view — demand and buy columns sum per row, while supply columns (On hand / On SO / Receipts / ATS) are counted once per SKU-period so a SKU shared across customers isn't double-counted. The key columns:
 
 | Column | Meaning | Editable? |
 |---|---|---|
