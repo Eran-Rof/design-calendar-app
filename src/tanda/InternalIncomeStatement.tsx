@@ -25,7 +25,7 @@
 //
 // Data: GET /api/internal/income-statement-monthly?basis=&from=&to= → one row
 // per (account, year, month) with parent_code/parent_name/account_id + TRUE
-// integer cents (mig 20260983000000). The panel pivots months into columns,
+// integer cents (mig 20260984000000). The panel pivots months into columns,
 // sums them for the Total column, classifies each account into a band, and
 // groups sub-accounts under their parent.
 //

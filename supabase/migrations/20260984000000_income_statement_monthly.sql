@@ -108,7 +108,7 @@ BEGIN
       AND table_name   = 'schema_migrations'
   ) THEN
     INSERT INTO supabase_migrations.schema_migrations (version, name, statements)
-    VALUES ('20260983000000', 'income_statement_monthly', ARRAY[]::text[])
+    VALUES ('20260984000000', 'income_statement_monthly', ARRAY[]::text[])
     ON CONFLICT (version) DO NOTHING;
   END IF;
 END $$;

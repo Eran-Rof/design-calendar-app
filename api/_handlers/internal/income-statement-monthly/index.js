@@ -13,7 +13,7 @@
 //   to=YYYY-MM-DD         (optional; defaults to today)
 //
 // Calls the income_statement_monthly(entity, basis, from, to) RPC (mig
-// 20260983000000). Returns:
+// 20260984000000). Returns:
 //   { basis, from, to, rows: [
 //       { entity_id, basis, year, month, account_id, account_type,
 //         account_subtype, code, name, parent_code, parent_name, amount_cents }
