@@ -22,7 +22,7 @@ import { TbdStyleCell } from "../components/cells/TbdStyleCell";
 import { TbdDescriptionCell } from "../components/cells/TbdDescriptionCell";
 import { TbdCustomerCell } from "../components/cells/TbdCustomerCell";
 import { TbdColorCell } from "../components/cells/TbdColorCell";
-import { usePersistedString, usePersistedStringArray, usePersistedBool } from "../hooks/usePersistedFilter";
+import { usePersistedString, usePersistedStringArray, usePersistedBool, usePersistedInt } from "../hooks/usePersistedFilter";
 import { aggregateRows } from "./aggregateGridRows";
 import type { SortKey, SortEntry } from "./wholesale-planning/types";
 import { COLLAPSE_OPTIONS, NO_COLLAPSE } from "./wholesale-planning/constants";
@@ -326,6 +326,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // / planned_buy) are entered in selling units always and don't
   // multiply either way.
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
+  // Carton qty — rounds every quantity on a NON-prepack row UP to the next
+  // whole carton (default 24) so the plan stays orderable in full cartons.
+  // PPK styles keep rounding to their own pack size (that wins); a carton
+  // qty of 0/1 disables the rounding. Applied both to the system-generated
+  // display values and on entry in the editable cells.
+  const [cartonQty, setCartonQty] = usePersistedInt("cartonQty", 24);
 
   // Freeze-through-column. Combined with table-layout: fixed +
   // explicit per-column widths (see dynamicColWidths inside the
@@ -867,7 +873,37 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       // a prepack (or unresolved — handled below).
       const tokenMult = ppkMultiplier(r.sku_color, r.sku_size, r.sku_description, r.sku_style, r.sku_code);
       const mult = resolvePackSize(tokenMult, r.sku_style ?? r.sku_code, packMap);
-      if (mult <= 1) return r;
+      if (mult <= 1) {
+        // Non-prepack row: round the forecast / demand / buy quantities UP to
+        // the next whole carton (cartonQty). PPK styles are handled below and
+        // keep their own pack size — carton qty never touches them. Supply /
+        // inventory columns (on_hand, on_so, receipts, ATS) are left as-is:
+        // they report real quantities, not orderable cartons. A carton qty of
+        // 0/1 disables the rounding.
+        if (cartonQty <= 1) return r;
+        const c = cartonQty;
+        const up = (q: number | null | undefined): number | null => {
+          if (q == null) return q ?? null;
+          if (q === 0) return 0;
+          const sign = q < 0 ? -1 : 1;
+          return sign * Math.ceil(Math.abs(q) / c) * c;
+        };
+        const system_forecast_qty = up(r.system_forecast_qty) ?? 0;
+        const buyer_request_qty = up(r.buyer_request_qty) ?? 0;
+        const override_qty = up(r.override_qty) ?? 0;
+        return {
+          ...r,
+          system_forecast_qty,
+          // Round the suggestion too so the System cell's overridden check
+          // (value vs. original) compares like-for-like in carton grain.
+          system_forecast_qty_original: up(r.system_forecast_qty_original) ?? 0,
+          buyer_request_qty,
+          override_qty,
+          final_forecast_qty: Math.max(0, system_forecast_qty + buyer_request_qty + override_qty),
+          planned_buy_qty: up(r.planned_buy_qty),
+          recommended_qty: up(r.recommended_qty),
+        };
+      }
       if (explodePpk) {
         // Explode ON → everything in selling units (eaches). Supply is Xoro-
         // native pack grain, so multiply it up; costs are per-pack, so divide.
@@ -923,7 +959,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk, ppkUnitsByStyle]);
+  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk, ppkUnitsByStyle, cartonQty]);
 
   // Bulk "Copy Final → Buy": set Buy = Final for every row currently in view
   // (i.e. matching the active filters/search), so the planner can seed the buy
@@ -2302,6 +2338,31 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
+        {/* Carton qty — rounds every quantity on a NON-prepack row up to the
+            next whole carton (default 24). Prepack styles keep their own pack
+            size. Set to 0/1 to disable. */}
+        <div
+          title="Round all quantities on non-prepack styles UP to the next whole carton. Prepack (PPK) styles keep their own pack size. Set to 0 or 1 to turn off."
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "2px 8px", background: PAL.panel }}
+        >
+          <span style={{ color: PAL.textDim, fontSize: 11 }}>Carton qty</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={cartonQty}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              setCartonQty(Number.isFinite(n) && n > 0 ? n : 1);
+            }}
+            style={{
+              width: 52, background: PAL.bg, color: PAL.text,
+              border: `1px solid ${cartonQty > 1 ? PAL.accent : PAL.border}`,
+              borderRadius: 6, padding: "3px 6px", fontSize: 12, textAlign: "right",
+              fontFamily: "monospace", outline: "none",
+            }}
+          />
+        </div>
         <CollapseToggle
           label={showColumnTotals ? "Totals: ON" : "Totals: OFF"}
           active={showColumnTotals}
@@ -2827,6 +2888,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                   explodePpk={explodePpk}
                   packSize={rowPackSize}
                   ppkUnresolved={rowPpkUnresolved}
+                  cartonQty={cartonQty}
                   rows={rows}
                   masterStyles={masterStyles}
                   masterColorsLower={masterColorsLower}

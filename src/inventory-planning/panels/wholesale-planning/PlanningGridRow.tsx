@@ -54,6 +54,10 @@ export interface PlanningGridRowProps {
    *  be resolved from the token OR Tangerine's matrix — surfaces a ⚠ warning so
    *  the planner sets up the Prepack Matrix in Tangerine. */
   ppkUnresolved: boolean;
+  /** Toolbar carton qty (default 24). On a NON-prepack row, entered quantities
+   *  round UP to the next whole carton. PPK styles use their pack size instead
+   *  (packSize wins); a carton qty of 0/1 disables the rounding. */
+  cartonQty: number;
 
   /** Master + planner-added reference data. */
   rows: IpPlanningGridRow[];
@@ -112,6 +116,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
     explodePpk,
     packSize,
     ppkUnresolved,
+    cartonQty,
     rows,
     masterStyles,
     masterColorsLower,
@@ -146,22 +151,29 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
 
-  // PPK styles are bought/planned in whole packs. `packSize` (units per pack)
-  // is resolved by the parent from the SKU/size "PPKn" token first, then
-  // Tangerine's Prepack Matrix. Non-PPK rows have packSize 1 and pass through.
-  const roundToPack = (qty: number | null): number | null => {
-    if (packSize <= 1 || qty == null || qty === 0) return qty;
+  // Round a quantity UP to the next whole multiple of `unit` (sign-aware, so
+  // negative overrides round away from zero). unit ≤ 1 or a 0/null qty passes
+  // through untouched.
+  const roundUp = (qty: number | null, unit: number): number | null => {
+    if (unit <= 1 || qty == null || qty === 0) return qty;
     const sign = qty < 0 ? -1 : 1;
-    return sign * Math.ceil(Math.abs(qty) / packSize) * packSize;
+    return sign * Math.ceil(Math.abs(qty) / unit) * unit;
   };
+  // The rounding unit for THIS row: a prepack's pack size wins (from token or
+  // Tangerine matrix); otherwise the toolbar carton qty applies to the plain
+  // style. So PPK-24 rounds to 24, a non-prepack style rounds to the carton
+  // qty (default 24), and cartonQty 0/1 means no rounding on non-PPK rows.
+  const cartonUnit = cartonQty > 1 ? cartonQty : 1;
   // Turn an edited cell value into the STORED eaches quantity. When Explode is
-  // OFF the cell is in PACK grain, so the typed value is multiplied back up to
-  // eaches; when ON the value is already eaches and is rounded UP to a whole
-  // pack (PPK-24: 1,190 → 1,200). Applied to System / Buyer / Override / Buy.
+  // OFF a PPK cell is in PACK grain, so the typed value is multiplied back up to
+  // eaches; otherwise the value is already eaches and is rounded UP to a whole
+  // pack (PPK: 1,190 → 1,200) or a whole carton (non-PPK). Applied to
+  // System / Buyer / Override / Buy.
   const toStoredEaches = (typed: number | null): number | null => {
     if (typed == null) return null;
-    if (!explodePpk && packSize > 1) return typed * packSize; // packs → eaches
-    return roundToPack(typed);
+    if (!explodePpk && packSize > 1) return typed * packSize; // PPK packs → eaches
+    if (packSize > 1) return roundUp(typed, packSize);        // PPK (explode on) → pack
+    return roundUp(typed, cartonUnit);                        // non-PPK → carton
   };
 
   // Aggregate row visual treatment — distinctly tinted from the panel

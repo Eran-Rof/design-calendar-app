@@ -60,3 +60,20 @@ export function usePersistedBool(key: string, fallback: boolean): [boolean, (nex
   }, [key, value]);
   return [value, setValue];
 }
+
+function loadInt(key: string, fallback: number): number {
+  try {
+    const raw = localStorage.getItem(KEY_PREFIX + key);
+    if (raw == null) return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+  } catch { return fallback; }
+}
+
+export function usePersistedInt(key: string, fallback: number): [number, (next: number) => void] {
+  const [value, setValue] = useState<number>(() => loadInt(key, fallback));
+  useEffect(() => {
+    try { localStorage.setItem(KEY_PREFIX + key, String(value)); } catch { /* ignore */ }
+  }, [key, value]);
+  return [value, setValue];
+}

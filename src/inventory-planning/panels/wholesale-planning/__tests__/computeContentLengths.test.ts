@@ -75,4 +75,25 @@ describe("computeContentLengths", () => {
     // 1000 * 9.99 = 9990.00 → "$9990.00" = 8 chars; header "Buy $" = 5 + 1 = 6.
     expect(lens.buyDollars).toBe(8);
   });
+
+  it("reserves extra Customer width for planner-added rows (Add-to-DB + ✕ controls)", () => {
+    const name = "Burlington Coat Factory"; // 23 chars
+    const plain = computeContentLengths([row({ customer_name: name })]);
+    const added = computeContentLengths([
+      row({ customer_name: name, is_tbd: true, is_user_added: true }),
+    ]);
+    // A plain row sizes to the name; a planner-added row reserves +16 chars
+    // for the Add-to-DB / ✕ controls the Customer cell renders.
+    expect(plain.customer).toBe(name.length);
+    expect(added.customer).toBe(name.length + 16);
+  });
+
+  it("does NOT reserve control width on aggregate rows", () => {
+    const name = "Burlington Coat Factory";
+    const agg = computeContentLengths([
+      row({ customer_name: name, is_tbd: true, is_user_added: true, is_aggregate: true }),
+    ]);
+    // Aggregate rows don't render the per-row controls, so no reserve.
+    expect(agg.customer).toBe(name.length);
+  });
 });

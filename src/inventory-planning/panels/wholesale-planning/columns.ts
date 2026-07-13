@@ -95,7 +95,10 @@ export const COL_WIDTH_FLOOR_PX = 44;
 // Per-column caps — stop one outlier (very long description, etc.)
 // from blowing the row width.
 export const COL_WIDTH_CAP: Record<string, number> = {
-  description: 320, customer: 240, color: 200, style: 160,
+  // customer cap is generous enough to fit a long customer name PLUS the
+  // planner-added-row controls (Add to DB + ✕) that computeContentLengths
+  // reserves for — otherwise the buttons spill into the Period column.
+  description: 320, customer: 360, color: 200, style: 160,
   subCat: 160, category: 160, method: 160,
 };
 
