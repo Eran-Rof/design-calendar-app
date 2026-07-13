@@ -185,24 +185,32 @@ describe("methodPreference", () => {
   // Standard 12-month lookback covers months 11-0 back = 2025-05 → 2026-04.
   // So 2025-04 and 2025-03 are only visible to the LY method.
 
-  it("ly_sales uses data outside the standard lookback window", () => {
-    // History exists only at month 12 back (2025-04) — invisible to standard waterfall.
-    const history = [h(CUST, SKU_A, "2025-04", 120)];
-    const withoutPref = buildWholesaleBaselineForecast(baseInput({ history }));
-    expect(withoutPref[0].forecast_method).toBe("zero_floor"); // standard sees nothing
-
-    const withPref = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
-    expect(withPref[0].forecast_method).toBe("ly_sales");
-    expect(withPref[0].system_forecast_qty).toBe(120);
-    expect(withPref[0].confidence_level).toBe("possible"); // 1 nonzero LY month
+  it("ly_sales forecasts each horizon month from its OWN last-year month (seasonal, not flat)", () => {
+    // Horizon = May + June 2026 → their LY months are 2025-05 and 2025-06.
+    // Sold 120 last May, nothing last June. The forecast (and SP/LY) must be
+    // per-period — 120 for May, 0 for June — NOT a single flat number repeated.
+    const history = [h(CUST, SKU_A, "2025-05", 120)];
+    const rows = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
+    const may = rows.find((r) => r.period_code === "2026-05")!;
+    const jun = rows.find((r) => r.period_code === "2026-06")!;
+    expect(may.forecast_method).toBe("ly_sales");
+    expect(may.system_forecast_qty).toBe(120); // May 2026 ← May 2025 = 120
+    expect(may.ly_reference_qty).toBe(120);
+    expect(jun.system_forecast_qty).toBe(0);   // June 2026 ← June 2025 = 0
+    expect(jun.ly_reference_qty).toBe(0);       // seasonal, not the flat 120
   });
 
-  it("ly_sales with two LY months produces probable confidence", () => {
-    const history = [h(CUST, SKU_A, "2025-03", 80), h(CUST, SKU_A, "2025-04", 120)];
-    const rows = buildWholesaleBaselineForecast(baseInput({ history, methodPreference: "ly_sales" }));
-    expect(rows[0].forecast_method).toBe("ly_sales");
-    expect(rows[0].system_forecast_qty).toBe(100); // avg(80, 120)
-    expect(rows[0].confidence_level).toBe("probable"); // ≥ 2 nonzero LY months
+  it("ly_reference_qty (SP/LY) is the exact same-month LY on EVERY row, even on non-LY methods", () => {
+    // Dense recent history → trailing_avg wins, but the SP/LY diagnostic column
+    // must still show each horizon month's own last-year actuals.
+    const months = ["2025-05","2025-06","2025-07","2025-08","2025-09","2025-10","2025-11","2025-12","2026-01","2026-02","2026-03","2026-04"];
+    const history = months.map((m) => h(CUST, SKU_A, m, m === "2025-06" ? 40 : 100));
+    const rows = buildWholesaleBaselineForecast(baseInput({ history }));
+    const may = rows.find((r) => r.period_code === "2026-05")!;
+    const jun = rows.find((r) => r.period_code === "2026-06")!;
+    expect(may.forecast_method).toBe("trailing_avg_sku");
+    expect(may.ly_reference_qty).toBe(100); // May 2026 ← May 2025 = 100
+    expect(jun.ly_reference_qty).toBe(40);  // June 2026 ← June 2025 = 40 (per-period, differs from May)
   });
 
   it("ly_sales falls through to standard waterfall when no LY data exists", () => {
