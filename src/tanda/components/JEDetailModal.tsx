@@ -25,6 +25,23 @@ import RowHistory from "./RowHistory";
 import { fmtDateDisplay } from "../../utils/tandaTypes";
 import { drillToModule, type DrillModuleKey } from "../scorecardDrill";
 
+// A source document reachable from this JE (invoice / bill / receipt / …).
+type SourceDocRef = {
+  kind: string;
+  number: string | null;
+  module: DrillModuleKey | string | null;
+  q: string | null;
+  leg?: string | null;
+};
+type SourceDocResult = {
+  label: string;
+  module: string | null;
+  q: string | null;
+  docs?: SourceDocRef[];
+  count?: number;
+  truncated?: boolean;
+};
+
 // Minimal seed the modal needs before its own fetch resolves. Both the JE list
 // (full JE row) and the GL-detail line (je_id + description) can satisfy this.
 export type JEDetailSeed = {
@@ -166,9 +183,13 @@ export default function JEDetailModal({
   // number re-loads the modal in place instead of dead-ending.
   const [jumpId, setJumpId] = useState<string | null>(null);
   const jeId = jumpId || je.id;
-  // Drill-through: the JE's source document, resolved server-side
-  // (source_table/source_id → { label, module, q }).
-  const [srcDoc, setSrcDoc] = useState<{ label: string; module: string | null; q: string | null } | null>(null);
+  // Drill-through: the JE's source document(s), resolved server-side. For a
+  // GL-mirror JE the resolver runs the reverse lookup (invoices/bills that point
+  // at this JE): one doc → module/q set; many (a payment settling N invoices) →
+  // docs[] for the picker; none → an un-linked "no source document" label.
+  const [srcDoc, setSrcDoc] = useState<SourceDocResult | null>(null);
+  // When a multi-doc JE is expanded, the picker list is shown inline.
+  const [showDocPicker, setShowDocPicker] = useState(false);
 
   useEffect(() => { setJumpId(null); }, [je.id]);
 
@@ -178,6 +199,7 @@ export default function JEDetailModal({
       setLoading(true);
       setErr(null);
       setSrcDoc(null);
+      setShowDocPicker(false);
       try {
         const r = await fetch(`/api/internal/journal-entries/${jeId}`);
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -287,19 +309,69 @@ export default function JEDetailModal({
               <DetailRow label="Source module" value={data.source_module || "—"} />
               <DetailRow
                 label="Source document"
-                value={srcDoc
-                  ? (srcDoc.module && srcDoc.q
-                      ? <button
+                value={(() => {
+                  const docs = srcDoc?.docs || [];
+                  // Many source documents (e.g. a payment settling N invoices):
+                  // offer a picker instead of a single dead link.
+                  if (srcDoc && docs.length > 1) {
+                    return (
+                      <div>
+                        <button
                           type="button"
-                          onClick={() => { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); }}
-                          title="Open the document this entry was posted from"
+                          onClick={() => setShowDocPicker((v) => !v)}
+                          title="This entry settles multiple documents — pick one to open"
                           style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>
-                          {srcDoc.label} ↗
+                          {srcDoc.label} {showDocPicker ? "▲" : "▾"}
                         </button>
-                      : <span style={{ fontSize: 12 }}>{srcDoc.label}</span>)
-                  : data.source_table
-                    ? <span style={{ fontSize: 12 }}>{data.source_table}</span>
-                    : "—"}
+                        {showDocPicker && (
+                          <div style={{ marginTop: 6, maxHeight: 220, overflowY: "auto", border: `1px solid ${C.cardBdr}`, borderRadius: 6, background: "#0b1220" }}>
+                            {docs.map((d, i) => (
+                              <button
+                                key={`${d.module}-${d.number}-${i}`}
+                                type="button"
+                                disabled={!d.module || !d.q}
+                                onClick={() => { onClose(); if (d.module && d.q) drillToModule(d.module as DrillModuleKey, { q: d.q }); }}
+                                title={d.module && d.q ? "Open this document" : "No panel for this document"}
+                                style={{
+                                  display: "flex", justifyContent: "space-between", gap: 10, width: "100%",
+                                  background: "transparent", border: "none", borderBottom: `1px solid ${C.cardBdr}`,
+                                  color: d.module && d.q ? "#3B82F6" : C.textMuted, cursor: d.module && d.q ? "pointer" : "default",
+                                  padding: "6px 10px", fontSize: 12, textAlign: "left",
+                                }}
+                                onMouseEnter={(e) => { if (d.module && d.q) e.currentTarget.style.background = "#162033"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                              >
+                                <span>{d.kind}{d.number ? ` ${d.number}` : ""}</span>
+                                <span style={{ color: C.textMuted }}>{d.leg === "cash" ? "payment" : d.leg === "accrual" ? "accrual" : ""} ↗</span>
+                              </button>
+                            ))}
+                            {srcDoc.truncated && (
+                              <div style={{ padding: "6px 10px", fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>
+                                Showing first {docs.length} of {srcDoc.count}. Open the AR/AP module to see the rest.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  // Exactly one document — a direct link.
+                  if (srcDoc && srcDoc.module && srcDoc.q) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); }}
+                        title="Open the document this entry was posted from"
+                        style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>
+                        {srcDoc.label} ↗
+                      </button>
+                    );
+                  }
+                  // No document (payroll / adjustment / mfg mirror JE) — an
+                  // un-linked label; the JE detail itself is the drill target.
+                  if (srcDoc) return <span style={{ fontSize: 12 }}>{srcDoc.label}</span>;
+                  return data.source_table ? <span style={{ fontSize: 12 }}>{data.source_table}</span> : "—";
+                })()}
               />
               <DetailRow
                 label="Posted at"

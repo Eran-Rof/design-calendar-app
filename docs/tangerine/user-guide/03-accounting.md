@@ -360,7 +360,14 @@ COGS = expense accounts in the **5000–5999** range, **except** non-product ope
 
 ### Export
 
-**Export** (Excel / PDF) emits the full grid exactly as shown — every section, group header, sub-account, group subtotal and band subtotal, one column per month plus Total (and the `% of Net Sales` column when enabled).
+**Export statement** (Excel / PDF) emits a **best-in-class, NetSuite-style financial statement** — not a raw grid dump. Every export carries:
+
+- a **report header block** — the **Ring of Fire** logo, the report title, the period (`July 1, 2026 through July 13, 2026`), the **basis** (Accrual / Cash), and the "as printed" timestamp, centered above the columns;
+- the **banded statement body** — indented **section headers → sub-accounts → bold group subtotals → "Total <Section>"**, with the running bands (**Net Sales, Gross Profit, Net Operating Income, Net Income**) bold and ruled (the headline bands get a heavier top/bottom rule);
+- **right-aligned currency** with thousands separators and **parentheses for negatives** (`($3,450.00)`), the **% of Net Sales** column when that toggle is on, and the **monthly columns** (Month | Month | … | Total) when in Monthly mode (a single **Amount** column in Single-period mode);
+- a single blue accent, professional Calibri sizing, no decorative color — and in Excel the **header block and the account-label column are frozen** so the labels stay in view as you scroll the months. Values are real numeric cells (parenthesis number format), so they still sum in Excel.
+
+It reads like a statement a CFO would hand to a bank, and matches exactly what's on screen (same range, basis, monthly/single mode, % toggle, hide-account-# toggle).
 
 ### Per-style revenue / COGS / returns routing
 
@@ -820,7 +827,10 @@ QuickBooks-style descent, now wired end to end:
 
 1. **Report line → account activity.** Trial Balance / Income Statement / Balance Sheet rows already opened the account's GL detail (date- and basis-scoped, running balance).
 2. **Activity line → journal entry.** Both the GL-detail modal *and* the standalone GL Detail panel now open the entry: click the JE number (or double-click the row).
-3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it. Mirror-posted daily summaries label themselves as such (no single document).
+3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it.
+   - Because the GL is now a **1:1 Xoro mirror**, most entries carry the Xoro transaction (not the invoice) as their own source. The resolver handles this by running the **reverse lookup** — it finds the AR invoice(s)/AP bill(s) whose `accrual_je_id` or `cash_je_id` points *at* this entry — so a revenue account still drills to the customer invoice and an expense/AP account still drills to the vendor bill.
+   - **One document** → a direct link (opens the AR/AP invoice list filtered to that invoice number). **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`); expand it and click any invoice/bill to open it. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
+   - **No document** (payroll, adjustment, or manufacturing mirror entries) → the row reads **"GL journal entry (no source document)"**; the entry detail itself (Xoro txn ref + memo + all lines) is the drill target, so the walk never dead-ends.
 4. **Related entries.** Sibling (cash-basis twin), "reverses", and "reversed by" numbers in the entry modal are links — the modal re-loads in place, so an audit walk never dead-ends.
 5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
 6. **Deep link:** `/tangerine?m=journal_entries&je=<id>` opens the Journal Entries panel with that entry's modal already open (one-shot param).

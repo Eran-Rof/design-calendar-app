@@ -46,8 +46,8 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSeqGuard } from "./hooks/useSeqGuard";
-import ExportButton from "./exports/ExportButton";
-import type { ExportColumn } from "./exports/useTableExport";
+import IncomeStatementExportButton from "./exports/IncomeStatementExportButton";
+import type { StatementModel, StmtLine } from "./exports/incomeStatementExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import GLDetailModal, { type GLDetailTarget } from "./components/GLDetailModal";
 
@@ -121,6 +121,13 @@ function fmtPct(v: number, base: number): string {
 }
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }
 function fyStartISO(): string { return `${new Date().getUTCFullYear()}-01-01`; }
+// "2026-07-13" → "July 13, 2026" (TZ-safe: parse the parts, no Date drift).
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function fmtLongDate(iso: string): string {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || "";
+  return `${MONTH_FULL[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
+}
 
 // ── Band classification (see header comment) ─────────────────────────────────
 const OPER_5XXX = /(clearing|ticket|shipping)/i;
@@ -436,50 +443,58 @@ export default function InternalIncomeStatement() {
     );
   }
 
-  // ── Export rows (faithful grid: sections, groups, accounts, band subtotals) ──
-  const exportData = useMemo(() => {
-    const out: Array<Record<string, unknown>> = [];
-    const rowFor = (section: string, kind: string, code: string, name: string, byMonth: Record<string, number>, total: number, sign = 1) => {
-      const rec: Record<string, unknown> = { section, kind, code, name };
-      for (const mc of months) rec[`m_${mc.key}`] = sign * (byMonth[mc.key] || 0);
-      rec.total = sign * total;
-      rec.pct_net_sales = nsBase ? `${(((sign * total) / nsBase) * 100).toFixed(1)}%` : "";
-      return rec;
+  // ── Statement export model (NetSuite-style: header block + banded body) ──────
+  // Built lazily on export click from the same numbers on screen. `sign` flips
+  // Other-Expense so it reads as a reduction (parity with the grid).
+  function buildStatementModel(): StatementModel {
+    const lines: StmtLine[] = [];
+    const scale = (m: Record<string, number>, sign: number): Record<string, number> => {
+      if (sign === 1) return m;
+      const out: Record<string, number> = {};
+      for (const k of Object.keys(m)) out[k] = sign * m[k];
+      return out;
     };
-    const pushSection = (section: string, accounts: Acct[], sectionTotal: Totalset, sign = 1) => {
+    const pushSection = (title: string, accounts: Acct[], sectionTotal: Totalset, sign = 1, spacerBefore = true) => {
+      if (spacerBefore) lines.push({ kind: "spacer", label: "" });
+      lines.push({ kind: "section", label: title, indent: 0, hasValues: false });
       for (const it of buildItems(accounts)) {
-        if (it.kind === "acct") { out.push(rowFor(section, "account", it.acct.code, it.acct.name, it.acct.byMonth, it.acct.total, sign)); continue; }
-        out.push(rowFor(section, "group", it.parentCode, it.parentName, it.byMonth, it.total, sign));
-        for (const c of it.children) out.push(rowFor(section, "account", c.code, c.name, c.byMonth, c.total, sign));
-        out.push(rowFor(section, "group_subtotal", it.parentCode, `Subtotal — ${it.parentName}`, it.byMonth, it.total, sign));
+        if (it.kind === "acct") {
+          lines.push({ kind: "account", code: it.acct.code, label: it.acct.name, indent: 1, byMonth: scale(it.acct.byMonth, sign), total: sign * it.acct.total });
+          continue;
+        }
+        lines.push({ kind: "group", code: it.parentCode, label: it.parentName, indent: 1, byMonth: scale(it.byMonth, sign), total: sign * it.total });
+        for (const c of it.children) lines.push({ kind: "account", code: c.code, label: c.name, indent: 2, byMonth: scale(c.byMonth, sign), total: sign * c.total });
+        lines.push({ kind: "subtotal", label: `Subtotal — ${it.parentName}`, indent: 2, byMonth: scale(it.byMonth, sign), total: sign * it.total });
       }
-      out.push(rowFor(section, "section_total", "", `Total ${section}`, sectionTotal.byMonth, sectionTotal.total, sign));
+      lines.push({ kind: "subtotal", label: `Total ${title}`, indent: 0, byMonth: scale(sectionTotal.byMonth, sign), total: sign * sectionTotal.total });
     };
-    pushSection("Revenue", byBand.revenue, totals.revenue);
+    const band = (label: string, t: Totalset, strong = false) =>
+      lines.push({ kind: strong ? "band_strong" : "band", label, indent: 0, byMonth: t.byMonth, total: t.total });
+
+    pushSection("Revenue", byBand.revenue, totals.revenue, 1, false);
     if (byBand.contra.length) pushSection("Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra);
-    out.push(rowFor("Net Sales", "band", "", "NET SALES", totals.netSales.byMonth, totals.netSales.total));
+    band("NET SALES", totals.netSales, true);
     pushSection("Cost of Goods Sold", byBand.cogs, totals.cogs);
-    out.push(rowFor("Gross Profit", "band", "", "GROSS PROFIT", totals.grossProfit.byMonth, totals.grossProfit.total));
+    band("GROSS PROFIT", totals.grossProfit);
     pushSection("Operating Expenses", byBand.opex, totals.opex);
-    out.push(rowFor("Net Operating Income", "band", "", "NET OPERATING INCOME", totals.noi.byMonth, totals.noi.total));
+    band("NET OPERATING INCOME", totals.noi);
     if (byBand.other_inc.length) pushSection("Other Income", byBand.other_inc, totals.otherInc);
     if (byBand.other_exp.length) pushSection("Other Expense", byBand.other_exp, totals.otherExp, -1);
-    out.push(rowFor("Net Income", "band", "", "NET INCOME", totals.netIncome.byMonth, totals.netIncome.total));
-    return out;
-  }, [byBand, totals, months, nsBase]);
+    band("NET INCOME", totals.netIncome, true);
 
-  const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => {
-    const cols: ExportColumn<Record<string, unknown>>[] = [
-      { key: "section", header: "Section" },
-      { key: "kind", header: "Kind" },
-      { key: "code", header: "Code" },
-      { key: "name", header: "Account" },
-    ];
-    for (const mc of months) cols.push({ key: `m_${mc.key}`, header: `${MONTH_ABBR[mc.m - 1]} ${mc.y}`, format: "currency_cents" });
-    cols.push({ key: "total", header: "Total", format: "currency_cents" });
-    if (showPct) cols.push({ key: "pct_net_sales", header: "% of Net Sales" });
-    return cols;
-  }, [months, showPct]);
+    return {
+      company: "Ring of Fire",
+      reportTitle: "Income Statement",
+      periodLabel: `${fmtLongDate(from)} through ${fmtLongDate(to)}`,
+      basisLabel: basis === "CASH" ? "Cash basis" : "Accrual basis",
+      printedLabel: `Printed ${new Date().toLocaleString()}`,
+      months: months.map((mc) => ({ key: mc.key, label: `${MONTH_ABBR[mc.m - 1]} ${mc.y}` })),
+      showPct,
+      hideAccountNum,
+      netSalesBase: nsBase,
+      lines,
+    };
+  }
 
   const rangeLabel = `${from} → ${to}`;
 
@@ -522,11 +537,10 @@ export default function InternalIncomeStatement() {
           <input type="checkbox" checked={hideAccountNum} onChange={(e) => setHideAccountNum(e.target.checked)} /> Hide account #
         </label>
         <button onClick={() => { setCollapsedSections(new Set()); setCollapsedGroups(new Set()); }} style={btnSecondary}>Expand all</button>
-        <ExportButton
-          rows={exportData}
+        <IncomeStatementExportButton
+          model={buildStatementModel}
           filename={`income-statement-${basis}-${from}-to-${to}`}
-          sheetName="Income Statement"
-          columns={exportColumns}
+          disabled={loading || accts.length === 0}
         />
       </div>
 
