@@ -31,7 +31,11 @@ import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js"
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
-const RATE_LIMIT = { limit: 120, windowMs: 60 * 60 * 1000 };
+// High ceiling: this is a trusted, token-gated bulk sync. The full-history GL
+// walk POSTs ~1,010 pages (one per 100 transactions) and the nightly increment
+// a handful; a low limit would 429 the backfill. Keyed on token tail, per Vercel
+// instance (see rateLimit()).
+const RATE_LIMIT = { limit: 20000, windowMs: 60 * 60 * 1000 };
 
 function pickFile(files, ...keys) {
   for (const k of keys) {
