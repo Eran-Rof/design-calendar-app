@@ -175,10 +175,41 @@ the invoice prefix is the authoritative signal.)
   $3,125,282.12 — UNCHANGED** (both 4005 and 4011 sit in the 4000–4899 Net Sales
   band, so moving between them cannot change the total; the only Net-Sales input
   that changed is the 4005-vs-4011 split).
-- **NOT reclassed (flagged for CEO):** COGS is commingled the same way — account
-  **5010 "Cost of Goods Sold ROF Brands"** carries **$193,033.72** of
-  ROF-ecom-prefixed COGS (26,690 lines) that mirrors this revenue split, while
-  **5014 "Cost of Goods Sold ROF Ecom"** is $0. Left untouched pending CEO
-  confirmation to keep this change revenue-only per the CEO's wording. A tiny
-  amount of PT-prefixed revenue ($1,397.70) and "PBPT" ($332.10) also sits on
-  4005; left in place (out of the ecom scope).
+- **Companion COGS split — see §6.2** (the "NOT reclassed" item below is now
+  DONE). A tiny amount of PT-prefixed revenue ($1,397.70) and "PBPT" ($332.10)
+  also sits on 4005; left in place (out of the ecom scope).
+
+### 6.2 ROF Ecom COGS: 5010 → 5014  (#1727, 2026-07-13, CEO-directed)
+
+CEO (2026-07-13): "move cogs to correct account for ecom." Companion to §6.1 so
+each channel shows a **true** gross margin (previously ecom revenue sat on 4011
+while its cost stayed on 5010, giving the ecom line a ~100% fake margin and
+loading ecom's cost onto ROF wholesale).
+
+- **Migration:** `20260986000000_channel_cogs_reclass_ecom.sql`.
+- **Mechanism:** identical to §6.1 — `channel_reclass` JEs via
+  `gl_post_journal_entry()`, dated to each period's MAX ecom-COGS posting date.
+- **Basis:** the SAME invoice-number prefix (`ROF ECOM-%`) on the mirror JE
+  descriptions used for revenue, so ecom revenue and ecom cost move on the same
+  invoice population → the ecom gross margin is internally consistent.
+- **Postings:** one balanced JE per calendar month with ROF-ecom COGS on 5010 —
+  `DR 5014 / CR 5010`. **23 JEs**, Sep-2024 → Jul-2026.
+- **Total moved:** **$193,033.72** (5010 → 5014). 5010 $9,592,240.80 →
+  **$9,399,207.08**; 5014 $0 → **$193,033.72**. Idempotent (guarded on
+  `source_id='channel_reclass:rof_ecom_cogs:5010->5014:YYYY-MM'`).
+- **Net effect:** COGS-internal, net-zero — total COGS (5010+5013+5014) =
+  **$9,592,240.80 UNCHANGED**; Gross Profit unchanged. Global GL imbalance
+  **$0.00**.
+
+### 6.3 Psycho Tuna ecom — NOT applicable (Xoro records none)
+
+Xoro records **no PT ecom sales or COGS**. All PT activity is wholesale
+(**4009 "Sales Revenue - PT"** / **"Cost of Goods Sold PT"**, store
+"Psycho Tuna"); 4009 has **zero** `PT ECOM-` prefixed lines and 5010 has none
+either. The **"Psycho Tuna Ecom" store** (406 lines total) carries only ecom
+**operating expenses** — Shopify fees/hosting, Meta + Google ads, logistics —
+~$100K, and $0 sales/COGS. So PT **4008 "Sales Revenue - PT Ecom"** and
+**5013 "Cost of Goods Sold PT Ecom"** remain **$0 by design** — there is no
+PT-ecom-tagged sales/COGS population to reclass. **Flagged to CEO** as a
+Xoro-side data-flow question (are PT Shopify sales flowing into Xoro's GL as
+revenue?), not a GL misposting fixable here.
