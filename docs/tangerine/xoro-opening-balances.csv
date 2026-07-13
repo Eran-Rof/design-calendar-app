@@ -1,0 +1,211 @@
+gl_code,xoro_account,xoro_type,opening_net_debit
+3004,"Opening Balance Equity","Equity",-31,728,729.21
+(unmapped),"9999 - Opening Balance Equity","Equity",26,846,012.49
+4005,"Revenue","Sales",-8,536,013.23
+5001,"COGS","CostOfGoodsSold",7,275,694.89
+1201,"Inventory","Inventory",6,146,666.87
+3000,"Eran Bitton - Capital Account","Equity",-5,705,867.47
+1051,"Factor Advances - Rosenthal","Bank",-4,717,999.32
+3001,"Eran Bitton - Distribution","Equity",4,190,319.07
+1107,"Accounts Receivable - Factor","AccountsReceivable",4,120,199.89
+4006,"Sales Revenue - Boys","Sales",-3,904,447.68
+3900,"Retained Earnings","Equity",3,000,766.23
+5011,"Cost of Goods Sold Boys","CostOfGoodsSold",2,714,049.34
+2000,"Accounts Payable (A/P)","AccountsPayable",-2,411,627.33
+1108,"Accounts Receivable (house)","AccountsReceivable",1,781,358.25
+1203,"Inventory - Psycho Tuna","Inventory",1,771,804.72
+2502,"Loan Payable - EB Parkway LLC.","OtherCurrentLiability",-1,172,763.25
+4005,"Sales Revenue ROF Brands","Sales",-1,025,227.80
+6348,"5006 General and Administrative:Logistics Warehouse Expense","OperatingExpenses",839,236.44
+5010,"Cost of Goods Sold ROF Brands","CostOfGoodsSold",752,608.39
+1590,"Accumulated Depreciation - Equi","FixedAsset",-665,680.31
+4009,"Sales Revenue - PT","Sales",-656,159.79
+1407,"Operating Lease Right of Use","OtherCurrentAsset",514,958.00
+5012,"Cost of Goods Sold PT","CostOfGoodsSold",503,702.92
+1204,"Inventory markdowns - ROF","Inventory",-496,485.00
+2803,"U.S. Small Business Administrat","LongTermLiability",-456,134.00
+6119,"Payroll:Payroll Expense - Salaries","OperatingExpenses",454,176.90
+2504,"Loan Payable - Syndicated Appar","OtherCurrentLiability",-448,748.14
+2451,"Current Portion Operating Lease","OtherCurrentLiability",-412,928.00
+1503,"7800 Airport Business Parkway","FixedAsset",295,149.50
+6115,"Payroll:Payroll Expense - Hourly","OperatingExpenses",279,362.08
+3002,"Isaac Bitton - Capital Account","Equity",-278,148.64
+1113,"Open Credit Memos","OtherCurrentAsset",-256,118.59
+(unmapped),"Factor loan - Rosenthal","OtherCurrentLiability",-250,496.23
+1453,"Notes Receivable - Isaac Bitton","OtherCurrentAsset",250,000.00
+6804,"5004 Factoring Expenses:Factor Interest Expense","OperatingExpenses",247,209.39
+1109,"Accounts Receivable (house):Allowance for doubtful accounts","AccountsReceivable",-237,556.34
+4011,"Sales Revenue - Website","Sales",-200,619.65
+1522,"Store Fixtures","FixedAsset",164,408.76
+1403,"Employee Retention Credits Receivable","OtherCurrentAsset",147,726.00
+4002,"4200 Other Income:Other Income","Sales",-122,029.00
+1506,"Computer Software (Asset)","FixedAsset",115,740.36
+6338,"5006 General and Administrative:Insurance:Medical Insurance Expense","OperatingExpenses",100,570.27
+2702,"Long Term Operating Lease","LongTermLiability",-100,569.00
+6127,"Payroll:Sales Commissions - Meredith Le","OperatingExpenses",92,038.46
+6360,"5006 General and Administrative:Rent Expense","OperatingExpenses",89,563.88
+6802,"5004 Factoring Expenses:Factor Commissions Expense","OperatingExpenses",84,022.22
+2703,"Loan Payable - Olive Tree Ventu","LongTermLiability",-83,333.34
+2501,"Loan Payable - 100 Walnut LLC","OtherCurrentLiability",-80,000.00
+6345,"5006 General and Administrative:Legal Settlement Exp.","OperatingExpenses",75,000.00
+1501,"2014 Range Rover SUV","FixedAsset",73,032.69
+1030,"Undeposited Funds","Undeposited Funds",-72,195.00
+6126,"Payroll:Payroll Tax Expense{90}","OperatingExpenses",67,630.42
+4232,"4100 Dilution:Sales Discounts - PT","Sales",60,842.28
+6327,"5006 General and Administrative:Equipment Rental","OperatingExpenses",50,098.92
+1001,"Bank Leumi  7801 Main","Bank",46,222.81
+(unmapped),"Inventory Consignment 2023","Inventory",45,646.59
+2102,"Amex Eran Bitton","CreditCard",-44,260.54
+6339,"5006 General and Administrative:Insurance:Workers' Comp Insurance","OperatingExpenses",40,462.46
+6325,"5006 General and Administrative:Dues and Subscriptions","OperatingExpenses",39,071.74
+6721,"5008 Website and E-commerce:Website Shipping USPS","OperatingExpenses",38,161.82
+2412,"Payroll Liabilities:Franchise Tax Board Garnishment","OtherCurrentLiability",-37,215.27
+2804,"U.S. Small Business Administrat:Accrued interest - SBA loan","LongTermLiability",-36,182.78
+6313,"5006 General and Administrative:Computer Maintenance Expense","OperatingExpenses",35,906.62
+1302,"Prepaid Liability Insurance","OtherCurrentAsset",34,905.75
+6337,"5006 General and Administrative:Insurance:General Liability Insurance","OperatingExpenses",34,786.41
+6713,"5008 Website and E-commerce:Website Advertising Google","OperatingExpenses",34,561.72
+1521,"Furniture","FixedAsset",28,500.70
+6301,"5006 General and Administrative:Accounting Service Expense","OperatingExpenses",25,803.00
+1451,"Loan Receivable - Ophir","OtherCurrentAsset",25,000.00
+1452,"Loan Receivable - SAG","OtherCurrentAsset",24,748.14
+5403,"5005 Freight Expenses:Freight Out Expense","CostOfGoodsSold",23,622.94
+6374,"5006 General and Administrative:Warehouse Supplies Expense","OperatingExpenses",23,308.49
+2404,"Payroll Liabilities:Accrued vacation","OtherCurrentLiability",-23,047.31
+6326,"5006 General and Administrative:EDI Processing Expense","OperatingExpenses",23,014.56
+1301,"Prepaid Expenses","OtherCurrentAsset",22,231.00
+1003,"Bank Leumi 1500 Web Account","Bank",21,801.95
+6378,"5006 General and Administrative:Xoro Subscription","OperatingExpenses",20,348.35
+1510,"Equip - FS-10A SERIAL #1635SC (","FixedAsset",20,118.75
+6614,"Meta Platforms Advertising","OperatingExpenses",19,787.28
+2014,"Commisions Payable Molly Levitt","OtherCurrentLiability",-19,312.45
+1020,"Cash Clearing","Bank",-18,595.00
+6343,"5006 General and Administrative:Inventory Adjustments Expense","OperatingExpenses",18,595.00
+7125,"PT - Trade Show Booth - Surf Expo","OperatingExpenses",18,496.40
+6334,"5006 General and Administrative:Insurance","OperatingExpenses",18,455.42
+1505,"Computer Equipment - CC Rtechs","FixedAsset",18,370.12
+6335,"5006 General and Administrative:Insurance:Auto Insurance","OperatingExpenses",17,680.13
+7118,"Psycho Tuna:PT - Sponsorship","OperatingExpenses",17,463.49
+1504,"Computers","FixedAsset",17,343.64
+6349,"5006 General and Administrative:Meals & Entertainment","OperatingExpenses",17,336.67
+2105,"Chase Business Card","CreditCard",17,314.95
+6128,"Payroll:Severance Pay","OperatingExpenses",14,710.00
+(unmapped),"5006 General and Administrative:Water & Power","OperatingExpenses",14,573.96
+6108,"Payroll:Consulting Fee - CB Specialist","OperatingExpenses",13,500.00
+6123,"Payroll:Payroll Expense - Vacation","OperatingExpenses",12,429.44
+1306,"Lease Deposit 6320 Canoga","OtherCurrentAsset",11,996.05
+4217,"4100 Dilution:Chargebacks - Macy's 491","Sales",11,727.15
+6354,"5006 General and Administrative:Office Supplies Expense","OperatingExpenses",11,522.49
+(unmapped),"5008 Website and E-commerce:Web Design Expense","OperatingExpenses",10,729.07
+1307,"Rent Deposit","OtherCurrentAsset",10,700.00
+6303,"5006 General and Administrative:Air Fare Expense","OperatingExpenses",9,827.66
+4226,"4100 Dilution:Chargebacks Bealls 2% Allow.","Sales",9,786.79
+4221,"4100 Dilution:Chargebacks - Ross","Sales",9,208.17
+5402,"5005 Freight Expenses:Freight In Expense","CostOfGoodsSold",8,642.31
+6702,"5008 Website and E-commerce:Freight Out Expense Website","OperatingExpenses",8,278.59
+2300,"Sales Tax Payable","OtherCurrentLiability",-8,230.74
+6332,"5006 General and Administrative:Hotel Expense","OperatingExpenses",8,128.91
+1508,"Equip -  Panasonic Phone System","FixedAsset",7,918.33
+4204,"4100 Dilution:Chargebacks  - DDs Discounts","Sales",7,239.40
+6116,"Payroll:Payroll Expense - Overtime","OperatingExpenses",6,911.16
+6355,"5006 General and Administrative:Phone Expense","OperatingExpenses",6,534.15
+(unmapped),"Payroll - Psycho Tuna:Commission - Raul Ruiz","OperatingExpenses",6,096.78
+2106,"Chase Marriott New","CreditCard",-5,688.15
+4212,"4100 Dilution:Chargebacks - Burlington","Sales",5,557.00
+2108,"Credit Card at Chase United 31","CreditCard",5,445.60
+6352,"5006 General and Administrative:Mobile Phone Expense","OperatingExpenses",5,422.63
+6711,"5008 Website and E-commerce:Website Advertising Expense","OperatingExpenses",5,108.00
+6309,"5006 General and Administrative:Charitable Contributions","OperatingExpenses",5,000.00
+7119,"Psycho Tuna:PT - tradeshow","OperatingExpenses",4,979.52
+6706,"5008 Website and E-commerce:Walmart WFA storage Fees","OperatingExpenses",4,902.86
+2409,"Payroll Liabilities:Pre-tax Medical","OtherCurrentLiability",-4,706.77
+6386,"Taxes & Licenses","OperatingExpenses",4,579.08
+6323,"5006 General and Administrative:Dues & subscriptions - Adobe","OperatingExpenses",4,233.25
+6129,"*Payroll Expenses","OperatingExpenses",4,087.94
+6118,"Payroll:Payroll Expense - Personal Day","OperatingExpenses",4,072.00
+6306,"5006 General and Administrative:Bank Charges & Fees","OperatingExpenses",4,030.73
+5005,"4300 COGS:Vendor Discount","CostOfGoodsSold",-3,790.00
+2101,"Amex - Hilton Honors","CreditCard",-3,599.09
+6304,"5006 General and Administrative:Auto Expense","OperatingExpenses",3,497.34
+4235,"Sales Returns - PT","Sales",3,376.53
+6718,"5008 Website and E-commerce:Website Hosting Shopfiy","OperatingExpenses",3,362.35
+6318,"5006 General and Administrative:Credit Card Processing Fees QB","OperatingExpenses",3,151.93
+(unmapped),"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",3,146.55
+1454,"Notes Receivable - Josefina Hig","OtherCurrentAsset",3,090.00
+1408,"Payroll Asset","OtherCurrentAsset",-2,990.00
+6353,"5006 General and Administrative:Office Equipment","OperatingExpenses",2,911.52
+(unmapped),"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",2,817.20
+6300,"5006 General and Administrative","OperatingExpenses",2,399.37
+1519,"Equipment - MPro QC2 -2","FixedAsset",2,389.00
+1518,"Equipment - MPro QC2 -1","FixedAsset",2,389.00
+5204,"5003 Design and Production:Inspections Expense","CostOfGoodsSold",2,168.00
+6125,"Payroll:Payroll Tax Expense","OperatingExpenses",2,134.79
+1513,"Equip-Color Spectrum Sep 2015","FixedAsset",2,125.00
+7105,"Psycho Tuna:PT - lodging","OperatingExpenses",2,000.69
+6351,"5006 General and Administrative:Miscellaneous Expense - Travel","OperatingExpenses",1,911.84
+2503,"Loan Payable - Ophir Bitton","OtherCurrentLiability",-1,908.00
+6364,"5006 General and Administrative:Repairs & Maintenance","OperatingExpenses",1,900.00
+4219,"4100 Dilution:Chargebacks - Marshalls","Sales",1,780.87
+1601,"PT Trademark","OtherCurrentAsset",1,752.48
+4005,"Sales","Sales",1,707.88
+6382,"Internet Service Provider","OperatingExpenses",1,701.21
+(unmapped),"Payroll Liabilities:*Payroll Liabilities","OtherCurrentLiability",-1,685.35
+(unmapped),"Payroll Liabilities:AFLAC","OtherCurrentLiability",-1,667.79
+6321,"5006 General and Administrative:Design Supplies","OperatingExpenses",1,649.00
+6803,"5004 Factoring Expenses:Factor Exp - Other","OperatingExpenses",1,556.92
+(unmapped),"Payroll - Psycho Tuna:Commission - J. S. Weir","OperatingExpenses",1,550.56
+6370,"5006 General and Administrative:Travel","OperatingExpenses",1,452.33
+6317,"5006 General and Administrative:Credit Card Annual Fees Exp","OperatingExpenses",1,449.17
+(unmapped),"Payroll - Psycho Tuna:Commission - Jason Roberson","OperatingExpenses",1,348.86
+1509,"Equip - Copier Minolta 2510","FixedAsset",1,282.25
+7112,"Psycho Tuna:PT - promotional","OperatingExpenses",1,143.75
+(unmapped),"Disputed Returns Maycs 491","OtherCurrentAsset",1,141.00
+6604,"5001 Advertising and Promotions:Promotional Events Expense","OperatingExpenses",1,099.99
+1517,"Equipment - MacBook 13","FixedAsset",1,069.00
+(unmapped),"5006 General and Administrative:Tax Expense, ROF LLC","OperatingExpenses",1,069.00
+6346,"5006 General and Administrative:Licenses & Fees Expense","OperatingExpenses",1,044.99
+4224,"4100 Dilution:Chargebacks - TJ Maxx","Sales",1,037.19
+7124,"PT - Trade Show - Outdoor Retailer","OperatingExpenses",1,023.09
+6302,"5006 General and Administrative:Accounting Software Expense","OperatingExpenses",880.00
+6381,"Employee Break Room Supplies Expense","OperatingExpenses",779.30
+1520,"Equipment-4TB WD Sharespace","FixedAsset",699.99
+5203,"5003 Design and Production:Fit Model Expense","CostOfGoodsSold",624.00
+(unmapped),"Payroll - Psycho Tuna:Action Sports LLC (Mike Freih)","OperatingExpenses",620.60
+6705,"5008 Website and E-commerce:Shopify Transaction Charges","OperatingExpenses",561.00
+7100,"Psycho Tuna","OperatingExpenses",544.86
+(unmapped),"5006 General and Administrative:Rubbish Removal Expense","OperatingExpenses",543.24
+5206,"5003 Design and Production:Samples Expense","CostOfGoodsSold",477.85
+(unmapped),"Payroll - Psycho Tuna:Commissions - Helene Nicole","OperatingExpenses",468.79
+6712,"5008 Website and E-commerce:Website Advertising Facebook","OperatingExpenses",422.19
+(unmapped),"5006 General and Administrative:Security Expense","OperatingExpenses",405.00
+1516,"Equipment - HannsG Monitor - 2","FixedAsset",393.28
+1515,"Equipment - HannsG Monitor - 1","FixedAsset",393.28
+7107,"Psycho Tuna:PT - marketing","OperatingExpenses",356.97
+6312,"5006 General and Administrative:Computer Hardware Expense","OperatingExpenses",349.36
+1512,"Equip - Wacom Intuos4 Tablet 2","FixedAsset",335.98
+1511,"Equip - Wacom Intuos4 Tablet 1","FixedAsset",335.98
+4213,"4100 Dilution:Chargebacks - Dds","Sales",288.15
+(unmapped),"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",266.00
+6720,"5008 Website and E-commerce:Website Shipping stamps.com","OperatingExpenses",259.92
+6310,"5006 General and Administrative:Cleaning and Maintenance Expens","OperatingExpenses",195.00
+1002,"Bank Leumi 1300 Payroll Account","Bank",162.43
+2410,"Payroll Liabilities:CArmando CS #0370024521497","OtherCurrentLiability",155.50
+1514,"Equipment - Genius PenSketch","FixedAsset",154.20
+7120,"Psycho Tuna:PT - travel","OperatingExpenses",153.93
+4230,"4100 Dilution:Sales Discount","Sales",153.65
+7122,"Psycho Tuna:PT Samples Expense","OperatingExpenses",133.57
+6368,"5006 General and Administrative:Storage Container Expense","OperatingExpenses",125.00
+2107,"Chase Preferred - Eran Bitton","CreditCard",-111.95
+6700,"5008 Website and E-commerce","OperatingExpenses",109.71
+2408,"Payroll Liabilities:Federal Unemployment (940)","OtherCurrentLiability",-75.00
+7106,"Psycho Tuna:PT - logistics","OperatingExpenses",73.21
+4905,"Shipping Income","OtherIncome",-64.29
+6709,"5008 Website and E-commerce:Web Hosting Expense","OperatingExpenses",53.03
+(unmapped),"Accounts Receivable (A/R) - Web","AccountsReceivable",-21.95
+3003,"Isaac Bitton - Distribution Acc","Equity",20.00
+(unmapped),"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",7.63
+8003,"*Reconciliation Discrepancies","OperatingExpenses",-0.03
+2400,"Payroll Liabilities","OtherCurrentLiability",-0.02
+2021,"Suspense","OtherCurrentLiability",0.00
+2103,"Amex Isaac Bitton","CreditCard",0.00
+6601,"5001 Advertising and Promotions:Advertising & Marketing","OperatingExpenses",0.00

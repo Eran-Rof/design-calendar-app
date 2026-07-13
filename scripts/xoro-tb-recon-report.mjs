@@ -1,22 +1,39 @@
 #!/usr/bin/env node
 // xoro-tb-recon-report.mjs (#xoro-gl-truth)
 //
-// Read v_xoro_tangerine_tb_recon (monthly Xoro-vs-Tangerine net-debit per ROF
-// COA code) + v_xoro_tb_unmapped and write:
-//   docs/tangerine/xoro-tangerine-tb-recon.csv     — every (month, account)
-//     with xoro/tangerine net debit + variance, ranked by |variance|.
-//   docs/tangerine/xoro-tb-unmapped.csv            — Xoro names needing a map.
-// Plus a console summary: P&L match rate month-by-month, BS opening-gap
-// (the cumulative BS variance = the un-booked 2024-08-31 opening JE), and the
-// biggest variances (with the known-defect annotations).
+// Produce the Xoro-vs-Tangerine monthly TB variance deliverable from
+// v_xoro_tangerine_tb_recon (OPERATING scope — excludes closing/opening/
+// distribution) + v_xoro_opening_balances + v_xoro_tb_unmapped. Writes:
+//   docs/tangerine/xoro-tangerine-tb-recon.csv   — every (month, account) with
+//     xoro/tangerine net-debit, variance, and SUBLEDGER-vs-GL-ONLY class.
+//   docs/tangerine/xoro-tb-gl-only-backfill.csv  — the GL-ONLY backfill design:
+//     per (category, month) the $ Tangerine is missing (would be posted).
+//   docs/tangerine/xoro-tb-unmapped.csv          — Xoro names needing a map.
+//   docs/tangerine/xoro-opening-balances.csv     — 8/31/2024 opening balances
+//     (Xoro equity-touching entries) by account — the BS opening backfill source.
+// Plus a console summary. Queries run through the Supabase Management API
+// (SUPABASE_PAT) because the views aggregate ~700K mirror rows and exceed the
+// PostgREST statement timeout.
 //
-// Usage: node scripts/xoro-tb-recon-report.mjs
+// CLASSIFICATION (per (month, account) variance cell):
+//   BS-OPENING              balance-sheet account (1/2/3/9xxx) — variance is the
+//                           un-booked 8/31/2024 opening + subledger timing.
+//   SUBLEDGER-DRIVEN        account Tangerine feeds from AR/AP (main revenue
+//                           40xx, channel COGS 501x, and any expense Tangerine
+//                           already posts) — variance = mapping/timing/defect,
+//                           fixable in the subledger.
+//   GL-ONLY:<category>      never came through a subledger — Xoro posted it in
+//                           the GL and Tangerine has ~nothing. Categories:
+//                           COGS-ADJ (5001-5006/5020-5023), FREIGHT (54xx),
+//                           SAMPLES (52xx), DILUTION (41xx revenue contra),
+//                           RETURNS-CHARGEBACKS (42xx), OTHER-INCOME (49xx),
+//                           PAYROLL/BADDEBT (name), OTHER (residual Xoro-only).
+//   The GL-ONLY variance IS the backfill amount — post it (source-dated) to make
+//   Tangerine match Xoro. (Design only here; the CEO reviews before posting.)
 
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync } from "fs";
-import { createClient } from "@supabase/supabase-js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -27,79 +44,99 @@ function loadEnv(f) {
       .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; }));
   } catch { return {}; }
 }
-const env = { ...loadEnv(".env"), ...loadEnv(".env.local") };
-const admin = createClient(env.VITE_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const env = { ...loadEnv(".env"), ...loadEnv(".env.local"), ...loadEnv(".env.staging") };
+const PAT = env.SUPABASE_PAT || process.env.SUPABASE_PAT;
+if (!PAT) { console.error("SUPABASE_PAT missing (.env.local/.env.staging)"); process.exit(1); }
+const PROD_REF = "qcvqvxxoperiurauoxmp";
+
+async function q(sql) {
+  const r = await fetch(`https://api.supabase.com/v1/projects/${PROD_REF}/database/query`, {
+    method: "POST", headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: sql }),
+  });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(`query failed ${r.status}: ${txt.slice(0, 300)}`);
+  return JSON.parse(txt);
+}
 
 const money = (n) => Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
 
-async function fetchAllView(view, order) {
-  const out = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await admin.from(view).select("*").order(order, { ascending: true }).range(from, from + 999);
-    if (error) throw new Error(`${view}: ${error.message}`);
-    out.push(...(data || []));
-    if (!data || data.length < 1000) break;
-  }
-  return out;
+// GL-ONLY category by ROF code / name (see header).
+function classify(code, name, tangNetDebit) {
+  const c = String(code || "");
+  const nm = String(name || "");
+  if (/^[123]/.test(c) || /^9/.test(c)) return "BS-OPENING";
+  if (/^(5001|5002|5003|5004|5005|5006|5020|5021|5022|5023)$/.test(c)) return "GL-ONLY:COGS-ADJ";
+  if (/^54/.test(c)) return "GL-ONLY:FREIGHT";
+  if (/^52/.test(c)) return "GL-ONLY:SAMPLES";
+  if (/^41/.test(c)) return "GL-ONLY:DILUTION";
+  if (/^42/.test(c)) return "GL-ONLY:RETURNS-CHARGEBACKS";
+  if (/^49/.test(c)) return "GL-ONLY:OTHER-INCOME";
+  if (/^40/.test(c)) return "SUBLEDGER:REVENUE";
+  if (/^501/.test(c)) return "SUBLEDGER:COGS";
+  if (/payroll|wages|salary|commission|payroll tax|bad debt/i.test(nm)) return "GL-ONLY:PAYROLL/BADDEBT";
+  return Math.abs(Number(tangNetDebit || 0)) > 100 ? "SUBLEDGER-DRIVEN" : "GL-ONLY:OTHER";
 }
 
 async function main() {
-  const rows = await fetchAllView("v_xoro_tangerine_tb_recon", "month");
-  const unmapped = await fetchAllView("v_xoro_tb_unmapped", "month");
+  const rows = await q("select to_char(month,'YYYY-MM') as month, gl_code, gl_name, xoro_net_debit, tang_net_debit, variance, is_pl from v_xoro_tangerine_tb_recon order by abs(variance) desc");
+  const unmapped = await q("select to_char(month,'YYYY-MM') as month, accounting_name, accounting_type_name, legs, net_debit from v_xoro_tb_unmapped order by abs(net_debit) desc");
+  const opening = await q("select gl_code, accounting_name, accounting_type_name, round(sum(net_debit)::numeric,2) as net_debit from v_xoro_opening_balances where month <= '2024-09-01' group by 1,2,3 order by abs(sum(net_debit)) desc");
 
-  // CSV: full recon, ranked by abs_variance desc
-  const sorted = [...rows].sort((a, b) => Number(b.abs_variance) - Number(a.abs_variance));
-  const out = [["month", "gl_code", "gl_name", "statement", "xoro_net_debit", "tangerine_net_debit", "variance"].join(",")];
-  for (const r of sorted) {
-    out.push([r.month, r.gl_code, esc(r.gl_name), r.statement, money(r.xoro_net_debit), money(r.tang_net_debit), money(r.variance)].join(","));
+  const out = [["month", "gl_code", "gl_name", "class", "xoro_net_debit", "tangerine_net_debit", "variance"].join(",")];
+  for (const r of rows) {
+    const cls = classify(r.gl_code, r.gl_name, r.tang_net_debit);
+    out.push([r.month, r.gl_code, esc(r.gl_name), cls, money(r.xoro_net_debit), money(r.tang_net_debit), money(r.variance)].join(","));
   }
   const p1 = resolve(ROOT, "docs/tangerine/xoro-tangerine-tb-recon.csv");
   mkdirSync(dirname(p1), { recursive: true });
   writeFileSync(p1, out.join("\n") + "\n");
 
-  const uout = [["month", "xoro_accounting_name", "xoro_type", "legs", "net_debit"].join(",")];
-  for (const u of [...unmapped].sort((a, b) => Math.abs(Number(b.net_debit)) - Math.abs(Number(a.net_debit)))) {
-    uout.push([u.month, esc(u.accounting_name), esc(u.accounting_type_name), u.legs, money(u.net_debit)].join(","));
-  }
-  const p2 = resolve(ROOT, "docs/tangerine/xoro-tb-unmapped.csv");
-  writeFileSync(p2, uout.join("\n") + "\n");
-
-  // ── summary ──────────────────────────────────────────────────────────────
-  const cents = (n) => Math.round(Number(n || 0) * 100);
-  const EPS = 1; // 1 cent
-  let plCells = 0, plMatch = 0, plVar = 0, bsCells = 0, bsVar = 0;
-  const byMonthPl = new Map();  // month -> {cells, match, var}
-  const bsCumByCode = new Map(); // code -> cumulative variance (the opening gap)
+  const backfill = new Map();
+  const catTotal = new Map();
   for (const r of rows) {
-    const v = cents(r.variance);
-    if (r.is_pl) {
-      plCells += 1; if (Math.abs(v) <= EPS) plMatch += 1; plVar += Math.abs(v);
-      const m = byMonthPl.get(r.month) || { cells: 0, match: 0, var: 0 };
-      m.cells += 1; if (Math.abs(v) <= EPS) m.match += 1; m.var += Math.abs(v);
-      byMonthPl.set(r.month, m);
-    } else {
-      bsCells += 1; bsVar += Math.abs(v);
-      bsCumByCode.set(r.gl_code, (bsCumByCode.get(r.gl_code) || 0) + v);
-    }
+    const cls = classify(r.gl_code, r.gl_name, r.tang_net_debit);
+    if (!cls.startsWith("GL-ONLY")) continue;
+    const v = Math.round(Number(r.variance) * 100);
+    if (!backfill.has(cls)) backfill.set(cls, new Map());
+    backfill.get(cls).set(r.month, (backfill.get(cls).get(r.month) || 0) + v);
+    catTotal.set(cls, (catTotal.get(cls) || 0) + v);
   }
-  console.log(`recon cells: ${rows.length} (P&L ${plCells}, BS ${bsCells}); unmapped name-months: ${unmapped.length}`);
-  console.log(`P&L match (|var|<=$0.01): ${plMatch}/${plCells} (${(plMatch / Math.max(1, plCells) * 100).toFixed(1)}%); P&L abs variance $${money(plVar / 100)}`);
-  console.log(`BS abs variance $${money(bsVar / 100)} (expected — the un-booked 2024-08-31 opening)`);
-  console.log("\nP&L match rate by month:");
-  for (const [m, s] of [...byMonthPl.entries()].sort()) {
-    console.log(`  ${String(m).slice(0, 7)}: ${s.match}/${s.cells} match, abs var $${money(s.var / 100)}`);
+  const bf = [["category", "month", "backfill_net_debit"].join(",")];
+  for (const [cat, mm] of [...backfill.entries()].sort((a, b) => Math.abs(catTotal.get(b[0])) - Math.abs(catTotal.get(a[0])))) {
+    for (const [m, c] of [...mm.entries()].sort()) bf.push([cat, m, money(c / 100)].join(","));
   }
-  console.log("\nBS cumulative variance by account (= the opening JE that account needs), top 15:");
-  for (const [code, v] of [...bsCumByCode.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 15)) {
-    const nm = (rows.find((r) => r.gl_code === code) || {}).gl_name || "";
-    console.log(`  ${code} ${String(nm).slice(0, 34).padEnd(34)} cum $${money(v / 100)}`);
+  const p2 = resolve(ROOT, "docs/tangerine/xoro-tb-gl-only-backfill.csv");
+  writeFileSync(p2, bf.join("\n") + "\n");
+
+  const uout = [["month", "xoro_accounting_name", "xoro_type", "legs", "net_debit"].join(",")];
+  for (const u of unmapped) uout.push([u.month, esc(u.accounting_name), esc(u.accounting_type_name), u.legs, money(u.net_debit)].join(","));
+  writeFileSync(resolve(ROOT, "docs/tangerine/xoro-tb-unmapped.csv"), uout.join("\n") + "\n");
+
+  const oout = [["gl_code", "xoro_account", "xoro_type", "opening_net_debit"].join(",")];
+  for (const o of opening) oout.push([o.gl_code, esc(o.accounting_name), esc(o.accounting_type_name), money(o.net_debit)].join(","));
+  writeFileSync(resolve(ROOT, "docs/tangerine/xoro-opening-balances.csv"), oout.join("\n") + "\n");
+
+  const cents = (n) => Math.round(Number(n || 0) * 100);
+  const byClass = new Map();
+  let plMatch = 0, plCells = 0;
+  for (const r of rows) {
+    const cls = classify(r.gl_code, r.gl_name, r.tang_net_debit);
+    byClass.set(cls, (byClass.get(cls) || 0) + Math.abs(cents(r.variance)));
+    if (r.is_pl) { plCells += 1; if (Math.abs(cents(r.variance)) <= 100) plMatch += 1; }
   }
-  console.log("\nTop 20 (month, account) P&L variances (should be near 0 — investigate):");
-  for (const r of sorted.filter((r) => r.is_pl).slice(0, 20)) {
-    console.log(`  ${String(r.month).slice(0, 7)} ${r.gl_code} ${String(r.gl_name).slice(0, 30).padEnd(30)} xoro $${money(r.xoro_net_debit)} tang $${money(r.tang_net_debit)} var $${money(r.variance)}`);
+  console.log(`recon cells: ${rows.length}; P&L cells within $1.00: ${plMatch}/${plCells}`);
+  console.log("\nabs variance by class (all 24 months):");
+  for (const [cls, c] of [...byClass.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${cls.padEnd(28)} $${money(c / 100)}`);
+  console.log("\nGL-ONLY backfill design — net $ Tangerine is missing, by category:");
+  for (const [cat, tot] of [...catTotal.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))) {
+    console.log(`  ${cat.padEnd(28)} net_debit $${money(tot / 100)} over ${backfill.get(cat).size} months`);
   }
-  console.log(`\nCSV -> ${p1}`);
-  console.log(`CSV -> ${p2}`);
+  console.log("\ntop 15 operating P&L variances:");
+  for (const r of rows.filter((r) => r.is_pl).slice(0, 15)) {
+    console.log(`  ${r.month} ${r.gl_code} ${String(r.gl_name).slice(0, 26).padEnd(26)} var $${money(r.variance)} (${classify(r.gl_code, r.gl_name, r.tang_net_debit)})`);
+  }
+  console.log(`\nCSV -> ${p1}\nCSV -> ${p2}\nunmapped names: ${unmapped.length}; opening-balance accounts: ${opening.length}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -1,0 +1,139 @@
+month,xoro_accounting_name,xoro_type,legs,net_debit
+2024-09,"9999 - Opening Balance Equity","Equity",491,26,637,344.97
+2024-12,"9999 - Opening Balance Equity","Equity",3,754,556.81
+2024-12,"Factor loan - Rosenthal","OtherCurrentLiability",1,250,496.25
+2024-08,"Factor loan - Rosenthal","OtherCurrentLiability",1,-250,496.23
+2024-08,"9999 - Opening Balance Equity","Equity",26,208,667.52
+2024-10,"9999 - Opening Balance Equity","Equity",254,192,034.44
+2025-05,"Maycs Consignment AR","AccountsReceivable",1,124,979.80
+2025-11,"Maycs Consignment AR","AccountsReceivable",1,-104,052.00
+2024-11,"9999 - Opening Balance Equity","Equity",6,-93,917.41
+2025-06,"Maycs Consignment AR","AccountsReceivable",1,89,935.50
+2025-09,"Maycs Consignment AR","AccountsReceivable",2,-69,649.45
+2026-06,"Accounts Receivable","AccountsReceivable",1610,67,457.71
+2024-12,"Inventory Consignment 2023","Inventory",1,-45,646.59
+2024-08,"Inventory Consignment 2023","Inventory",1,45,646.59
+2026-06,"Payroll:Payroll Expense - Executive Salary","OperatingExpenses",2,37,500.00
+2024-12,"Accounts Receivable","AccountsReceivable",3192,-17,848.42
+2024-12,"5006 General and Administrative:Water & Power","OperatingExpenses",1,-14,573.96
+2024-08,"5006 General and Administrative:Water & Power","OperatingExpenses",2,14,573.96
+2026-02,"Maycs Consignment AR","AccountsReceivable",1,-13,295.90
+2024-12,"5008 Website and E-commerce:Web Design Expense","OperatingExpenses",1,-12,802.28
+2025-10,"Maycs Consignment AR","AccountsReceivable",1,-10,751.40
+2024-08,"5008 Website and E-commerce:Web Design Expense","OperatingExpenses",60,10,729.07
+2026-05,"Maycs Consignment AR","AccountsReceivable",3,-7,831.15
+2025-12,"Maycs Consignment AR","AccountsReceivable",1,-7,818.95
+2026-05,"Accounts Receivable","AccountsReceivable",1391,7,053.54
+2026-07,"Accounts Receivable","AccountsReceivable",442,7,018.32
+2024-10,"Accounts Receivable","AccountsReceivable",1268,6,441.43
+2024-11,"Accounts Receivable","AccountsReceivable",1945,6,208.38
+2024-12,"Payroll - Psycho Tuna:Commission - Raul Ruiz","OperatingExpenses",2,-6,096.78
+2024-08,"Payroll - Psycho Tuna:Commission - Raul Ruiz","OperatingExpenses",1,6,096.78
+2024-09,"Accounts Receivable","AccountsReceivable",343,6,025.42
+2026-03,"Maycs Consignment AR","AccountsReceivable",1,-6,016.35
+2025-03,"Maycs Consignment AR","AccountsReceivable",1,-5,017.85
+2024-12,"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",3,-4,479.97
+2024-08,"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",30,3,688.54
+2025-12,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",1,-3,453.83
+2026-01,"Maycs Consignment AR","AccountsReceivable",1,-2,947.25
+2024-12,"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",1,-2,817.20
+2024-08,"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",1,2,817.20
+2025-09,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",1,2,369.31
+2024-09,"2011 - Undeposited Funds","Undeposited Funds",178,2,318.54
+2024-09,"5008 Website and E-commerce:Web Design Expense","OperatingExpenses",9,2,073.21
+2025-07,"Maycs Consignment AR","AccountsReceivable",1,2,064.75
+2025-05,"Payroll - Psycho Tuna:Commission - Raul Ruiz","OperatingExpenses",1,2,004.94
+2025-12,"Payroll - Psycho Tuna:Commission - Raul Ruiz","OperatingExpenses",1,-2,004.94
+2025-12,"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",1,-1,972.70
+2024-08,"Payroll Liabilities:*Payroll Liabilities","OtherCurrentLiability",1,-1,685.35
+2024-12,"Payroll Liabilities:AFLAC","OtherCurrentLiability",1,1,667.79
+2024-08,"Payroll Liabilities:AFLAC","OtherCurrentLiability",1,-1,667.79
+2024-08,"Payroll - Psycho Tuna:Commission - J. S. Weir","OperatingExpenses",1,1,550.56
+2024-12,"Payroll - Psycho Tuna:Commission - J. S. Weir","OperatingExpenses",1,-1,550.56
+2024-08,"Payroll - Psycho Tuna:Commission - Jason Roberson","OperatingExpenses",1,1,348.86
+2024-12,"Payroll - Psycho Tuna:Commission - Jason Roberson","OperatingExpenses",1,-1,348.86
+2024-08,"Disputed Returns Maycs 491","OtherCurrentAsset",1,1,141.00
+2024-12,"Disputed Returns Maycs 491","OtherCurrentAsset",1,-1,141.00
+2024-12,"5006 General and Administrative:Tax Expense, ROF LLC","OperatingExpenses",2,-1,069.00
+2024-08,"5006 General and Administrative:Tax Expense, ROF LLC","OperatingExpenses",1,1,069.00
+2025-03,"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",1,1,023.80
+2025-04,"Payroll - Psycho Tuna:Commission - Reggie B. Pooley","OperatingExpenses",1,948.90
+2025-07,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",2,915.18
+2025-12,"5006 General and Administrative:Security Expense","OperatingExpenses",1,-820.00
+2025-08,"5006 General and Administrative:Security Expense","OperatingExpenses",2,820.00
+2025-12,"5006 General and Administrative:HR Software Expense","OperatingExpenses",3,-802.69
+2026-05,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,672.50
+2024-12,"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",2,-650.52
+2024-08,"Payroll - Psycho Tuna:Action Sports LLC (Mike Freih)","OperatingExpenses",1,620.60
+2024-12,"Payroll - Psycho Tuna:Action Sports LLC (Mike Freih)","OperatingExpenses",1,-620.60
+2024-08,"5006 General and Administrative:Rubbish Removal Expense","OperatingExpenses",1,543.24
+2024-12,"5006 General and Administrative:Rubbish Removal Expense","OperatingExpenses",1,-543.24
+2025-12,"Accounts Receivable","AccountsReceivable",3131,-487.97
+2024-08,"Payroll - Psycho Tuna:Commissions - Helene Nicole","OperatingExpenses",1,468.79
+2024-12,"Payroll - Psycho Tuna:Commissions - Helene Nicole","OperatingExpenses",1,-468.79
+2025-02,"Accounts Receivable","AccountsReceivable",1320,-409.06
+2024-08,"5006 General and Administrative:Security Expense","OperatingExpenses",1,405.00
+2024-12,"5006 General and Administrative:Security Expense","OperatingExpenses",1,-405.00
+2026-04,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,387.00
+2026-06,"5006 General and Administrative:HR Software Expense","OperatingExpenses",2,378.50
+2026-03,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,363.50
+2026-07,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,354.50
+2024-12,"Sales Revenue Accessories","Sales",1,315.89
+2025-10,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,275.50
+2024-08,"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",1,266.00
+2024-10,"Sales Revenue Accessories","Sales",18,-259.64
+2025-11,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,253.50
+2026-01,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,235.00
+2024-10,"2011 - Undeposited Funds","Undeposited Funds",6,-226.14
+2025-09,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,219.50
+2024-10,"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",1,192.26
+2024-11,"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",1,192.26
+2025-12,"5006 General and Administrative:Rubbish Removal Expense","OperatingExpenses",1,186.42
+2025-11,"5006 General and Administrative:Rubbish Removal Expense","OperatingExpenses",1,-186.42
+2026-02,"5006 General and Administrative:HR Software Expense","OperatingExpenses",2,179.50
+2024-12,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",2,-175.15
+2025-07,"Disputed Freight & Hand. - 491","OtherCurrentAsset",1,170.00
+2025-08,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",1,169.34
+2024-11,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",1,167.52
+2026-01,"Accounts Receivable","AccountsReceivable",2307,141.36
+2024-10,"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",3,134.16
+2024-09,"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",3,134.16
+2025-05,"Disputed PayPal Charges","OtherCurrentAsset",2,132.81
+2024-09,"Credit Card at Chase Business","CreditCard",1,-109.99
+2025-12,"5006 General and Administrative:Water & Power","OperatingExpenses",1,90.11
+2025-11,"5006 General and Administrative:Water & Power","OperatingExpenses",2,-90.11
+2024-11,"5008 Website and E-commerce:Website Software Expense","OperatingExpenses",2,83.15
+2025-04,"Disputed PayPal Charges","OtherCurrentAsset",1,77.71
+2025-01,"Accounts Receivable","AccountsReceivable",2091,-68.94
+2024-12,"Sales Revenue Wovens","Sales",1,62.70
+2024-09,"Sales Revenue Accessories","Sales",4,-56.25
+2025-08,"5006 General and Administrative:HR Software Expense","OperatingExpenses",1,54.19
+2025-07,"5006 General and Administrative:Tax Expense, ROF LLC","OperatingExpenses",1,-47.49
+2025-12,"5006 General and Administrative:Tax Expense, ROF LLC","OperatingExpenses",1,47.49
+2025-05,"Accounts Receivable","AccountsReceivable",1168,-39.32
+2025-03,"Accounts Receivable","AccountsReceivable",1394,38.02
+2024-10,"Sales Revenue Wovens","Sales",2,-31.68
+2024-09,"Sales Revenue Wovens","Sales",2,-31.02
+2025-06,"Disputed PayPal Charges","OtherCurrentAsset",3,28.89
+2026-03,"Accounts Receivable","AccountsReceivable",1753,-22.82
+2024-08,"Accounts Receivable (A/R) - Web","AccountsReceivable",1,-21.95
+2026-04,"","OperatingExpenses",1,12.65
+2024-08,"5006 General and Administrative:Warehouse Supplies Exp Charged","OperatingExpenses",1,7.63
+2025-04,"","OperatingExpenses",1,7.21
+2026-07,"Maycs Consignment AR","AccountsReceivable",1,5.00
+2026-02,"Accounts Receivable","AccountsReceivable",1652,0.99
+2026-04,"Accounts Receivable","AccountsReceivable",1617,0.64
+2025-10,"Accounts Receivable","AccountsReceivable",1184,0.05
+2025-06,"Accounts Receivable","AccountsReceivable",1197,0.04
+2025-11,"Accounts Receivable","AccountsReceivable",1333,0.02
+2025-07,"Accounts Receivable","AccountsReceivable",1129,0.02
+2025-08,"Accounts Receivable","AccountsReceivable",1104,0.01
+2025-12,"5006 General and Administrative:Gas (Heating) Expense","OperatingExpenses",2,0.00
+2025-12,"Payroll - Psycho Tuna:Commission - Kylie Yoshida","OperatingExpenses",2,0.00
+2025-12,"5008 Website and E-commerce:Website Development Expense","OperatingExpenses",2,0.00
+2024-09,"Cost of Goods Sold Accessories","CostOfGoodsSold",5,0.00
+2024-10,"Cost of Goods Sold Wovens","CostOfGoodsSold",3,0.00
+2025-09,"Accounts Receivable","AccountsReceivable",1343,0.00
+2024-09,"Cost of Goods Sold Wovens","CostOfGoodsSold",3,0.00
+2025-04,"Accounts Receivable","AccountsReceivable",1250,0.00
+2024-10,"Cost of Goods Sold Accessories","CostOfGoodsSold",19,0.00
