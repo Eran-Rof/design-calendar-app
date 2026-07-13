@@ -33,25 +33,30 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const REVERSE_DOC_CAP = 400;
 
 // Reverse lookup: documents whose accrual_je_id OR cash_je_id points AT this JE.
-// Returns { docs:[{ kind, number, module, q, leg }], count, truncated }.
+// Returns { docs:[{ kind, number, module, q, leg, id, docType, party }], count,
+// truncated }. `id` + `docType` let the caller open the actual invoice/bill
+// document in place (QuickBooks-style), and `party` is the customer/vendor name.
 async function reverseDocs(admin, jeId) {
   const out = [];
   const specs = [
-    { table: "ar_invoices", numberCol: "invoice_number", module: "ar_invoices", kind: "AR invoice" },
-    { table: "invoices", numberCol: "invoice_number", module: "ap_invoices", kind: "AP bill" },
+    { table: "ar_invoices", numberCol: "invoice_number", module: "ar_invoices", kind: "AR invoice", docType: "ar", partyTable: "customers", partyCol: "customer_id" },
+    { table: "invoices", numberCol: "invoice_number", module: "ap_invoices", kind: "AP bill", docType: "ap", partyTable: "vendors", partyCol: "vendor_id" },
   ];
   for (const s of specs) {
     for (const leg of ["accrual", "cash"]) {
       const col = `${leg}_je_id`;
       const { data, error } = await admin
         .from(s.table)
-        .select(`${s.numberCol}, id`)
+        .select(`${s.numberCol}, id, ${s.partyCol}`)
         .eq(col, jeId)
         .limit(REVERSE_DOC_CAP + 1);
       if (error || !data) continue;
       for (const row of data) {
         const number = row[s.numberCol] ? String(row[s.numberCol]) : null;
-        out.push({ kind: s.kind, number, module: number ? s.module : null, q: number, leg });
+        out.push({
+          kind: s.kind, number, module: number ? s.module : null, q: number, leg,
+          id: row.id || null, docType: s.docType, partyTable: s.partyTable, partyId: row[s.partyCol] || null,
+        });
       }
     }
   }
@@ -68,7 +73,28 @@ async function reverseDocs(admin, jeId) {
   deduped.sort((a, b) => String(a.number || "").localeCompare(String(b.number || "")));
   const count = deduped.length;
   const truncated = count > REVERSE_DOC_CAP;
-  return { docs: truncated ? deduped.slice(0, REVERSE_DOC_CAP) : deduped, count, truncated };
+  const kept = truncated ? deduped.slice(0, REVERSE_DOC_CAP) : deduped;
+  await attachPartyNames(admin, kept);
+  return { docs: kept.map(stripInternal), count, truncated };
+}
+
+// Batch-resolve customer/vendor display names onto the kept docs (one query per
+// party table), so the document viewer shows "Shopify psychotuna" not a UUID.
+async function attachPartyNames(admin, docs) {
+  for (const partyTable of ["customers", "vendors"]) {
+    const ids = [...new Set(docs.filter((d) => d.partyTable === partyTable && d.partyId).map((d) => d.partyId))];
+    if (ids.length === 0) continue;
+    const { data } = await admin.from(partyTable).select("id, name").in("id", ids);
+    const byId = {};
+    for (const r of (data || [])) byId[r.id] = r.name;
+    for (const d of docs) if (d.partyTable === partyTable && d.partyId) d.party = byId[d.partyId] || null;
+  }
+}
+
+// Drop the internal join keys before returning to the client.
+function stripInternal(d) {
+  const { partyTable: _pt, partyId: _pi, ...rest } = d;
+  return rest;
 }
 
 // source_table → { module, table, numberCol, kind }
@@ -119,15 +145,29 @@ export default async function handler(req, res) {
   //    posted AR/AP/receipt/build JEs carry their own document ref).
   const r = je.source_table ? RESOLVERS[je.source_table] : null;
   if (r && je.source_id) {
+    // For AR/AP the document is openable in place — carry its id + docType +
+    // party name so the caller can render the actual invoice/bill.
+    const isDoc = je.source_table === "ar_invoices" || je.source_table === "invoices";
+    const docType = je.source_table === "ar_invoices" ? "ar" : je.source_table === "invoices" ? "ap" : null;
+    const partyTable = je.source_table === "ar_invoices" ? "customers" : je.source_table === "invoices" ? "vendors" : null;
+    const partyCol = je.source_table === "ar_invoices" ? "customer_id" : je.source_table === "invoices" ? "vendor_id" : null;
     let number = null;
+    let docId = null;
+    let party = null;
     if (UUID_RE.test(String(je.source_id))) {
-      const { data: doc } = await admin.from(r.table).select(r.numberCol).eq("id", je.source_id).maybeSingle();
+      docId = String(je.source_id);
+      const sel = isDoc ? `${r.numberCol}, ${partyCol}` : r.numberCol;
+      const { data: doc } = await admin.from(r.table).select(sel).eq("id", je.source_id).maybeSingle();
       number = doc ? String(doc[r.numberCol] ?? "") : null;
+      if (doc && partyTable && doc[partyCol]) {
+        const { data: p } = await admin.from(partyTable).select("name").eq("id", doc[partyCol]).maybeSingle();
+        party = p?.name || null;
+      }
     } else {
       number = String(je.source_id);
     }
     if (number) {
-      const one = { kind: r.kind, number, module: r.module, q: number, leg: null };
+      const one = { kind: r.kind, number, module: r.module, q: number, leg: null, id: docId, docType, party };
       return res.status(200).json({
         label: `${r.kind} ${number}`, module: r.module, q: number,
         docs: [one], count: 1, truncated: false,
