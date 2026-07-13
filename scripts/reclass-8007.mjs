@@ -1107,6 +1107,321 @@ async function phaseXoroVerify({ dryRun, limit }) {
   if (errors) process.exit(1);
 }
 
+// ── gl-verify (#xoro-gl-truth 2026-07-12) ────────────────────────────────────
+// Supersedes xoro-verify's bill-line evidence with the FULL Xoro GL mirror
+// (xoro_gl_transactions, fed by rest_gl_sync.py -> /api/xoro/sync-gl). The AP
+// bill-detail endpoint (bill/getbill) returns EXPENSE bills HEADER-ONLY, so
+// ~$6.81M of 8007-origin bills were "NO-SIGNAL" in xoro-verify. Xoro's
+// accounting/getgltransactions exposes the ACTUAL posted GL legs of every Bill,
+// so those bills' expense/asset distribution is now visible.
+//
+// Evidence per bill: the mirror's Bill (and Credit Memo) rows for the bill's
+// RefNumber (= invoices.invoice_number). Debit legs (amount_home > 0, i.e. NOT
+// the negative AP control credit) ARE the classification — each leg's
+// accounting_name resolves to a ROF account via xoroAccountMap.js. Same
+// discipline as xoro-verify:
+//   MATCH     Xoro agrees with where the money currently sits.
+//   DIFF      Xoro says a different, resolvable ROF account -> correction JE
+//             (DR correct / CR current holder), dated to the source month,
+//             source_id '<vendor>:<ym>:gl-correction' (idempotent; re-runs get
+//             a -N suffix and converge because placements net prior moves).
+//   UNMAPPED  Xoro name has no ROF COA equivalent -> reported, never posted.
+//   NO-SIGNAL bill absent from the GL mirror (pre-cutover opener / outside the
+//             walk) -> stays put, reported.
+// FLAG (related-party/financing) + NET-ZERO buckets are ALWAYS report-only.
+// Only expense/asset legs are evidence; the negative AP leg (2000) is excluded,
+// so NO gl-correction line can ever touch 2000 (verified in `verify`).
+
+// Xoro GL account-type names that are NOT expense/asset distribution evidence
+// (the control credit legs of a bill). Excluded from the debit-leg rollup.
+const GL_NON_EVIDENCE_TYPES = new Set(["accountspayable"]);
+
+async function loadGlBillEvidence() {
+  // Pull every Bill / Credit Memo GL leg from the mirror, grouped by ref_number.
+  // Bills are a small slice of the GL (2-6 legs each), so this is cheap.
+  const rows = await fetchAll(
+    "xoro_gl_transactions",
+    "ref_number, txn_type_name, accounting_name, accounting_type_name, amount_home, item_id, item_number",
+    (q) => q.in("txn_type_name", ["Bill", "Credit Memo"]).not("ref_number", "is", null),
+  );
+  const byRef = new Map();
+  for (const r of rows) {
+    const ref = String(r.ref_number || "").trim();
+    if (!ref) continue;
+    let a = byRef.get(ref);
+    if (!a) { a = []; byRef.set(ref, a); }
+    a.push(r);
+  }
+  return byRef;
+}
+
+async function phaseGlVerify({ dryRun, limit }) {
+  const ctx = await loadContext();
+  const vendors = await loadVendors();
+  const { buckets, perInvoice } = await load8007Activity(ctx);
+  const resolveAccount = buildXoroAccountResolver([...ctx.acctById.values()]);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // ── current placement per bucket: ALL reclass-family JEs (original reclass +
+  // prior xoro-/gl-corrections) keyed '<vendor>:<ym>' move cents out of 8007 ──
+  const reclassJes = await fetchAll("journal_entries", "id, source_id, journal_type",
+    (q) => q.eq("source_table", "vendor_expense_reclass").eq("status", "posted"));
+  const jeById = new Map(reclassJes.map((j) => [j.id, j]));
+  const movedByBucket = new Map();
+  const correctionCountByBucket = new Map(); // # of prior gl-corrections per bucket
+  for (const j of reclassJes) {
+    const parts = String(j.source_id).split(":");
+    if (parts.length >= 3 && parts[2].startsWith("gl-")) {
+      const key = `${parts[0]}:${parts[1]}`;
+      correctionCountByBucket.set(key, (correctionCountByBucket.get(key) || 0) + 1);
+    }
+  }
+  const jeIds = reclassJes.map((j) => j.id);
+  for (let i = 0; i < jeIds.length; i += 100) {
+    const { data, error } = await admin.from("journal_entry_lines")
+      .select("journal_entry_id, account_id, debit, credit")
+      .in("journal_entry_id", jeIds.slice(i, i + 100)).range(0, 9999);
+    if (error) throw new Error(error.message);
+    for (const l of data || []) {
+      const je = jeById.get(l.journal_entry_id);
+      if (!je) continue;
+      const key = String(je.source_id).split(":").slice(0, 2).join(":");
+      const cents = Math.round(Number(l.debit || 0) * 100) - Math.round(Number(l.credit || 0) * 100);
+      let m = movedByBucket.get(key);
+      if (!m) { m = new Map(); movedByBucket.set(key, m); }
+      m.set(l.account_id, (m.get(l.account_id) || 0) + cents);
+    }
+  }
+
+  // ── evidence: bills -> GL mirror legs -> buckets ─────────────────────────────
+  const invRows = await fetchAll("invoices",
+    "id, vendor_id, invoice_number, invoice_date, posting_date, total_amount_cents, source",
+    (q) => q.eq("invoice_kind", "vendor_bill"));
+  const invById = new Map(invRows.map((r) => [r.id, r]));
+  const glByRef = await loadGlBillEvidence();
+
+  // coverage: how many 8007-origin bills the GL mirror can see
+  let covBills = 0, covBillsInGl = 0;
+
+  const evidenceByBucket = new Map(); // key -> {resolved, unmapped, nosignal, bills, glBills}
+  const globalUnmapped = new Map();
+  for (const [invoiceId, slice] of perInvoice) {
+    if (slice <= 0) continue;
+    const inv = invById.get(invoiceId);
+    if (!inv) continue;
+    const byYm = buckets.get(inv.vendor_id);
+    if (!byYm) continue;
+    const pd = xvClamp(inv.posting_date || inv.invoice_date);
+    if (!pd) continue;
+    const ym = String(pd).slice(0, 7);
+    if (!byYm.has(ym)) continue;
+    const key = `${inv.vendor_id}:${ym}`;
+    let agg = evidenceByBucket.get(key);
+    if (!agg) { agg = { resolved: new Map(), unmapped: new Map(), nosignal: 0, bills: 0, glBills: 0 }; evidenceByBucket.set(key, agg); }
+    agg.bills += 1;
+    covBills += 1;
+
+    const glRows = glByRef.get(String(inv.invoice_number || "").trim()) || [];
+    // debit legs only (amount_home > 0) and NOT the AP control credit
+    const debitLegs = glRows.filter((r) =>
+      Number(r.amount_home || 0) > 0 &&
+      !GL_NON_EVIDENCE_TYPES.has(String(r.accounting_type_name || "").toLowerCase()));
+    const hasGl = glRows.length > 0;
+    if (hasGl) { agg.glBills += 1; covBillsInGl += 1; }
+
+    // fullBill: our accrual sent the WHOLE bill to 8007 (register-grain), so
+    // every debit leg is evidence — including inventory/goods legs. Otherwise
+    // the #1662 sweep already split goods to 1201, so exclude item legs.
+    const fullBill = slice === Math.round(Number(inv.total_amount_cents) || 0);
+    const legs = debitLegs.filter((r) => fullBill || !(r.item_id || r.item_number));
+
+    const resolved = new Map(); const unmapped = new Map(); let nosignal = 0;
+    for (const r of legs) {
+      const cents = Math.round(Number(r.amount_home || 0) * 100);
+      if (cents <= 0) continue;
+      const name = String(r.accounting_name || "").trim();
+      if (!name) { nosignal += cents; continue; }
+      const hit = resolveAccount(name);
+      if (hit) resolved.set(hit.account.id, (resolved.get(hit.account.id) || 0) + cents);
+      else unmapped.set(name, (unmapped.get(name) || 0) + cents);
+    }
+    // bill not in the GL mirror at all -> the whole slice is no-signal
+    if (!hasGl) nosignal += slice;
+
+    // scale the bill's evidence to its exact 8007 slice if it overshoots
+    const combined = new Map();
+    for (const [k, c] of resolved) combined.set(`A:${k}`, c);
+    for (const [k, c] of unmapped) combined.set(`U:${k}`, c);
+    if (nosignal > 0) combined.set("N:", nosignal);
+    scaleCentsMap(combined, slice);
+    let counted = 0;
+    for (const [k, c] of combined) {
+      counted += c;
+      if (k.startsWith("A:")) agg.resolved.set(k.slice(2), (agg.resolved.get(k.slice(2)) || 0) + c);
+      else if (k.startsWith("U:")) {
+        const nm = k.slice(2);
+        agg.unmapped.set(nm, (agg.unmapped.get(nm) || 0) + c);
+        const g = globalUnmapped.get(nm) || { cents: 0, n: 0 };
+        g.cents += c; g.n += 1; globalUnmapped.set(nm, g);
+      } else agg.nosignal += c;
+    }
+    if (counted < slice) agg.nosignal += slice - counted;
+  }
+
+  // ── compare, bucket by bucket (identical engine to xoro-verify) ──────────────
+  const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const acctLabel = (id) => { const a = ctx.acctById.get(id); return a ? `${a.code} ${a.name}` : id; };
+  const reportRows = [["vendor", "month", "bucket_total", "current_placement", "xoro_gl_says", "match", "diff_moves", "unmapped", "no_signal", "action"].join(",")];
+  let tMatch = 0, tDiff = 0, tUnmapped = 0, tNosignal = 0;
+  let posted = 0, healed = 0, errors = 0, flaggedOnly = 0, done = 0;
+  const diffList = [];
+
+  const work = [...buckets.entries()]
+    .flatMap(([vendor_id, byYm]) => [...byYm.entries()].map(([ym, b]) => ({ vendor_id, ym, b, v: vendors.get(vendor_id) })))
+    .filter((w) => w.v)
+    .sort((a, x) => (a.v.name === x.v.name ? (a.ym < x.ym ? -1 : 1) : a.v.name < x.v.name ? -1 : 1));
+
+  for (const w of work) {
+    const key = `${w.vendor_id}:${w.ym}`;
+    if (w.b.cents <= 0) continue;
+
+    const placements = new Map();
+    let residual8007 = w.b.cents;
+    const moved = movedByBucket.get(key);
+    if (moved) {
+      for (const [acctId, cents] of moved) {
+        if (acctId === ctx.a8007.id) { residual8007 += cents; continue; }
+        if (cents !== 0) placements.set(acctId, (placements.get(acctId) || 0) + cents);
+      }
+    }
+    if (residual8007 !== 0) placements.set(ctx.a8007.id, residual8007);
+
+    const agg = evidenceByBucket.get(key) || { resolved: new Map(), unmapped: new Map(), nosignal: w.b.cents, bills: 0, glBills: 0 };
+
+    const need = new Map(agg.resolved);
+    const have = new Map(placements);
+    let match = 0;
+    for (const [acctId, cents] of [...need.entries()]) {
+      const h = have.get(acctId) || 0;
+      const sat = Math.min(cents, h);
+      if (sat > 0) { match += sat; need.set(acctId, cents - sat); have.set(acctId, h - sat); }
+    }
+    const moves = [];
+    const givers = [...have.entries()].filter(([, c]) => c > 0).sort((a, x) => x[1] - a[1]);
+    for (const [toAcct, wanted] of [...need.entries()].sort((a, x) => x[1] - a[1])) {
+      let remaining = wanted;
+      for (const g of givers) {
+        if (remaining <= 0) break;
+        if (g[1] <= 0) continue;
+        const take = Math.min(remaining, g[1]);
+        if (toAcct !== g[0] && take > 0) moves.push({ from: g[0], to: toAcct, cents: take });
+        g[1] -= take; remaining -= take;
+      }
+    }
+    const diffCents = moves.reduce((s, m) => s + m.cents, 0);
+    const unmappedCents = [...agg.unmapped.values()].reduce((s, c) => s + c, 0);
+    tMatch += match; tDiff += diffCents; tUnmapped += unmappedCents; tNosignal += agg.nosignal;
+
+    const isFlagged = FLAG.has(w.v.name) || NET_ZERO.has(w.v.name) || EXCLUDE.has(w.v.name);
+    let action = "none";
+    if (moves.length) {
+      action = isFlagged ? "FLAG — report only (related-party/financing/net-zero: controller decides)" : "correction JE";
+      diffList.push({ vendor: w.v.name, ym: w.ym, moves, flagged: isFlagged });
+    }
+
+    reportRows.push([
+      esc(w.v.name), w.ym, esc(`$${$(w.b.cents)}`),
+      esc([...placements.entries()].map(([a, c]) => `${acctLabel(a)}: $${$(c)}`).join("; ")),
+      esc([...agg.resolved.entries()].map(([a, c]) => `${acctLabel(a)}: $${$(c)}`).join("; ")),
+      esc(`$${$(match)}`),
+      esc(moves.map((m) => `${acctLabel(m.from)} -> ${acctLabel(m.to)}: $${$(m.cents)}`).join("; ")),
+      esc([...agg.unmapped.entries()].map(([n, c]) => `${n}: $${$(c)}`).join("; ")),
+      esc(`$${$(agg.nosignal)}`),
+      esc(action),
+    ].join(","));
+
+    if (!moves.length || isFlagged) { if (moves.length) flaggedOnly += 1; continue; }
+    if (limit && done >= limit) continue;
+    done += 1;
+    if (dryRun) { posted += 1; continue; }
+
+    const net = new Map();
+    for (const m of moves) {
+      net.set(m.to, (net.get(m.to) || 0) + m.cents);
+      net.set(m.from, (net.get(m.from) || 0) - m.cents);
+    }
+    const me = monthEnd(w.ym);
+    const posting_date = me > today ? (w.b.maxDate || today) : me;
+    const lines = [];
+    for (const [acctId, cents] of [...net.entries()].sort((a, x) => x[1] - a[1])) {
+      if (cents === 0) continue;
+      lines.push({
+        line_number: lines.length + 1,
+        account_id: acctId,
+        debit: cents > 0 ? dollars(cents) : "0",
+        credit: cents < 0 ? dollars(-cents) : "0",
+        memo: `Xoro-GL-truth correction — ${w.v.name} — ${w.ym}`,
+      });
+    }
+    const priorCorrections = correctionCountByBucket.get(key) || 0;
+    const source_id = `${key}:gl-correction${priorCorrections ? `-${priorCorrections + 1}` : ""}`;
+    const evidenceDesc = moves.map((m) => `$${$(m.cents)} ${acctLabel(m.from)} -> ${acctLabel(m.to)}`).join("; ");
+    const payload = {
+      entity_id: ctx.entity_id,
+      basis: "ACCRUAL",
+      journal_type: "vendor_expense_reclass",
+      posting_date,
+      source_module: "ap",
+      source_table: "vendor_expense_reclass",
+      source_id,
+      description: `Xoro-GL-truth correction — ${w.v.name} — ${w.ym}: ${evidenceDesc}`,
+      audit_reason: `#xoro-gl-truth correction (CEO directive: Xoro GL is the 100% source of truth). Evidence = the bill's ACTUAL posted GL legs in Xoro accounting/getgltransactions (mirror xoro_gl_transactions; ${agg.glBills}/${agg.bills} bills in this vendor-month found in the GL), which — unlike the header-only bill/getbill feed — exposes the expense/asset distribution of every bill. Xoro's own GL says the money belongs at: ${evidenceDesc}. Prior placement came from the name-heuristic 8007 reclass / bill-line xoro-verify; this re-points it to Xoro's posted account. Dated to the source month — AP 2000 untouched (only debit legs are evidence; the AP credit leg is excluded).`,
+      lines,
+    };
+    const r = await postJe(payload, () => admin.from("journal_entries").select("id")
+      .eq("source_table", "vendor_expense_reclass").eq("source_id", source_id)
+      .eq("basis", "ACCRUAL").maybeSingle());
+    if (r.error) { errors += 1; console.error(`  ${w.v.name} ${w.ym}: ${r.error}`); continue; }
+    if (r.healed) healed += 1;
+    posted += 1;
+  }
+
+  // ── output ───────────────────────────────────────────────────────────────────
+  console.log("coverage (8007-origin bills vs the Xoro GL mirror):");
+  console.log(`  8007-origin bills: ${covBills}; found in GL mirror: ${covBillsInGl} (${(covBillsInGl / Math.max(1, covBills) * 100).toFixed(1)}%)`);
+  console.log("\n8007-origin verification vs Xoro GL truth:");
+  console.log(`  MATCH     $${$(tMatch)} (Xoro GL agrees with current placement)`);
+  console.log(`  DIFF      $${$(tDiff)} (Xoro GL says a different account — corrections)`);
+  console.log(`  UNMAPPED  $${$(tUnmapped)} (Xoro GL name has no ROF COA equivalent — CEO mapping table)`);
+  console.log(`  NO-SIGNAL $${$(tNosignal)} (bill absent from the GL mirror — stays put)`);
+  if (diffList.length) {
+    console.log(`\nDIFF list (${diffList.length} vendor-months):`);
+    for (const d of diffList) {
+      for (const m of d.moves) console.log(`  ${d.flagged ? "[FLAG] " : ""}${d.vendor} ${d.ym}: ${acctLabel(m.from)} -> ${acctLabel(m.to)} $${$(m.cents)}`);
+    }
+  }
+  console.log(`\ncorrections${dryRun ? " (dry-run)" : ""}: ${posted} JEs (${healed} healed/pre-existing), ${flaggedOnly} FLAG/NET-ZERO report-only, ${errors} errors`);
+
+  // append round 2 to ap-xoro-verify.csv (task: DIFF corrections listed there)
+  const csvPath = resolve(ROOT, "docs/tangerine/ap-xoro-verify.csv");
+  mkdirSync(dirname(csvPath), { recursive: true });
+  let existing = "";
+  try { existing = readFileSync(csvPath, "utf8").replace(/\n+$/, "") + "\n"; } catch { existing = ""; }
+  const banner = `"# ── ROUND 2 (gl-verify, #xoro-gl-truth ${today}) — evidence = Xoro GL mirror, covers the header-only NO-SIGNAL bills ──",,,,,,,,,\n`;
+  writeFileSync(csvPath, existing + banner + reportRows.slice(1).join("\n") + "\n");
+  console.log(`bucket-grain gl-verify report appended -> ${csvPath}`);
+
+  // unmatched GL account names for the CEO mapping table
+  const mapRows = [["xoro_gl_account_name", "occurrences", "dollars", "suggested_rof_account", "notes"].join(",")];
+  for (const [name, g] of [...globalUnmapped.entries()].sort((a, x) => x[1].cents - a[1].cents)) {
+    mapRows.push([esc(name), g.n, esc(`$${$(g.cents)}`), "", ""].join(","));
+  }
+  const mapPath = resolve(ROOT, "docs/tangerine/xoro-gl-account-name-map.csv");
+  writeFileSync(mapPath, mapRows.join("\n") + "\n");
+  console.log(`unmatched Xoro GL account names (${mapRows.length - 1}) -> ${mapPath} (add to XORO_TO_ROF_CODE in xoroAccountMap.js and re-run)`);
+  if (errors) process.exit(1);
+}
+
 // ── entry ────────────────────────────────────────────────────────────────────
 const phase = process.argv[2];
 const dryRun = process.argv.includes("--dry-run");
@@ -1119,6 +1434,7 @@ const phases = {
   reclass: phaseReclass,
   verify: phaseVerify,
   "xoro-verify": phaseXoroVerify,
+  "gl-verify": phaseGlVerify,
 };
 if (!phases[phase]) {
   console.error(`usage: node scripts/reclass-8007.mjs <${Object.keys(phases).join("|")}> [--dry-run] [--limit=N]`);

@@ -728,6 +728,7 @@ import r_xoro_open_pos from "./xoro/open-pos.js";
 import r_xoro_probe_filters from "./xoro/probe-filters.js";
 import r_xoro_receipts from "./xoro/receipts.js";
 import r_xoro_sales_history from "./xoro/sales-history.js";
+import r_xoro_sync_gl from "./xoro/sync-gl.js";
 import r_xoro_sync_item_costing from "./xoro/sync-item-costing.js";
 import r_xoro_writeback_cancel_po_line from "./xoro/writeback/cancel-po-line.js";
 import r_xoro_writeback_create_buy_request from "./xoro/writeback/create-buy-request.js";
@@ -1442,6 +1443,7 @@ export const ROUTES = [
   { pattern: "/api/internal/rfqs", handler: r_internal_rfqs_index },
   { pattern: "/api/xoro/open-pos", handler: r_xoro_open_pos },
   { pattern: "/api/xoro/receipts", handler: r_xoro_receipts },
+  { pattern: "/api/xoro/sync-gl", handler: r_xoro_sync_gl },
   { pattern: "/api/ai/ask-grid", handler: r_ai_ask_grid },
   { pattern: "/api/b2b/account", handler: r_b2b_account },
   { pattern: "/api/b2b/catalog", handler: r_b2b_catalog },

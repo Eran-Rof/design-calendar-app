@@ -224,6 +224,23 @@ The pipeline:
 - **Vendor deposits:** United Aryan ROF-B005300 is header-only via REST — the account Xoro posts it to is NOT exposed on this key; stays **PENDING XORO VERIFICATION** in 1308 (needs the Xoro UI/GL check that Luxury got). The Luxury Collection's 6327 correction stands (no contradicting REST evidence; bucket verified at 6327).
 - **8007 residual: $1,285,433.56 → $1,243,518.81.** GL invariants after everything: trial-balance imbalance $0.00, GL 2000 $10,061,433.54 unchanged, 0 reclass/correction lines on 2000, **1,170/1,170 reclass-family JEs balanced**.
 
+### Xoro GL transaction mirror (#xoro-gl-truth, 2026-07-12)
+
+**The finale of the account-truth work.** `bill/getbill` returns Xoro "expense bills" **header-only** (no lines, no account), which left **$6.81M of the 8007-origin book NO-SIGNAL** in `xoro-verify` — REST could not reach those bills' classification. Xoro's dedicated GL endpoint solves it: **`accounting/getgltransactions`** (a new private app key, scope **"GL Details"**, keyring service `xoro-api-gl-details`) exposes the **actual posted GL legs of every transaction** — so every bill's expense/asset distribution is visible, header-only or not. This is the 100% truth source the CEO demanded.
+
+**Mirror table `xoro_gl_transactions`** (migration `20260978000000`) — one row per posted GL leg, upserted **delete-then-insert per `TxnId`** (no field combination is unique; a transaction is the atomic unit), with a per-txn `row_seq` ordinal and `deletedTxnNumbers` handling. Full history 2024-08-01 → today ≈ **101,000 transactions**.
+
+Endpoint facts worth knowing:
+
+- **page_size max is 100**, and **pagination is per-transaction, not per-row**: each page returns ALL GL rows for its ≤100 transactions, so rows-per-page varies wildly (637–4,401 observed). `TotalPages = ceil(distinct_txns / page_size)`.
+- **Debit/credit convention:** `Amount` / `AmountHomeCurrency` is a single **SIGNED** number per leg — **positive = debit, negative = credit** — and every transaction nets to **$0.00** in home currency. Worked example: Bill ROF-B006546 (Venbrook) posts `+12,742.09` to Rent Expense (debit) and `−12,742.09` to Accounts Payable (credit the 2000 control).
+
+**Pipeline:**
+
+1. **Feed** — `rof_xoro_project/scripts/rest_gl_sync.py` walks the endpoint in **monthly windows** with a resumable **per-window checkpoint** (`.launchd-logs/gl_sync_checkpoint.json`; a crash re-runs only the incomplete window). Modes: nightly increment (today−3d → today; wired into `run_daily`), `--full-history` (the one-off backfill), and `--ref-numbers` (targeted pre-load of specific bills). Rows POST to `/api/xoro/sync-gl` as gzipped JSON.
+2. **Ingest** — `/api/xoro/sync-gl` (design-calendar Bearer auth, like `/api/ap/sync-bills`) groups by `TxnId`, deletes the existing rows for those txns, and bulk-inserts the fresh set (raw payload retained in a `raw` jsonb column). Idempotent.
+3. **Recon** — `node scripts/reclass-8007.mjs gl-verify [--dry-run]` recons every (vendor, month) 8007-origin bucket against the GL-mirror truth: for each bill it reads the mirror's **debit legs** (`amount_home > 0`, excluding the AP control credit) for the bill's `RefNumber`, resolves each `accounting_name` via `xoroAccountMap.js`, and buckets the money **MATCH / DIFF (`:gl-correction` JEs, DR correct / CR current holder, dated to the source month) / UNMAPPED (`docs/tangerine/xoro-gl-account-name-map.csv`) / NO-SIGNAL (bill absent from the GL mirror)**. Because only debit legs are evidence, **no correction line can ever touch 2000**. Round-2 results append to `docs/tangerine/ap-xoro-verify.csv`; FLAG/NET-ZERO buckets stay report-only.
+
 ## Historical bill backfill (`source='xoro_bills_register'`, #1668)
 
 The complete Xoro AP history — **3,680 bills (Oct 2023 → Jul 2026, $51,080,712.61)** from the CEO's Bills register export plus **2,685 bill payments ($41,126,644.78)** from the Payments export — is posted to the GL and frozen as the AP opening history. AP control account **2000 ties to the register to the cent**: GL 2000 = **$9,947,831.51 CR** = the register's Σ Amount Due over Open/Partially-Paid bills.
