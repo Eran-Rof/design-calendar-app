@@ -260,6 +260,10 @@ export interface IpPlanningGridRow {
   period_start: IpIsoDate;
   period_end: IpIsoDate;
   historical_trailing_qty: number;
+  // Trailing-history totals for each selectable window (3/6/9/12 months),
+  // all ending at this row's same-period-last-year month. The grid's
+  // Hist-T column toggle picks which one to show. Absent on TBD/supply rows.
+  historical_trailing_windows?: Record<number, number>;
   // Per-month split of the same trailing window. Surfaced on the T3
   // cell's hover tooltip so the planner can tell whether the trailing
   // total is concentrated in one month or spread evenly. Months are

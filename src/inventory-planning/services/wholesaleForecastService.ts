@@ -944,20 +944,24 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     if (!byMonth) { byMonth = new Map(); histByPairMonth.set(key, byMonth); }
     byMonth.set(ym, (byMonth.get(ym) ?? 0) + (s.qty_units ?? s.qty));
   }
-  // Hist T3 for a horizon month = the 3 calendar months ending at (and
-  // including) that month's same-period-last-year month: [M−14, M−13, M−12].
-  // Returns the total + the per-month breakdown for the grid's T3 tooltip.
-  const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { qty: number; breakdown: Array<{ month: string; qty: number }> } => {
+  // Trailing-history windows for a horizon month, all ending at (and including)
+  // that month's same-period-last-year month (M−12). The planner can view T3,
+  // T6, T9 or T12 in the grid, so compute every window up front (buildGridRows
+  // runs on load, so the toggle stays instant client-side). breakdown is the
+  // full 12 months (oldest→newest) for the tooltip; windows[N] = sum of the
+  // last N of those (the N months through M−12).
+  const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } => {
     const byMonth = histByPairMonth.get(`${customerId}:${skuId}`);
     const breakdown: Array<{ month: string; qty: number }> = [];
-    let qty = 0;
-    for (const off of [14, 13, 12]) {
+    for (let off = 23; off >= 12; off--) {
       const code = monthOffset(periodStart, off).period_code;
-      const q = byMonth?.get(code) ?? 0;
-      breakdown.push({ month: code, qty: q });
-      qty += q;
+      breakdown.push({ month: code, qty: byMonth?.get(code) ?? 0 });
     }
-    return { qty, breakdown };
+    const windows: Record<number, number> = {};
+    for (const w of [3, 6, 9, 12]) {
+      windows[w] = breakdown.slice(breakdown.length - w).reduce((s, m) => s + m.qty, 0);
+    }
+    return { windows, breakdown };
   };
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
@@ -1102,7 +1106,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
-      historical_trailing_qty: t3.qty,
+      historical_trailing_qty: t3.windows[3],
+      historical_trailing_windows: t3.windows,
       historical_margin_pct: f.historical_margin_pct ?? null,
       historical_trailing_breakdown: t3.breakdown.some((b) => b.qty > 0) ? t3.breakdown : null,
       abc_class: classBySku.get(f.sku_id)?.abc,
