@@ -48,6 +48,7 @@ function defaultProps(over: Partial<PlanningGridRowProps> = {}): PlanningGridRow
     explodePpk: true,
     packSize: 1,
     ppkUnresolved: false,
+    cartonQty: 1,
     rows: [],
     masterStyles: [],
     masterColorsLower: new Set(),

@@ -33,6 +33,12 @@ export function computeContentLengths(rows: IpPlanningGridRow[]): Record<string,
     if (len > lenByCol[k]) lenByCol[k] = len;
   };
 
+  // Planner-added TBD rows render extra controls in the Customer cell —
+  // the customer picker's ▾ plus an "Add to DB" (or "✓ in DB") button and a
+  // ✕ delete button. None of that is in customer_name, so without a reserve
+  // the column sizes to the name alone and the buttons overflow into Period.
+  const CUSTOMER_CONTROLS_CHARS = 16;
+
   for (const r of rows) {
     set("category",    r.group_name);
     set("subCat",      r.sub_category_name);
@@ -40,7 +46,12 @@ export function computeContentLengths(rows: IpPlanningGridRow[]): Record<string,
     set("description", r.sku_description);
     set("color",       r.sku_color);
     set("inseam",      r.sku_inseam ?? null);
-    set("customer",    r.customer_name);
+    if (r.is_tbd && r.is_user_added && !r.is_aggregate) {
+      const l = (r.customer_name ?? DASH).length + CUSTOMER_CONTROLS_CHARS;
+      if (l > lenByCol.customer) lenByCol.customer = l;
+    } else {
+      set("customer", r.customer_name);
+    }
     set("period",      formatPeriodCode(r.period_code));
     set("class",       `${r.abc_class ?? ""}${r.xyz_class ?? ""}`);
     set("histT3",      numFmt(r.historical_trailing_qty));
