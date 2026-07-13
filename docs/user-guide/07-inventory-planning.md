@@ -128,8 +128,9 @@ The Planning run card also lets you:
 
 - **Save build** — capture the current run (forecast rows, your edits, TBD rows, recommendations) as a named **saved build** snapshot. Find it later in the **Saved builds** dropdown; it can be browsed like any run.
 - **Fork & save** — when you're viewing a saved build, "Save" becomes a fork (clone-of-clone) so the original snapshot is preserved.
-- **Clear build** — wipe the run's build data (forecast rows, recommendations, TBD stock-buys, bucket buys, and your Buyer / Override / Buy / Unit Cost edits) **but keep the run** — its name, horizon and snapshot stay, so you can rebuild from a clean slate. Shown only once the run has a build; asks for confirmation because your edits are lost. (This is the "Wipe + rebuild" wipe *without* the rebuild.)
 - **🗑 Delete run** / **Delete saved** — permanently remove a run or snapshot *entirely* (a run with execution batches can't be deleted until those batches are removed).
+
+> To clear a run's build **without** deleting the run, just click **Build forecast** again and choose **Wipe + rebuild** — that path already wipes everything (forecast, recommendations, TBD rows, bucket buys, your edits) and rebuilds. (There's no separate "Clear build" button; the wipe lives on the rebuild flow.)
 
 When you click **Build forecast** on a run that already has a build, you're offered two paths:
 
