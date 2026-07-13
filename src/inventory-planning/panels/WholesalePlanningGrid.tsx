@@ -97,6 +97,9 @@ export interface WholesalePlanningGridProps {
   // the row-level ✕ so the planner can hit it without hunting for
   // the row when they realize they added the wrong thing.
   onUndoLastAdd?: () => Promise<void>;
+  // How many "+ Add row" batches are on the undo stack (0-4). Drives the
+  // toolbar Undo button's visibility + its "(N)" count.
+  undoDepth?: number;
   // Identity of the row the planner just added — pinned to the top
   // of displayRows so it's the first thing they see. Cleared from
   // the workbench if/when the planner does another add.
@@ -234,7 +237,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -2383,7 +2386,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             >
               + Add row
             </button>
-              {lastAddedTbdMarker && onUndoLastAdd && (
+              {(undoDepth ?? 0) > 0 && onUndoLastAdd && (
                 <button
                   type="button"
                   onClick={() => { void onUndoLastAdd(); }}
@@ -2398,9 +2401,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
                     fontFamily: "inherit",
                     marginLeft: 8,
                   }}
-                  title="Undo the most recent + Add row. The row will be deleted."
+                  title="Undo the most recent + Add row (deletes every row it created). Press again to undo earlier adds — up to the last 4."
                 >
-                  ↶ Undo
+                  ↶ Undo{(undoDepth ?? 0) > 1 ? ` (${undoDepth})` : ""}
                 </button>
               )}
             </>
