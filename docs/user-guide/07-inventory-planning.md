@@ -92,7 +92,7 @@ Each row is a customer × style × color × period demand line. Columns can be s
 | **System** | The system's forecast suggestion — **type to override it** | **Yes** |
 | Buyer | Buyer-requested future demand | Via Future Demand Requests |
 | Override | The adjustment you've made | derived from System edits |
-| Final | The committed forecast for the line | No (computed) |
+| Final | The committed forecast — the **live sum of System + Buyer + Override** (floored at 0). It recomputes the instant you edit any of those cells, so it always reflects the columns to its left. | No (computed) |
 | Conf. / Method | Confidence band + method used for the line | No |
 | On hand / On SO / Receipts / Hist Recv / **ATS** | Supply context | No |
 | **Buy** | Your planned buy quantity for the line | **Yes** |
