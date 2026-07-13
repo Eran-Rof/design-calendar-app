@@ -87,7 +87,7 @@ Each row is a customer × style × color × period demand line. Columns can be s
 |---|---|---|
 | Category / Sub Cat / Style / Description / Color / Customer / Period | The dimensions of the row | TBD rows only (see below) |
 | Class | Style classification | No |
-| Hist T3 / SP/LY | Trailing-3-month demand, and **same-period-last-year** — SP/LY is per horizon month (a Dec row shows *last* Dec's units, a Jan row shows *last* Jan's), so it reflects real seasonality rather than one flat figure | No |
+| Hist T3 / SP/LY | Both are **per horizon month** (not one flat figure): **SP/LY** = that month's same-period-last-year units (a Dec row → last Dec, a Jan row → last Jan); **Hist T3** = the trailing quarter *through* that month's same period last year (Dec row → Oct–Dec last year). So both slide with the horizon and reflect real seasonality | No |
 | Margin % | Gross margin on the line | No |
 | **System** | The system's forecast suggestion — **type to override it** | **Yes** |
 | Buyer | Buyer-requested future demand | Via Future Demand Requests |

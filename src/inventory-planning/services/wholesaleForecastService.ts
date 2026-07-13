@@ -26,6 +26,7 @@ import {
   historicalReceiptsInPeriod,
   latestOnHandBySku,
   monthOf,
+  monthOffset,
   monthsBetween,
   openPoQtyBySku,
   receiptsDueInPeriod,
@@ -926,30 +927,38 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     }
   }
 
-  // Trailing-3 per (customer, sku). The sales fetch was widened to
-  // 12 months for classification, so filter in-place here to keep
-  // the Hist T3 column at exactly the prior quarter.
-  //
-  // Also build a per-month split of the same window so the grid's T3
-  // tooltip can show the breakdown by calendar month — drives the
-  // planner's intuition on whether the trailing total is concentrated
-  // in a single month or spread evenly.
-  const t3Cutoff = historySince(run.source_snapshot_date, 3);
-  const trailing = new Map<string, number>();
-  const trailingByMonth = new Map<string, Map<string, number>>();
+  // Full per-(customer, sku, month) unit-grain history. Drives a PERIOD-SPECIFIC
+  // Hist T3: the column must slide with each horizon month — the trailing
+  // quarter through THAT month's same-period-last-year — not show one
+  // snapshot-anchored number repeated across the whole (future) horizon. Uses
+  // ALL loaded sales (the 13-month lookback), which covers the LY windows of
+  // every horizon month. qty prefers the backfilled unit grain (see
+  // 20260517230000_sales_history_grain_and_margin.sql — mixed pack/unit rows
+  // otherwise under-count prepacks).
+  const histByPairMonth = new Map<string, Map<string, number>>();
   for (const s of sales) {
-    if (s.txn_date < t3Cutoff) continue;
+    if (!s.customer_id) continue;
     const key = `${s.customer_id}:${s.sku_id}`;
-    // Prefer the backfilled unit-grain qty over the raw column — see
-    // 20260517230000_sales_history_grain_and_margin.sql for why mixed
-    // pack/unit grain rows were systematically under-counting prepacks.
-    const units = s.qty_units ?? s.qty;
-    trailing.set(key, (trailing.get(key) ?? 0) + units);
     const ym = s.txn_date.slice(0, 7);
-    let byMonth = trailingByMonth.get(key);
-    if (!byMonth) { byMonth = new Map(); trailingByMonth.set(key, byMonth); }
-    byMonth.set(ym, (byMonth.get(ym) ?? 0) + units);
+    let byMonth = histByPairMonth.get(key);
+    if (!byMonth) { byMonth = new Map(); histByPairMonth.set(key, byMonth); }
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + (s.qty_units ?? s.qty));
   }
+  // Hist T3 for a horizon month = the 3 calendar months ending at (and
+  // including) that month's same-period-last-year month: [M−14, M−13, M−12].
+  // Returns the total + the per-month breakdown for the grid's T3 tooltip.
+  const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { qty: number; breakdown: Array<{ month: string; qty: number }> } => {
+    const byMonth = histByPairMonth.get(`${customerId}:${skuId}`);
+    const breakdown: Array<{ month: string; qty: number }> = [];
+    let qty = 0;
+    for (const off of [14, 13, 12]) {
+      const code = monthOffset(periodStart, off).period_code;
+      const q = byMonth?.get(code) ?? 0;
+      breakdown.push({ month: code, qty: q });
+      qty += q;
+    }
+    return { qty, breakdown };
+  };
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
   // Stamped on every row (TBD + forecast) below so the grid can render
@@ -1061,6 +1070,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         })
       : { cost: null as number | null, source: "unknown" as const };
     const resolvedCost = resolved.cost;
+    // Period-specific Hist T3 (trailing quarter through this month's LY).
+    const t3 = t3ForPeriod(f.customer_id, f.sku_id, f.period_start);
     // Always derive avail/shortage/excess from the rolling supply so that
     // planned_buy_qty and the month-to-month roll are always current.
     // rec is kept only for action/reason labels (rebuilt on next forecast run).
@@ -1091,15 +1102,9 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
-      historical_trailing_qty: trailing.get(`${f.customer_id}:${f.sku_id}`) ?? 0,
+      historical_trailing_qty: t3.qty,
       historical_margin_pct: f.historical_margin_pct ?? null,
-      historical_trailing_breakdown: ((): Array<{ month: string; qty: number }> | null => {
-        const byMonth = trailingByMonth.get(`${f.customer_id}:${f.sku_id}`);
-        if (!byMonth || byMonth.size === 0) return null;
-        return Array.from(byMonth.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([month, qty]) => ({ month, qty }));
-      })(),
+      historical_trailing_breakdown: t3.breakdown.some((b) => b.qty > 0) ? t3.breakdown : null,
       abc_class: classBySku.get(f.sku_id)?.abc,
       xyz_class: classBySku.get(f.sku_id)?.xyz,
       // Effective system: override wins when set, otherwise the
