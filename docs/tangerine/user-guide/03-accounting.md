@@ -1014,3 +1014,50 @@ Below the threshold, nothing changes — the entry posts / the payment settles i
 ### Changing the thresholds or approver role (CEO)
 
 The rules live in the `approval_rules` table (kinds `je_manual_post` and `ap_payment`). To raise the manual-JE bar to $10,000, set that rule's `match` to `{"min_amount_cents": 1000000}`. To require a different approver role, edit the step's `role_required` (must be one of `admin`, `accountant`, `staff`, `readonly`). To switch a control off without deleting it, set `is_active = false`. Defaults shipped: **$5,000** for both, **one admin approval** each.
+
+## Cash-side subledger — receipts, payments, DSO & DPO (2026-07-14)
+
+Tangerine's ledger is a faithful 1:1 mirror of Xoro, so every customer payment
+and vendor payment is **already posted** to the GL. What was missing was the
+**subledger** view of that cash — the per-invoice receipts and per-bill
+payments the aging, DSO and DPO reports are built on. This backfill derives
+those application records **from the existing mirror journal entries** — it
+posts **nothing new** to the GL (the journal-entry count is identical before
+and after).
+
+### AR receipts & cash application
+
+Each Xoro "Invoice Payment" becomes one **AR receipt** with a per-invoice
+**application** (matched by exact invoice number). Invoices paid across several
+payments now show each application, and the amount applied to any invoice is
+capped at that invoice's total — an overpayment is **parked and reported**, never
+silently applied, so an invoice can never show paid greater than its balance.
+Payments that reference an invoice Tangerine doesn't have yet (older than the AR
+history cutoff), and the rare case where a pre-existing paid figure disagreed
+with the mirror, are **flagged for review** in the backfill exception ledger
+rather than overwritten.
+
+### AP payments
+
+Each Xoro "Bill Payment" becomes an **invoice payment** on the matching bill.
+Note that a bill's booked *paid amount* already includes **non-cash relief**
+(credit memos, factor settlements, GL reclasses) that no cash payment can
+represent, so these payment rows are a **cash-provenance layer** used for DPO —
+they are not asserted to equal the bill's paid amount, and the backfill
+**preserves** the booked paid figure.
+
+### DSO / DPO by month
+
+The **Reconciliation Dashboard** now shows **DSO** (days sales outstanding, from
+AR receipt applications) and **DPO** (days payable outstanding, from AP payments)
+by month — the amount-weighted average days between an invoice's date and the
+day cash was applied. Table-first, newest month on top, with the standard xlsx
+**Export**.
+
+### AP 2000 tie-out note
+
+Because the AP control account (2000) carries non-cash relief that the bills
+ledger cannot, it does **not** tie by cash application alone. The daily
+subledger tie-out therefore reports the AP residual as a **waived, non-alerting**
+line (`ap_noncash_gl_relief_residual`) that still carries its live difference
+into the digest — so a *growing* gap stays visible — pending accountant review.

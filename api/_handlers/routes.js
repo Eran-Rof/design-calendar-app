@@ -452,6 +452,7 @@ import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/
 import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
 import r_internal_recon_cutovers from "./internal/recon/cutovers.js";
+import r_internal_recon_dso_dpo from "./internal/recon/dso-dpo.js";
 import r_internal_recon_run_ap from "./internal/recon/run-ap.js";
 import r_internal_recon_run_ar from "./internal/recon/run-ar.js";
 import r_internal_recon_run_cash from "./internal/recon/run-cash.js";
@@ -1093,6 +1094,7 @@ export const ROUTES = [
   { pattern: "/api/internal/pim/categories", handler: r_internal_pim_categories_index },
   { pattern: "/api/internal/procurement/qc", handler: r_internal_procurement_qc_index },
   { pattern: "/api/internal/recon/cutovers", handler: r_internal_recon_cutovers },
+  { pattern: "/api/internal/recon/dso-dpo", handler: r_internal_recon_dso_dpo },
   { pattern: "/api/internal/recon/run-cash", handler: r_internal_recon_run_cash },
   { pattern: "/api/internal/shopify/stores", handler: r_internal_shopify_stores_index },
   { pattern: "/api/internal/xoro-mirror/ap", handler: r_internal_xoro_mirror_ap },

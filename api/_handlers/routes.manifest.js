@@ -696,6 +696,7 @@ export default [
   ["/api/internal/recon/variances"                           , "./internal/recon/variances.js"],
   ["/api/internal/recon/runs"                                , "./internal/recon/runs.js"],
   ["/api/internal/recon/cutovers"                            , "./internal/recon/cutovers.js"],
+  ["/api/internal/recon/dso-dpo"                             , "./internal/recon/dso-dpo.js"],
   ["/api/internal/bank-recon-runs/:id/compute"               , "./internal/bank-recon-runs/compute.js"],
   ["/api/internal/bank-recon-runs/:id"                       , "./internal/bank-recon-runs/[id].js"],
   ["/api/internal/bank-recon-runs"                           , "./internal/bank-recon-runs/index.js"],
