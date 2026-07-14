@@ -57,6 +57,36 @@ const C = {
   bg: "#0b1220", card: "#1E293B", cardBdr: "#334155",
   text: "#F1F5F9", textMuted: "#94A3B8", textSub: "#CBD5E1",
   primary: "#3B82F6", success: "#10B981", warn: "#F59E0B", danger: "#EF4444",
+  waived: "#64748B", // slate/grey-blue: explained, non-blocking exceptions
+};
+
+// Rich verdict of an auto check. The stored status column is only
+// pass/fail (blocking semantics), so the true verdict lives in
+// detail.classification: pass | fail | warn | waived. Manual items keep their
+// own status. See migration 20260998000000 + closeChecklist.upsertAutoItems.
+type RichStatus = "pass" | "fail" | "warn" | "waived" | "signed_off" | "pending";
+
+function richStatus(item: ChecklistItem): RichStatus {
+  if (item.kind === "auto") {
+    const cls = String((item.detail || {}).classification || "");
+    if (cls === "pass" || cls === "fail" || cls === "warn" || cls === "waived") return cls;
+    return item.status === "pass" ? "pass" : "fail";
+  }
+  return item.status as RichStatus;
+}
+
+/** A check is a hard blocker for close only when its rich verdict is 'fail'. */
+function isBlocker(item: ChecklistItem): boolean {
+  return item.kind === "auto" && richStatus(item) === "fail";
+}
+
+const STATUS_META: Record<RichStatus, { label: string; color: string; glyph: string }> = {
+  pass:       { label: "Pass",     color: C.success, glyph: "✓" },
+  fail:       { label: "Blocker",  color: C.danger,  glyph: "✕" },
+  warn:       { label: "Advisory", color: C.warn,    glyph: "!" },
+  waived:     { label: "Waived",   color: C.waived,  glyph: "•" },
+  signed_off: { label: "Signed off", color: C.success, glyph: "✓" },
+  pending:    { label: "Pending",  color: C.textMuted, glyph: "•" },
 };
 
 const th: React.CSSProperties = {
@@ -147,19 +177,16 @@ function detailSummary(item: ChecklistItem): string {
 }
 
 function StatusChip({ item }: { item: ChecklistItem }) {
-  const map: Record<string, { label: string; color: string; glyph: string }> = {
-    pass:       { label: "Pass",       color: C.success, glyph: "✓" },
-    fail:       { label: "Fail",       color: C.danger,  glyph: "✕" },
-    signed_off: { label: "Signed off", color: C.success, glyph: "✓" },
-    pending:    { label: "Pending",    color: C.textMuted, glyph: "•" },
-  };
-  const s = map[item.status] || map.pending;
+  const s = STATUS_META[richStatus(item)] || STATUS_META.pending;
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600,
-      color: s.color, border: `1px solid ${s.color}55`, background: `${s.color}18`,
-      borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap",
-    }}>
+    <span
+      title={richStatus(item) === "waived" ? "Explained, non-blocking exception — see the recommendation" : undefined}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600,
+        color: s.color, border: `1px solid ${s.color}55`, background: `${s.color}18`,
+        borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap",
+      }}
+    >
       {s.glyph} {s.label}
     </span>
   );
@@ -167,7 +194,10 @@ function StatusChip({ item }: { item: ChecklistItem }) {
 
 /** Recursive-ish renderer for a check's detail jsonb (drill view). */
 function DetailBlock({ detail }: { detail: Record<string, unknown> }) {
-  const entries = Object.entries(detail || {}).filter(([k]) => k !== "ran_at");
+  // Prose fields (classification/severity/title/explanation/recommendation)
+  // are surfaced in the card header, not the raw number drill.
+  const HIDE = new Set(["ran_at", "classification", "severity", "title", "explanation", "recommendation"]);
+  const entries = Object.entries(detail || {}).filter(([k]) => !HIDE.has(k));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "6px 0" }}>
       {entries.map(([k, v]) => {
@@ -335,19 +365,28 @@ export default function InternalMonthEndClose() {
   const items = data?.items || [];
   const autos = items.filter((i) => i.kind === "auto");
   const manuals = items.filter((i) => i.kind === "manual");
+  const blockers = autos.filter(isBlocker);
+  const advisories = autos.filter((i) => richStatus(i) === "warn");
+  const waivedItems = autos.filter((i) => richStatus(i) === "waived");
+  const passItems = autos.filter((i) => richStatus(i) === "pass");
+  const exceptions = advisories.length + waivedItems.length;
+  const manualsPending = manuals.filter((i) => i.status !== "signed_off").length;
   const glStatus = data?.period.gl_status || "—";
   const closeStatus = data?.close_period?.status || "open";
   const isClosed = closeStatus === "closed" || glStatus === "closed" || glStatus === "closed_with_closing_jes";
 
-  const exportRows = items.map((i) => ({
-    label: i.label,
-    kind: i.kind,
-    status: i.status,
-    summary: detailSummary(i),
-    signed_off_by_label: i.signed_off_by_label || "",
-    signed_off_at_us: fmtStamp(i.signed_off_at),
-    note: i.note || "",
-  })) as Array<Record<string, unknown>>;
+  const exportRows = items.map((i) => {
+    const expl = typeof (i.detail || {}).explanation === "string" ? String((i.detail || {}).explanation) : "";
+    return {
+      label: i.label,
+      kind: i.kind,
+      status: STATUS_META[richStatus(i)]?.label || i.status,
+      summary: expl || detailSummary(i),
+      signed_off_by_label: i.signed_off_by_label || "",
+      signed_off_at_us: fmtStamp(i.signed_off_at),
+      note: i.note || "",
+    };
+  }) as Array<Record<string, unknown>>;
 
   const stripColor = (r: StripRow): string =>
     r.close_status === "closed" || r.gl_status === "closed" || r.gl_status === "closed_with_closing_jes"
@@ -358,16 +397,30 @@ export default function InternalMonthEndClose() {
 
   const renderRow = (item: ChecklistItem) => {
     const isOpen = !!expanded[item.item_key];
+    const d = item.detail || {};
+    const explanation = typeof d.explanation === "string" ? d.explanation : "";
+    const recommendation = typeof d.recommendation === "string" ? d.recommendation : "";
+    const rs = richStatus(item);
+    const accent = STATUS_META[rs]?.color || C.textMuted;
     return (
       <React.Fragment key={item.item_key}>
         <tr>
-          <td style={{ ...td, width: 26, cursor: "pointer", userSelect: "none" }} onClick={() => setExpanded((e) => ({ ...e, [item.item_key]: !isOpen }))}>
+          <td style={{ ...td, width: 26, cursor: "pointer", userSelect: "none", borderLeft: `3px solid ${accent}` }} onClick={() => setExpanded((e) => ({ ...e, [item.item_key]: !isOpen }))}>
             <span style={{ color: C.textMuted }}>{isOpen ? "▾" : "▸"}</span>
           </td>
-          <td style={td}>
+          <td style={{ ...td, cursor: "pointer" }} onClick={() => setExpanded((e) => ({ ...e, [item.item_key]: !isOpen }))}>
             <div style={{ fontWeight: 600 }}>{item.label}</div>
-            <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{detailSummary(item)}</div>
-            {item.note && <div style={{ color: C.textSub, fontSize: 12, marginTop: 2, fontStyle: "italic" }}>“{item.note}”</div>}
+            {/* Plain-language WHAT it means. */}
+            <div style={{ color: C.textSub, fontSize: 12, marginTop: 3, lineHeight: 1.45 }}>
+              {explanation || detailSummary(item)}
+            </div>
+            {/* Plain-language WHAT to do — only when there is an action to take. */}
+            {recommendation && recommendation !== "No action needed." && (
+              <div style={{ color: accent, fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>
+                <b style={{ fontWeight: 700 }}>Next: </b>{recommendation}
+              </div>
+            )}
+            {item.note && <div style={{ color: C.textSub, fontSize: 12, marginTop: 3, fontStyle: "italic" }}>“{item.note}”</div>}
           </td>
           <td style={{ ...td, whiteSpace: "nowrap" }}><StatusChip item={item} /></td>
           <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
@@ -380,7 +433,7 @@ export default function InternalMonthEndClose() {
         </tr>
         {isOpen && (
           <tr>
-            <td style={td} />
+            <td style={{ ...td, borderLeft: `3px solid ${accent}` }} />
             <td style={{ ...td, background: C.bg }} colSpan={3}>
               {item.kind === "manual" ? (
                 <div style={{ fontSize: 12, color: C.textSub, padding: "4px 0" }}>
@@ -389,7 +442,10 @@ export default function InternalMonthEndClose() {
                     : "Awaiting operator sign-off. A note describing what was reviewed is required."}
                 </div>
               ) : (
-                <DetailBlock detail={item.detail} />
+                <>
+                  <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>The numbers behind this verdict</div>
+                  <DetailBlock detail={item.detail} />
+                </>
               )}
             </td>
           </tr>
@@ -459,9 +515,30 @@ export default function InternalMonthEndClose() {
           <span><span style={{ color: C.textMuted }}>GL period: </span><b>{glStatus}</b></span>
           <span><span style={{ color: C.textMuted }}>Close status: </span><b style={{ color: closeStatus === "closed" ? C.success : closeStatus === "in_close" ? C.primary : C.textSub }}>{closeStatus.replace("_", " ")}</b></span>
           <span><span style={{ color: C.textMuted }}>Checks last run: </span><b>{fmtStamp(data.close_period?.checks_last_run_at)}</b></span>
-          <span><span style={{ color: C.textMuted }}>Auto: </span><b style={{ color: autos.some((i) => i.status !== "pass") ? C.warn : C.success }}>{autos.filter((i) => i.status === "pass").length}/{autos.length} pass</b></span>
+          <span><span style={{ color: C.textMuted }}>Blockers: </span><b style={{ color: blockers.length > 0 ? C.danger : C.success }}>{blockers.length}</b></span>
+          <span><span style={{ color: C.textMuted }}>Advisory: </span><b style={{ color: advisories.length > 0 ? C.warn : C.textSub }}>{advisories.length}</b></span>
+          <span><span style={{ color: C.textMuted }}>Waived: </span><b style={{ color: waivedItems.length > 0 ? C.waived : C.textSub }}>{waivedItems.length}</b></span>
+          <span><span style={{ color: C.textMuted }}>Pass: </span><b style={{ color: C.success }}>{passItems.length}/{autos.length}</b></span>
           <span><span style={{ color: C.textMuted }}>Sign-offs: </span><b style={{ color: manuals.every((i) => i.status === "signed_off") && manuals.length > 0 ? C.success : C.textSub }}>{manuals.filter((i) => i.status === "signed_off").length}/{manuals.length}</b></span>
         </div>
+      )}
+
+      {/* Plain-language close-readiness banner: what stands between you and a
+          finalized close, and how to get there. */}
+      {data && data.close_period && !isClosed && (
+        (() => {
+          const [msg, color] = blockers.length > 0
+            ? [`${blockers.length} blocker${blockers.length > 1 ? "s" : ""} must be fixed before this month can close. Blockers are marked in red below — each card explains what to do.`, C.danger]
+            : manualsPending > 0
+              ? [`No blockers. ${exceptions > 0 ? `${exceptions} check${exceptions > 1 ? "s are" : " is"} a documented, non-blocking exception (Advisory / Waived — explained on each card). ` : ""}Sign off the ${manualsPending} remaining manual item${manualsPending > 1 ? "s" : ""}, then Close period.`, C.primary]
+              : [`Ready to close${exceptions > 0 ? ` with ${exceptions} documented exception${exceptions > 1 ? "s" : ""}` : ""}. Use Close period (a reason is recorded in the audit log).`, C.success];
+          return (
+            <div style={{ background: `${color}14`, border: `1px solid ${color}55`, color: C.text, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, lineHeight: 1.5 }}>
+              <b style={{ color }}>{blockers.length > 0 ? "Not ready to close" : manualsPending > 0 ? "Almost ready" : "Ready to close"}</b>
+              <span style={{ color: C.textSub }}> — {msg}</span>
+            </div>
+          );
+        })()
       )}
 
       {err && <div style={{ color: C.danger, marginBottom: 12 }}>{err}</div>}

@@ -114,23 +114,46 @@ export async function seedManualItems(admin, entityId, closePeriodId) {
   if (error) throw new Error(`manual item seed failed: ${error.message}`);
 }
 
+// The close_checklist_items.status CHECK constraint only allows
+// {pending, pass, fail, signed_off}, so the RICH classification (which can be
+// pass/fail/warn/waived) is carried in detail.classification, while the stored
+// status column encodes BLOCKING semantics only: a check hard-blocks the close
+// iff its rich status is 'fail' (always severity 'blocker'). warn + waived are
+// advisory/non-blocking → stored as 'pass' so the CEO can close a historical
+// month with documented, explained exceptions instead of being stuck on
+// migration-era artifacts. See migration 20260998000000.
+export function isBlockingStatus(status) {
+  return status === "fail";
+}
+
 /**
- * Persist close_run_auto_checks() output: upsert one kind=auto row per check
- * with status + detail (numbers behind the verdict). Auto rows are never
- * signed off — re-running checks always overwrites status/detail.
+ * Persist close_run_auto_checks() output: upsert one kind=auto row per check.
+ * The stored status column carries BLOCKING semantics ('fail' only for true
+ * blockers, else 'pass'); the rich verdict + plain-language explanation /
+ * recommendation / severity / title live in detail so the UI can render them.
+ * Auto rows are never signed off — re-running checks overwrites status/detail.
  */
 export async function upsertAutoItems(admin, entityId, closePeriodId, rpcResult) {
   const checks = Array.isArray(rpcResult?.checks) ? rpcResult.checks : [];
+  const ranAt = rpcResult?.ran_at || new Date().toISOString();
   const rows = checks.map((c) => {
     const cat = AUTO_BY_KEY.get(c.item_key);
     return {
       entity_id: entityId,
       close_period_id: closePeriodId,
       item_key: c.item_key,
-      label: cat?.label || c.item_key,
+      label: c.title || cat?.label || c.item_key,
       kind: "auto",
-      status: c.status === "pass" ? "pass" : "fail",
-      detail: { ...(c.detail || {}), ran_at: rpcResult?.ran_at || new Date().toISOString() },
+      status: isBlockingStatus(c.status) ? "fail" : "pass",
+      detail: {
+        ...(c.detail || {}),
+        classification: c.status,
+        severity: c.severity || null,
+        title: c.title || cat?.label || c.item_key,
+        explanation: c.explanation || null,
+        recommendation: c.recommendation || null,
+        ran_at: ranAt,
+      },
       sort_order: cat?.sort ?? 90,
       source: "month_end_close",
     };
