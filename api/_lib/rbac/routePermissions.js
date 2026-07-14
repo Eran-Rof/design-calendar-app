@@ -89,6 +89,8 @@ const SEGMENT_MODULE = {
   // Drill-through Phase 2 — aging bucket drill + Segment P&L GL drill. Same
   // read-only report class as scorecards (analytics = read + export).
   "ar-aging": "analytics", "ap-aging": "analytics", "segment-pl": "analytics",
+  // Inventory On-Hand Accuracy monitor — read-only feed reconciliation report.
+  "inventory-accuracy": "analytics",
   "compliance": "compliance", "sustainability": "compliance",
   "rfqs": "sourcing",
   "tax": "finance_misc", "scf": "finance_misc", "virtual-cards": "finance_misc",

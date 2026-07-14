@@ -365,6 +365,75 @@ If any single line's variance exceeds **10%** of its `system_qty` (configurable 
 
 ---
 
+## 11.4a Inventory Accuracy monitor (read-only)
+
+**Menu:** `📦 Inventory → 🎯 Inventory Accuracy`. Route `?m=inventory_accuracy`.
+
+Tangerine does not yet own its inventory — Xoro remains the operational system of
+record until cutover. As a result the on-hand number can be **wrong**: phantom
+stock (units counted as both on-hand and sold), two feeds that disagree by
+thousands of units, disabled nightly syncs, and no perpetual by-size ledger. The
+Inventory Accuracy panel does not fix any of that — **it measures it**, so you can
+see exactly which SKUs are wrong and by how much. Every object behind it is
+read-only; nothing here mutates stock, re-enables a sync, or "corrects" a number.
+
+### The feeds it compares
+
+Per SKU (a size-grain item), the monitor lines up:
+
+| Feed | What it is | Trust |
+|---|---|---|
+| **Live layers** | `Σ inventory_layers.remaining_qty` — the number the **Inventory Matrix** reads | what the app *shows* |
+| **Xoro REST** | `tangerine_size_onhand` — Xoro's REST by-size feed | **the truth basis** |
+| **ATS feed** | `ip_inventory_snapshot` source `manual` | informational (known unreliable for some styles) |
+| **Phantom feed** | `ip_inventory_snapshot` source `tangerine` | the historical **phantom** values; shown for reference only |
+
+**Signed divergence = Live layers − Xoro REST.** A **positive** divergence means
+the app *overstates* on-hand versus the truth; **negative** means it *understates*
+(REST shows stock the app is missing).
+
+### How to read it
+
+- **Severity** — each SKU is classed:
+  - **Tie** — matches REST within rounding.
+  - **Minor** — off by ≤ 25 units.
+  - **Material** — off by > 25 units.
+  - **Phantom-suspect** — the app shows on-hand that REST says is gone (or a stale
+    `opening_balance` seed still carries quantity). These are the classic phantom
+    rows.
+- **Scorecard tiles** — SKUs divergent, total units off (Σ|Δ|), **$ exposure at
+  cost**, phantom-suspect, negative on-hand, and **zero-cost on-hand** (units
+  sitting on a layer with no cost, so they can't be valued). A second row shows the
+  three feed totals side by side.
+- **Grid** — one row per divergent SKU, worst-first. Click **any row** to open a
+  detail view with every feed side-by-side plus the **FIFO layers** that build up
+  the live number and the REST snapshot rows.
+- **Filters** — severity dropdown + a free-text search over style / color / size.
+- **Export** — the ExportButton emits whatever is filtered/sorted on screen.
+- **Trend** — the nightly cron records one summary row per day, so the $ exposure
+  tile shows whether divergence is getting better or worse once a few days accrue.
+
+### What fixes it (and what doesn't)
+
+Nothing in this panel fixes stock. The root causes need the **Xoro cutover** and the
+by-size ingest re-run: phantom opening balances, the two syncs being disabled, and
+the absence of a perpetual by-size ledger while Xoro still owns order flow. Treat
+the numbers here as the diagnosis the CEO reviews before authorizing any correction —
+see the engineering memory `HANDOVER_2026_07_02_inventory_onhand` and
+`project_phantom_opening_balance_onhand`.
+
+### API + automation
+
+| Method | Path | Behavior |
+|---|---|---|
+| `GET` | `/api/internal/inventory-accuracy/summary` | Summary rollup + divergent rows (`severity=`, `include_ties=1`, `limit=`) + 90-day trend. Read-only. |
+| `GET` | `/api/internal/inventory-accuracy/detail?item_id=` | One SKU: reconciliation row + its FIFO layers + REST snapshot rows. |
+| cron | `/api/cron/inventory-onhand-check` (07:30 UTC) | Records today's summary to the trend table and, if $ exposure / phantom / negative crosses a threshold, drops one breadcrumb into `app_errors` for the daily digest. Never fixes anything. |
+
+Backed by migration `20260997000000` — the `v_inventory_onhand_reconcile` view, the
+`inventory_onhand_accuracy_summary()` RPC, and the `inventory_onhand_accuracy_snapshot`
+trend table.
+
 ## 11.5 Roadmap
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.

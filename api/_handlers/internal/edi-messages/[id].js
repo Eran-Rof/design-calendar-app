@@ -40,7 +40,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await admin
       .from("edi_messages")
-      .select("id, vendor_id, direction, transaction_set, interchange_id, group_control_number, status, attempts, last_error, error_message, transmitted, transport_detail, ack_status, acked_at, file_name, next_attempt_at, raw_content, parsed_content, tpl_provider_id, tpl_shipment_id, sales_order_id, created_at, updated_at, vendors(name, code), tpl_providers(name, code)")
+      .select("id, vendor_id, direction, transaction_set, interchange_id, group_control_number, status, attempts, last_error, error_message, transmitted, transport_detail, ack_status, acked_at, file_name, next_attempt_at, raw_content, parsed_content, tpl_provider_id, tpl_shipment_id, edi_customer_partner_id, ar_invoice_id, sales_order_id, created_at, updated_at, vendors(name, code), tpl_providers(name, code), edi_customer_partners(customers(name, customer_code))")
       .eq("id", id)
       .maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
@@ -49,8 +49,9 @@ export default async function handler(req, res) {
       ...data,
       vendor_name: data.vendors?.name || null,
       tpl_provider_name: data.tpl_providers?.name || null,
+      customer_name: data.edi_customer_partners?.customers?.name || null,
     };
-    delete message.vendors; delete message.tpl_providers;
+    delete message.vendors; delete message.tpl_providers; delete message.edi_customer_partners;
     return res.status(200).json({ message });
   }
 

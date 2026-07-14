@@ -52,6 +52,7 @@ import r_cron_fx_rate_sync from "./cron/fx-rate-sync.js";
 import r_cron_health_scores_monthly from "./cron/health-scores-monthly.js";
 import r_cron_insights_digest_daily from "./cron/insights-digest-daily.js";
 import r_cron_insights_weekly from "./cron/insights-weekly.js";
+import r_cron_inventory_onhand_check from "./cron/inventory-onhand-check.js";
 import r_cron_ip_freshness_refresh from "./cron/ip-freshness-refresh.js";
 import r_cron_ip_integration_health from "./cron/ip-integration-health.js";
 import r_cron_ip_normalize from "./cron/ip-normalize.js";
@@ -333,6 +334,8 @@ import r_internal_income_statement_index from "./internal/income-statement/index
 import r_internal_insights_id from "./internal/insights/[id].js";
 import r_internal_insights_index from "./internal/insights/index.js";
 import r_internal_insights_summary from "./internal/insights/summary.js";
+import r_internal_inventory_accuracy_detail from "./internal/inventory-accuracy/detail.js";
+import r_internal_inventory_accuracy_summary from "./internal/inventory-accuracy/summary.js";
 import r_internal_inventory_adjustments_id from "./internal/inventory-adjustments/[id].js";
 import r_internal_inventory_adjustments_index from "./internal/inventory-adjustments/index.js";
 import r_internal_inventory_adjustments_post from "./internal/inventory-adjustments/post.js";
@@ -966,6 +969,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/customs-entries", handler: r_internal_procurement_customs_entries_index },
   { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
+  { pattern: "/api/internal/inventory-accuracy/summary", handler: r_internal_inventory_accuracy_summary },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
   { pattern: "/api/internal/month-end-close/run-checks", handler: r_internal_month_end_close_run_checks },
   { pattern: "/api/internal/three-way-match/tolerances", handler: r_internal_three_way_match_tolerances },
@@ -973,6 +977,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
+  { pattern: "/api/internal/inventory-accuracy/detail", handler: r_internal_inventory_accuracy_detail },
   { pattern: "/api/internal/month-end-close/checklist", handler: r_internal_month_end_close_checklist },
   { pattern: "/api/internal/style-master/cbm-estimate", handler: r_internal_style_master_cbm_estimate },
   { pattern: "/api/internal/addresses/postal-suggest", handler: r_internal_addresses_postal_suggest },
@@ -1253,6 +1258,7 @@ export const ROUTES = [
   { pattern: "/api/internal/workflow-executions", handler: r_internal_workflow_executions_index },
   { pattern: "/api/cron/crm-tasks-due-tomorrow", handler: r_cron_crm_tasks_due_tomorrow },
   { pattern: "/api/cron/fba-settlements-weekly", handler: r_cron_fba_settlements_weekly },
+  { pattern: "/api/cron/inventory-onhand-check", handler: r_cron_inventory_onhand_check },
   { pattern: "/api/cron/walmart-orders-nightly", handler: r_cron_walmart_orders_nightly },
   { pattern: "/api/cron/xoro-feed-health-alert", handler: r_cron_xoro_feed_health_alert },
   { pattern: "/api/internal/adjustment-reasons", handler: r_internal_adjustment_reasons_index },

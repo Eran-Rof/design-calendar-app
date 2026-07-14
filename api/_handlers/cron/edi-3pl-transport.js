@@ -35,41 +35,56 @@ function client() {
 
 const PROVIDER_COLS =
   "id, name, entity_id, is_active, edi_protocol, edi_endpoint, edi_port, edi_username, edi_credential_ref, edi_secret_ciphertext, edi_outbound_dir, edi_inbound_dir, edi_archive_dir, enabled_doc_types, edi_poll_enabled";
+// Retail customer partners carry the SAME edi_* transport columns as a 3PL row,
+// so transport.js resolves either shape identically. enabled_docs is the retail
+// twin of enabled_doc_types.
+const RETAIL_PARTNER_COLS =
+  "id, customer_id, entity_id, is_active, edi_protocol, edi_endpoint, edi_port, edi_username, edi_credential_ref, edi_secret_ciphertext, edi_outbound_dir, edi_inbound_dir, edi_archive_dir, enabled_docs, edi_poll_enabled, usage_indicator";
 
 // ─── OUTBOUND ────────────────────────────────────────────────────────────────
 async function runOutbound(admin) {
   const nowIso = new Date().toISOString();
-  // Candidate rows: outbound, in a sendable status, gate open. We over-select
+  // Candidate rows: outbound, in a sendable status, gate open, bound to EITHER a
+  // 3PL provider (940 etc.) OR a retail customer partner (856/810). We over-select
   // then filter with the shared isSendable() so the state machine has one home.
   const { data: rows } = await admin
     .from("edi_messages")
-    .select("id, direction, status, attempts, next_attempt_at, raw_content, file_name, interchange_id, group_control_number, tpl_provider_id, transaction_set")
+    .select("id, direction, status, attempts, next_attempt_at, raw_content, file_name, interchange_id, group_control_number, tpl_provider_id, edi_customer_partner_id, transaction_set")
     .eq("direction", "outbound")
     .in("status", ["queued", "generated", "failed"])
-    .not("tpl_provider_id", "is", null)
+    .or("tpl_provider_id.not.is.null,edi_customer_partner_id.not.is.null")
     .or(`next_attempt_at.is.null,next_attempt_at.lte.${nowIso}`)
     .order("created_at", { ascending: true })
     .limit(100);
 
   const providerCache = new Map();
   async function loadProvider(id) {
-    if (providerCache.has(id)) return providerCache.get(id);
+    const key = `tpl:${id}`;
+    if (providerCache.has(key)) return providerCache.get(key);
     const { data } = await admin.from("tpl_providers").select(PROVIDER_COLS).eq("id", id).maybeSingle();
-    providerCache.set(id, data || null);
+    providerCache.set(key, data || null);
+    return data || null;
+  }
+  async function loadRetailPartner(id) {
+    const key = `retail:${id}`;
+    if (providerCache.has(key)) return providerCache.get(key);
+    const { data } = await admin.from("edi_customer_partners").select(RETAIL_PARTNER_COLS).eq("id", id).maybeSingle();
+    providerCache.set(key, data || null);
     return data || null;
   }
 
   const results = [];
   for (const row of rows || []) {
     if (!isSendable(row)) continue;
-    const provider = await loadProvider(row.tpl_provider_id);
+    const isRetail = !!row.edi_customer_partner_id;
+    const provider = isRetail ? await loadRetailPartner(row.edi_customer_partner_id) : await loadProvider(row.tpl_provider_id);
     if (!provider || provider.is_active === false) {
-      results.push({ id: row.id, sent: false, detail: "provider missing/inactive" });
+      results.push({ id: row.id, sent: false, detail: `${isRetail ? "retail partner" : "provider"} missing/inactive` });
       continue;
     }
-    const docTypes = provider.enabled_doc_types || [];
+    const docTypes = provider.enabled_doc_types || provider.enabled_docs || [];
     if (docTypes.length && !docTypes.includes(row.transaction_set)) {
-      results.push({ id: row.id, sent: false, detail: `doc type ${row.transaction_set} not enabled for provider` });
+      results.push({ id: row.id, sent: false, detail: `doc type ${row.transaction_set} not enabled for ${isRetail ? "partner" : "provider"}` });
       continue;
     }
 
@@ -220,6 +235,84 @@ async function runInbound(admin) {
   return results;
 }
 
+// ─── RETAIL INBOUND (997 acks from retail customers) ─────────────────────────
+// Poll each active retail partner's inbound dir for 997s and reconcile them
+// against our outbound 856/810 (reuses applyInbound → reconcileAck, which matches
+// by group_control_number regardless of partner type). Only 997 is applied; any
+// other inbound doc is recorded for audit, not acted on.
+async function runRetailInbound(admin) {
+  const { data: partners } = await admin
+    .from("edi_customer_partners")
+    .select(RETAIL_PARTNER_COLS + ", customers(name)")
+    .eq("is_active", true)
+    .eq("edi_poll_enabled", true)
+    .not("edi_inbound_dir", "is", null);
+
+  const results = [];
+  for (const p of partners || []) {
+    const label = p.customers?.name || p.id;
+    try {
+      const { data: seen } = await admin
+        .from("edi_messages")
+        .select("file_name")
+        .eq("edi_customer_partner_id", p.id)
+        .eq("direction", "inbound")
+        .not("file_name", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      const seenNames = new Set((seen || []).map((r) => r.file_name));
+
+      const poll = await pollInbound(p, { alreadyIngested: (name) => seenNames.has(name) });
+      if (!poll.ok) { results.push({ partner: label, ok: false, detail: poll.detail }); continue; }
+
+      const fileResults = [];
+      for (const f of poll.files) {
+        if (f.error || f.content == null) { fileResults.push({ file: f.name, ok: false, detail: f.error || "empty" }); continue; }
+        let envelope;
+        try { envelope = parseEnvelope(f.content); }
+        catch (e) { fileResults.push({ file: f.name, ok: false, detail: `parse error: ${e?.message || e}` }); continue; }
+        const isaCtl = interchangeControl(envelope.isa);
+        const perTxn = [];
+        for (const group of envelope.groups || []) {
+          const gsCtl = groupControl(group.gs);
+          for (const txn of group.transactions || []) {
+            const set = transactionControl(txn.st).transactionSet;
+            const { data: existing } = await admin.from("edi_messages").select("id")
+              .eq("direction", "inbound").eq("transaction_set", set)
+              .eq("interchange_id", isaCtl.controlNumber).eq("edi_customer_partner_id", p.id).limit(1);
+            if (existing?.length) { perTxn.push({ set, skipped: "duplicate" }); continue; }
+
+            const { data: msg } = await admin.from("edi_messages").insert({
+              direction: "inbound", transaction_set: set, status: "received",
+              interchange_id: isaCtl.controlNumber, group_control_number: gsCtl.controlNumber,
+              raw_content: f.content, edi_customer_partner_id: p.id, file_name: f.name,
+            }).select("id").single();
+
+            if (set !== "997") { perTxn.push({ set, skipped: "not-997" }); continue; }
+            let outcome;
+            try { outcome = await applyInbound(admin, { transactionSet: "997", segments: txn.segments, provider: p }); }
+            catch (e) { outcome = { ok: false, status: "error", error: e?.message || String(e) }; }
+            if (msg?.id) await admin.from("edi_messages").update({
+              status: outcome.status || (outcome.ok ? "processed" : "error"),
+              error_message: outcome.ok ? null : (outcome.error || null),
+              updated_at: new Date().toISOString(),
+            }).eq("id", msg.id);
+            perTxn.push({ set, status: outcome.status, summary: outcome.summary, error: outcome.error });
+          }
+        }
+        const hadError = perTxn.some((t) => t.error);
+        if (!hadError) { const arch = await archiveInboundFile(p, f.name); fileResults.push({ file: f.name, ok: true, transactions: perTxn, archived: arch.ok ? arch.detail : `archive failed: ${arch.detail}` }); }
+        else fileResults.push({ file: f.name, ok: false, transactions: perTxn });
+      }
+      await admin.from("edi_customer_partners").update({ edi_last_polled_at: new Date().toISOString() }).eq("id", p.id);
+      results.push({ partner: label, ok: true, files: fileResults });
+    } catch (e) {
+      results.push({ partner: label, ok: false, detail: String(e?.message || e) });
+    }
+  }
+  return results;
+}
+
 export default async function handler(req, res) {
   // Vercel cron auth: when CRON_SECRET is set, require it (Bearer or x-vercel-cron).
   const secret = process.env.CRON_SECRET;
@@ -234,6 +327,7 @@ export default async function handler(req, res) {
   try {
     out.outbound = await runOutbound(admin);
     out.inbound = await runInbound(admin);
+    out.retail_inbound = await runRetailInbound(admin);
 
     const failedOut = (out.outbound || []).filter((r) => r.status === "failed");
     if (failedOut.length) {

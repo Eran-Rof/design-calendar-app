@@ -1,25 +1,32 @@
 // api/internal/edi/customer-partners/[id]
 //
-// GET    — fetch a single edi_customer_partners row (with customer NAME).
-// PATCH  — update mutable fields. entity_id / customer_id / id are LOCKED.
-//          Mutable: partner_isa_qualifier, partner_isa_id, supported_docs,
-//          is_active.
-// DELETE — hard-delete the trading-partner config (no transport state to orphan).
+// GET    — fetch a single edi_customer_partners row (customer NAME joined; the
+//          SFTP secret is scrubbed, replaced by an edi_secret_set flag).
+// PATCH  — update mutable fields (envelope ids, transport, enabled_docs, doc_map,
+//          usage_indicator, write-only edi_secret, is_active…). id/entity_id/
+//          customer_id are LOCKED.
+// DELETE — hard-delete the trading-partner config.
+// POST   — operator actions on this partner:
+//            { action: "test" }                       → SFTP test connection
+//            { action: "preview",  invoice_id }        → build 856/810 X12 (no write)
+//            { action: "generate", invoice_id, docs? } → generate + QUEUE 856/810
 //
-// Tangerine — EDI Customers. req.query.id per dispatcher convention.
+// Tangerine — retailer-facing EDI. req.query.id per dispatcher convention.
 
 import { createClient } from "@supabase/supabase-js";
+import { testConnection } from "../../../../_lib/edi/transport.js";
+import { build856, build810 } from "../../../../_lib/edi/retailBuilders.js";
+import { buildRetailContext, enqueueRetailEdiForInvoice } from "../../../../_lib/edi/retailEnqueue.js";
+import { pickRetailFields, scrubPartner } from "./index.js";
 
-export const config = { maxDuration: 15 };
+export const config = { maxDuration: 30 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const MUTABLE_FIELDS = new Set(["partner_isa_qualifier", "partner_isa_id", "supported_docs", "is_active"]);
-const LOCKED_FIELDS  = new Set(["id", "entity_id", "customer_id"]);
+const LOCKED_FIELDS = new Set(["id", "entity_id", "customer_id"]);
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, PATCH, DELETE, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Entity-ID");
 }
 
@@ -40,105 +47,93 @@ async function customerName(admin, customerId) {
   return { name: data?.name || "", code: data?.customer_code || data?.code || "" };
 }
 
-function normalizeDocs(raw) {
-  if (raw == null) return [];
-  const arr = Array.isArray(raw) ? raw : String(raw).split(",");
-  return [...new Set(arr.map((d) => String(d).trim()).filter(Boolean))];
+async function loadInvoice(admin, invoiceId) {
+  if (!invoiceId || !UUID_RE.test(String(invoiceId))) return null;
+  const { data } = await admin.from("ar_invoices").select("*").eq("id", invoiceId).maybeSingle();
+  return data || null;
 }
 
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Per feedback_dispatcher_query_not_params: always read path params from req.query.
   const id = req.query?.id;
-  if (!id || !UUID_RE.test(id)) {
-    return res.status(400).json({ error: "Invalid id" });
-  }
+  if (!id || !UUID_RE.test(id)) return res.status(400).json({ error: "Invalid id" });
 
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
   if (req.method === "GET") {
-    const { data, error } = await admin
-      .from("edi_customer_partners")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
+    const { data, error } = await admin.from("edi_customer_partners").select("*").eq("id", id).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "EDI customer partner not found" });
     const c = await customerName(admin, data.customer_id);
-    return res.status(200).json({ ...data, customer_name: c.name, customer_code: c.code });
+    return res.status(200).json({ ...scrubPartner(data), customer_name: c.name, customer_code: c.code });
   }
 
   if (req.method === "PATCH") {
     let body = req.body;
-    if (typeof body === "string") {
-      try { body = JSON.parse(body); }
-      catch { return res.status(400).json({ error: "Invalid JSON" }); }
+    if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
+    body = body || {};
+    for (const f of Object.keys(body)) {
+      if (LOCKED_FIELDS.has(f)) return res.status(400).json({ error: `${f} is locked post-creation and cannot be updated` });
     }
-    const v = validatePatch(body || {});
-    if (v.error) return res.status(400).json({ error: v.error });
-    if (Object.keys(v.data).length === 0) {
-      return res.status(400).json({ error: "No mutable fields supplied" });
-    }
-    const { data, error } = await admin
-      .from("edi_customer_partners")
-      .update(v.data)
-      .eq("id", id)
-      .select()
-      .single();
+    const patch = pickRetailFields(body);
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: "No mutable fields supplied" });
+    const { data, error } = await admin.from("edi_customer_partners").update(patch).eq("id", id).select().single();
     if (error) {
       if (error.code === "PGRST116") return res.status(404).json({ error: "EDI customer partner not found" });
       return res.status(500).json({ error: error.message });
     }
     const c = await customerName(admin, data.customer_id);
-    return res.status(200).json({ ...data, customer_name: c.name, customer_code: c.code });
+    return res.status(200).json({ ...scrubPartner(data), customer_name: c.name, customer_code: c.code });
   }
 
   if (req.method === "DELETE") {
-    const { data, error } = await admin
-      .from("edi_customer_partners")
-      .delete()
-      .eq("id", id)
-      .select("id")
-      .maybeSingle();
+    const { data, error } = await admin.from("edi_customer_partners").delete().eq("id", id).select("id").maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "EDI customer partner not found" });
     return res.status(200).json({ deleted: true, id });
   }
 
-  res.setHeader("Allow", "GET, PATCH, DELETE");
-  return res.status(405).json({ error: "Method not allowed" });
-}
+  if (req.method === "POST") {
+    let body = req.body;
+    if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
+    body = body || {};
+    const action = String(body.action || "");
 
-export function validatePatch(body) {
-  if (body == null || typeof body !== "object") {
-    return { error: "Request body must be an object" };
-  }
-  for (const f of Object.keys(body)) {
-    if (LOCKED_FIELDS.has(f)) {
-      return { error: `${f} is locked post-creation and cannot be updated` };
+    const { data: partner } = await admin.from("edi_customer_partners").select("*").eq("id", id).maybeSingle();
+    if (!partner) return res.status(404).json({ error: "EDI customer partner not found" });
+
+    if (action === "test") {
+      const result = await testConnection(partner);
+      return res.status(200).json({ ok: result.ok, detail: result.detail, dirs: result.dirs || null });
     }
-  }
-  const out = {};
-  for (const [k, val] of Object.entries(body)) {
-    if (!MUTABLE_FIELDS.has(k)) continue;
-    out[k] = val;
-  }
-  if ("partner_isa_qualifier" in out) {
-    out.partner_isa_qualifier = out.partner_isa_qualifier ? String(out.partner_isa_qualifier).trim() : null;
-  }
-  if ("partner_isa_id" in out) {
-    out.partner_isa_id = out.partner_isa_id ? String(out.partner_isa_id).trim() : null;
-  }
-  if ("supported_docs" in out) {
-    out.supported_docs = normalizeDocs(out.supported_docs);
-  }
-  if ("is_active" in out) {
-    if (typeof out.is_active !== "boolean") {
-      out.is_active = out.is_active === "true" || out.is_active === 1;
+
+    if (action === "preview" || action === "generate") {
+      const invoice = await loadInvoice(admin, body.invoice_id);
+      if (!invoice) return res.status(400).json({ error: "invoice_id (uuid of an AR invoice) required" });
+      if (invoice.customer_id !== partner.customer_id) {
+        return res.status(409).json({ error: "Invoice belongs to a different customer than this EDI partner" });
+      }
+      if (action === "preview") {
+        const ctx = await buildRetailContext(admin, { invoice });
+        if (!ctx.ok) return res.status(409).json({ error: ctx.error });
+        const enabled = new Set(partner.enabled_docs || []);
+        const out = {};
+        if (enabled.has("856")) { const b = build856({ shipment: ctx.shipment, partner, controlNumber: 1 }); out["856"] = { x12: b.x12, ssccs: b.ssccs, single_pack: b.single_pack, hl_count: b.hl_count }; }
+        if (enabled.has("810")) { const b = build810({ invoice: ctx.invoice, partner, controlNumber: 1 }); out["810"] = { x12: b.x12, totals: b.totals }; }
+        return res.status(200).json({ ok: true, preview: out, customer: ctx.customer_name });
+      }
+      // generate
+      const docs = Array.isArray(body.docs) && body.docs.length ? body.docs.map(String) : null;
+      const result = await enqueueRetailEdiForInvoice(admin, { invoice, docs });
+      return res.status(200).json(result);
     }
+
+    return res.status(400).json({ error: "Unsupported action (test | preview | generate)" });
   }
-  return { data: out };
+
+  res.setHeader("Allow", "GET, PATCH, DELETE, POST");
+  return res.status(405).json({ error: "Method not allowed" });
 }

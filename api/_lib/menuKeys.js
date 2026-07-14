@@ -167,6 +167,7 @@ const KEYS = [
   "tanda/customers/scorecard",
   "tanda/inventory/transfers",
   "tanda/inventory/adjustments",
+  "tanda/inventory/accuracy",
   "tanda/inventory/cycle-counts",
   "tanda/procurement/purchase-orders",
   "tanda/procurement/receiving",
