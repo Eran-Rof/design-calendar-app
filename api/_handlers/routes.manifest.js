@@ -760,7 +760,7 @@ export default [
   ["/api/internal/three-way-match/tolerances"                , "./internal/three-way-match/tolerances.js"],
   ["/api/cron/three-way-match"                               , "./cron/three-way-match.js"],
   ["/api/cron/ap-paid-delta-watcher"                         , "./cron/ap-paid-delta-watcher.js"],
-  // Inventory On-Hand Accuracy monitor (#1762) — read-only feed reconciliation.
+  // Inventory On-Hand Accuracy monitor (#1763) — read-only feed reconciliation.
   ["/api/internal/inventory-accuracy/summary"                , "./internal/inventory-accuracy/summary.js"],
   ["/api/internal/inventory-accuracy/detail"                 , "./internal/inventory-accuracy/detail.js"],
   ["/api/cron/inventory-onhand-check"                        , "./cron/inventory-onhand-check.js"],
