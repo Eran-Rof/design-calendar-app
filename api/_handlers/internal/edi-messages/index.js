@@ -38,22 +38,27 @@ export default async function handler(req, res) {
   const vendorId = (url.searchParams.get("vendor_id") || "").trim();
   const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "200", 10) || 200));
 
+  const providerId = (url.searchParams.get("tpl_provider_id") || "").trim();
+
   let q = admin
     .from("edi_messages")
-    .select("id, vendor_id, direction, transaction_set, interchange_id, status, error_message, created_at, vendors(name, code)")
+    .select("id, vendor_id, direction, transaction_set, interchange_id, status, attempts, last_error, error_message, transmitted, ack_status, file_name, tpl_provider_id, tpl_shipment_id, created_at, vendors(name, code), tpl_providers(name, code)")
     .order("created_at", { ascending: false })
     .limit(limit);
   if (direction) q = q.eq("direction", direction);
   if (txn) q = q.eq("transaction_set", txn);
   if (status) q = q.eq("status", status);
   if (vendorId) q = q.eq("vendor_id", vendorId);
+  if (providerId) q = q.eq("tpl_provider_id", providerId);
 
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   const messages = (data || []).map((m) => ({
     id: m.id, vendor_id: m.vendor_id, vendor_name: m.vendors?.name || null,
+    tpl_provider_id: m.tpl_provider_id, tpl_provider_name: m.tpl_providers?.name || null,
     direction: m.direction, transaction_set: m.transaction_set, interchange_id: m.interchange_id,
-    status: m.status, error_message: m.error_message, created_at: m.created_at,
+    status: m.status, attempts: m.attempts, transmitted: m.transmitted, ack_status: m.ack_status,
+    file_name: m.file_name, error_message: m.error_message || m.last_error, created_at: m.created_at,
   }));
   return res.status(200).json({ messages });
 }
