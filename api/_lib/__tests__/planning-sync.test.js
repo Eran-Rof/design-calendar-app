@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap } from "../planning-sync.js";
+import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap, extractReceiptLines, syncReceiptsFromTandaPos } from "../planning-sync.js";
 
 // Minimal Supabase admin stub. Each test wires up only the table
 // methods it actually needs; the rest fall through to a generic empty
@@ -364,5 +364,146 @@ describe("buildDdpDateMap — WIP timing from Tanda milestones", () => {
   it("returns an empty map for empty/nullish input", () => {
     expect(buildDdpDateMap([]).size).toBe(0);
     expect(buildDdpDateMap(null).size).toBe(0);
+  });
+});
+
+describe("extractReceiptLines — received PO lines from a tanda_pos payload", () => {
+  const po = {
+    PoNumber: "PO-2001",
+    DateExpectedDelivery: "2026-03-01",
+    PoLineArr: [
+      { ItemNumber: "STY01-RED-M", QtyOrder: 10, QtyReceived: 6 },
+      { ItemNumber: "STY01-RED-L", QtyOrder: 8, QtyReceived: 0 },   // nothing received → skipped
+      { ItemNumber: "STY02-BLUE-S", QtyOrder: 4, QtyReceived: 4 },
+    ],
+  };
+
+  it("keeps only lines with QtyReceived > 0, rolled to style+color grain", () => {
+    const out = extractReceiptLines(po, "PO-2001", new Map());
+    expect(out).toEqual([
+      { sku: "STY01-RED", qty: 6, received_date: "2026-03-01", po_number: "PO-2001" },
+      { sku: "STY02-BLUE", qty: 4, received_date: "2026-03-01", po_number: "PO-2001" },
+    ]);
+  });
+
+  it("prefers the milestone DDP date over the Xoro expected date", () => {
+    const ddp = new Map([["PO-2001", "2026-04-15"]]);
+    const out = extractReceiptLines(po, "PO-2001", ddp);
+    expect(out.every((l) => l.received_date === "2026-04-15")).toBe(true);
+  });
+
+  it("returns received_date null when the PO carries no expected date", () => {
+    const undated = { PoNumber: "PO-3", PoLineArr: [{ ItemNumber: "S-C-M", QtyReceived: 5 }] };
+    const out = extractReceiptLines(undated, "PO-3", new Map());
+    expect(out).toEqual([{ sku: "S-C", qty: 5, received_date: null, po_number: "PO-3" }]);
+  });
+
+  it("falls through an empty PoLineArr to the Items array (historical/closed POs)", () => {
+    // Fully-received POs carry lines under Items while PoLineArr is an empty [].
+    const received = {
+      PoNumber: "PT-P000143",
+      DateExpectedDelivery: "12/30/2024",
+      PoLineArr: [],
+      Items: [
+        { ItemNumber: "PTYB0214-Moonless Nights-28", QtyOrder: 16, QtyReceived: 16 },
+        { ItemNumber: "PTYB0214-Moonless Nights-30", QtyOrder: 10, QtyReceived: 10 },
+      ],
+    };
+    const out = extractReceiptLines(received, "PT-P000143", new Map());
+    expect(out).toEqual([
+      { sku: "PTYB0214-MOONLESSNIGHTS", qty: 16, received_date: "2024-12-30", po_number: "PT-P000143" },
+      { sku: "PTYB0214-MOONLESSNIGHTS", qty: 10, received_date: "2024-12-30", po_number: "PT-P000143" },
+    ]);
+  });
+
+  it("prefers each line's own expected date over the PO header date", () => {
+    const multi = {
+      PoNumber: "PT-P9",
+      DateExpectedDelivery: "01/01/2025",
+      Items: [
+        { ItemNumber: "S-C-M", QtyReceived: 3, DateExpectedDelivery: "02/15/2025" },
+        { ItemNumber: "S-C-L", QtyReceived: 2 }, // no line date → header
+      ],
+    };
+    const out = extractReceiptLines(multi, "PT-P9", new Map());
+    expect(out).toEqual([
+      { sku: "S-C", qty: 3, received_date: "2025-02-15", po_number: "PT-P9" },
+      { sku: "S-C", qty: 2, received_date: "2025-01-01", po_number: "PT-P9" },
+    ]);
+  });
+
+  it("INCLUDES archived POs (they are the Received/Closed receipt history)", () => {
+    const out = extractReceiptLines(
+      { _archived: true, PoNumber: "PO-9", DateExpectedDelivery: "01/05/2025", Items: [{ ItemNumber: "A-B-M", QtyReceived: 7 }] },
+      null, new Map());
+    expect(out).toEqual([{ sku: "A-B", qty: 7, received_date: "2025-01-05", po_number: "PO-9" }]);
+  });
+
+  it("skips EOM, no-number and empty-line POs", () => {
+    expect(extractReceiptLines({ PoNumber: "EOM-BALANCE", PoLineArr: [{ ItemNumber: "A-B-M", QtyReceived: 1 }] }, null, new Map())).toEqual([]);
+    expect(extractReceiptLines({ PoNumber: "", PoLineArr: [] }, null, new Map())).toEqual([]);
+    expect(extractReceiptLines({ PoNumber: "PO-4", DateExpectedDelivery: "2026-01-01", PoLineArr: [] }, null, new Map())).toEqual([]);
+  });
+});
+
+describe("syncReceiptsFromTandaPos — happy path", () => {
+  it("flattens received PO lines into ip_receipts_history rows (no-date skipped)", async () => {
+    const upserts = [];
+    let pageOne = true;
+    const admin = makeAdmin({
+      tanda_pos: {
+        async select() {
+          if (pageOne) {
+            pageOne = false;
+            return {
+              data: [{
+                po_number: "PO-2001",
+                data: {
+                  PoNumber: "PO-2001",
+                  DateExpectedDelivery: "2026-03-01",
+                  StatusName: "Received",
+                  PoLineArr: [
+                    { ItemNumber: "STY01-RED-M", QtyOrder: 10, QtyReceived: 6 },
+                    { ItemNumber: "STY01-RED-L", QtyOrder: 8, QtyReceived: 4 }, // same style+color → collapses
+                    { ItemNumber: "STY01-RED-XL", QtyOrder: 5, QtyReceived: 0 }, // nothing received → skipped
+                  ],
+                },
+              }],
+              error: null,
+            };
+          }
+          return { data: [], error: null };
+        },
+      },
+      ip_item_master: {
+        async select() {
+          return { data: [{ id: "sku-1", sku_code: "STY01-RED" }], error: null };
+        },
+      },
+      ip_receipts_history: {
+        async upsert(state) {
+          upserts.push(...state.upsertRows);
+          return { data: null, error: null };
+        },
+        async select() {
+          return { data: [], error: null }; // no stale rows
+        },
+      },
+    });
+
+    const r = await syncReceiptsFromTandaPos(admin);
+
+    expect(r.error).toBeUndefined();
+    expect(r.errors).toEqual([]);
+    expect(r.inserted).toBe(1); // two received size lines collapse into one style+color receipt
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({
+      sku_id: "sku-1",
+      po_number: "PO-2001",
+      received_date: "2026-03-01",
+      qty: 10, // 6 + 4
+      source: "tanda",
+      source_line_key: "tanda:PO-2001:STY01-RED",
+    });
   });
 });

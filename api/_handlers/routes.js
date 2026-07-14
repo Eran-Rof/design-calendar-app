@@ -626,6 +626,7 @@ import r_password_reset_confirm from "./password-reset/confirm.js";
 import r_password_reset_request from "./password-reset/request.js";
 import r_planning_sync_on_hand from "./planning/sync-on-hand.js";
 import r_planning_sync_open_pos from "./planning/sync-open-pos.js";
+import r_planning_sync_receipts from "./planning/sync-receipts.js";
 import r_sales_backfill_grain from "./sales/backfill-grain.js";
 import r_sales_sync_invoices from "./sales/sync-invoices.js";
 import r_sales_upload_payment_state from "./sales/upload-payment-state.js";
@@ -1328,6 +1329,7 @@ export const ROUTES = [
   { pattern: "/api/password-reset/confirm", handler: r_password_reset_confirm },
   { pattern: "/api/password-reset/request", handler: r_password_reset_request },
   { pattern: "/api/planning/sync-open-pos", handler: r_planning_sync_open_pos },
+  { pattern: "/api/planning/sync-receipts", handler: r_planning_sync_receipts },
   { pattern: "/api/vendor/change-requests", handler: r_vendor_change_requests },
   { pattern: "/api/vendor/discount-offers", handler: r_vendor_discount_offers_index },
   { pattern: "/api/xoro/sync-item-costing", handler: r_xoro_sync_item_costing },
