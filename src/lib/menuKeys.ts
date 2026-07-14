@@ -258,6 +258,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/inventory/3pl-recon",    label: "3PL Inventory Recon", app: "tanda", route: "/tangerine?m=three_pl_recon",  group: "Inventory", icon: "📋" },
   { key: "tanda/inventory/transfers",   label: "Inventory Transfers", app: "tanda", route: "/tangerine?m=inventory_transfers", group: "Inventory", icon: "🔁" },
   { key: "tanda/inventory/adjustments", label: "Inventory Adjustments", app: "tanda", route: "/tangerine?m=inventory_adjustments", group: "Inventory", icon: "📐" },
+  { key: "tanda/inventory/accuracy", label: "Inventory Accuracy", app: "tanda", route: "/tangerine?m=inventory_accuracy", group: "Inventory", icon: "🎯" },
   { key: "tanda/inventory/cycle-counts", label: "Cycle Counts",     app: "tanda", route: "/tangerine?m=cycle_counts",      group: "Inventory", icon: "📋" },
   // Customer Service
   { key: "tanda/cs/cases",              label: "Cases",             app: "tanda", route: "/tangerine?m=cases",             group: "Customer Service", icon: "🎫" },
