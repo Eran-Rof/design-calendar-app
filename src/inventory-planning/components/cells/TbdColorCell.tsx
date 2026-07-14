@@ -180,7 +180,10 @@ export function TbdColorCell({
                 key={c}
                 role="option"
                 tabIndex={0}
-                onClick={() => commit(c, commitIsNew)}
+                // onMouseDown + preventDefault (not onClick) so the commit fires
+                // before the autofocused search input blurs — with the portal an
+                // onClick can be lost to the mousedown-driven focus change.
+                onMouseDown={(e) => { e.preventDefault(); void commit(c, commitIsNew); }}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(c, commitIsNew); } }}
                 style={{
                   padding: "8px 12px",
@@ -206,7 +209,10 @@ export function TbdColorCell({
             <div
               role="option"
               tabIndex={0}
-              onClick={() => commit(queryTrim, true)}
+              // onMouseDown + preventDefault so "Add as NEW color" commits before
+              // the search input blurs (portal + autofocus would otherwise drop
+              // the onClick — this was the "typed color doesn't add" bug).
+              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim, true); }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim, true); } }}
               style={{
                 padding: "10px 12px",
