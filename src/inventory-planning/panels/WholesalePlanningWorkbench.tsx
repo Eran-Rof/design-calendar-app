@@ -907,19 +907,36 @@ export default function WholesalePlanningWorkbench() {
       return;
     }
     // Per-(customer, period) dup check (skip when the planner is using
-    // the placeholder TBD/TBD grain).
+    // the placeholder TBD/TBD grain). Instead of aborting the whole add on the
+    // first collision, collect EVERY combo that already exists (same style /
+    // color / customer / period), show a detailed warning listing them, and let
+    // the planner decide whether to create the duplicates anyway or cancel.
     const isPlaceholderAdd = args.style_code === "TBD" && args.color === "TBD";
     if (!isPlaceholderAdd) {
+      const dupes: Array<{ customer_name: string; period_code: string }> = [];
       for (const customer_id of args.customer_ids) {
+        const custName = customers.find((c) => c.id === customer_id)?.name ?? "(unknown customer)";
         for (const p of periodSamples) {
-          const dup = findTbdDuplicate(args.style_code, args.color, customer_id, p.period_code);
-          if (dup) {
-            setToast({
-              text: `Already have a ${args.style_code} / ${args.color} row for ${dup.customer_name} in ${p.period_code}. Edit that row instead.`,
-              kind: "error",
-            });
-            return;
+          if (findTbdDuplicate(args.style_code, args.color, customer_id, p.period_code)) {
+            dupes.push({ customer_name: custName, period_code: p.period_code });
           }
+        }
+      }
+      if (dupes.length > 0) {
+        const total = args.customer_ids.length * periodSamples.length;
+        const MAX_LIST = 15;
+        const lines = dupes.slice(0, MAX_LIST)
+          .map((d) => `• ${args.style_code} / ${args.color} — ${d.customer_name} — ${formatPeriodCode(d.period_code)}`)
+          .join("\n");
+        const more = dupes.length > MAX_LIST ? `\n…and ${dupes.length - MAX_LIST} more` : "";
+        const ok = await askConfirm(
+          "Some rows already exist",
+          `${dupes.length} of the ${total} row${total === 1 ? "" : "s"} you're adding already exist (same style / color / customer / period):\n\n${lines}${more}\n\nCreating them makes duplicate rows that the grid merges into one line. Create the duplicates anyway?`,
+          "Create duplicates anyway",
+        );
+        if (!ok) {
+          setToast({ text: "Add cancelled — no rows created.", kind: "info" });
+          return;
         }
       }
     }
