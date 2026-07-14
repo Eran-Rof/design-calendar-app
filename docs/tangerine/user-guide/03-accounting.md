@@ -337,6 +337,8 @@ Once `status='posted'`, the JE is immutable by design. PATCH and DELETE on `/api
 
 The Income Statement (P&L) is a best-in-class report that mirrors how the CEO reads a P&L — the same band structure as Xoro's **Income Statement By Store**, the full colon-path account hierarchy (parent **group headers** with indented sub-accounts and group subtotals), and **monthly columns** across any date range. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
 
+**Prior-year comparatives.** The **Compare prior year** toggle (on by default) adds two columns after the Total — **PY Total** (the same window shifted back exactly one year) and **Change** ($ difference with % beside it, green up / red down). Comparatives attach to the **Total column only** — the monthly columns stay current-year so the grid stays readable — and they apply to every line: accounts, group subtotals, the section totals, and the Net Sales / Gross Profit / NOI / Net Income bands. The prior-year window is shown in the column header. The comparative figures also flow into the Excel and PDF exports.
+
 > **Drill into any account:** click an account row (its name is shown in **blue**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
 ### The band structure (top to bottom)
@@ -439,55 +441,64 @@ Tangerine → 💼 Accounting → 💧 **Cash Flow** opens the indirect-method C
 
 ### What it computes
 
-The cash flow statement explains how cash moved over a date range by reconciling net income to the actual change in cash on hand. The **indirect method** starts from net income (from the income statement) and adjusts for working-capital changes:
+The cash flow statement explains how cash moved over a date range by reconciling net income to the actual change in cash on hand. **All three sections are now live** — computed from GL account activity, not placeholders:
 
 ```
-Operating section:
-  Net Income (from the income statement)
-  + Decrease in Accounts Receivable  (or − Increase)
-  + Decrease in Inventory             (or − Increase)
-  + Increase in Accounts Payable      (or − Decrease)
+Operating activities
+  Net Income
+  + working-capital changes  (Accounts Receivable, Inventory, Accounts Payable,
+                              Accrued Liabilities, Credit Cards, Customer Deposits,
+                              Taxes Payable, Payroll Liabilities, Prepaids, …)
   = Net cash from operating activities
 
-Investing section:   $0 placeholder until P22+ (Fixed Assets)
-Financing section:   $0 placeholder until P22+ (account tagging)
+Investing activities
+  Purchases of Property & Equipment (net)
+  Deposits & Other Long-Term Assets (net)
+  Loans & Notes Receivable (net)
+  = Net cash from investing activities
+
+Financing activities
+  Loans & Notes Payable (net)
+  Factor Borrowings (net)
+  SBA & Government Loans (net)
+  Owner Contributions & Distributions (net)
+  Other Equity Changes
+  = Net cash from financing activities
 
 Beginning Cash + Net Change = Ending Cash
 ```
 
+Only lines with activity in the period are shown; each section always shows its subtotal.
+
+### The footing guarantee
+
+The statement **foots by construction**: for any date range,
+
+```
+Operating + Investing + Financing = Net Change in Cash = Ending Cash − Beginning Cash
+```
+
+— to the cent. This is not an approximation. Because the ledger is perfectly balanced (every JE's debits equal its credits), the change in cash exactly equals the negative of the change in every non-cash account. Each non-cash account is classified into exactly one section, so the three sections must sum to the change in cash. If any account ever failed to classify, its movement would appear as an explicit **"Change in Other / Unclassified Accounts"** line inside Operating — it is never hidden, so the statement can never silently stop footing.
+
+### How accounts are classified
+
+The mapping is **data, not code** — three columns on `gl_accounts` (`cashflow_section`, `cashflow_line`, `cashflow_sort`) populated from documented COA code ranges (migration `20260993000000`):
+
+- **Cash & cash equivalents** — the Cash & Bank group (codes **1000–1030**: banks, petty cash, PayPal, undeposited funds, cash clearing). This set defines beginning/ending cash and the net change.
+- **Operating** — A/R (1100–1113), factor advances (1050–1051), inventory (1200–1210), prepaids & other current assets (1300–1303, 1308, 1400–1409); A/P (2000–2001), accrued (2010–2021, 2160, 2450), credit cards (2100–2108), customer deposits & unearned (2200–2201), taxes payable (2300–2315), payroll liabilities (2400–2412).
+- **Investing** — property & equipment (1500–1599), deposits & intangibles / other long-term assets (1304–1307, 1600–1699), loans & notes receivable (1450–1455).
+- **Financing** — loans & notes payable and leases (2250–2251, 2451–2452, 2500–2599, 2700–2703), factor borrowings (2460), SBA & government loans (2800–2805), and all equity (3000–3999: owner contributions/distributions + retained earnings / opening equity).
+
+To reclassify an account, change its `cashflow_section` / `cashflow_line` (or extend the ranges in the migration and re-run it). New balance-sheet accounts left unmapped surface in the Operating "Unclassified" residual line until you classify them.
+
+### Year-end close is handled automatically
+
+The mirrored Xoro ledger contains **year-end closing entries** that zero the P&L into Retained Earnings, plus small P&L↔RE reclasses. These are pure equity reclassifications that move no cash. The RPC **excludes** them from every flow so they don't (a) understate Net Income for a period that spans the close, or (b) show up as a spurious equity movement in Financing. The exclusion is footing-safe (an excluded entry touches no cash and is internally balanced). The **opening-balance** entry, which does seed opening cash and balances, is deliberately kept.
+
 ### Controls
 
-- **Basis toggle:** ACCRUAL or CASH. The cash-basis statement is mostly an identity (cash-basis net income ≈ net change in cash) so the ACCRUAL view is the one to read most days.
-- **From / To dates:** default to Jan 1 of the current calendar year through today. Adjustable for any custom window — month-to-date, quarter, prior year, etc.
-
-### How accounts get identified
-
-The RPC must know which accounts represent AR, AP, Inventory, and Cash. It uses two layers:
-
-1. **Entity defaults** (preferred) — `entities.default_ar_account_id`, `default_ap_account_id`, `default_inventory_account_id` (set during P3-1 and P4-1 schema migrations).
-2. **Code-prefix fallback** — if any default is null, the RPC looks up:
-   - AR → first `gl_accounts` row with code `'1200'`
-   - AP → first row with code `'2010'`
-   - Inventory → first row with code `'1300'`
-
-Cash accounts (for the footer reconciliation) are identified by **heuristic**:
-
-```
-account_type = 'asset'
-AND code LIKE '1%'
-AND (name ILIKE '%cash%' OR name ILIKE '%bank%')
-```
-
-If your COA names cash accounts with words like "Petty" or "Operating" only (no "cash" or "bank"), the heuristic will miss them and the footer reconciliation will show a gap. Rename the accounts so they match — an explicit `is_cash boolean` flag will land in P22+ if the operator needs finer control.
-
-### The investing + financing placeholders
-
-Both sections render with a single `$0` placeholder row and a small note "Configure account tagging in P22+." These ship populated once:
-
-- **M22 Fixed Assets** (P25 roadmap) introduces capital purchases/sales — those flow into Investing.
-- **Account tagging UI** (post-P22) lets the operator mark equity/liability accounts as "owner contributions," "loan principal repayments," "dividends paid," etc. Those tags drive the Financing section.
-
-Until then, Net cash from investing = $0 and Net cash from financing = $0. The operating section is fully live.
+- **Basis toggle:** ACCRUAL or CASH. Today's ledger is ACCRUAL-only, so read the ACCRUAL view.
+- **From / To dates:** default to Jan 1 of the current calendar year through today. Adjustable for any custom window — month-to-date, quarter, trailing 12 months, prior year, etc.
 
 ### The footer reconciliation invariant
 
@@ -499,13 +510,7 @@ Beginning Cash    $X
 = Ending Cash     $Z
 ```
 
-These must satisfy `X + Y ≈ Z` (within $0.01). If they don't, the panel renders a yellow warning row "Reconciliation gap — investigate." Common causes:
-
-- The cash-account heuristic is missing one of your cash accounts (rename it to include "cash" or "bank").
-- An out-of-balance JE posted historically (extremely rare — the JE post trigger guards against this).
-- The operating section's AR/AP/Inventory deltas aren't catching all the movement because a non-default account was used (check `entities.default_*_account_id` is set correctly).
-
-The reconciliation is a defense-in-depth check — under normal operations it should always be green.
+`X + Y = Z` always holds (within $0.01) given the footing guarantee above. If a yellow **"Reconciliation gap — investigate"** row ever appears, it means a genuinely out-of-balance JE was posted historically (extremely rare — the JE-post trigger guards against this) — not a classification gap, which surfaces as the Unclassified line instead.
 
 ## Going further
 
@@ -665,6 +670,8 @@ The same ledger is also reachable as a standalone panel from **Accounting → Re
 ## 📋 Balance Sheet (P5-4)
 
 The Balance Sheet panel renders **assets**, **liabilities**, and **equity** as of a chosen date, in a three-column layout. Available at `Accounting → 📋 Balance Sheet`.
+
+**Prior-year comparatives.** The **Compare prior year** toggle (on by default) adds a **PY** column (the balance as of the same date one year earlier) plus a **Change** column ($ difference with % beside it) to every account row, each section total, the Current Year Earnings line, and the variance proof. With comparatives on, the three sections stack vertically so the extra columns have room; turn it off to return to the compact side-by-side three-column view. The PY / Change columns are included in the Excel export.
 
 > **Drill into any account:** click an account row (its name is shown in **blue**) to open its GL detail. Because the Balance Sheet is an *as-of* report, the drill-down is scoped to the **year-to-date through the as-of date** (Jan 1 → as-of) on the selected basis — the activity that builds up to the balance shown. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
