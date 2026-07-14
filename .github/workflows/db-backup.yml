@@ -1,0 +1,245 @@
+name: Off-provider DB backup
+
+# Nightly ENCRYPTED, off-provider logical backup of the prod Supabase Postgres
+# (ref qcvqvxxoperiurauoxmp). This is the audit-remediation defence against a
+# *provider-level* failure: PITR + wal-g physical backups all live inside
+# Supabase, so a Supabase account/region loss would take every copy with it.
+# GitHub Actions runs on GitHub infra (genuinely off-provider), so the dump +
+# its only decryption key never share a blast radius with the database.
+#
+# What it does, nightly at 08:30 UTC (after the 21:00-local Xoro fetch + the
+# 05:30/06:00/06:30/06:45 recon crons have settled):
+#   1. pg_dump -Fc (compressed custom format) of the public business schema
+#   2. openssl AES-256-CBC (pbkdf2) symmetric-encrypt with BACKUP_PASSPHRASE
+#   3. VERIFY: decrypt + `pg_restore --list` the fresh dump — fail loudly if
+#      it is unreadable/empty (a backup you cannot list is not a backup)
+#   4. upload as a GitHub Actions artifact with 30-day retention
+#   5. on ANY failure: loud ::error:: + best-effort app_errors(source='cron')
+#
+# Restore path: scripts/backup/restore-drill.md (decrypt → list → restore into
+# a scratch DB). Storage/RPO/RTO rationale: scripts/backup/README.md.
+#
+# Required secrets (repo → Settings → Secrets and variables → Actions):
+#   - SUPABASE_DB_PASSWORD   : prod DB password (ALREADY set; shared with the
+#                              Supabase DB push workflow)
+#   - SUPABASE_PROJECT_REF   : project ref (ALREADY set)
+#   - BACKUP_PASSPHRASE      : symmetric encryption passphrase — THE recovery
+#                              key. If this is lost, every backup is
+#                              undecryptable. Store it in the CEO password
+#                              manager, NOT only in GitHub.
+# Optional secrets:
+#   - SUPABASE_DB_URL        : full connection string override. If set it wins
+#                              over the constructed pooler URL (use it if the
+#                              project ever moves region / changes pooler host).
+#   - SUPABASE_SERVICE_ROLE_KEY : enables the app_errors(source='cron') failure
+#                              breadcrumb. Absent → that step is skipped, the
+#                              job still fails loudly via ::error:: + the
+#                              standard GitHub run-failure notification.
+
+on:
+  schedule:
+    - cron: "30 8 * * *" # 08:30 UTC nightly
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: "Artifact retention (days)"
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Server is PostgreSQL 17.x — pg_dump MAJOR must be >= server major.
+      PG_MAJOR: "17"
+      # Session-mode Supavisor pooler (IPv4 — GitHub runners are IPv4-only, so
+      # the IPv6-only db.<ref>.supabase.co direct host will NOT resolve here).
+      # Session mode (5432) supports pg_dump; transaction mode (6543) does not.
+      POOLER_HOST: "aws-1-us-west-1.pooler.supabase.com"
+      POOLER_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pg_dump / pg_restore ${{ env.PG_MAJOR }} (PGDG)
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}"
+          pg_dump --version
+          pg_restore --version
+
+      - name: Verify required secrets present
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ -z "${PASSPHRASE}" ]; then
+            echo "::error::BACKUP_PASSPHRASE secret is not set — cannot encrypt the backup."
+            fail=1
+          fi
+          if [ -z "${DB_URL}" ] && { [ -z "${DB_PASSWORD}" ] || [ -z "${PROJECT_REF}" ]; }; then
+            echo "::error::Need SUPABASE_DB_URL, or both SUPABASE_DB_PASSWORD and SUPABASE_PROJECT_REF."
+            fail=1
+          fi
+          [ "$fail" = "0" ] && echo "All required secrets present."
+          exit $fail
+
+      - name: Build connection string
+        id: conn
+        env:
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          # Prefer an explicit full override; else construct the session-pooler
+          # URL from ref + password. pg_dump reads PGPASSWORD from the env, so we
+          # pass host/port/user separately and never bake the (special-char)
+          # password into a URL string.
+          if [ -n "${DB_URL}" ]; then
+            echo "Using SUPABASE_DB_URL override."
+            {
+              echo "mode=url"
+            } >> "$GITHUB_OUTPUT"
+          else
+            REF_CLEAN="$(printf '%s' "$PROJECT_REF" | tr -d '[:space:]')"
+            echo "Constructing session-pooler connection for ref (len ${#REF_CLEAN}, value masked)."
+            {
+              echo "mode=parts"
+              echo "user=postgres.${REF_CLEAN}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: pg_dump (custom format, public schema)
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          MODE: ${{ steps.conn.outputs.mode }}
+          PGUSER_POOLER: ${{ steps.conn.outputs.user }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          DUMP="tangerine-qcvqvxxoperiurauoxmp-${STAMP}.dump"
+          echo "DUMP=$DUMP" >> "$GITHUB_ENV"
+
+          # --schema=public : the ERP's crown-jewels business schema (all tables,
+          #   views, functions/RPCs, RLS policies). Supabase-managed schemas
+          #   (auth/storage/vault) are their platform's responsibility + covered
+          #   by their PITR; SSO identity is Azure, not Supabase auth.
+          # Full-fidelity dump (owners + grants kept); the restore drill applies
+          #   --no-owner --no-privileges when landing into a scratch/plain DB.
+          COMMON_ARGS=(--format=custom --schema=public --no-sync --verbose --file="$DUMP")
+
+          if [ "$MODE" = "url" ]; then
+            pg_dump "$DB_URL" "${COMMON_ARGS[@]}"
+          else
+            pg_dump \
+              --host="$POOLER_HOST" --port="$POOLER_PORT" \
+              --username="$PGUSER_POOLER" --dbname=postgres \
+              "${COMMON_ARGS[@]}"
+          fi
+
+          BYTES="$(stat -c %s "$DUMP")"
+          echo "Dump OK: $DUMP ($(numfmt --to=iec "$BYTES"))"
+          if [ "$BYTES" -lt 1048576 ]; then
+            echo "::error::Dump is suspiciously small (< 1 MiB) — treating as failed."
+            exit 1
+          fi
+
+      - name: Encrypt (AES-256-CBC, pbkdf2)
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          ENC="${DUMP}.enc"
+          echo "ENC=$ENC" >> "$GITHUB_ENV"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -in "$DUMP" -out "$ENC" -pass env:BACKUP_PASSPHRASE
+          # Remove the plaintext dump so only the encrypted artifact survives.
+          rm -f "$DUMP"
+          echo "Encrypted: $ENC ($(numfmt --to=iec "$(stat -c %s "$ENC")"))"
+
+      - name: Verify (decrypt + pg_restore --list)
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          TMP="verify.dump"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -in "$ENC" -out "$TMP" -pass env:BACKUP_PASSPHRASE
+          # pg_restore --list proves the decrypted file is a well-formed archive
+          # AND enumerates its table of contents (no DB connection needed).
+          if ! pg_restore --list "$TMP" > toc.txt; then
+            echo "::error::pg_restore --list FAILED — the decrypted dump is unreadable."
+            exit 1
+          fi
+          DATA_ENTRIES="$(grep -c 'TABLE DATA' toc.txt || true)"
+          echo "Table-data entries in archive: $DATA_ENTRIES"
+          if [ "${DATA_ENTRIES:-0}" -lt 50 ]; then
+            echo "::error::Only $DATA_ENTRIES TABLE DATA entries — expected the full ERP schema (>=50). Failing."
+            exit 1
+          fi
+          echo "✓ Backup verified: decrypts cleanly and lists $DATA_ENTRIES table-data sections."
+          rm -f "$TMP"
+
+      - name: Upload encrypted artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ env.STAMP }}
+          path: ${{ env.ENC }}
+          retention-days: ${{ github.event.inputs.retention_days || 30 }}
+          if-no-files-found: error
+          compression-level: 0 # already compressed (pg_dump -Fc) + encrypted
+
+      - name: Report failure to app_errors (best-effort)
+        if: ${{ failure() }}
+        env:
+          SB_URL: https://qcvqvxxoperiurauoxmp.supabase.co
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set +e
+          if [ -z "${SERVICE_ROLE_KEY}" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY not set — skipping app_errors breadcrumb (run still failed loudly)."
+            exit 0
+          fi
+          MSG="Off-provider DB backup workflow failed (run ${GITHUB_RUN_ID})."
+          BODY="{\"source\":\"cron\",\"route\":\"/gha/db-backup\",\"method\":\"SCHEDULE\",\"message\":\"${MSG}\",\"fingerprint\":\"cron:db-backup:failure\",\"context\":{\"kind\":\"db-backup\",\"run_url\":\"${RUN_URL}\",\"repo\":\"${GITHUB_REPOSITORY}\"}}"
+          curl -sS -X POST "${SB_URL}/rest/v1/app_errors" \
+            -H "apikey: ${SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "${BODY}" && echo "app_errors breadcrumb posted." || echo "::warning::app_errors POST failed (non-fatal)."
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "### ✓ Off-provider backup succeeded" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Artifact: \`db-backup-${STAMP}\` (encrypted, ${{ github.event.inputs.retention_days || 30 }}-day retention)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Verified: decrypts + \`pg_restore --list\` OK." >> "$GITHUB_STEP_SUMMARY"
+            echo "- Restore: see \`scripts/backup/restore-drill.md\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✗ Off-provider backup FAILED — investigate" >> "$GITHUB_STEP_SUMMARY"
+            echo "See the failing step above. Common cause: SUPABASE_DB_PASSWORD drifted (28P01) or the pooler host/region changed (set SUPABASE_DB_URL)." >> "$GITHUB_STEP_SUMMARY"
+          fi

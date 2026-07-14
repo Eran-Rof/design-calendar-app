@@ -9,8 +9,15 @@
 |---|---|---|
 | **PITR** (point-in-time recovery) | **ENABLED 2026-07-08**, 7-day retention ($100/mo add-on) | ~2 minutes, any point in the last 7 days |
 | Daily physical backups (wal-g) | ON (automatic, ~10:54 UTC daily) | ≤ 24 h, beyond the PITR window |
+| **Off-provider encrypted backup** | **ENABLED 2026-07-14** — GitHub Actions `db-backup.yml`, nightly 08:30 UTC, `pg_dump -Fc` → AES-256 → artifact (30-day). Lives on GitHub, NOT Supabase. | ≤ 24 h, survives a **provider-level** Supabase loss |
 | Compute | Micro (watch: upgrade if pooler saturation appears) | — |
 | Staging twin | `jrcnpfpopwjanwmzwmsc` (schema kept in sync by apply-migration.mjs) | drill target |
+
+> **Provider-loss recovery** (Supabase account/region gone): the off-provider
+> backup is the only copy that survives. Restore procedure + drill:
+> `scripts/backup/restore-drill.md`; storage/RPO/RTO + encryption details:
+> `scripts/backup/README.md`. Passphrase (`BACKUP_PASSPHRASE`) lives in the CEO
+> password manager — without it the backups are undecryptable.
 
 ## Restore paths (in order of preference)
 
@@ -34,8 +41,12 @@ Extracts the books (gl_accounts, journal_entries, journal_entry_lines) from prod
 |---|---|---|---|
 | 2026-07-08 | **PASS** | 11.5 s | 501 accts / 24 JEs / 85 lines; DR=CR=$547,032.58 reproduced exactly |
 
+> The **full off-provider backup** (all public tables, not just the GL subset)
+> has its own drill: `scripts/backup/restore-drill.md`. The nightly workflow
+> also self-verifies every run (decrypt + `pg_restore --list`).
+
 ## Known gaps / follow-ups
-- **No local `pg_dump`** on the operator machine — full-fidelity logical dumps (schema+data, all tables) currently rely on Supabase's own backups. Follow-up: install PostgreSQL client tools + add a weekly `pg_dump` to off-provider storage (defense against provider-level failure).
+- ~~**No local `pg_dump`** → full-fidelity logical dumps rely on Supabase's own backups.~~ **CLOSED 2026-07-14:** a nightly off-provider `pg_dump -Fc` now runs on GitHub Actions (`.github/workflows/db-backup.yml`), encrypted + verified, stored as an artifact off Supabase. Restore drill: `scripts/backup/restore-drill.md`. (A local operator-machine `pg_dump` is no longer required for provider-loss defence, though installing PG17 client tools is still handy for ad-hoc restore drills.)
 - **Staging `DATABASE_URL` is stale** (`db.<ref>.supabase.co` no longer resolves — IPv6-only). Use the pooler hostname or the Management API query endpoint (what the drill does).
 - **21:00 Xoro fetch is a single-PC dependency** (Mac launchd fallback disabled since 2026-05-11). Operator action: re-enable the Mac agent as warm standby. Sync Health alarms if a night is missed, but alarms ≠ redundancy.
 - Restore-in-place has never been exercised (it is inherently destructive); rely on the dashboard flow above and rehearse path B into a scratch project once before cutover if time allows.
