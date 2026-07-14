@@ -25,6 +25,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { promoteStyleColor } from "../services/promoteStyleColorService";
 import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
+import { planBuyerShiftBackOneMonth } from "./wholesale-planning/shiftBuyerBackOneMonth";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
@@ -1956,6 +1957,62 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Bulk "Shift Buyer −1 month" for (Supply Only) stock-buy rows: every Buyer
+  // qty moves to the same style/color's prior-month row (Apr 1,200 → Mar 1,200),
+  // so the whole schedule slides one month earlier. The last month empties; the
+  // earliest month's qty creates the month before it. planBuyerShiftBackOneMonth
+  // computes the minimal set of writes from the CURRENT grid state.
+  async function shiftSupplyOnlyBuyerBack() {
+    const run = selectedRun;
+    if (!run) return;
+    const supplyRows = rows.filter((r) => r.is_tbd && !r.is_aggregate && r.customer_name === "(Supply Only)");
+    const ops = planBuyerShiftBackOneMonth(supplyRows);
+    if (ops.length === 0) {
+      setToast({ text: "No (Supply Only) Buyer quantities to shift.", kind: "info" });
+      return;
+    }
+    const landings = ops.filter((o) => o.new_buyer > 0).length;
+    const ok = await askConfirm(
+      "Shift Buyer back one month?",
+      `Moves every (Supply Only) Buyer quantity to the prior month — e.g. April → March. ${ops.length} row${ops.length === 1 ? "" : "s"} change (${landings} landing month${landings === 1 ? "" : "s"}); the last month empties and the earliest month's qty creates the month before it. Buy, System and Override are unchanged.`,
+      "Shift back one month",
+    );
+    if (!ok) return;
+    const ovrByTbd = new Map(supplyRows.filter((r) => r.tbd_id).map((r) => [r.tbd_id!, r.override_qty ?? 0]));
+    try {
+      // System is always 0 on (Supply Only) TBD rows, so Final = Buyer + Override.
+      await Promise.all(ops.map((op) => {
+        const ovr = op.existing_tbd_id ? (ovrByTbd.get(op.existing_tbd_id) ?? 0) : 0;
+        const final = Math.max(0, op.new_buyer + ovr);
+        if (op.existing_tbd_id) {
+          return wholesaleRepo.patchTbdRow(op.existing_tbd_id, { buyer_request_qty: op.new_buyer, final_forecast_qty: final });
+        }
+        return wholesaleRepo.insertTbdRow(run.id, {
+          style_code: op.style_code,
+          color: op.color,
+          is_new_color: !!op.template.is_new_color,
+          customer_id: op.template.customer_id,
+          group_name: op.template.group_name,
+          sub_category_name: op.template.sub_category_name,
+          period_start: op.period_start,
+          period_end: op.period_end,
+          period_code: op.period_code,
+          buyer_request_qty: op.new_buyer,
+          final_forecast_qty: final,
+        });
+      }));
+      setToast({ text: `Shifted Buyer back one month — ${ops.length} row${ops.length === 1 ? "" : "s"} updated.`, kind: "success" });
+    } catch (e) {
+      setToast({ text: `Shift failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
+    }
+    // Rebuild after all writes settle so the grid reflects the shifted schedule.
+    const seq = ++rebuildSeq.current;
+    try {
+      const refreshed = await buildGridRows(run);
+      if (seq === rebuildSeq.current) setRows(refreshed);
+    } catch (e) { console.warn("[ip rebuild]", e); }
+  }
+
   // Inline-edit Buyer request qty. Recomputes final_forecast_qty from
   // (system + buyer + override) clamped at 0, mirrors the compute layer.
   // TBD rows (forecast_id starts with "tbd:") route to the dedicated
@@ -2375,6 +2432,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateBucketBuy={saveBucketBuy}
               onUpdateUnitCost={saveUnitCost}
               onUpdateBuyerRequest={saveBuyerRequest}
+              onShiftBuyerBack={shiftSupplyOnlyBuyerBack}
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
               onUpdateTbdColor={saveTbdColor}

@@ -189,6 +189,9 @@ export interface WholesalePlanningGridProps {
   bucketBuys?: Map<string, number>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
+  // Bulk toolbar action: shift every (Supply Only) row's Buyer qty to the
+  // prior month (Apr → Mar). Confirms + rebuilds inside the workbench.
+  onShiftBuyerBack?: () => void | Promise<void>;
   onUpdateOverride: (forecastId: string, qty: number) => Promise<void>;
   // Direct edit of System forecast qty. Pass null to revert to the
   // computed suggestion. Stamps user + timestamp server-side for the
@@ -245,7 +248,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -2401,6 +2404,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             fontFamily: "inherit", opacity: copyingBuy ? 0.6 : 1,
           }}
         >{copyingBuy ? "Copying…" : "Copy Final → Buy"}</button>
+        {/* Bulk: shift every (Supply Only) row's Buyer qty back one month. */}
+        {onShiftBuyerBack && (
+          <button
+            type="button"
+            onClick={() => { void onShiftBuyerBack(); }}
+            title="Move every (Supply Only) row's Buyer quantity to the prior month — the whole schedule shifts one month earlier (e.g. April → March). Buy / System / Override are unchanged."
+            style={{
+              background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
+              borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+            }}
+          >Shift Buyer ◀ 1 mo</button>
+        )}
         {/* Freeze through column. Pins the chosen column + everything
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
