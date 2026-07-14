@@ -206,6 +206,7 @@ export default [
   ["/api/cron/benchmark-compute"                             , "./cron/benchmark-compute.js"],
   ["/api/internal/virtual-cards"                             , "./internal/virtual-cards/index.js"],
   ["/api/planning/sync-open-pos"                             , "./planning/sync-open-pos.js"],
+  ["/api/planning/sync-receipts"                             , "./planning/sync-receipts.js"],
   ["/api/vendor/change-requests"                             , "./vendor/change-requests.js"],
   ["/api/vendor/discount-offers"                             , "./vendor/discount-offers/index.js"],
   ["/api/xoro/sync-item-costing"                             , "./xoro/sync-item-costing.js"],

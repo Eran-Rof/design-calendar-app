@@ -928,3 +928,227 @@ export async function syncOpenPosFromTandaPos(admin) {
 
   return result;
 }
+
+// ── Historical receipts from PO WIP (tanda_pos) ──────────────────────────────
+//
+// The receipt data we already have lives in tanda_pos: every PO line carries a
+// cumulative QtyReceived. Fully-received lines are (correctly) excluded from
+// ip_open_purchase_orders — syncOpenPosFromTandaPos skips qty_open <= 0 — so
+// they never reached the planning grid's "Hist Recv" column, which reads
+// ip_receipts_history, a table nothing was populating. This flattens the
+// received portion of every PO line into ip_receipts_history so historical
+// receipts surface per SKU per period. No Xoro calls — pure DB transform.
+//
+// ⚠️ There is NO true receipt timestamp anywhere in the Xoro PO payload — only
+// the cumulative QtyReceived plus the PO's expected/DDP delivery date. So
+// received_date is that expected-arrival date (the ops-maintained milestone DDP
+// when set, else the Xoro DateExpectedDelivery / VendorReqDate) — the same
+// proxy the costing PO-history endpoint already uses. Receipts bucket by
+// expected arrival, not a literal scan date; that is the best the source
+// supports.
+
+// Pure line extractor (unit-tested). Given one tanda_pos payload, returns its
+// received sub-lines: [{ sku, qty, received_date, po_number }] at style+color
+// grain. `received_date` may be null when the PO carries no expected date — the
+// caller skips those (received_date is NOT NULL in the table). No DB, no sku_id.
+export function extractReceiptLines(po, poNumberFallback, ddpByPo) {
+  // NOTE: unlike the open-PO sync we do NOT skip _archived POs — a PO is
+  // archived precisely when it is fully Received/Closed, which is exactly the
+  // receipt history we want. Archived POs carry their lines under `Items`.
+  if (!po) return [];
+  const poNumber = String(po.PoNumber ?? poNumberFallback ?? "").trim();
+  if (!poNumber) return [];
+  if (poNumber.toUpperCase().includes("EOM")) return [];
+
+  // Pick the FIRST NON-EMPTY line array. Fully-received/closed POs carry their
+  // lines under `Items` while their `PoLineArr` is an empty [] — so a plain
+  // Array.isArray check on PoLineArr would shadow Items and drop every historical
+  // receipt. Open/released POs use PoLineArr. (The open-PO sync only reads the
+  // open PoLineArr, so it never hit this.)
+  const lines = (Array.isArray(po.PoLineArr) && po.PoLineArr.length) ? po.PoLineArr
+              : (Array.isArray(po.Items) && po.Items.length) ? po.Items
+              : (Array.isArray(po.invoiceItemLineArr) && po.invoiceItemLineArr.length) ? po.invoiceItemLineArr
+              : [];
+  if (lines.length === 0) return [];
+
+  // Date proxy: prefer the ops milestone DDP arrival (for in-production POs),
+  // else the PO header's expected/vendor-requested date. Overridden per line
+  // below by the line's own expected date when present (historical Items lines
+  // carry their own DateExpectedDelivery, which is the actual delivery date).
+  const milestoneDdp = (ddpByPo && typeof ddpByPo.get === "function" && ddpByPo.get(poNumber)) || null;
+  const headerDate = milestoneDdp || toIsoDate(po.DateExpectedDelivery ?? po.VendorReqDate) || null;
+
+  const out = [];
+  for (const ln of lines) {
+    const sku = canonStyleColor(ln.ItemNumber ?? ln.Sku ?? ln.ItemCode);
+    if (!sku) continue;
+    const qty = toNum(ln.QtyReceived);
+    if (qty <= 0) continue;
+    const received_date = milestoneDdp || toIsoDate(ln.DateExpectedDelivery) || headerDate;
+    out.push({ sku, qty, received_date, po_number: poNumber });
+  }
+  return out;
+}
+
+// Flatten every received PO line in tanda_pos into ip_receipts_history.
+// Idempotent: upserts on (source, source_line_key = tanda:<po>:<sku>) and prunes
+// its own stale rows, so re-running just reconciles. source='tanda' keeps these
+// derived rows distinct from any future true item-receipt feed.
+export async function syncReceiptsFromTandaPos(admin) {
+  const result = {
+    pos_scanned: 0,
+    inserted: 0,
+    skipped_no_lines: 0,
+    skipped_no_receipts: 0,
+    skipped_no_date: 0,
+    skipped_no_sku: 0,
+    cleaned: 0,
+    errors: [],
+  };
+
+  // 1. Page through every PO row.
+  const allPos = [];
+  const PAGE = 500;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await admin
+      .from("tanda_pos")
+      .select("po_number, data")
+      .order("po_number", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) return { ...result, error: "tanda_pos fetch failed", details: error.message };
+    if (!data || data.length === 0) break;
+    allPos.push(...data);
+    if (data.length < PAGE) break;
+  }
+  result.pos_scanned = allPos.length;
+
+  // 1b. Milestone DDP map — same receipt-date proxy as the open-PO sync.
+  const ddpByPo = new Map();
+  try {
+    const milestoneRows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await admin
+        .from("tanda_milestones")
+        .select("data")
+        .eq("data->>days_before_ddp", "0")
+        .range(offset, offset + 999);
+      if (error || !data || data.length === 0) break;
+      milestoneRows.push(...data);
+      if (data.length < 1000) break;
+    }
+    for (const [k, v] of buildDdpDateMap(milestoneRows)) ddpByPo.set(k, v);
+  } catch { /* milestones optional — fall back to Xoro dates */ }
+
+  // 2. Item master.
+  const itemMap = new Map();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await admin
+      .from("ip_item_master")
+      .select("id, sku_code")
+      .order("sku_code", { ascending: true })
+      .range(offset, offset + 999);
+    if (error) return { ...result, error: "item_master fetch failed", details: error.message };
+    if (!data || data.length === 0) break;
+    for (const r of data) itemMap.set(canonSku(r.sku_code), r.id);
+    if (data.length < 1000) break;
+  }
+
+  // 3. Flatten received lines → candidates.
+  const candidates = [];
+  const missingSkus = new Map();
+  for (const r of allPos) {
+    const po = r.data;
+    if (!po) { result.skipped_no_lines++; continue; }
+    // Archived (Received/Closed) POs are the bulk of the receipt history — keep
+    // them. skipped_archived stays for shape parity but is not incremented.
+    const recLines = extractReceiptLines(po, r.po_number, ddpByPo);
+    if (recLines.length === 0) { result.skipped_no_receipts++; continue; }
+    for (const rl of recLines) {
+      if (!rl.received_date) { result.skipped_no_date++; continue; }
+      // PPK-strip fallback so prepack PO lines that bake the size token into the
+      // item number attach to the existing canonical (style, color) master —
+      // identical to syncOpenPosFromTandaPos.
+      const stripped = rl.sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
+      const sku = (stripped !== rl.sku && itemMap.has(stripped)) ? stripped : rl.sku;
+      if (!itemMap.has(sku) && !missingSkus.has(sku)) missingSkus.set(sku, rl);
+      candidates.push({ sku, qty: rl.qty, received_date: rl.received_date, po_number: rl.po_number });
+    }
+  }
+
+  // 4. Resolve missing SKUs against EXISTING masters via the size-grain
+  // fallback — but do NOT stub-create. Receipts are historical (back to 2024)
+  // and include long-discontinued styles; creating master rows for them would
+  // pollute the item master with SKUs that never appear in a planning run (the
+  // Hist Recv column only shows for SKUs already in the run). Unresolved lines
+  // are counted as skipped_no_sku below and simply not recorded.
+  if (missingSkus.size > 0) {
+    await resolveSizeGrainFallback(admin, Array.from(missingSkus.keys()), itemMap);
+  }
+
+  // 5. Aggregate (po, sku) so multi-size lines collapse to one receipt row.
+  const aggMap = new Map();
+  for (const c of candidates) {
+    const skuId = itemMap.get(c.sku);
+    if (!skuId) { result.skipped_no_sku++; continue; }
+    const key = `tanda:${c.po_number}:${c.sku}`;
+    const prev = aggMap.get(key);
+    if (!prev) {
+      aggMap.set(key, {
+        sku_id: skuId,
+        po_number: c.po_number,
+        received_date: c.received_date,
+        qty: c.qty,
+        source: "tanda",
+        source_line_key: key,
+      });
+      continue;
+    }
+    prev.qty += c.qty;
+    // Latest expected date wins, mirroring the open-PO aggregate.
+    if (c.received_date && (!prev.received_date || c.received_date > prev.received_date)) {
+      prev.received_date = c.received_date;
+    }
+  }
+  const rows = Array.from(aggMap.values());
+
+  // 6. Upsert.
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await admin
+      .from("ip_receipts_history")
+      .upsert(chunk, { onConflict: "source,source_line_key", ignoreDuplicates: false });
+    if (error) result.errors.push(error.message);
+    else result.inserted += chunk.length;
+  }
+
+  // 7. Prune our own stale rows (a PO whose received qty was reversed to 0, or a
+  // PO removed from tanda_pos). Only touches source='tanda'.
+  const newKeys = new Set(rows.map((r) => r.source_line_key));
+  let staleOffset = 0;
+  while (true) {
+    const { data: existing, error: fetchErr } = await admin
+      .from("ip_receipts_history")
+      .select("source_line_key")
+      .eq("source", "tanda")
+      .range(staleOffset, staleOffset + 999);
+    if (fetchErr) { result.errors.push(`stale lookup: ${fetchErr.message}`); break; }
+    if (!existing || existing.length === 0) break;
+    const staleKeys = existing
+      .map((r) => r.source_line_key)
+      .filter((k) => k && !newKeys.has(k));
+    for (let i = 0; i < staleKeys.length; i += 100) {
+      const chunk = staleKeys.slice(i, i + 100);
+      const { error } = await admin
+        .from("ip_receipts_history")
+        .delete()
+        .eq("source", "tanda")
+        .in("source_line_key", chunk);
+      if (error) result.errors.push(`stale cleanup: ${error.message}`);
+      else result.cleaned += chunk.length;
+    }
+    if (existing.length < 1000) break;
+    staleOffset += 1000;
+  }
+
+  return result;
+}
