@@ -56,6 +56,16 @@ function adminStub() {
         };
         return chain;
       }
+      if (table === "approval_rules") {
+        // Maker/checker gate: the handler queries active rules for this JE. No
+        // rule → below threshold → posts normally (these test JEs are $100).
+        const chain = {
+          select() { return chain; },
+          eq() { return chain; },
+          then(resolve) { return resolve({ data: [], error: null }); },
+        };
+        return chain;
+      }
       throw new Error(`Unexpected table: ${table}`);
     },
     rpc: rpcSpy,
