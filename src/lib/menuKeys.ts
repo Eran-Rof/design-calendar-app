@@ -286,6 +286,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/chargebacks",         label: "Chargebacks",          app: "tanda", route: "/tangerine?m=chargebacks",         group: "Accounting", icon: "🧾" },
   // Month-End Close — per-period checklist (auto tie-outs + sign-offs) + period locking.
   { key: "tanda/accounting/month-end-close",     label: "Month-End Close",      app: "tanda", route: "/tangerine?m=month_end_close",     group: "Accounting", icon: "🔒" },
+  // Xoro Monthly Recon — divergence-aware month-by-month TB recon vs the Xoro GL mirror.
+  { key: "tanda/accounting/xoro-recon",          label: "Xoro Monthly Recon",   app: "tanda", route: "/tangerine?m=xoro_recon",          group: "Accounting", icon: "🔬" },
   { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },
   { key: "tanda/shopify/stores",                 label: "Connect Store",        app: "tanda", route: "/tangerine?m=shopify_stores",     group: "Shopify", icon: "🛍️" },
   { key: "tanda/marketplaces/status",            label: "Marketplace Status",   app: "tanda", route: "/tangerine?m=marketplace_status",  group: "Marketplaces", icon: "🛒" },
@@ -380,4 +382,4 @@ export function menuKeysForApp(app: AppId): MenuKey[] {
 
 // Registry version. Bump when MENU_KEYS materially changes — UI can show
 // "personalization registry vN" in Settings → Personalization for debugging.
-export const MENU_KEYS_VERSION = 22;
+export const MENU_KEYS_VERSION = 23;
