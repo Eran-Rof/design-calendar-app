@@ -91,6 +91,7 @@ import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalFactorRecon        from "./tanda/InternalFactorRecon";
 import InternalChargebacks         from "./tanda/InternalChargebacks";
 import InternalMonthEndClose      from "./tanda/InternalMonthEndClose";
+import InternalXoroRecon          from "./tanda/InternalXoroRecon";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
 import InternalSegmentPL          from "./tanda/InternalSegmentPL";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
@@ -691,6 +692,7 @@ export default function Tangerine() {
         {activeModule === "factor_recon"      && <InternalFactorRecon />}
         {activeModule === "chargebacks"       && <InternalChargebacks />}
         {activeModule === "month_end_close"   && <InternalMonthEndClose />}
+        {activeModule === "xoro_recon"        && <InternalXoroRecon />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}
         {activeModule === "notifications"      && <InternalNotificationCenter />}

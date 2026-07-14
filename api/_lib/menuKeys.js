@@ -151,6 +151,7 @@ const KEYS = [
   "tanda/accounting/factor-recon",
   "tanda/accounting/chargebacks",
   "tanda/accounting/month-end-close",
+  "tanda/accounting/xoro-recon",
   "tanda/crm/opportunities",
   "tanda/crm/activities",
   "tanda/crm/tasks",

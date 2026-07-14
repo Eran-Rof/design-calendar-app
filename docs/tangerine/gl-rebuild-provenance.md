@@ -233,3 +233,68 @@ space). This is the same customer Tangerine uses to separate PT ecom inventory.
   ($-631,165.29) and PT total COGS ($429,116.06) **UNCHANGED**; Net Sales / Gross
   Profit unchanged; global GL imbalance **$0.00**. Idempotent (`source_id`
   `channel_reclass:pt_ecom_rev:4009->4008:YYYY-MM` and `…pt_ecom_cogs:5012->5013:…`).
+
+---
+
+## 7. Monthly recon — divergence-aware, categorised (#xoro-recon-monthly-v2, 2026-07-14)
+
+The month-by-month trial-balance recon (`v_xoro_tangerine_tb_recon`) is what a
+controller/CEO uses to prove Tangerine = Xoro **per account, per month** before
+trial-closing a period. Its v1 definition (mig `20260980`, "operating scope")
+**predated this full rebuild** and excluded every equity-touching Xoro txn from
+the Xoro side while summing **all** posted JEs on the Tangerine side. After the
+rebuild the Tangerine GL is a 1:1 mirror that *contains* those same closing /
+opening / distribution txns — so the two sides were compared over different
+populations, producing ~946 phantom breaks totalling ~$200.8M. Migration
+`20260991000000_xoro_recon_monthly_v2.sql` rebuilds the view to compare
+like-for-like and **categorise** every account-month.
+
+### 7.1 Diagnosis — what the 946 "breaks" actually were (2026-07-14)
+
+| Class | Account-months | Σ\|variance\| | Cause | Disposition |
+|---|---:|---:|---|---|
+| Equity-exclusion asymmetry | 662 | **$198,214,662.68** | v1 dropped equity/closing/opening/distribution txns from the Xoro side; the mirror keeps them on the Tang side | **Not a break** — include on both sides ⇒ ties |
+| Intentional channel_reclass | 93 | **$1,117,564.36** | §6 splits (4005↔4011, 5010↔5014, 4009↔4008, 5012↔5013) live only on the Tang side | `intentional_divergence` |
+| Open-period sync lag | 23 | **$595,862** | 161 Xoro txns dated the prior day not yet mirrored by the nightly sync — **all in the current open month** | `missing_txn`; self-heals overnight |
+| Penny rounding (closed) | 6 | **~$13** | sub-$3 drift on Inventory 1201 / Kids-COGS 5011 (rebuild routes sub-$1/txn to 8001) | `unexplained`, immaterial |
+| Unmapped Xoro names | 0 | $0 | account map is **100%** complete (330 names, 0 unmapped) | n/a |
+| All-zero txns | 332 (txns) | $0 | no GL impact; never surface | skipped by design |
+
+Confirmation: with the not-yet-mirrored current-day txns set aside, the **whole-
+ledger** mirror residual is **$34.61** total (July's $595,862 collapses to
+$3.86); every closed month ties to under ~$6.
+
+### 7.2 The v2 view
+
+Per (month, ROF code) it exposes `xoro_net_debit` (all mapped Xoro legs),
+`mirror_net_debit`, `reclass_net_debit`, `tang_net_debit` (= mirror + reclass,
+the actual GL), `xoro_unmirrored_debit` (legs whose txn has no mirror JE yet),
+`variance = xoro − tang`, and `residual_core = variance + reclass − unmirrored`
+(what's left once the intentional reclass and the pending legs are accounted for).
+
+`break_category` (also the enum in `src/lib/xoroReconCategory.ts`, unit-tested and
+mirrored 1:1 by the SQL CASE):
+
+- **clean** — `|variance| ≤ $1.00`.
+- **intentional_divergence** — the break is fully explained by the reclass
+  (`|residual_core| ≤ max($1, 0.5%·|variance|)` and reclass present).
+- **missing_txn** — fully explained by not-yet-mirrored legs (same tolerance,
+  unmirrored present); open-period only.
+- **unmapped** / **excluded_by_design** — reserved; **currently empty** (map is
+  100%; the full rebuild mirrors everything, so nothing is excluded — the v1
+  equity exclusion was a pre-rebuild artifact, now resolved).
+- **unexplained** — anything else; surfaced honestly, never hidden.
+
+`v_xoro_recon_monthly_summary` rolls this up to month × category (+ `is_open_period`)
+for the **Xoro Monthly Recon** panel (Accounting) and month-close green checks.
+
+### 7.3 After — the CEO-facing number
+
+Applied to prod 2026-07-14. Whole ledger: **clean 2,794** · intentional 180
+($2.12M, net-zero, both legs counted) · missing_txn 22 ($611K, **all** the current
+open month) · **unexplained 7 ($15.10 total)**. **Closed periods** (what a
+trial-close gates on): clean 2,772 · intentional 176 · **missing_txn 0** ·
+**unexplained 6 ($13.21 — sub-$3 penny on 1201/5011)**. May-2026 and Jun-2026 show
+**only clean + intentional** — zero unexplained, zero missing. No transactions were
+invented; the 161 open-month gaps are left to the nightly sync (idempotent by
+`source_id`).

@@ -21,6 +21,19 @@ These three panels form the accountant's daily / monthly workflow. The order mat
 >
 > **Operationally:** the mirror is kept current nightly by the Xoro GL sync; new Xoro transactions post themselves. Native Tangerine JEs (operator-entered) still post through the normal Journal Entry panel below and are validated by the posting guards — the rebuild deleted only the superseded bottom-up reconstructions, never a native entry.
 
+### 🔬 Xoro Monthly Recon (Accounting → Xoro Monthly Recon)
+
+**What it is.** A month-by-month, account-by-account proof that Tangerine's GL equals the Xoro GL. It compares **all** mapped Xoro activity against the actual Tangerine GL (the mirror **plus** the documented channel-reclass splits) and puts every account-month into one of a few plain-English **categories**, so a close check reads green when every difference is *accounted for* — never by forcing a number.
+
+**How to read it.** The headline reports the **closed periods** only (the current, still-syncing month is set aside). Each month row shows how many account-months fall in each category; click a row to filter the breaks table below. Categories:
+
+- **Clean** — Tangerine ties to Xoro within $1 (sub-dollar drift is the mirror's penny-rounding into `8001`).
+- **Intentional** — the only difference is a documented **channel_reclass** split (ROF/PT ecom revenue & COGS moved to their own accounts; revenue/COGS-internal and net-zero — see `gl-rebuild-provenance.md` §6). Not a break.
+- **Open-period lag** — Xoro transactions the nightly GL sync hasn't mirrored **yet**; only ever the current open month, self-heals overnight. Not a close blocker for prior months.
+- **Unexplained** — a difference with no accounted-for cause. This is the only thing to investigate; today it is a handful of **sub-$3 penny-rounding** rows on Inventory / Kids-COGS across all of history.
+
+**For a month-close:** open this panel, confirm the month you're closing shows **only Clean and Intentional** (zero Unexplained, zero Open-period), then run the Month-End Close checklist. Export (xlsx) is on the breaks table for your working papers. The categorisation rule is unit-tested (`src/lib/xoroReconCategory.ts`) and mirrored 1:1 by the SQL view `v_xoro_tangerine_tb_recon` (migration `20260991000000`); the month rollup is `v_xoro_recon_monthly_summary`.
+
 ## 📒 Chart of Accounts (COA)
 
 ### Concept
