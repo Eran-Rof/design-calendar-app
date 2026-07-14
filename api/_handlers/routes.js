@@ -47,6 +47,7 @@ import r_cron_contracts_daily from "./cron/contracts-daily.js";
 import r_cron_customer_contact_reminders from "./cron/customer-contact-reminders.js";
 import r_cron_discount_offers_daily from "./cron/discount-offers-daily.js";
 import r_cron_early_payment_analytics from "./cron/early-payment-analytics.js";
+import r_cron_edi_3pl_transport from "./cron/edi-3pl-transport.js";
 import r_cron_fx_rate_sync from "./cron/fx-rate-sync.js";
 import r_cron_health_scores_monthly from "./cron/health-scores-monthly.js";
 import r_cron_insights_digest_daily from "./cron/insights-digest-daily.js";
@@ -259,6 +260,7 @@ import r_internal_documents_index from "./internal/documents/index.js";
 import r_internal_documents_signed_url from "./internal/documents/signed-url.js";
 import r_internal_drop_ship_id from "./internal/drop-ship/[id].js";
 import r_internal_drop_ship_index from "./internal/drop-ship/index.js";
+import r_internal_edi_messages_id from "./internal/edi-messages/[id].js";
 import r_internal_edi_messages_index from "./internal/edi-messages/index.js";
 import r_internal_edi_partners_index from "./internal/edi-partners/index.js";
 import r_internal_edi_vendor_id_messages from "./internal/edi/[vendor_id]/messages.js";
@@ -550,6 +552,7 @@ import r_internal_three_way_match_resolve from "./internal/three-way-match/resol
 import r_internal_three_way_match_run from "./internal/three-way-match/run.js";
 import r_internal_three_way_match_tolerances from "./internal/three-way-match/tolerances.js";
 import r_internal_tpl_providers_index from "./internal/tpl-providers/index.js";
+import r_internal_tpl_providers_test_connection from "./internal/tpl-providers/test-connection.js";
 import r_internal_tpl_shipments_id from "./internal/tpl-shipments/[id].js";
 import r_internal_tpl_shipments_index from "./internal/tpl-shipments/index.js";
 import r_internal_transfer_reasons_id from "./internal/transfer-reasons/[id].js";
@@ -943,6 +946,7 @@ export const ROUTES = [
   { pattern: "/api/internal/sales-orders/parse-customer-po", handler: r_internal_sales_orders_parse_customer_po },
   { pattern: "/api/internal/part-matrix/resolve-part-size", handler: r_internal_part_matrix_resolve_part_size },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: r_internal_planning_link_planning_vendor },
+  { pattern: "/api/internal/tpl-providers/test-connection", handler: r_internal_tpl_providers_test_connection },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
@@ -1162,6 +1166,7 @@ export const ROUTES = [
   { pattern: "/api/internal/b2b-accounts/:id", handler: r_internal_b2b_accounts_id },
   { pattern: "/api/internal/build-orders/:id", handler: r_internal_build_orders_id },
   { pattern: "/api/internal/date-presets/:id", handler: r_internal_date_presets_id },
+  { pattern: "/api/internal/edi-messages/:id", handler: r_internal_edi_messages_id },
   { pattern: "/api/internal/fabric-codes/:id", handler: r_internal_fabric_codes_id },
   { pattern: "/api/internal/fabric-mills/:id", handler: r_internal_fabric_mills_id },
   { pattern: "/api/internal/fixed-assets/:id", handler: r_internal_fixed_assets_id },
@@ -1300,6 +1305,7 @@ export const ROUTES = [
   { pattern: "/api/cron/anomalies-nightly", handler: r_cron_anomalies_nightly },
   { pattern: "/api/cron/app-errors-digest", handler: r_cron_app_errors_digest },
   { pattern: "/api/cron/benchmark-compute", handler: r_cron_benchmark_compute },
+  { pattern: "/api/cron/edi-3pl-transport", handler: r_cron_edi_3pl_transport },
   { pattern: "/api/cron/fba-returns-daily", handler: r_cron_fba_returns_daily },
   { pattern: "/api/internal/balance-sheet", handler: r_internal_balance_sheet_index },
   { pattern: "/api/internal/bank-accounts", handler: r_internal_bank_accounts_index },
