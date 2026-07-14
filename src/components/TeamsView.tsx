@@ -624,7 +624,7 @@ function TeamsView({ collList, collMap, isAdmin, teamsToken, setTeamsToken, getB
                   )}
                   <button onClick={teamsSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
                     style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: teamsDirectSending ? "wait" : "pointer", fontFamily: "inherit", opacity: (teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()) ? 0.6 : 1 }}>
-                    {teamsDirectSending ? "Sending…" : "Send Direct Message ↗"}
+                    {teamsDirectSending ? "Sending…" : "Send Direct Message"}
                   </button>
                 </div>
               </div>

@@ -604,8 +604,7 @@ export function NavDrawer({
               onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = C.bgRow; }}
               onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
             >
-              {!collapsed && <><span>Planning</span><span style={{ fontSize:10, opacity:0.5 }}>↗</span></>}
-              {collapsed && <span style={{ fontSize:11 }}>↗</span>}
+              {collapsed ? <span style={{ fontSize:15 }}>📈</span> : <span>Planning</span>}
             </a>
           </div>
         )}

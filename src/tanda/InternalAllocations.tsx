@@ -553,7 +553,7 @@ export default function InternalAllocations() {
                             onClick={() => { window.location.href = `?m=sales_orders&so=${encodeURIComponent(g.so_number || "")}`; }}
                             title="Open this sales order"
                             style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700, color: C.primary, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
-                          >{g.so_number} ↗</span>
+                          >{g.so_number}</span>
                         ) : (
                           <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 700 }}>(draft)</span>
                         )}

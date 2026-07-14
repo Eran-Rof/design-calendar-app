@@ -324,7 +324,7 @@ Once `status='posted'`, the JE is immutable by design. PATCH and DELETE on `/api
 
 The Income Statement (P&L) is a best-in-class report that mirrors how the CEO reads a P&L — the same band structure as Xoro's **Income Statement By Store**, the full colon-path account hierarchy (parent **group headers** with indented sub-accounts and group subtotals), and **monthly columns** across any date range. It supports both the **ACCRUAL** and **CASH** books — toggle at the top — and any date range. Default range is current FY (Jan 1) through today.
 
-> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
+> **Drill into any account:** click an account row (its name is shown in **blue**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
 ### The band structure (top to bottom)
 
@@ -560,7 +560,7 @@ One row per account that has been touched by a posted JE in the window:
 
 Rows are grouped by account type with a per-group subtotal row and one grand-total footer row.
 
-> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
+> **Drill into any account:** click an account row (its name is shown in **blue**) to open its GL detail scoped to the same From/To and basis. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
 ### Operator workflow
 
@@ -596,7 +596,7 @@ Every financial report that lists GL accounts — **Income Statement**, **Trial 
 
 ### How to use it
 
-- Account rows that can be drilled show a small **↗** next to the account name and turn into a pointer on hover (a tooltip reads *"Open GL detail for this account"*).
+- Account rows that can be drilled show their **account name in blue** and turn into a pointer on hover (a tooltip reads *"Open GL detail for this account"*). Click anywhere on the row.
 - **Click** (or **double-click**) the account row. A **GL Detail** modal opens on top of the report.
 - The modal header shows the account **code · name · type**, the **basis** (ACCRUAL / CASH), and the **date range** it is scoped to.
 - The table lists each posted line in the window: **Date, Description, Source, Debit, Credit, Running Balance**, with a totals footer. JE numbers and memos are resolved for you — no raw database IDs appear.
@@ -606,7 +606,7 @@ Every financial report that lists GL accounts — **Income Statement**, **Trial 
 
 A single GL-detail line shows only *this account's* side of a posting. To see the **whole journal entry** — every line, both sides, with header and memos:
 
-- **Double-click** any line in the GL Detail table, or click the small **↗** button in the rightmost **JE** column of that line.
+- **Click** any line in the GL Detail table (its **JE number is shown in blue**) — clicking anywhere on the row opens it.
 - The **Journal entry detail** modal opens on top, showing the complete entry: header (posting date, journal type, basis, source, posted-at), **all** of its lines (account code · name, debit, credit, memo, subledger) with balanced totals, the approval history, supporting documents, and the change/audit trail.
 - **Editing a posted entry is by reversal, not in-place edits** (this keeps the books audit-safe). If the entry is **posted** and not already reversed, a **Reverse** button appears: it creates the offsetting reversal (you may supply a posting date, or leave blank for today), and the GL detail behind it refreshes automatically. Draft entries surface their draft status. This is the same JE detail/reverse view used in the **Journal Entries** module — opening it here just pre-loads the entry behind the line you clicked.
 - Close the JE modal with **Close** / **Esc** / clicking outside to return to the GL Detail list.
@@ -618,7 +618,7 @@ The Journal entry detail modal has a **Source document** row. For an entry that 
 - A read-only **Invoice** (or **Bill**) opens on top of the journal entry, showing the **customer / vendor**, invoice & due dates, status, and the **line items** — each resolved to its **SKU** (style · color · size), quantity, unit price, and amount — with subtotal / tax / total (and paid / balance for an invoice). No hunting through a list.
 - If the entry settles **many** documents (e.g. a single payment across dozens of invoices), the Source document row expands to a **picker** listing each one (with its customer/vendor); pick any to open it.
 - Entries with no single source document (payroll, adjustments, the monthly channel-reclass entries, manufacturing mirror JEs) show a plain label instead of a dead link — the journal entry itself is the detail.
-- Need the full editable panel? The document viewer keeps an **Open in AR / AP module ↗** button that jumps to the invoice/bill in its own module.
+- Need the full editable panel? The document viewer keeps an **Open in AR / AP module** button that jumps to the invoice/bill in its own module.
 - Close the document with **Close** / **Esc** / clicking outside to return to the journal entry.
 
 So the full path is now one continuous drill: **Income Statement account → GL detail line → journal entry → the actual invoice/bill with its SKU lines** — never leaving the report.
@@ -653,7 +653,7 @@ The same ledger is also reachable as a standalone panel from **Accounting → Re
 
 The Balance Sheet panel renders **assets**, **liabilities**, and **equity** as of a chosen date, in a three-column layout. Available at `Accounting → 📋 Balance Sheet`.
 
-> **Drill into any account:** click an account row (look for the **↗**) to open its GL detail. Because the Balance Sheet is an *as-of* report, the drill-down is scoped to the **year-to-date through the as-of date** (Jan 1 → as-of) on the selected basis — the activity that builds up to the balance shown. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
+> **Drill into any account:** click an account row (its name is shown in **blue**) to open its GL detail. Because the Balance Sheet is an *as-of* report, the drill-down is scoped to the **year-to-date through the as-of date** (Jan 1 → as-of) on the selected basis — the activity that builds up to the balance shown. See [GL account drill-down](#gl-account-drill-down-click-an-account-on-any-financial-report).
 
 ### Controls
 
@@ -841,7 +841,7 @@ QuickBooks-style descent, now wired end to end:
 2. **Activity line → journal entry.** Both the GL-detail modal *and* the standalone GL Detail panel now open the entry: click the JE number (or double-click the row).
 3. **Journal entry → source document.** The entry modal's **Source document** row resolves where the entry came from (AR invoice, AP bill, payment, receipt, adjustment, commission, build order) and jumps to it — one click from a ledger line to the invoice behind it.
    - Because the GL is now a **1:1 Xoro mirror**, most entries carry the Xoro transaction (not the invoice) as their own source. The resolver handles this by running the **reverse lookup** — it finds the AR invoice(s)/AP bill(s) whose `accrual_je_id` or `cash_je_id` points *at* this entry — so a revenue account still drills to the customer invoice and an expense/AP account still drills to the vendor bill.
-   - **One document** → a direct link that **opens the actual invoice/bill in place** — a read-only document with the customer/vendor, dates, status, and SKU line items (see [Drill from a journal entry to the actual invoice or bill](#drill-from-a-journal-entry-to-the-actual-invoice-or-bill-quickbooks-style)); an **Open in AR/AP module ↗** button remains for the full editable panel. **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`) with each counterparty; expand it and click any invoice/bill to open it in place. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
+   - **One document** → a direct link that **opens the actual invoice/bill in place** — a read-only document with the customer/vendor, dates, status, and SKU line items (see [Drill from a journal entry to the actual invoice or bill](#drill-from-a-journal-entry-to-the-actual-invoice-or-bill-quickbooks-style)); an **Open in AR/AP module** button remains for the full editable panel. **Many** (a single payment/receipt entry can settle hundreds of invoices) → the row shows a **picker** (`N source documents — X AR invoices, Y AP bills ▾`) with each counterparty; expand it and click any invoice/bill to open it in place. Very large fan-outs list the first 400 with a "showing first 400 of M" note.
    - **No document** (payroll, adjustment, or manufacturing mirror entries) → the row reads **"GL journal entry (no source document)"**; the entry detail itself (Xoro txn ref + memo + all lines) is the drill target, so the walk never dead-ends.
 4. **Related entries.** Sibling (cash-basis twin), "reverses", and "reversed by" numbers in the entry modal are links — the modal re-loads in place, so an audit walk never dead-ends.
 5. **Document → its entry (the reverse direction).** AR invoice and AP bill list rows: the posted status badge links to the posting entry; AP payment rows: the "✓ posted" cell links to the cash entry.
@@ -860,7 +860,7 @@ invoice #, party, dates, **days past due**, total / paid / **open**, and a foote
 ties to the clicked cell (same bucket math as the report SQL, including the as-of date if you set
 one). From each row:
 
-- **↗** (or double-click) opens the document in the AR / AP Invoices module, filtered to it.
+- Clicking the row (its invoice number is shown in blue) opens the document in the AR / AP Invoices module, filtered to it.
 - **JE** opens the posting journal entry (from there Phase 1 reaches the source document and
   related entries).
 
@@ -886,7 +886,7 @@ account behind the cell:
   tie once the routed revenue backfill covers the range); *shared* means other segments also post
   there, so the GL column is a superset by design.
 
-**↗** (or double-click) opens the account's GL detail for the same range (ACCRUAL) — from there
+Clicking the row (the account is shown in blue) opens the account's GL detail for the same range (ACCRUAL) — from there
 Phase 1 reaches the journal entries and source documents.
 
 ### Bank reconciliation links

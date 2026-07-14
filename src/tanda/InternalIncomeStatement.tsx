@@ -363,10 +363,9 @@ export default function InternalIncomeStatement() {
         onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
       >
-        {!hideAccountNum && <td style={cellCode(indent)}>{a.code}</td>}
-        <td style={{ ...cellName(indent), color: C.textSub }}>
+        {!hideAccountNum && <td style={{ ...cellCode(indent), color: drillable ? C.primary : undefined }}>{a.code}</td>}
+        <td style={{ ...cellName(indent), color: drillable ? C.primary : C.textSub }}>
           {a.name}
-          {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
         </td>
         {valueCells(a.byMonth, a.total, { sign })}
       </tr>
@@ -545,7 +544,7 @@ export default function InternalIncomeStatement() {
       </div>
 
       <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 10 }}>
-        Tip: click any account row to open its GL detail (↗) for the selected range and basis. Click a section or group header to collapse it.
+        Tip: click any account row (shown in blue) to open its GL detail for the selected range and basis. Click a section or group header to collapse it.
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}

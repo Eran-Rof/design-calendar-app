@@ -113,7 +113,7 @@ function Metric({ label, value, caption, onClick, drillLabel }: { label: string;
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{value}</div>
       {caption && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>{caption}</div>}
-      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open ↗"}</div>}
+      {clickable && <div style={{ fontSize: 10, color: C.primary, marginTop: 6, fontWeight: 600 }}>{drillLabel || "Open"}</div>}
     </div>
   );
 }
@@ -375,7 +375,7 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                 value={fmtCents(data.metrics.balance_cents)}
                 caption={data.notes.balance}
                 onClick={() => drillToModule("ar_invoices", { customer: data.header.customer_id })}
-                drillLabel="Open AR Invoices ↗"
+                drillLabel="Open AR Invoices"
               />
               <Metric label="Avg Days to Pay" value={data.metrics.avg_days_to_pay == null ? "—" : `${data.metrics.avg_days_to_pay} d`} caption={data.notes.avg_days_to_pay} />
               <Metric label="Commission % / $" value={`${data.metrics.commission_pct}% / ${fmtCents(data.metrics.commission_cents)}`} caption={data.notes.commission} />

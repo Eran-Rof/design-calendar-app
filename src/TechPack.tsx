@@ -824,7 +824,7 @@ export default function TechPackApp() {
                     )}
                     <button onClick={tpSendDirect} disabled={teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()}
                       style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "11px 24px", fontSize: 13, fontWeight: 700, cursor: teamsDirectSending ? "wait" : "pointer", fontFamily: "inherit", opacity: (teamsDirectSending || !teamsDirectTo.trim() || !teamsDirectMsg.trim()) ? 0.6 : 1 }}>
-                      {teamsDirectSending ? "Sending…" : "Send Direct Message ↗"}
+                      {teamsDirectSending ? "Sending…" : "Send Direct Message"}
                     </button>
                   </div>
                 </div>
@@ -1396,7 +1396,7 @@ export default function TechPackApp() {
                     <button onClick={() => { if (selEmailObj) tpReply(selEmailObj.id, tpReplyText); }}
                       disabled={!tpReplyText.trim() || !selEmailObj}
                       style={{ padding: "7px 16px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", opacity: (!tpReplyText.trim() || !selEmailObj) ? 0.5 : 1 }}>
-                      Send ↗
+                      Send
                     </button>
                   </div>
                 </div>
@@ -1441,7 +1441,7 @@ export default function TechPackApp() {
                     style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                   <button onClick={() => emailSelTP && tpSendEmail(emailSelTP)} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()}
                     style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>
-                    Send ↗
+                    Send
                   </button>
                 </div>
               </div>

@@ -1781,8 +1781,8 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
               <span
                 onClick={() => { window.location.href = `?m=ar_invoices&q=${encodeURIComponent(relatedInvoice.invoice_number)}`; }}
                 title={`Open AR invoice ${relatedInvoice.invoice_number}`}
-                style={{ color: C.success, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
-              >{relatedInvoice.invoice_number} ↗</span>
+                style={{ color: C.primary, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted" }}
+              >{relatedInvoice.invoice_number}</span>
             </span>
           ) : (
             <span>Sales order {so?.so_number || "(draft)"} — <span style={{ color: STATUS_COLORS[so?.status || ""] || C.text, fontWeight: 700 }}>● {so?.status}</span></span>
@@ -2301,7 +2301,7 @@ function SOModal({ so, customers: customersProp, storeOptions, onClose, onSaved 
                   {poDup.existing[0] && (
                     <button type="button" style={{ ...btnSecondary, color: C.primary, borderColor: C.primary }}
                       onClick={() => window.open(`?m=sales_orders&q=${encodeURIComponent(poDup.existing[0].so_number || poDup.po)}`, "_blank")}>
-                      Open existing SO ↗
+                      Open existing SO
                     </button>
                   )}
                   <button type="button" style={btnPrimary} onClick={() => { setPoUploadOpen(false); setPoDup(null); setPoStep("upload"); }}>Cancel — don't create a duplicate</button>

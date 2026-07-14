@@ -1413,7 +1413,7 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
           >
-            <span>Planning</span><span style={{ fontSize: 10, opacity: 0.6 }}>↗</span>
+            <span>Planning</span>
           </a>
         )}
       </nav>
@@ -1756,7 +1756,7 @@ function ExternalLinkCard({ href, label, emoji, sublabel }: { href: string; labe
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.cardBdr; }}
     >
       <div style={{ fontSize: 32 }}>{emoji}</div>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>{label} <span style={{ fontSize: 12, color: C.textMuted }}>↗</span></div>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "normal", overflowWrap: "anywhere", minWidth: 0 }}>{sublabel}</div>
     </a>
   );

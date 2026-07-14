@@ -776,8 +776,8 @@ export default function InternalFactorRecon() {
                   onMouseEnter={(e) => { e.currentTarget.style.background = C.groupHeaderBg; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
                 >
-                  <td style={{ ...td, fontWeight: 600 }}>
-                    {fmtMonth(r.statement_month)} <span style={{ marginLeft: 4, color: C.primary, fontSize: 11 }}>↗</span>
+                  <td style={{ ...td, fontWeight: 600, color: C.primary }}>
+                    {fmtMonth(r.statement_month)}
                   </td>
                   <td style={tdNum}>{fmtCents(r.net_sales_cents)}</td>
                   <td style={tdNum}>{fmtCents(r.cash_collections_cents)}</td>

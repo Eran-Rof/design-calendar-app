@@ -10,7 +10,7 @@
 // Onward links (Phase 1 chain):
 //   • JE badge  → JEDetailModal (accrual_je_id), which itself reaches the
 //     source document / related entries.
-//   • ↗ open    → the AR/AP Invoices module filtered to that invoice number
+//   • row click → the AR/AP Invoices module filtered to that invoice number
 //     (drillToModule seeds ?q, which those panels consume on mount).
 
 import { useEffect, useState } from "react";
@@ -182,7 +182,7 @@ export default function AgingDrillModal({
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>
               as of <strong style={{ color: C.textSub }}>{fmtDateDisplay(target.asOf || new Date().toISOString().slice(0, 10))}</strong>
               <span style={{ marginLeft: 10 }}>
-                open {docLabel}s in this bucket — double-click a row (or use ↗) to open the {docLabel}; JE opens the posted entry.
+                open {docLabel}s in this bucket — click a row to open the {docLabel}; JE opens the posted entry.
               </span>
             </div>
           </div>
@@ -250,11 +250,11 @@ export default function AgingDrillModal({
                   return (
                     <tr
                       key={r.id}
-                      onDoubleClick={openDoc}
+                      onClick={openDoc}
                       style={{ cursor: "pointer" }}
-                      title={`Double-click to open this ${docLabel} in the ${isAr ? "AR" : "AP"} Invoices module`}
+                      title={`Click to open this ${docLabel} in the ${isAr ? "AR" : "AP"} Invoices module`}
                     >
-                      <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>{r.invoice_number || "—"}</td>
+                      <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", color: C.primary, fontWeight: 600 }}>{r.invoice_number || "—"}</td>
                       {!target.partyId && <td style={td}>{party}</td>}
                       <td style={td}>{fmtDateDisplay((isAr ? r.invoice_date : r.posting_date) || null)}</td>
                       <td style={td}>{fmtDateDisplay(r.due_date)}</td>
@@ -265,18 +265,6 @@ export default function AgingDrillModal({
                       <td style={tdNum}>{fmtCents(r.paid_amount_cents)}</td>
                       <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(r.open_cents)}</td>
                       <td style={{ ...td, textAlign: "center", padding: "4px 6px", whiteSpace: "nowrap" }}>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); openDoc(); }}
-                          title={`Open this ${docLabel} in the ${isAr ? "AR" : "AP"} Invoices module`}
-                          aria-label={`Open ${docLabel}`}
-                          style={{
-                            background: "transparent", color: C.primary, border: `1px solid ${C.cardBdr}`,
-                            borderRadius: 6, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 6px",
-                          }}
-                        >
-                          ↗
-                        </button>
                         {r.accrual_je_id && (
                           <button
                             type="button"

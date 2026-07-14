@@ -237,7 +237,7 @@ document.addEventListener('click',()=>{if(activeCtx){activeCtx.style.display='no
                 whiteSpace: "nowrap",
               }}
             >
-              ↗ New Tab
+              New Tab
             </button>
             <button
               onClick={handleCopyLink}

@@ -807,12 +807,12 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                   <button onClick={() => { if (selectedEmail) replyAllToEmail(selectedEmail.id, replyText); }}
                     disabled={!replyText.trim() || !selectedEmail}
                     style={{ padding: "7px 14px", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 7, color: C.text2, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", opacity: (!replyText.trim() || !selectedEmail) ? 0.5 : 1 }}>
-                    Reply All ↗
+                    Reply All
                   </button>
                   <button onClick={() => { if (selectedEmail) replyToEmail(selectedEmail.id, replyText); }}
                     disabled={!replyText.trim() || !selectedEmail}
                     style={{ padding: "7px 16px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", opacity: (!replyText.trim() || !selectedEmail) ? 0.5 : 1 }}>
-                    Reply ↗
+                    Reply
                   </button>
                 </div>
               </div>
@@ -961,7 +961,7 @@ function OutlookView({ collList, collMap, collections, isAdmin, teamsConfig, set
                   style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                 <button onClick={sendEmail} disabled={!composeTo.trim() || !composeSubject.trim()}
                   style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!composeTo.trim() || !composeSubject.trim()) ? 0.5 : 1 }}>
-                  Send ↗
+                  Send
                 </button>
               </div>
             </div>

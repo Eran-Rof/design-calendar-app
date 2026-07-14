@@ -198,50 +198,27 @@ export default function SegmentGLDrillModal({
                   <th style={{ ...th, textAlign: "right" }}>Sub-ledger (this segment)</th>
                   <th style={{ ...th, textAlign: "right" }}>GL Posted (account net)</th>
                   <th style={{ ...th, width: 90 }}>Coverage</th>
-                  <th style={{ ...th, width: 60, textAlign: "center" }}>GL</th>
                 </tr>
               </thead>
               <tbody>
                 {accounts.map((a) => (
                   <tr
                     key={a.code}
-                    onDoubleClick={a.account_id ? () => setGlTarget({
+                    onClick={a.account_id ? () => setGlTarget({
                       accountId: a.account_id as string, code: a.code, name: a.name,
                       accountType: a.account_type, from: target.from, to: target.to, basis: "ACCRUAL",
                     }) : undefined}
                     style={{ cursor: a.account_id ? "pointer" : "default" }}
-                    title={a.account_id ? "Double-click to open the account's GL detail" : undefined}
+                    title={a.account_id ? "Click to open the account's GL detail" : undefined}
                   >
                     <td style={td}>
-                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace" }}>{a.code}</span>
+                      <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: a.account_id ? C.primary : undefined, fontWeight: a.account_id ? 600 : undefined }}>{a.code}</span>
                       <span style={{ color: C.textSub, marginLeft: 8 }}>{a.name || "—"}</span>
                     </td>
                     <td style={tdNum}>{fmtDollars(a.subledger_amount)}</td>
                     <td style={tdNum}>{fmtCentsAsDollars(a.gl_net_cents)}</td>
                     <td style={{ ...td, fontSize: 11, color: a.shared ? C.warn : C.textMuted }}>
                       {a.shared ? "shared" : "exclusive"}
-                    </td>
-                    <td style={{ ...td, textAlign: "center", padding: "4px 6px" }}>
-                      {a.account_id && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setGlTarget({
-                              accountId: a.account_id as string, code: a.code, name: a.name,
-                              accountType: a.account_type, from: target.from, to: target.to, basis: "ACCRUAL",
-                            });
-                          }}
-                          title="Open the account's GL detail for this range"
-                          aria-label="Open GL detail"
-                          style={{
-                            background: "transparent", color: C.primary, border: `1px solid ${C.cardBdr}`,
-                            borderRadius: 6, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 6px",
-                          }}
-                        >
-                          ↗
-                        </button>
-                      )}
                     </td>
                   </tr>
                 ))}
@@ -251,7 +228,6 @@ export default function SegmentGLDrillModal({
                   <td style={{ ...td, fontWeight: 700, color: C.textSub }}>TOTAL ({accounts.length})</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtDollars(subledgerTotal)}</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCentsAsDollars(glTotalCents)}</td>
-                  <td style={td}></td>
                   <td style={td}></td>
                 </tr>
               </tfoot>
@@ -264,7 +240,7 @@ export default function SegmentGLDrillModal({
           range (all segments). "Shared" accounts also receive sales from other segments, so the two columns
           only tie on "exclusive" accounts — and only for periods the routed revenue bridge has posted.
           {cogsUnknown && " Some sales in this cell have no cost in the sub-ledger; their COGS is excluded."}
-          {" "}Double-click an account to walk its ledger → journal entry → source document.
+          {" "}Click an account to walk its ledger → journal entry → source document.
         </div>
       </div>
     </div>

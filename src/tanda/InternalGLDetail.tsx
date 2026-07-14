@@ -312,16 +312,16 @@ export default function InternalGLDetail() {
               {rows.map((r) => (
                 <tr
                   key={`${r.je_id}-${r.posting_date}`}
-                  onDoubleClick={() => r.je_id && setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
-                  title="Double-click to open the journal entry"
+                  onClick={() => r.je_id && setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
+                  title="Click to open the journal entry"
                   style={{ cursor: r.je_id ? "pointer" : undefined }}>
                   <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
                   <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>
                     {r.je_id
-                      ? <button type="button" onClick={() => setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
+                      ? <button type="button" onClick={(e) => { e.stopPropagation(); setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description }); }}
                           title="Open the journal entry"
                           style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontFamily: "inherit", fontSize: "inherit", textDecoration: "underline" }}>
-                          {r.je_number || "↗"}
+                          {r.je_number || "Open"}
                         </button>
                       : (r.je_number || "—")}
                   </td>

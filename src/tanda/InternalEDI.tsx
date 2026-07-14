@@ -197,7 +197,7 @@ export default function InternalEDI() {
                 <tr key={m.id}>
                   <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{new Date(m.created_at).toLocaleString()}</td>
                   <td style={td}>{m.vendor_name || vendName.get(m.vendor_id) || "—"}</td>
-                  <td style={td}>{m.direction === "inbound" ? "↘ in" : "↗ out"}</td>
+                  <td style={td}>{m.direction === "inbound" ? "in" : "out"}</td>
                   <td style={td}>{TXN_LABEL[m.transaction_set] || m.transaction_set}</td>
                   <td style={{ ...td, fontFamily: "monospace", color: C.textMuted, fontSize: 12 }}>{m.interchange_id || "—"}</td>
                   <td style={td}><span style={chip(STAT_COLOR[m.status] || C.textMuted)}>{m.status}</span>{m.error_message ? <span style={{ color: C.danger, fontSize: 11 }}> · {m.error_message}</span> : ""}</td>

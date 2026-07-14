@@ -10,7 +10,7 @@
 // double-clicking a number in a QuickBooks report opens the transaction.
 //
 // Read-only by design (it is reached from an immutable posted ledger); the
-// "Open in AR/AP module ↗" affordance is kept for anyone who needs the full
+// "Open in AR/AP module" affordance is kept for anyone who needs the full
 // editable panel. No raw UUIDs surface — lines resolve to SKU + style/color/size.
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -292,7 +292,7 @@ export default function SourceDocumentModal({ doc, onClose }: { doc: SourceDocOp
             title={`Open this ${title.toLowerCase()} in the ${isAr ? "AR" : "AP"} module`}
             style={btnSecondary}
           >
-            Open in {isAr ? "AR" : "AP"} module ↗
+            Open in {isAr ? "AR" : "AP"} module
           </button>
           <button onClick={onClose} style={btnSecondary}>Close</button>
         </div>
