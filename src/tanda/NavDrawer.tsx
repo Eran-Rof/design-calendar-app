@@ -77,7 +77,6 @@ interface Props {
   sections: NavSection[];
   /** Optional per-group icon, keyed by group name — shown on group sub-headers. */
   groupIcons?: Record<string, string>;
-  canPlanning?: boolean;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   /** App identity — filters favorites/telemetry menu_key rows + drawer branding.
@@ -135,7 +134,6 @@ export function NavDrawer({
   activeModule, onSelectModule,
   userEmail, userName, userPhotoUrl, onSignOut,
   modules, sections, groupIcons,
-  canPlanning = false,
   collapsed, onToggleCollapsed,
   appKey = "tanda",
   appLabel = "Tangerine",
@@ -592,22 +590,6 @@ export function NavDrawer({
             </div>
           );
         })}
-
-        {/* Planning external link */}
-        {!search && canPlanning && (
-          <div style={{ padding:"0 4px" }}>
-            <div style={{ height:1, background:C.border, margin:"5px 0" }} />
-            <a
-              href="/planning/wholesale" target="_blank" rel="noreferrer"
-              title="Inventory Planning (opens in new tab)"
-              style={{ display:"flex", alignItems:"center", gap:8, padding: collapsed ? "7px 0" : "5px 10px", borderRadius:5, textDecoration:"none", color:C.textMuted, fontSize:13, whiteSpace:"nowrap", justifyContent: collapsed ? "center" : "flex-start", transition:"background 0.1s,color 0.1s" }}
-              onMouseEnter={e => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = C.bgRow; }}
-              onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
-            >
-              {collapsed ? <span style={{ fontSize:15 }}>📈</span> : <span>Planning</span>}
-            </a>
-          </div>
-        )}
       </div>
 
       {/* ── App tools (optional, app-specific) ────────────────────── */}

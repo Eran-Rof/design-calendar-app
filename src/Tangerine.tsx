@@ -577,7 +577,6 @@ export default function Tangerine() {
         modules={MODULES}
         sections={NAV_SECTIONS}
         groupIcons={GROUP_ICON}
-        canPlanning={canAccessAppFromSession("planning")}
         collapsed={drawerCollapsed}
         onToggleCollapsed={toggleDrawer}
       />
@@ -1393,29 +1392,6 @@ function TopNav({ activeModule, onSelectModule, appsOpen, onToggleApps, onCloseA
             </div>
           );
         })}
-
-        {/* M31 — Planning is a separate app (own shell + nav); surface it as a
-            first-class header link. Opens in a new tab so the Tangerine session
-            is preserved. Gated by the shared planning permission. */}
-        {canAccessAppFromSession("planning") && (
-          <a
-            href="/planning/wholesale"
-            target="_blank"
-            rel="noopener"
-            title="Inventory planning — forecasting, supply, scenarios (opens in a new tab)"
-            style={{
-              background: "transparent", border: "1px solid transparent", color: C.textSub,
-              padding: "6px clamp(7px, 0.6vw, 12px)", borderRadius: 6,
-              fontSize: "clamp(12px, 0.85vw, 13px)", cursor: "pointer",
-              display: "flex", alignItems: "center", gap: "clamp(4px, 0.4vw, 6px)",
-              textDecoration: "none", whiteSpace: "nowrap",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.text; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textSub; }}
-          >
-            <span>Planning</span>
-          </a>
-        )}
       </nav>
 
       <div style={{ position: "relative", flexShrink: 0 }}>
