@@ -32,7 +32,16 @@ export interface OpenPanelAction {
   params: { panel: string; q?: string };
 }
 
-export type AIAction = ApplyFiltersAction | SetSortAction | ClearFiltersAction | OpenPanelAction;
+// P28-4 — assistant draft action: show a Confirm card for a previewed write.
+// On Confirm the panel POSTs the token to the authenticated confirm endpoint;
+// the model never performs the write.
+export interface PresentConfirmationAction {
+  type: "present_confirmation";
+  params: { summary: string; token: string; action: string };
+}
+
+export type AIAction =
+  | ApplyFiltersAction | SetSortAction | ClearFiltersAction | OpenPanelAction | PresentConfirmationAction;
 
 // Optional follow-up the server can return alongside an answer. Used
 // when Claude wants to propose a grid filter the user can opt into
@@ -285,5 +294,8 @@ export function describeAction(action: AIAction): string {
     case "set_sort":     return `Sorted by ${action.params.col} ${action.params.dir}`;
     case "clear_filters": return "Cleared all filters";
     case "open_panel":   return `Opened ${action.params.panel}${action.params.q ? ` (search "${action.params.q}")` : ""}`;
+    // present_confirmation is rendered as an interactive Confirm card, not a
+    // one-line "what happened" footnote — but keep the switch exhaustive.
+    case "present_confirmation": return `Awaiting confirmation: ${action.params.action}`;
   }
 }

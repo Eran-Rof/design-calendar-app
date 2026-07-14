@@ -130,6 +130,7 @@ import r_internal_ar_receipts_id from "./internal/ar-receipts/[id].js";
 import r_internal_ar_receipts_index from "./internal/ar-receipts/index.js";
 import r_internal_ar_receipts_post from "./internal/ar-receipts/post.js";
 import r_internal_ar_receipts_void from "./internal/ar-receipts/void.js";
+import r_internal_assistant_actions_confirm from "./internal/assistant/actions-confirm.js";
 import r_internal_assistant_brief from "./internal/assistant/brief.js";
 import r_internal_assistant_dismiss from "./internal/assistant/dismiss.js";
 import r_internal_assistant_today from "./internal/assistant/today.js";
@@ -800,6 +801,7 @@ export const ROUTES = [
   { pattern: "/api/internal/design/trend-brief/synthesize", handler: r_internal_design_trend_brief_synthesize },
   { pattern: "/api/internal/costing/rfq-compare/projects", handler: r_internal_costing_rfq_compare_projects_index },
   { pattern: "/api/internal/procurement/qc/dispositions", handler: r_internal_procurement_qc_dispositions },
+  { pattern: "/api/internal/assistant/actions/confirm", handler: r_internal_assistant_actions_confirm },
   { pattern: "/api/internal/costing/search/categories", handler: r_internal_costing_search_categories },
   { pattern: "/api/internal/costing/search/sales-reps", handler: r_internal_costing_search_sales_reps },
   { pattern: "/api/internal/shopify/webhooks/disputes", handler: r_internal_shopify_webhooks_disputes },

@@ -7,11 +7,20 @@
 // reply tools (terminal) → cross-app discovery + generic query (looped).
 
 import { ALLOWED_AGGS } from "./schema.js";
-import { panelKeys } from "../assistant/registry.js";
+import { panelKeys, allActionNames } from "../assistant/registry.js";
 
 // P28-2 - the open_panel allowlist comes from the capability-pack registry,
 // so a pack adding a routable panel automatically widens the tool schema.
 const PANEL_KEYS = [...panelKeys()].sort();
+
+// P28-4 - the run_action allowlist likewise comes from the registry, so a
+// pack adding an action auto-widens the schema. Empty in P28-4-1 (no pack
+// ships an action yet) — when empty the `action` arg stays a free string so
+// the JSON Schema never carries an empty (invalid) enum.
+const ACTION_NAMES = [...allActionNames()].sort();
+const ACTION_PROP = ACTION_NAMES.length
+  ? { type: "string", enum: ACTION_NAMES, description: "Action name from the pack registry." }
+  : { type: "string", description: "Action name from the pack registry." };
 
 export const TOOLS = [
   // ── Grid mutations (terminal) ─────────────────────────────────────────
@@ -388,6 +397,35 @@ export const TOOLS = [
         q: { type: "string", description: "Optional search text to seed the target panel's search box." },
       },
       required: ["panel"],
+      additionalProperties: false,
+    },
+  },
+
+  // ── P28-4 draft actions ───────────────────────────────────────────────
+  {
+    name: "run_action",
+    description: "Preview a drafted action the operator can confirm (a chargeback link, a proposed reclass, etc.). LOOPED + read-only: run_action NEVER writes — it returns a human-readable preview and, for write actions, a signed confirmation the operator must approve. mode:'read' actions return data you summarise. mode:'draft'/'write_confirm' actions return { status:'needs_confirmation', summary, token } — then emit present_confirmation with that summary + token + action so the operator sees a Confirm card. If the tool returns { error }, tell the operator plainly and do NOT retry blindly.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: ACTION_PROP,
+        input:  { type: "object", description: "Action-specific input (matches the action's input_schema).", additionalProperties: true },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "present_confirmation",
+    description: "Terminal — show the operator a Confirm card for a drafted write. Call ONLY after run_action returned { status:'needs_confirmation', token }. Pass its summary, token, and action verbatim; the client renders Confirm/Cancel and, on Confirm, performs the authenticated write. Never fabricate a token. Combine with a short answer_text explaining what will happen.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "One-line description of the write, from run_action." },
+        token:   { type: "string", description: "The confirmation token run_action returned. Verbatim." },
+        action:  { type: "string", description: "The action name being confirmed." },
+      },
+      required: ["summary", "token", "action"],
       additionalProperties: false,
     },
   },

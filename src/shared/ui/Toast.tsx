@@ -34,6 +34,11 @@ export interface ToastMessage {
   // auto-dismiss in 2s. Set false on success/error messages that are
   // just confirmations and should auto-dismiss like info toasts.
   sticky?: boolean;
+  // Optional action button rendered inside the toast (e.g. "Show them").
+  // Clicking it fires onClick but does NOT dismiss the toast (dismiss is
+  // the ✕ / body click). A toast carrying an action is sticky by default
+  // so the button stays available.
+  action?: { label: string; onClick: () => void };
 }
 
 export interface ToastProps {
@@ -57,7 +62,7 @@ export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastP
   // easy for an unrelated message containing the substring "DONE" to
   // become unintentionally sticky. Callers that want a sticky info
   // toast should set { kind: "info", sticky: true } explicitly.
-  const isFinalState = toast?.sticky ?? (toast?.kind === "success" || toast?.kind === "error");
+  const isFinalState = toast?.sticky ?? (toast?.kind === "success" || toast?.kind === "error" || !!toast?.action);
   useEffect(() => {
     if (!toast) return;
     if (isFinalState) return; // sticky until click
@@ -92,6 +97,25 @@ export default function Toast({ toast, onDismiss, autoDismissMs = 2000 }: ToastP
       }}
     >
       <span style={{ flex: 1 }}>{palette.icon} {toast.text}</span>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toast.action!.onClick(); }}
+          style={{
+            flexShrink: 0,
+            border: "1px solid rgba(255,255,255,0.6)",
+            background: "rgba(255,255,255,0.15)",
+            color: "#fff",
+            fontWeight: 700,
+            fontSize: 13,
+            padding: "5px 12px",
+            borderRadius: 6,
+            cursor: "pointer",
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
       {isFinalState && (
         <span
           aria-label="Dismiss"

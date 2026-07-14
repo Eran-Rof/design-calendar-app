@@ -70,6 +70,10 @@ export const TERMINAL_TOOLS = new Set([
   // P28-2 — navigate the Tangerine shell to a panel. Client-side action;
   // no server round-trip needed after the model emits it.
   "open_panel",
+  // P28-4 — show the operator a Confirm card for a drafted write. Terminal;
+  // the actual write happens on the separate authenticated confirm endpoint
+  // when the operator clicks Confirm (never from this loop).
+  "present_confirmation",
 ]);
 
 // Friendly stage labels for the SSE `stage` event. Mapped from tool
@@ -92,4 +96,6 @@ export const TOOL_LABELS = {
   search_user_guide: "Reading the user guide…",
   get_today:       "Checking your Today queue…",
   open_panel:      "Opening the panel…",
+  run_action:          "Preparing that action…",
+  present_confirmation: "Ready for your confirmation…",
 };

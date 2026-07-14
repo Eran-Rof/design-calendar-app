@@ -134,6 +134,8 @@ Some buys aren't tied to a known style yet — you're buying ahead into stock. T
 A row whose style isn't yet in the item master shows an amber **NEW** badge; it auto-clears once a future build sees that style in the master.
 
 > **+ Add row** creates TBD rows in bulk. **Customers**, **Periods**, and now **Colors** are all multi-select — each combination becomes its own row. Pick your color(s) with the color picker (existing colorways or type a brand-new one, added as a removable chip); pick the customers and periods; the confirm step tells you exactly how many rows will be created (customers × periods × colors). Leave colors empty for a single **TBD**-color row.
+>
+> After you add, a confirmation banner names the batch — e.g. *"Added 4 rows: Navy Camo · Ross Procurement · Mar–Jun 2027"* — with a **Show them** button. Click it and the grid filters to exactly those rows (all periods and customers in the batch) so you can fill them in together; clear the filters to return to the full grid. The just-added rows are **no longer pinned to the top** — use **Show them** whenever you want to jump back to them. (If a color you typed is already saved in the company database for that style, there's nothing to add and no **Add to DB** button appears — that's expected; the row itself is still saved to the run.)
 
 > **↶ Undo** in the toolbar reverses your **+ Add row** actions — up to the **last 4** batches. The button shows the depth (`↶ Undo (3)` means three adds are still undoable). Each press removes the *entire* most-recent batch — every customer × period × color row it created for that style/color — and refreshes the grid. Editing a TBD row's customer, color, or style, or switching to another run, clears the undo history.
 

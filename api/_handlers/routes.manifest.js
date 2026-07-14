@@ -778,4 +778,6 @@ export default [
   ["/api/internal/assistant/today"                           , "./internal/assistant/today.js"],
   ["/api/internal/assistant/dismiss"                         , "./internal/assistant/dismiss.js"],
   ["/api/internal/assistant/brief"                           , "./internal/assistant/brief.js"],
+  // P28-4-1 - assistant draft-action confirm (the authenticated write boundary).
+  ["/api/internal/assistant/actions/confirm"                 , "./internal/assistant/actions-confirm.js"],
 ];
