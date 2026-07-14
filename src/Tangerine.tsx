@@ -111,6 +111,7 @@ import InternalInventoryMatrix          from "./tanda/InternalInventoryMatrix";
 import InternalPrepackMatrix            from "./tanda/InternalPrepackMatrix";
 import InternalInventoryTransfers      from "./tanda/InternalInventoryTransfers";
 import InternalInventoryAdjustments    from "./tanda/InternalInventoryAdjustments";
+import InternalInventoryAccuracy       from "./tanda/InternalInventoryAccuracy";
 import InternalCycleCounts             from "./tanda/InternalCycleCounts";
 import InternalScannerSessions         from "./tanda/InternalScannerSessions";
 import InternalCases                   from "./tanda/InternalCases";
@@ -706,6 +707,7 @@ export default function Tangerine() {
         {activeModule === "prepack_matrices"     && <InternalPrepackMatrix />}
         {activeModule === "inventory_transfers" && <InternalInventoryTransfers />}
         {activeModule === "inventory_adjustments" && <InternalInventoryAdjustments />}
+        {activeModule === "inventory_accuracy"  && <InternalInventoryAccuracy />}
         {activeModule === "cycle_counts"        && <InternalCycleCounts />}
         {activeModule === "scanner_sessions"    && <InternalScannerSessions />}
         {activeModule === "cases"               && <InternalCases />}
