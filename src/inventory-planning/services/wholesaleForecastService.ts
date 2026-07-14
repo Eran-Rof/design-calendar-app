@@ -829,6 +829,17 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const itemById = new Map(items.map((i) => [i.id, i]));
   const customerById = new Map(customers.map((c) => [c.id, c]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
+  // (style_code, color) → real item sku_id. Lets planner-added TBD rows resolve
+  // to the actual SKU so they can surface that SKU's supply (on-hand, incoming
+  // PO receipts) instead of showing blanks — and, critically, so the row shares
+  // the real sku_id with any regular forecast row for the same SKU/period, which
+  // keeps the supply totals deduped (no double-count). Lowercased keys.
+  const skuIdByStyleColor = new Map<string, string>();
+  for (const i of items) {
+    if (!i.style_code || !i.color) continue;
+    const key = `${i.style_code.toLowerCase()}|${i.color.toLowerCase()}`;
+    if (!skuIdByStyleColor.has(key)) skuIdByStyleColor.set(key, i.id);
+  }
 
   // Style-level fallback. Planner's Item Master Excel often has one row
   // per STYLE (e.g., "RYO0659" with description "MONEYMAKER Vrsty Jkt"),
@@ -1323,6 +1334,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const supplyTbdIsRealAdd = !!supplyTbd?.is_user_added;
     const skipSynthetic = !supplyTbdIsRealAdd;
     if (!skipSynthetic) {
+    // Resolve the real SKU so the stock-buy row surfaces that SKU's supply
+    // (on-hand + incoming PO receipts) instead of blanks. Falls back to the
+    // synthetic sku_id when the (style, color) doesn't resolve (e.g. TBD color).
+    const synSkuId = skuIdByStyleColor.get(`${sp.style_code.toLowerCase()}|${(supplyTbd?.color ?? "TBD").toLowerCase()}`);
+    const synOnHand = synSkuId ? (onHand.get(synSkuId) ?? 0) : 0;
+    const synReceipts = synSkuId ? (receiptsBySkuPeriod.get(`${synSkuId}:${sp.period_start}`) ?? 0) : 0;
+    const synHistRecv = synSkuId ? (historicalReceiptsBySkuPeriod.get(`${synSkuId}:${sp.period_start}`) ?? 0) : 0;
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.
     tbdGridRows.push({
@@ -1335,7 +1353,9 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       group_name: supplyTbd?.group_name ?? groupName,
       sub_category_name: supplyTbd?.sub_category_name ?? subCategoryName,
       gender,
-      sku_id: `tbd:${sp.style_code}`,
+      // Real sku_id when resolved — ties the row to the SKU's supply AND keeps
+      // supply totals deduped against any regular forecast row for the same SKU.
+      sku_id: synSkuId ?? `tbd:${sp.style_code}`,
       sku_code: `${sp.style_code}-TBD`,
       sku_description: description,
       sku_style: sp.style_code,
@@ -1386,12 +1406,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       unit_cost_override: null,
       unit_cost: supplyTbd?.unit_cost ?? null,
       planned_buy_qty: supplyTbd?.planned_buy_qty ?? null,
-      on_hand_qty: 0,
+      on_hand_qty: synOnHand,
       on_so_qty: 0,
       on_po_qty: 0,
-      receipts_due_qty: 0,
-      historical_receipts_qty: 0,
-      available_supply_qty: 0,
+      receipts_due_qty: synReceipts,
+      historical_receipts_qty: synHistRecv,
+      available_supply_qty: synOnHand + synReceipts + (supplyTbd?.planned_buy_qty ?? 0),
       projected_shortage_qty: 0,
       projected_excess_qty: 0,
       recommended_action: "monitor",
@@ -1406,6 +1426,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     for (const t of persistedAll) {
       if (supplyTbd && t.id === supplyTbd.id) continue;
       const cust = customerById.get(t.customer_id);
+      // Resolve the real SKU (style, color) → surface its supply on this row.
+      const tSkuId = skuIdByStyleColor.get(`${sp.style_code.toLowerCase()}|${(t.color ?? "").toLowerCase()}`);
+      const tOnHand = tSkuId ? (onHand.get(tSkuId) ?? 0) : 0;
+      const tReceipts = tSkuId ? (receiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
+      const tHistRecv = tSkuId ? (historicalReceiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
       tbdGridRows.push({
         forecast_id: `tbd:${t.id}`,
         planning_run_id: run.id,
@@ -1416,7 +1441,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         group_name: t.group_name ?? groupName,
         sub_category_name: t.sub_category_name ?? subCategoryName,
         gender,
-        sku_id: `tbd:${sp.style_code}`,
+        // Real sku_id when resolved (dedups supply vs. regular rows for same SKU).
+        sku_id: tSkuId ?? `tbd:${sp.style_code}`,
         sku_code: `${sp.style_code}-TBD`,
         sku_description: stripRequestMarker(t.notes) || description,
         sku_style: sp.style_code,
@@ -1455,12 +1481,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         unit_cost_override: null,
         unit_cost: t.unit_cost ?? null,
         planned_buy_qty: t.planned_buy_qty ?? null,
-        on_hand_qty: 0,
+        on_hand_qty: tOnHand,
         on_so_qty: 0,
         on_po_qty: 0,
-        receipts_due_qty: 0,
-        historical_receipts_qty: 0,
-        available_supply_qty: 0,
+        receipts_due_qty: tReceipts,
+        historical_receipts_qty: tHistRecv,
+        available_supply_qty: tOnHand + tReceipts + (t.planned_buy_qty ?? 0),
         projected_shortage_qty: 0,
         projected_excess_qty: 0,
         recommended_action: "monitor",
