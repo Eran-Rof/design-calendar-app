@@ -7,18 +7,18 @@
 //
 // RBAC: like users-access/me this route is deliberately UNMAPPED in
 // routePermissions.js — the payload SELF-FILTERS by the caller's own
-// v_effective_permissions (aggregator lens), which is the same fail-open
-// contract menu-hiding uses:
-//   - RBAC_MODE !== "enforce"  → no filtering (permissions = null)
-//   - no resolvable user id    → no filtering (legacy PLM-session path)
-//   - enforce + identified     → items gated on <module_key>:read
-// A spoofed X-Auth-User-Id at worst changes which SUMMARY COUNTS you see;
-// every drill target the page links to is enforced server-side by
-// rbacEnforce on its own routes.
+// v_effective_permissions (the shared lens in _lib/assistant/context.js),
+// the same fail-open contract menu-hiding uses. A spoofed X-Auth-User-Id
+// at worst changes which SUMMARY COUNTS you see; every drill target the
+// page links to is enforced server-side by rbacEnforce on its own routes.
+//
+// P28-2 refactor: identity/permission/dismissal resolution moved to
+// _lib/assistant/context.js so the brief handler + the ask-grid
+// get_today executor share identical semantics.
 
 import { createClient } from "@supabase/supabase-js";
-import { rbacMode, loadEffectivePermissions } from "../../../_lib/rbac/index.js";
-import { buildToday, todayISO } from "../../../_lib/assistant/today.js";
+import { rbacMode } from "../../../_lib/rbac/index.js";
+import { buildTodayForUser, resolveDisplayName } from "../../../_lib/assistant/context.js";
 
 export const config = { maxDuration: 20 };
 
@@ -45,30 +45,6 @@ export function readAuthUserId(req) {
   return UUID_RE.test(s) ? s : null;
 }
 
-async function resolveEntityId(admin, req) {
-  const h = req?.headers || {};
-  const fromHeader = String(h["x-entity-id"] ?? h["X-Entity-ID"] ?? "").trim();
-  if (UUID_RE.test(fromHeader)) return fromHeader;
-  const { data } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
-  return data?.id || null;
-}
-
-/** Greeting display name: employees link first, cached-provision name is the
- *  client's own fallback. Never throws — greeting is decoration.           */
-async function resolveDisplayName(admin, authUserId) {
-  if (!authUserId) return null;
-  try {
-    const { data } = await admin
-      .from("employees")
-      .select("display_name, first_name")
-      .eq("auth_user_id", authUserId)
-      .maybeSingle();
-    return data?.first_name || data?.display_name || null;
-  } catch {
-    return null;
-  }
-}
-
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -80,40 +56,18 @@ export default async function handler(req, res) {
   const admin = client();
   if (!admin) return res.status(500).json({ error: "Server not configured" });
 
-  const mode = rbacMode();
   const authUserId = readAuthUserId(req);
-  const entityId = await resolveEntityId(admin, req);
-  const day = todayISO();
+  const h = req.headers || {};
+  const entityHint = String(h["x-entity-id"] ?? h["X-Entity-ID"] ?? "").trim() || null;
 
-  // Permission lens: only enforce-mode + identified callers get filtered
-  // (mirrors useEffectivePermissions' inert-unless-enforce contract).
-  let permissions = null;
-  if (mode === "enforce" && authUserId && entityId) {
-    permissions = await loadEffectivePermissions(admin, authUserId, entityId);
-  }
-
-  // Today's dismissals for this user (item keys hidden until tomorrow).
-  const dismissedKeys = new Set();
-  if (authUserId) {
-    try {
-      const { data } = await admin
-        .from("assistant_dismissals")
-        .select("item_key")
-        .eq("user_id", authUserId)
-        .eq("dismissed_on", day)
-        .limit(500);
-      for (const r of data || []) dismissedKeys.add(r.item_key);
-    } catch { /* dismissals are best-effort */ }
-  }
-
-  const [payload, name] = await Promise.all([
-    buildToday(admin, { userId: authUserId, entityId, permissions, dismissedKeys, todayISO: day }),
+  const [{ day, payload }, name] = await Promise.all([
+    buildTodayForUser(admin, { authUserId, entityHint }),
     resolveDisplayName(admin, authUserId),
   ]);
 
   return res.status(200).json({
     greeting: { name, date: day },
-    mode,
+    mode: rbacMode(),
     can_dismiss: Boolean(authUserId),
     ...payload,
   });

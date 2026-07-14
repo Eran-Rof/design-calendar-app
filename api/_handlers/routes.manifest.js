@@ -770,4 +770,5 @@ export default [
   // P28-1-2 - assistant Today page aggregate + per-day item dismissals.
   ["/api/internal/assistant/today"                           , "./internal/assistant/today.js"],
   ["/api/internal/assistant/dismiss"                         , "./internal/assistant/dismiss.js"],
+  ["/api/internal/assistant/brief"                           , "./internal/assistant/brief.js"],
 ];

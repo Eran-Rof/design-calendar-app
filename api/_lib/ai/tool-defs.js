@@ -7,6 +7,11 @@
 // reply tools (terminal) → cross-app discovery + generic query (looped).
 
 import { ALLOWED_AGGS } from "./schema.js";
+import { panelKeys } from "../assistant/registry.js";
+
+// P28-2 - the open_panel allowlist comes from the capability-pack registry,
+// so a pack adding a routable panel automatically widens the tool schema.
+const PANEL_KEYS = [...panelKeys()].sort();
 
 export const TOOLS = [
   // ── Grid mutations (terminal) ─────────────────────────────────────────
@@ -363,6 +368,26 @@ export const TOOLS = [
         limit: { type: "integer", description: "Max rows returned (default 50, max 200)." },
       },
       required: ["table"],
+      additionalProperties: false,
+    },
+  },
+
+  // ── P28-2 assistant-first tools ───────────────────────────────────────
+  {
+    name: "get_today",
+    description: "The operator's live Today aggregate: their to-dos (queues waiting on them, with counts + severity), active process states (mirror runs, EDI outbox), and coded suggestions - already filtered to their access rights and today's dismissals. Call this when the operator asks what they should work on, what's waiting, how their day looks, or anything about 'my to-dos' / 'my queue'. Cite ONLY items it returns.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "open_panel",
+    description: "Navigate the operator's Tangerine screen to a panel (terminal - the client performs the navigation). Use when the operator picks something to work on ('let's do the approvals', 'open the chargebacks') or asks to go somewhere. Combine with a short answer_text saying what you opened and why. Panel keys map to the modules on the Today page items ('panel' field of get_today results).",
+    input_schema: {
+      type: "object",
+      properties: {
+        panel: { type: "string", enum: PANEL_KEYS, description: "Target panel key - use the 'panel' value from the matching get_today item." },
+        q: { type: "string", description: "Optional search text to seed the target panel's search box." },
+      },
+      required: ["panel"],
       additionalProperties: false,
     },
   },

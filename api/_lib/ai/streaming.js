@@ -16,8 +16,8 @@
 
 import {
   MODEL,
-  MAX_TOKENS,
-  MAX_TOOL_ITERATIONS,
+  maxTokensForApp,
+  maxIterationsForApp,
   HANDLER,
   TERMINAL_TOOLS,
   TOOL_LABELS,
@@ -73,13 +73,15 @@ export async function runStreaming(req, res, opts) {
   let lastEmittedAnswerText = "";
 
   try {
-    for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+    const maxTokens = maxTokensForApp(execCtx?.app);
+    const maxIterations = maxIterationsForApp(execCtx?.app);
+    for (let iter = 0; iter < maxIterations; iter++) {
       if (clientGone) return;
       sseWrite(res, "stage", { label: iter === 0 ? "Thinking…" : "Continuing…" });
 
       const stream = await client.messages.stream({
         model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         system: SYSTEM_CACHED,
         tools: TOOLS_CACHED,
         messages,

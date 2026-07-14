@@ -26,7 +26,13 @@ export interface ClearFiltersAction {
   params: Record<string, never>;
 }
 
-export type AIAction = ApplyFiltersAction | SetSortAction | ClearFiltersAction;
+// P28-2 — assistant navigation: open a Tangerine panel (client-side hop).
+export interface OpenPanelAction {
+  type: "open_panel";
+  params: { panel: string; q?: string };
+}
+
+export type AIAction = ApplyFiltersAction | SetSortAction | ClearFiltersAction | OpenPanelAction;
 
 // Optional follow-up the server can return alongside an answer. Used
 // when Claude wants to propose a grid filter the user can opt into
@@ -278,5 +284,6 @@ export function describeAction(action: AIAction): string {
     }
     case "set_sort":     return `Sorted by ${action.params.col} ${action.params.dir}`;
     case "clear_filters": return "Cleared all filters";
+    case "open_panel":   return `Opened ${action.params.panel}${action.params.q ? ` (search "${action.params.q}")` : ""}`;
   }
 }

@@ -186,6 +186,7 @@ import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, set
 import { appConfig } from "./config/env";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { AskAIPanel } from "./ai/AskAIPanel";
+import { onAskAIRequest } from "./ai/askAIBridge";
 import type { GridContextSnapshot } from "./ai/tools";
 
 // Module registry + palette extracted to src/erp/ (Tangerine.tsx shrink).
@@ -297,6 +298,16 @@ export default function Tangerine() {
   // Also accepts the legacy `?view=` param written by COA click-throughs etc.
   // Read on initial mount; subsequent navigation uses goToModule() below.
   const [aiOpen, setAiOpen] = useState(false);
+  // P28-2 — Today-page chat input (and any future surface) opens the panel
+  // pre-filled via the askAIBridge event; onOpenPanel lets the assistant's
+  // open_panel action drive the module hop.
+  const [aiDraft, setAiDraft] = useState<string | null>(null);
+  useEffect(() => {
+    return onAskAIRequest((req) => {
+      setAiDraft(req.prompt);
+      setAiOpen(true);
+    });
+  }, []);
 
   // Navigation drawer collapsed state (persisted in localStorage).
   const [drawerCollapsed, setDrawerCollapsed] = useState<boolean>(() => {
@@ -784,6 +795,19 @@ export default function Tangerine() {
         open={aiOpen}
         onClose={() => setAiOpen(false)}
         appId="tangerine"
+        draftInput={aiDraft}
+        onDraftInputConsumed={() => setAiDraft(null)}
+        onOpenPanel={(panel, q) => {
+          // Registry-validated server-side, but never trust a hop blind -
+          // an unknown key would blank the content area.
+          if (!(MODULES as { key: string }[]).some((m) => m.key === panel)) return;
+          goToModule(panel as ModuleKey);
+          if (q) {
+            const url = new URL(window.location.href);
+            url.searchParams.set("q", q);
+            window.history.replaceState(window.history.state, "", url.toString());
+          }
+        }}
         setters={{}}
         buildContext={(): GridContextSnapshot => ({
           columns: [],

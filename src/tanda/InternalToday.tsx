@@ -12,6 +12,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { getCachedAuthUserName } from "../utils/tangerineAuthUser";
 import { usePersonalization } from "../hooks/usePersonalization";
+import { askAI } from "../ai/askAIBridge";
 
 // menuKeys key for this page — setting it as home_route makes Today the
 // operator's auto-landing screen (T4-4 redirect, once per tab session).
@@ -89,6 +90,29 @@ export default function InternalToday() {
   const { homeRoute, setHomeRoute, status: prefStatus } = usePersonalization();
   const isHome = homeRoute === TODAY_MENU_KEY;
 
+  // P28-2 — the assistant's morning brief (one model run per user per day,
+  // cached server-side). Fail-soft: body null → templated greeting only.
+  const [brief, setBrief] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [ask, setAsk] = useState("");
+
+  const loadBrief = useCallback((refresh = false) => {
+    setBriefLoading(true);
+    fetch(`/api/internal/assistant/brief${refresh ? "?refresh=1" : ""}`)
+      .then((r) => r.json())
+      .then((j) => setBrief(typeof j?.body === "string" && j.body ? j.body : null))
+      .catch(() => setBrief(null))
+      .finally(() => setBriefLoading(false));
+  }, []);
+  useEffect(() => { loadBrief(); }, [loadBrief]);
+
+  const submitAsk = useCallback(() => {
+    const q = ask.trim();
+    if (!q) return;
+    setAsk("");
+    askAI({ prompt: q, source: "today-page" });
+  }, [ask]);
+
   const load = useCallback(() => {
     setLoading(true);
     setErr("");
@@ -143,7 +167,47 @@ export default function InternalToday() {
             {greetingWord()}{firstName ? `, ${firstName}` : ""}
           </div>
           <div style={{ fontSize: 13, color: C.textSub, marginTop: 2 }}>
-            {data ? fmtDateUS(data.greeting.date) : ""} — here is where your day stands.
+            {data ? fmtDateUS(data.greeting.date) : ""}{brief ? "" : " — here is where your day stands."}
+          </div>
+          {briefLoading && !brief && (
+            <div style={{ fontSize: 13.5, color: C.textMuted, marginTop: 8 }}>Your assistant is reading the queues…</div>
+          )}
+          {brief && (
+            <div style={{ fontSize: 14, color: C.textSub, marginTop: 8, maxWidth: 720, lineHeight: 1.5 }}>
+              {brief}
+              <button
+                title="Re-read the queues and rephrase"
+                onClick={() => loadBrief(true)}
+                style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 12, marginLeft: 8 }}
+              >
+                ↻
+              </button>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 10, maxWidth: 560 }}>
+            <input
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitAsk(); }}
+              onFocus={(e) => e.currentTarget.select()}
+              placeholder="What do you want to work on? Ask your assistant…"
+              style={{
+                flex: 1, background: "#0b1220", border: `1px solid ${C.cardBdr}`, color: C.text,
+                borderRadius: 8, padding: "8px 12px", fontSize: 13.5, outline: "none",
+              }}
+            />
+            <button
+              onClick={submitAsk}
+              disabled={!ask.trim()}
+              style={{
+                background: ask.trim() ? C.primary : "transparent",
+                border: `1px solid ${ask.trim() ? C.primary : C.cardBdr}`,
+                color: ask.trim() ? "#fff" : C.textMuted,
+                borderRadius: 8, padding: "8px 14px", cursor: ask.trim() ? "pointer" : "default", fontSize: 13.5,
+              }}
+            >
+              Ask
+            </button>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
