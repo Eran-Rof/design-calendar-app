@@ -279,7 +279,7 @@ function ReviewModal({ doc, docType, vendorName, onClose, onAction, openFile }: 
         <div style={{ background: TH.surfaceHi, border: `1px solid ${TH.border}`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
           <InfoRow label="File">
             <button onClick={() => openFile(doc.file_url, doc.file_name)} style={{ background: "none", border: "none", padding: 0, color: TH.primary, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
-              {doc.file_name ?? doc.file_url.split("/").pop()} ↗
+              {doc.file_name ?? doc.file_url.split("/").pop()}
             </button>
           </InfoRow>
           <InfoRow label="Issued">{fmtDate(doc.issued_at)}</InfoRow>

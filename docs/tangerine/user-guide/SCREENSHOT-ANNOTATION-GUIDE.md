@@ -300,7 +300,7 @@ Suggested filenames per the OPERATOR-TODO list. Lower priority than Part 1, but 
   - → arrow to the **product-image thumbnail** before the style number (note "click to enlarge").
   - ▭ box the **color × size grid** (sizes in scale order, not alphabetical).
   - → arrow to the **Avg Cost** column.
-  - → arrow to the **On-Hand / ATS ↗** toggle (ATS is an out-link).
+  - → arrow to the **On-Hand / ATS** toggle (ATS is an out-link).
 
 ## Chapter 29 — B2B Portal
 

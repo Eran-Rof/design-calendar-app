@@ -170,7 +170,7 @@ export function createInitialState(startDate: string, initialSearch = ""): ATSSt
     startDate,
     rangeUnit: "months",
     rangeValue: 6,
-    // Prefilled from a `?style=` deep-link (e.g. the Inventory Matrix "ATS ↗"
+    // Prefilled from a `?style=` deep-link (e.g. the Inventory Matrix "ATS" link
     // link). The free-text search matches on row SKU, which carries the style
     // code prefix, so seeding it focuses ATS on that style on first paint.
     search: initialSearch,

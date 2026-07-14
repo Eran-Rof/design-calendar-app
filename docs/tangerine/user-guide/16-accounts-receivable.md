@@ -357,7 +357,7 @@ Each row's "Total Open" matches the sum across all six buckets. The footer row t
 
 > **Drill-through (Phase 2, 2026-07-09):** every amount is clickable — cell, row total, or column
 > total — and opens the list of open invoices behind that number (dates, days past due, open
-> amount; footer ties to the cell). Each row links to the invoice (**↗**) and its posting journal
+> amount; footer ties to the cell). Clicking a row (its invoice number is shown in blue) opens the invoice, and a **JE** button opens its posting journal
 > entry (**JE**). Deep link: `?m=ar_aging&bucket=<key>&party=<customer id>`. See the
 > [Accounting chapter's drill-through section](03-accounting.md#drill-through-phase-2--agings-segment-pl-bank-recon-2026-07-09).
 

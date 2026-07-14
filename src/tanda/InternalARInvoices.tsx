@@ -529,7 +529,7 @@ export default function InternalARInvoices() {
                     style={isVoid ? { opacity: 0.5 } : undefined}
                   >
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }} hidden={!isVisible("invoice_number")}>
-                      {inv.invoice_number}
+                      <span style={{ color: C.primary, fontWeight: 600 }}>{inv.invoice_number}</span>
                       <SourceBadge source={inv.source} />
                     </td>
                     <td style={td} hidden={!isVisible("invoice_date")}>{fmtDateDisplay(inv.invoice_date)}</td>
@@ -558,7 +558,7 @@ export default function InternalARInvoices() {
                             onClick={(e) => { e.stopPropagation(); setJeSeed({ id: inv.accrual_je_id as string }); }}
                             title="Open the journal entry this invoice posted"
                             style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, color: statusColor(inv.gl_status), fontWeight: 600, fontSize: "inherit", textDecoration: "underline" }}>
-                            ● {inv.gl_status} ↗
+                            ● {inv.gl_status}
                           </button>
                         : <span style={{ color: statusColor(inv.gl_status), fontWeight: 600 }}>● {inv.gl_status}</span>}
                     </td>

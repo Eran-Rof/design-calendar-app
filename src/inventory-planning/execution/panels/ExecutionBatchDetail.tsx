@@ -506,7 +506,7 @@ export default function ExecutionBatchDetail({
                           <a href={PO_PANEL_URL} target="_blank" rel="noreferrer"
                              style={{ ...S.chip, background: PAL.green + "22", color: PAL.green, textDecoration: "none" }}
                              title={`Draft Tangerine PO ${tpo} — open Procurement`}>
-                            draft PO ↗
+                            draft PO
                           </a>
                         ) : <span style={{ color: PAL.textMuted }}>–</span>;
                       })()}

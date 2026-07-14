@@ -91,7 +91,7 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 ### Drill-through to the underlying transactions
 
-**Vendor Scorecard — per-line drill opens in a new tab (2026-06-05).** The vendor scorecard's "Drill to:" bar, clickable metric tiles, and per-tab "Open in … ↗" buttons have been **removed**. Instead, **each transaction line in the AP-Invoices and POs tabs is now clickable** (cursor pointer + row hover highlight + a small ↗ next to the doc number). Click (or double-click) a line to **open that exact record in a new browser tab**:
+**Vendor Scorecard — per-line drill opens in a new tab (2026-06-05).** The vendor scorecard's "Drill to:" bar, clickable metric tiles, and per-tab "Open in …" buttons have been **removed**. Instead, **each transaction line in the AP-Invoices and POs tabs is now clickable** (cursor pointer + row hover highlight; the doc number is shown in blue). Click a line to **open that exact record in a new browser tab**:
 
 | Tab line | Opens (new tab) | Deep-link |
 |---|---|---|
@@ -100,7 +100,7 @@ Data-source honesty is baked in — each metric is computed from a documented so
 
 The target panel reads `?q=` on mount and seeds its search box, filtering to the single matching record (`invoice_number` / `po_number` `ilike`) so the clicked transaction is the only row shown. Draft POs (no PO number) are not clickable. The vendor's name/code is always shown — never a raw UUID.
 
-**Customer Scorecard — per-line drill opens an in-place popup (2026-06-15).** The customer scorecard's **"Drill to:"** bar and the per-tab **"Open in … ↗"** buttons have been **removed**. Instead, **each row in the Invoices / Sales Orders / Journal Entries tabs is clickable** (cursor pointer + row hover highlight; the number/date renders in the accent colour). Click a row to open that exact record in a **popup over the scorecard**:
+**Customer Scorecard — per-line drill opens an in-place popup (2026-06-15).** The customer scorecard's **"Drill to:"** bar and the per-tab **"Open in …"** buttons have been **removed**. Instead, **each row in the Invoices / Sales Orders / Journal Entries tabs is clickable** (cursor pointer + row hover highlight; the number/date renders in the accent colour). Click a row to open that exact record in a **popup over the scorecard**:
 
 - The popup shows the record's **header** (customer/date/status/total — for a JE: type + description) and its **line items** (invoice/SO: item/description · qty · unit · line total; JE: account *(resolved to `code — name`, never a UUID)* · memo · debit · credit).
 - **✎ Edit (new tab)** opens the full record in the matching module in a **new browser tab** (`?m=ar_invoices|sales_orders|journal_entries&q=<number>`), so the scorecard stays open behind it.

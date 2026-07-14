@@ -91,7 +91,7 @@ export default function GLDetailModal({
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  // Double-click (or ↗) a ledger line -> open that line's full Journal Entry in
+  // Click a ledger line -> open that line's full Journal Entry in
   // the shared JE detail/reverse modal. Seeded with the JE id + description from
   // the line; the JE modal self-fetches the rest. No raw UUID is shown.
   const [jeSeed, setJeSeed] = useState<JEDetailSeed | null>(null);
@@ -243,38 +243,23 @@ export default function GLDetailModal({
                   <th style={{ ...th, textAlign: "right" }}>Debit</th>
                   <th style={{ ...th, textAlign: "right" }}>Credit</th>
                   <th style={{ ...th, textAlign: "right" }}>Running Balance</th>
-                  <th style={{ ...th, width: 36, textAlign: "center" }} title="Open the full journal entry">JE</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr
                     key={`${r.je_id}-${r.posting_date}`}
-                    onDoubleClick={() => setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
+                    onClick={() => setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description })}
                     style={{ cursor: "pointer" }}
-                    title="Double-click to open the full journal entry"
+                    title="Click to open the full journal entry"
                   >
                     <td style={td}>{fmtDateDisplay(r.posting_date)}</td>
-                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap" }}>{r.je_number || "—"}</td>
+                    <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", whiteSpace: "nowrap", color: C.primary, fontWeight: 600 }}>{r.je_number || "—"}</td>
                     <td style={td}>{r.description || "—"}</td>
                     <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.source_module || "—"}</td>
                     <td style={tdNum}>{fmtCents(r.debit_cents)}</td>
                     <td style={tdNum}>{fmtCents(r.credit_cents)}</td>
                     <td style={{ ...tdNum, fontWeight: 600 }}>{fmtBalanceCents(r.running_balance_cents)}</td>
-                    <td style={{ ...td, textAlign: "center", padding: "4px 6px" }}>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setJeSeed({ id: r.je_id, je_number: r.je_number, description: r.description }); }}
-                        title="Open the full journal entry"
-                        aria-label="Open the full journal entry"
-                        style={{
-                          background: "transparent", color: C.primary, border: `1px solid ${C.cardBdr}`,
-                          borderRadius: 6, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "2px 6px",
-                        }}
-                      >
-                        ↗
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -284,7 +269,6 @@ export default function GLDetailModal({
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.debit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totals.credit)}</td>
                   <td style={{ ...tdNum, fontWeight: 700, color: netCents !== 0 ? C.text : C.textMuted }}>{fmtBalanceCents(netCents)}</td>
-                  <td style={td}></td>
                 </tr>
               </tfoot>
             </table>

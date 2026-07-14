@@ -274,7 +274,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                       <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>Channel: {pn}</span>
                       <div style={{ display: "flex", gap: 6 }}>
                         {teamsChannelMap[pn] && <button onClick={() => teamsLoadPOMessages(pn)} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: "none", color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>↻ Refresh</button>}
-                        <button onClick={() => { setSelected(null); setView("teams"); setTeamsSelPO(pn); setTeamsTab("channels"); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}22`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>Open Teams ↗</button>
+                        <button onClick={() => { setSelected(null); setView("teams"); setTeamsSelPO(pn); setTeamsTab("channels"); }} style={{ fontSize: 11, padding: "3px 9px", borderRadius: 6, border: `1px solid ${TEAMS_PURPLE}44`, background: `${TEAMS_PURPLE}22`, color: TEAMS_PURPLE_LT, cursor: "pointer", fontFamily: "inherit" }}>Open Teams</button>
                       </div>
                     </div>
                     {!teamsChannelMap[pn] ? (
@@ -319,7 +319,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                   {/* Quick DM */}
                   <div style={{ background: "#0F172A", border: `1px solid ${TEAMS_PURPLE}44`, borderRadius: 10, overflow: "visible" as const }}>
                     <div style={{ padding: "10px 14px", background: `${TEAMS_PURPLE}22`, borderBottom: `1px solid ${TEAMS_PURPLE}44` }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>↗ Quick Direct Message</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: TEAMS_PURPLE_LT }}>Quick Direct Message</span>
                     </div>
                     <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ position: "relative" as const }}>
@@ -390,7 +390,7 @@ export function EmailTab({ ctx }: { ctx: DetailPanelCtx }): React.ReactElement |
                           setDtlDMSending(false);
                         }}
                         style={{ background: `linear-gradient(135deg,${TEAMS_PURPLE},${TEAMS_PURPLE_LT})`, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 12, fontWeight: 700, cursor: (dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (dtlDMSending || !dtlDMTo.trim() || !dtlDMMsg.trim()) ? 0.5 : 1, alignSelf: "flex-end" as const }}>
-                        {dtlDMSending ? "Sending…" : "Send DM ↗"}
+                        {dtlDMSending ? "Sending…" : "Send DM"}
                       </button>
                     </div>
                   </div>

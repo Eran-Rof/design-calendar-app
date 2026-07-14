@@ -239,10 +239,9 @@ export default function InternalBalanceSheet() {
                   onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = "#162033"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
                 >
-                  <td style={{ ...td, paddingLeft: isContra ? 24 : 10 }}>
-                    <span style={{ color: C.textMuted, marginRight: 6, fontSize: 11 }}>{r.code}</span>
+                  <td style={{ ...td, paddingLeft: isContra ? 24 : 10, color: drillable ? C.primary : undefined }}>
+                    <span style={{ color: drillable ? C.primary : C.textMuted, marginRight: 6, fontSize: 11 }}>{r.code}</span>
                     {r.name}
-                    {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
                   </td>
                   <td style={{ ...tdNum, color: isContra ? C.textMuted : C.text }}>
                     {fmtCents(displayBalance)}
@@ -347,7 +346,7 @@ export default function InternalBalanceSheet() {
       )}
 
       <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginBottom: 12 }}>
-        Tip: click any account to open its GL detail (↗) for the year-to-date through the as-of date.
+        Tip: click any account (shown in blue) to open its GL detail for the year-to-date through the as-of date.
       </div>
 
       {loading ? (

@@ -602,7 +602,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                   <button onClick={() => { if (selEmailObj) doReply(selEmailObj.id, emailReplyText); }}
                     disabled={!emailReplyText.trim() || !selEmailObj}
                     style={{ padding: "7px 16px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", opacity: (!emailReplyText.trim() || !selEmailObj) ? 0.5 : 1 }}>
-                    Send ↗
+                    Send
                   </button>
                 </div>
               </div>
@@ -689,7 +689,7 @@ export function emailViewPanel(ctx: EmailPanelCtx): React.ReactElement | null {
                   style={{ padding: "7px 16px", borderRadius: 7, border: `1px solid ${C.border}`, background: "none", color: C.text3, cursor: "pointer", fontFamily: "inherit" }}>Discard</button>
                 <button onClick={doSendEmail} disabled={!emailComposeTo.trim() || !emailComposeSubject.trim()}
                   style={{ padding: "7px 18px", background: `linear-gradient(135deg, ${C.outlook}, ${C.outlookLt})`, border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: (!emailComposeTo.trim() || !emailComposeSubject.trim()) ? 0.5 : 1 }}>
-                  Send ↗
+                  Send
                 </button>
               </div>
             </div>

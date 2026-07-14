@@ -109,7 +109,6 @@ function Metric({ label, value, caption, valueColor }: { label: string; value: s
   );
 }
 
-const drillArrow: React.CSSProperties = { color: C.primary, fontSize: 11, opacity: 0.7 };
 
 // A clickable transaction line. Single- or double-click opens the underlying
 // record in a NEW browser tab. Hover highlights the row to advertise the action.
@@ -262,7 +261,7 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
                   <tbody>
                     {(data.invoices || []).map((i) => (
                       <DrillRow key={i.id} title={`Open invoice ${i.invoice_number} in a new tab`} onOpen={() => openRecordInNewTab("ap_invoices", i.invoice_number)}>
-                        <td style={td}>{i.invoice_number} <span style={drillArrow}>↗</span></td>
+                        <td style={td}><span style={{ color: C.primary, fontWeight: 600 }}>{i.invoice_number}</span></td>
                         <td style={td}>{fmtDateDisplay(i.posting_date)}</td>
                         <td style={td}>{i.gl_status}</td>
                         <td style={tdR}>{fmtCents(i.total_amount_cents)}</td>
@@ -293,7 +292,7 @@ export default function VendorScorecard({ vendorId, onClose }: { vendorId: strin
                   <tbody>
                     {filteredPOs.map((p) => (
                       <DrillRow key={p.id} title={p.po_number ? `Open PO ${p.po_number} in a new tab` : ""} onOpen={() => openRecordInNewTab("purchase_orders", p.po_number || "")} disabled={!p.po_number}>
-                        <td style={td}>{p.po_number || "(draft)"} {p.po_number ? <span style={drillArrow}>↗</span> : null}</td>
+                        <td style={td}>{p.po_number ? <span style={{ color: C.primary, fontWeight: 600 }}>{p.po_number}</span> : "(draft)"}</td>
                         <td style={td}>{p.date_order || "—"}</td>
                         <td style={td}>{p.date_expected || p.date_expected_delivery || "—"}</td>
                         <td style={td}>{p.status || "—"}</td>

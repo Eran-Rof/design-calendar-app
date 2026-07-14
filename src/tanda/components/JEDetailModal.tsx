@@ -361,7 +361,7 @@ export default function JEDetailModal({
                                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                               >
                                 <span>{d.kind}{d.number ? ` ${d.number}` : ""}{d.party ? ` · ${d.party}` : ""}</span>
-                                <span style={{ color: C.textMuted }}>{d.leg === "cash" ? "payment" : d.leg === "accrual" ? "accrual" : ""} ↗</span>
+                                <span style={{ color: C.textMuted }}>{d.leg === "cash" ? "payment" : d.leg === "accrual" ? "accrual" : ""}</span>
                               </button>
                             ))}
                             {srcDoc.truncated && (
@@ -384,7 +384,7 @@ export default function JEDetailModal({
                         onClick={() => { if (only) openSourceDoc(only); else { onClose(); drillToModule(srcDoc.module as DrillModuleKey, { q: srcDoc.q as string }); } }}
                         title="Open the document this entry was posted from"
                         style={{ background: "transparent", border: "none", color: "#3B82F6", cursor: "pointer", padding: 0, fontSize: 13, textDecoration: "underline" }}>
-                        {srcDoc.label}{only?.party ? ` · ${only.party}` : ""} ↗
+                        {srcDoc.label}{only?.party ? ` · ${only.party}` : ""}
                       </button>
                     );
                   }

@@ -207,10 +207,10 @@ export default function CostingApp() {
           </a>
           <a href="/vendor" target="_blank" rel="noopener noreferrer"
              title="Open the vendor portal in a new tab"
-             style={topLink}>Vendor Portal ↗</a>
+             style={topLink}>Vendor Portal</a>
           <a href="/vendor/onboarding" target="_blank" rel="noopener noreferrer"
              title="Open vendor onboarding in a new tab"
-             style={topLink}>Vendor Onboarding ↗</a>
+             style={topLink}>Vendor Onboarding</a>
         </div>
       </div>
 

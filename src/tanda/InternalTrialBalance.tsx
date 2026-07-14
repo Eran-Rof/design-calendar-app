@@ -311,10 +311,9 @@ export default function InternalTrialBalance() {
                           onMouseEnter={(e) => { if (drillable) e.currentTarget.style.background = C.groupHeaderBg; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
                         >
-                          <td style={{ ...td, fontFamily: "monospace", color: C.textSub }}>{r.code || "—"}</td>
-                          <td style={td}>
+                          <td style={{ ...td, fontFamily: "monospace", color: drillable ? C.primary : C.textSub }}>{r.code || "—"}</td>
+                          <td style={{ ...td, color: drillable ? C.primary : undefined }}>
                             {r.name || "—"}
-                            {drillable && <span style={{ marginLeft: 6, color: C.primary, fontSize: 11 }}>↗</span>}
                           </td>
                           <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.account_type || "—"}</td>
                           <td style={{ ...td, color: C.textMuted, fontSize: 11 }}>{r.normal_balance || "—"}</td>

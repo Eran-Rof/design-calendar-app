@@ -280,7 +280,7 @@ export default function InternalAPPayments() {
                             onClick={(e) => { e.stopPropagation(); setJeSeed({ id: p.cash_je_id as string }); }}
                             title="Open the journal entry this payment posted"
                             style={{ background: "transparent", border: "none", color: C.success, cursor: "pointer", padding: 0, fontSize: 11, textDecoration: "underline" }}>
-                            ✓ posted ↗
+                            ✓ posted
                           </button>
                         : "—"}
                     </td>

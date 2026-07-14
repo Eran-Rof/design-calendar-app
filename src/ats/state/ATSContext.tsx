@@ -7,7 +7,7 @@ const today = new Date();
 const defaultStart = fmtDate(addDays(today, -5));
 
 // Deep-link prefill: read `?style=<code>` from the URL once on load so a caller
-// (e.g. the Inventory Matrix "ATS ↗" link) can open ATS focused on a style. The
+// (e.g. the Inventory Matrix "ATS" link) can open ATS focused on a style. The
 // value seeds the free-text search box, which matches on row SKU (style-coded).
 function initialSearchFromUrl(): string {
   if (typeof window === "undefined") return "";

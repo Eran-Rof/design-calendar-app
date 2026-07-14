@@ -68,7 +68,7 @@ export default function CostingNavBar() {
           style={linkBtn}
           title="Open the vendor portal in a new tab"
         >
-          Vendor Portal ↗
+          Vendor Portal
         </a>
         <a
           href="/vendor/onboarding"
@@ -77,7 +77,7 @@ export default function CostingNavBar() {
           style={linkBtn}
           title="Open vendor onboarding in a new tab"
         >
-          Vendor Onboarding ↗
+          Vendor Onboarding
         </a>
       </div>
     </div>

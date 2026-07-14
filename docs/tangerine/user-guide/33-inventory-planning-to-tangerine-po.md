@@ -19,7 +19,7 @@ On a batch that is **approved** (or exported / submitted / partially executed):
 
 Both buttons require the **`run_writeback`** planning permission (admin / operations_user roles). They are disabled with a tooltip if your role lacks it.
 
-After a real run, each created PO shows a **`open in Procurement →`** link, and every action in the table gets a persistent **Tangerine PO** chip (`draft 1a2b3c4d ↗`) that deep-links to the PO panel — so the link survives a page refresh, not just the result banner.
+After a real run, each created PO shows a **`open in Procurement →`** link, and every action in the table gets a persistent **Tangerine PO** chip (`draft 1a2b3c4d`) that deep-links to the PO panel — so the link survives a page refresh, not just the result banner.
 
 ## 33.3 How each line is built
 
