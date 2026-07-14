@@ -38,6 +38,7 @@ import { tool_lookup_user_facts } from "./executors-user-facts.js";
 import { tool_start_workflow } from "./workflows.js";
 import { searchUserGuide } from "./userGuide.js";
 import { tool_get_today } from "./executors-today.js";
+import { tool_run_action } from "./executors-actions.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Schema merging — curated registry + live introspection
@@ -674,4 +675,6 @@ export const TOOL_EXECUTORS = {
   search_user_guide: async (_db, input) => searchUserGuide(input || {}),
   // P28-2 — the caller's Today aggregate (assistant-first program).
   get_today:         tool_get_today,
+  // P28-4 — draft-action preview + confirm-token mint (looped, never writes).
+  run_action:        tool_run_action,
 };
