@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { PAL } from "../../components/styles";
 import type { IpPlanningGridRow } from "../../types/wholesale";
 import {
-  buildBuyerVsLyReport, reportComp, reportPct,
+  buildBuyerVsLyReport, filterOutZeroReportRows, reportComp, reportPct,
   type ReportCustomer, type ReportPeriod,
 } from "./buildBuyerVsLyReport";
 import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExports";
@@ -23,8 +23,12 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
   onClose: () => void;
 }) {
   const [scope, setScope] = useState<"filtered" | "full">("filtered");
+  const [hideZero, setHideZero] = useState(false);
   const rows = scope === "full" ? fullRows : scopedRows;
-  const report = useMemo(() => buildBuyerVsLyReport(rows), [rows]);
+  const built = useMemo(() => buildBuyerVsLyReport(rows), [rows]);
+  // The view + both exports use the same (optionally zero-filtered) report so a
+  // download always matches what's on screen.
+  const report = useMemo(() => (hideZero ? filterOutZeroReportRows(built) : built), [built, hideZero]);
   const scopeLabel = scope === "full" ? "Full run" : "Current filters";
 
   const th: React.CSSProperties = { padding: "6px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#fff", background: PAL.accent, whiteSpace: "nowrap" };
@@ -135,7 +139,13 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
             <button type="button" style={seg(scope === "filtered")} onClick={() => setScope("filtered")}>Current filters</button>
             <button type="button" style={seg(scope === "full")} onClick={() => setScope("full")}>Full run</button>
           </div>
-          <button type="button" style={btn} onClick={() => exportBuyerVsLyExcel(report, { runName, scopeLabel })}>Download Excel</button>
+          <button
+            type="button"
+            style={seg(hideZero)}
+            onClick={() => setHideZero((v) => !v)}
+            title="Hide rows where both last year and this year's Buyer are zero across every month"
+          >{hideZero ? "Zero rows: hidden" : "Hide zero rows"}</button>
+          <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel }); }}>Download Excel</button>
           <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel })}>Download PDF</button>
           <button type="button" style={{ ...btn, borderColor: PAL.border, padding: "6px 10px" }} onClick={onClose} title="Close">✕</button>
         </div>

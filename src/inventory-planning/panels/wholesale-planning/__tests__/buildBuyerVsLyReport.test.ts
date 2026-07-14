@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBuyerVsLyReport, reportComp, reportPct } from "../buildBuyerVsLyReport";
+import { buildBuyerVsLyReport, filterOutZeroReportRows, reportComp, reportPct } from "../buildBuyerVsLyReport";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 function row(over: Partial<IpPlanningGridRow>): IpPlanningGridRow {
@@ -57,6 +57,23 @@ describe("buildBuyerVsLyReport", () => {
       row({ buyer_request_qty: 999, is_aggregate: true }),
     ]);
     expect(rep.customers[0].styles[0].colors[0].ty).toEqual([100]);
+  });
+
+  it("filterOutZeroReportRows drops all-zero color rows, and empty styles/customers", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "black", buyer_request_qty: 100 }),
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "zero1", buyer_request_qty: 0, ly_reference_qty: 0 }),
+      row({ customer_name: "Empty Co", sku_style: "B", sku_color: "zero2", buyer_request_qty: 0, ly_reference_qty: 0 }),
+    ]);
+    const filtered = filterOutZeroReportRows(rep);
+    // Ross keeps only "black"; "zero1" dropped.
+    const ross = filtered.customers.find((c) => c.customer === "Ross Stores")!;
+    expect(ross.styles[0].colors.map((c) => c.color)).toEqual(["black"]);
+    // "Empty Co" had only a zero row → customer dropped entirely.
+    expect(filtered.customers.find((c) => c.customer === "Empty Co")).toBeUndefined();
+    // A row with LY but no TY is NOT zero → kept.
+    const rep2 = buildBuyerVsLyReport([row({ sku_color: "lyonly", buyer_request_qty: 0, ly_reference_qty: 500 })]);
+    expect(filterOutZeroReportRows(rep2).customers[0].styles[0].colors[0].color).toBe("lyonly");
   });
 
   it("comp + pct helpers: new color (no LY) reads +100%", () => {
