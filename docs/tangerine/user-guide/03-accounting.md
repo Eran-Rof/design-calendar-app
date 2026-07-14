@@ -955,20 +955,40 @@ The strip across the top shows the **last 12 periods** with their status at a gl
 
 ### Automated checks (Run checks)
 
-**Run checks** executes the whole battery server-side in one shot (SQL aggregation — no row caps) and stores each verdict **with the numbers behind it**. Expand any row (▸) to see exactly why it passed or failed:
+**Run checks** executes the whole battery server-side in one shot (SQL aggregation — no row caps) and stores each verdict **with a plain-language explanation, a recommended next step, and the numbers behind it**. Every check is scored **as of the period-end date** (both the GL side and the subledger side are valued to the last day of the month — not "all-time-through-today", which is what made a historical close look broken). Expand any row (▸) to see the numbers.
 
 | Check | Passes when |
 |---|---|
 | **GL balanced** | posted debits = credits for the period, on BOTH bases, to the cent |
-| **AR subledger tie** | 1105 / 1107 / 1108 GL balances = open AR invoices routed to each account (the daily #1665 monitor's math) |
-| **AP subledger tie** | 2000 GL = unpaid posted vendor bills; carries the `pending_payments` waiver while the payments ledger isn't live |
-| **Bank / CC reconciled** | every bank reconciliation run for the period is `reconciled` (and at least one exists) |
+| **AR subledger tie** | as of month-end, 1105 / 1107 / 1108 GL balances = open AR invoices routed to each account |
+| **AP subledger tie** | as of month-end, 2000 GL = open posted vendor bills (invoiced − cash-applied by that date) |
+| **Bank / CC reconciled** | every true bank/credit-card **statement** account has a reconciled run for the period |
 | **No draft JEs** | zero draft / pending-approval / unposted journal entries dated in the period |
-| **8007 Uncategorized** | zero Uncategorized Expense activity in the period — anything else must be reclassed first |
+| **8007 Uncategorized** | zero Uncategorized Expense activity in the period — anything else should be reclassed |
 | **Factor tie** | if a Rosenthal statement covers the month, its ending Net OAR = GL 1107 as of period end |
 | **Revenue posted** | period revenue > $0 (sanity — an empty month means the feed didn't post) |
 
 Checks can be re-run any number of times; each run overwrites the automated verdicts (manual sign-offs are never touched).
+
+### Reading the close checks — statuses and closing with a documented exception
+
+Not every non-green result is a problem you must fix. Each card carries one of four **statuses**, and only one of them blocks the close:
+
+| Status | Colour | Blocks close? | What it means |
+|---|---|---|---|
+| **Pass** | green | no | Ties out (or nothing to check). No action. |
+| **Blocker** (`fail`) | red | **YES** | A genuine problem that must be fixed before the month can close (an out-of-balance GL, or draft JEs in the period). The card says exactly what to do. |
+| **Advisory** (`warn`) | amber | no | A real difference worth a look, but a known/expected one that shouldn't stop a close — e.g. an AR tie residual while the per-invoice history is still being reconstructed ahead of the cutover backfill. |
+| **Waived** | grey | no | A documented, non-cash or not-yet-operated exception that *cannot* tie by design yet. Hover the chip for "why". |
+
+**Common non-blocking states on migration-era months:**
+
+- **AR subledger tie → Waived (pre-AR-history).** Any month **ending before 09/01/2024** predates Tangerine's migrated AR invoice detail. The GL carries the opening AR balances, but there are no invoice-level records to tie them to yet, so there is nothing to reconcile. This resolves automatically at the cutover AR historical backfill. (August 2024 is the classic case — the "424 unmapped invoices" you may have seen was this artifact, not a books error.)
+- **AR subledger tie → Advisory (as-of diff).** For in-history months, the per-invoice AR history is still being reconstructed ahead of the cutover backfill, so a residual is expected; the card shows the largest per-account difference. Flips to Pass (or to a real Blocker to investigate) once the backfill completes.
+- **AP subledger tie → Waived (non-cash relief).** GL 2000 also carries relief that no vendor-bill *payment* represents — credit memos, factor settlements, and the 8007→1308 reclasses — so open bills can never tie to 2000 by cash application alone. The card shows the exact residual; it is a books-recon item for the accountant, not a posting error.
+- **Bank / CC reconciled → Waived (not operated).** Bank and credit-card balances are mirrored from Xoro (reconciled in Xoro through 05/31/2026); per-statement reconciliation has not yet been operated inside Tangerine, so there is nothing to pass or fail. Only true bank/credit-card accounts are scored — factor-advance (1051) and cash-clearing (1020) control accounts are reconciled through their own modules, not a bank statement, so they are excluded.
+
+**How to close a month that has advisory/waived exceptions but no blockers:** the readiness banner at the top tells you where you stand. If there are **0 blockers**, sign off the six manual items (each requires a note describing what you reviewed — that note *is* the documented exception), then click **Close period** and enter a reason. Both the sign-off notes and the close reason are captured in the T11 audit log, so the exception is on the record. If there **is** a blocker, the banner is red and Close stays disabled until you fix it.
 
 ### Manual sign-offs
 
@@ -976,7 +996,7 @@ Six judgment items ship per period: **Bank statements reviewed · Factor stateme
 
 ### Closing (and reopening) the period
 
-**Close period** stays disabled until every automated check passes AND every manual item is signed off. Closing asks for a confirmation plus a **reason**, then locks the GL period (`gl_periods` → `closed`) through the audited transition — from that moment the `je_period_lock` triggers reject any posting dated in the month. **Reopen** (admin only, mandatory reason, audit-logged) unlocks the month and drops the close back to *in close* — the checklist and its sign-offs survive, so re-closing is a review, not a restart.
+**Close period** stays disabled until there are **zero blockers** AND every manual item is signed off. (Advisory and Waived checks are non-blocking documented exceptions — they do not hold the close.) Closing asks for a confirmation plus a **reason**, then locks the GL period (`gl_periods` → `closed`) through the audited transition — from that moment the `je_period_lock` triggers reject any posting dated in the month. **Reopen** (admin only, mandatory reason, audit-logged) unlocks the month and drops the close back to *in close* — the checklist and its sign-offs survive, so re-closing is a review, not a restart.
 
 Year-end (`closed_with_closing_jes`) periods are terminal and can be neither closed again nor reopened here.
 
