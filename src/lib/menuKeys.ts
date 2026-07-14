@@ -282,6 +282,8 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/commission-payouts",  label: "Commission Payouts",  app: "tanda", route: "/tangerine?m=commission_payouts",  group: "Accounting", icon: "📜" },
   // Factor Module Phase 1 — Rosenthal statements + open-AR + GL 1107 tie-out.
   { key: "tanda/accounting/factor-recon",        label: "Factor (Rosenthal)",   app: "tanda", route: "/tangerine?m=factor_recon",        group: "Accounting", icon: "🏦" },
+  // Chargeback Management — matched-invoice worklist + disposition workflow + dilution.
+  { key: "tanda/accounting/chargebacks",         label: "Chargebacks",          app: "tanda", route: "/tangerine?m=chargebacks",         group: "Accounting", icon: "🧾" },
   // Month-End Close — per-period checklist (auto tie-outs + sign-offs) + period locking.
   { key: "tanda/accounting/month-end-close",     label: "Month-End Close",      app: "tanda", route: "/tangerine?m=month_end_close",     group: "Accounting", icon: "🔒" },
   { key: "tanda/shopify/refunds",                label: "Refunds",              app: "tanda", route: "/tangerine?m=shopify_refunds",     group: "Shopify", icon: "↩️" },

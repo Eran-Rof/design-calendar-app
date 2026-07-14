@@ -74,6 +74,10 @@ const SEGMENT_MODULE = {
   // to finance_misc (read/write/export) — GETs stay read-gated, the dispute
   // write is enforceable.
   "factor": "finance_misc",
+  // Chargeback Management module (#1744). Same finance_misc class as factor:
+  // GETs (worklist + dilution) are read-gated, the disposition/owner/reason
+  // PATCH is write-gated.
+  "chargebacks": "finance_misc",
   // 3-Way Match (PO <-> receipt <-> AP bill) — payables control. Reads +
   // the accept/dispute + re-run + tolerance writes gate on ap_invoices.
   "three-way-match": "ap_invoices",
