@@ -37,6 +37,7 @@ import { tool_query_margin } from "./executors-margin.js";
 import { tool_lookup_user_facts } from "./executors-user-facts.js";
 import { tool_start_workflow } from "./workflows.js";
 import { searchUserGuide } from "./userGuide.js";
+import { tool_get_today } from "./executors-today.js";
 
 // ─────────────────────────────────────────────────────────────────────
 // Schema merging — curated registry + live introspection
@@ -671,4 +672,6 @@ export const TOOL_EXECUTORS = {
   start_workflow:    tool_start_workflow,
   // Documentation search — reads the bundled user-guide snapshot, not the DB.
   search_user_guide: async (_db, input) => searchUserGuide(input || {}),
+  // P28-2 — the caller's Today aggregate (assistant-first program).
+  get_today:         tool_get_today,
 };

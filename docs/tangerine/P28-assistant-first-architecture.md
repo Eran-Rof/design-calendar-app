@@ -158,6 +158,18 @@ sections render independently (skeleton per section, one slow pack can't block t
   alongside `MODEL_BY_APP`); evaluate Claude 5 family vs Opus 4.8 on the golden-questions suite
   before switching (D4).
 
+**As built (P28-2, 2026-07-14):** `assistant_briefs` (mig 20260993) + `internal/assistant/brief`
+(fail-soft: `{body:null, reason}` on any model/config problem — the page never breaks because the
+AI is down; brief prompt embeds `aggregateForModel()` output verbatim with a NEVER-invent rule);
+shared per-user lens factored to `_lib/assistant/context.js` (today handler + brief + `get_today`
+executor use identical semantics); `get_today` (looped) + `open_panel` (terminal; `panel` enum is
+generated from `registry.panelKeys()` so a new pack auto-widens the schema; client validates the
+hop against MODULES before navigating) + system-prompt mode 6; Today page gained the brief block
+and the "What do you want to work on?" input (opens the shared Ask AI panel via askAIBridge).
+`run_action` is DEFERRED to the Phase-4 pass — no pack registers actions yet, so it would be an
+unreachable tool surface. D4 (model swap) intentionally untouched — Opus 4.8 stays until a
+golden-suite comparison says otherwise.
+
 ## 7. Phase 3 — companion through the day
 
 - **Panel context feed:** panels publish `{panel_key, record_ids?, filters?}` through

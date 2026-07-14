@@ -62,6 +62,11 @@ interface AskAIPanelProps {
    *  reset its state to null. Optional — without it the panel will
    *  ignore a repeated identical draft. */
   onDraftInputConsumed?: () => void;
+  /** P28-2: host-provided navigation for the assistant's open_panel
+   *  action (Tangerine passes its ?m= module hop). Handled separately
+   *  from `setters` — navigation isn't a grid mutation, so it works
+   *  even when the host wires no grid setters. */
+  onOpenPanel?: (panel: string, q?: string) => void;
 }
 
 interface ChatMessage {
@@ -174,7 +179,7 @@ function RenderedMessage({ text }: { text: string }) {
 }
 
 export const AskAIPanel: React.FC<AskAIPanelProps> = ({
-  open, onClose, buildContext, setters, samplePrompts, appId, draftInput, onDraftInputConsumed,
+  open, onClose, buildContext, setters, samplePrompts, appId, draftInput, onDraftInputConsumed, onOpenPanel,
 }) => {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -609,14 +614,32 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       // those apps actions are no-ops and would otherwise show a
       // misleading "Applied filters: …" footnote.
       const hasSetters = setters && Object.keys(setters).length > 0;
+      // P28-2: open_panel is navigation, not a grid mutation — dispatch it
+      // through the host's onOpenPanel regardless of grid setters.
+      const navActions = actions.filter(a => a.type === "open_panel");
+      const gridActions = actions.filter(a => a.type !== "open_panel");
+      if (onOpenPanel) {
+        for (const nav of navActions) {
+          const panel = typeof nav.params?.panel === "string" ? nav.params.panel : "";
+          const q = typeof nav.params?.q === "string" ? nav.params.q : undefined;
+          if (panel) {
+            try { onOpenPanel(panel, q); }
+            catch (err) { console.warn("[AskAI] onOpenPanel failed", err); }
+          }
+        }
+      }
       if (hasSetters) {
-        for (const action of actions) {
+        for (const action of gridActions) {
           try { applyAction(action, setters); }
           catch (err) { console.warn("[AskAI] applyAction failed", err); }
         }
       }
-      const actionLabel = hasSetters && actions.length > 0
-        ? actions.map(describeAction).join(" · ")
+      const labelled = [
+        ...(onOpenPanel ? navActions : []),
+        ...(hasSetters ? gridActions : []),
+      ];
+      const actionLabel = labelled.length > 0
+        ? labelled.map(describeAction).join(" · ")
         : undefined;
       const finalText = (finalPayload?.text || streamedText || "").trim() || (actionLabel ? "Done." : "(no response)");
       const followups = Array.isArray(finalPayload?.followups)

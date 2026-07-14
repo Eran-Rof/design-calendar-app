@@ -34,8 +34,8 @@ import {
 } from "../../_lib/ai/budget.js";
 import {
   modelForApp,
-  MAX_TOKENS,
-  MAX_TOOL_ITERATIONS,
+  maxTokensForApp,
+  maxIterationsForApp,
   MAX_QUESTION_LEN,
   HANDLER,
   TERMINAL_TOOLS,
@@ -113,6 +113,8 @@ export default async function handler(req, res) {
   // Per-app model (Tangerine → Opus, others → Haiku). Resolved once here and
   // threaded through the streaming + non-streaming paths + cost logging.
   const model = modelForApp(execCtx.app);
+  const maxTokens = maxTokensForApp(execCtx.app);
+  const maxIterations = maxIterationsForApp(execCtx.app);
 
   try {
     await assertWithinBudget(db);
@@ -252,12 +254,12 @@ export default async function handler(req, res) {
   let totalCost = 0;
   let finalMessage = null;
 
-  for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+  for (let iter = 0; iter < maxIterations; iter++) {
     let resp;
     try {
       resp = await client.messages.create({
         model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         system: SYSTEM_CACHED,
         tools: TOOLS_CACHED,
         messages,

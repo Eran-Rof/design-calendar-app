@@ -24,6 +24,19 @@ export const MAX_TOKENS = 1024;
 // one conversation. 10 gives headroom without runaway cost (each
 // iteration is one Claude turn; the budget cap is still authoritative).
 export const MAX_TOOL_ITERATIONS = 10;
+
+// P28-2 per-app overrides. Tangerine's assistant answers span GL /
+// subledgers / the Today aggregate, where a 1,024-token ceiling truncated
+// multi-part answers and 10 iterations pinched multi-subledger chains.
+// Other apps keep the tight caps that suit their latency profile.
+export const MAX_TOKENS_BY_APP = { tangerine: 2048 };
+export const MAX_TOOL_ITERATIONS_BY_APP = { tangerine: 14 };
+export function maxTokensForApp(app) {
+  return (app && MAX_TOKENS_BY_APP[app]) || MAX_TOKENS;
+}
+export function maxIterationsForApp(app) {
+  return (app && MAX_TOOL_ITERATIONS_BY_APP[app]) || MAX_TOOL_ITERATIONS;
+}
 export const HANDLER = "ai/ask-grid";
 
 // Request-shape ceilings — protect against runaway clients.
@@ -54,6 +67,9 @@ export const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
 export const TERMINAL_TOOLS = new Set([
   "apply_filters", "set_sort", "clear_filters",
   "answer_text", "suggest_grid_view", "suggest_followups",
+  // P28-2 — navigate the Tangerine shell to a panel. Client-side action;
+  // no server round-trip needed after the model emits it.
+  "open_panel",
 ]);
 
 // Friendly stage labels for the SSE `stage` event. Mapped from tool
@@ -74,4 +90,6 @@ export const TOOL_LABELS = {
   query_margin:    "Computing margin…",
   start_workflow:  "Running multi-step workflow…",
   search_user_guide: "Reading the user guide…",
+  get_today:       "Checking your Today queue…",
+  open_panel:      "Opening the panel…",
 };

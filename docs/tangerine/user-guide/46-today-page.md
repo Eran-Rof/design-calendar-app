@@ -1,10 +1,18 @@
 # 46. Today Page (your daily starting point)
 
-> **Status (2026-07):** Phase 1 shipped (P28-1-2). The Today page is the first step of the **assistant-first** program (arch: `P28-assistant-first-architecture.md`): a per-user landing surface that shows what's waiting on you, what the system is doing, and what deserves attention — across **every module you have access to**, not just accounting. Phase 2 adds the AI assistant's spoken morning brief and "what do you want to work on?" routing.
+> **Status (2026-07):** Phases 1 + 2 shipped. The Today page is the first step of the **assistant-first** program (arch: `P28-assistant-first-architecture.md`): a per-user landing surface that shows what's waiting on you, what the system is doing, and what deserves attention — across **every module you have access to**, not just accounting. Phase 2 adds the AI assistant's spoken morning brief and "what do you want to work on?" routing.
 
 **Where:** `/tangerine?m=today` — the **🌅 Today** section at the far left of the top nav.
 
 The page has three sections, each computed live from the real queues (no AI involved in the numbers — if a count is on the Today page, it ties to the panel it links to):
+
+## 46.1 Your assistant (morning brief + chat)
+
+The greeting bar is where the assistant lives:
+
+- **Morning brief** — on your first visit of the day the assistant reads your queues and writes a 2-4 sentence brief ("3 approvals are waiting on you, 12 SO lines ship this week, last night's mirror ran clean"). It can only cite items that are actually on the page — the numbers always tie. One model run per user per day; **↻** next to the brief re-reads and rephrases after you've worked the queue down.
+- **"What do you want to work on?"** — type into the ask box (e.g. *"let's do the approvals"*, *"what's most urgent?"*, *"open the chargebacks for Macy's"*). The Ask AI panel opens with your question; the assistant checks your live queue (`get_today`), answers, and when you pick something it **opens the panel for you** — the screen navigates to the module, optionally with the search box pre-seeded. Items that live in another app (PO WIP, Planning) can't be auto-opened; the assistant tells you where to go instead.
+- The assistant is scoped exactly like the page: it sees your access-filtered queue, minus anything you dismissed today.
 
 ## 46.1 Your to-dos
 
