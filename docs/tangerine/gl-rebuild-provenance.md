@@ -299,7 +299,7 @@ trial-close gates on): clean 2,772 · intentional 176 · **missing_txn 0** ·
 invented; the 161 open-month gaps are left to the nightly sync (idempotent by
 `source_id`).
 
-## 8. Cash-side subledger derivation (#1753, 2026-07-14)
+## 8. Cash-side subledger derivation (#1754, 2026-07-14)
 
 Formal-audit gap #2: `ar_receipts` had **0 rows** (no AR cash application, so no
 DSO and no real aging) and AP bill payments lived only inside the GL mirror, so
