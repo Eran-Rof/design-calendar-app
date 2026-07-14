@@ -152,7 +152,7 @@ export async function decide(supabase, { request_id, step_id, decision, notes },
 
   const { data: request, error: reqErr } = await supabase
     .from("approval_requests")
-    .select("id, entity_id, status")
+    .select("id, entity_id, status, created_by_user_id")
     .eq("id", request_id)
     .single();
   if (reqErr || !request) {
@@ -161,6 +161,22 @@ export async function decide(supabase, { request_id, step_id, decision, notes },
   if (request.status !== "pending") {
     throw new ApprovalsError("request_not_pending",
       `request status is ${request.status} (must be pending)`);
+  }
+
+  // Segregation of duties: the maker may not be the checker. The person who
+  // created the request cannot APPROVE it — that inequality (created_by ≠
+  // approver) IS the maker-checker control. They may still 'reject' or
+  // 'request_changes' their own request (i.e. withdraw), and cancel() has its
+  // own owner rule.
+  if (
+    decision === "approve" &&
+    request.created_by_user_id &&
+    request.created_by_user_id === actor_user_id
+  ) {
+    throw new ApprovalsError(
+      "self_approval_forbidden",
+      "segregation of duties: the requester cannot approve their own request — a different approver is required",
+    );
   }
 
   const { data: step, error: stepErr } = await supabase

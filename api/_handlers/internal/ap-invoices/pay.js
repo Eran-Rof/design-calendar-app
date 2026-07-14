@@ -20,6 +20,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { enqueue as enqueueNotification } from "../../../_lib/notifications/index.js";
+import { requestIfRequired } from "../../../_lib/approvals/index.js";
 
 export const config = { maxDuration: 30 };
 
@@ -91,6 +92,69 @@ export default async function handler(req, res) {
     return res.status(409).json({ error: "Invoice is already fully paid" });
   }
 
+  // Maker identity for the segregation-of-duties gate. Body wins; else the
+  // SPA-injected X-Auth-User-Id header (src/utils/internalApiAuth.ts).
+  const makerAuthId = v.data.created_by_user_id || headerStr(req.headers?.["x-auth-user-id"]);
+
+  // ── Maker/checker gate (HUMAN AP payment path only) ─────────────────────
+  // The Xoro AP paid-watcher, cron reconcilers and backfill sweeps post their
+  // own cash JEs directly and never call this endpoint, so they are inherently
+  // exempt. If an active approval_rule matches the payment amount, hold the
+  // payment and open an approval_request — nothing is written to
+  // invoice_payments or the ledger until a DIFFERENT authorized user approves
+  // (see decide.js ap_payment hook).
+  let gate = { required: false };
+  try {
+    gate = await requestIfRequired(admin, {
+      kind: "ap_payment",
+      entity_id: invoice.entity_id,
+      context_table: "invoices",
+      context_id: invoice.id,
+      amount_cents: Number(v.data.amount_cents),
+      currency: "USD",
+      source_kind: "ap_payment",
+      payload: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number ?? null,
+        vendor_id: invoice.vendor_id ?? null,
+        payment_date: v.data.payment_date,
+        amount_cents: v.data.amount_cents,
+        bank_account_id: v.data.bank_account_id,
+        method: v.data.method,
+        reference: v.data.reference,
+        notes: v.data.notes,
+        created_by_user_id: makerAuthId,
+      },
+      created_by_user_id: makerAuthId,
+    });
+  } catch (e) {
+    return res.status(500).json({
+      error: `Approval routing failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  }
+  if (gate.required) {
+    return res.status(202).json({
+      requires_approval: true,
+      approval_request_id: gate.request_id,
+      status: "pending_approval",
+      message:
+        "This payment is at or above the approval threshold and was submitted for approval. It will post once a different authorized user approves it.",
+    });
+  }
+
+  // Below threshold — execute immediately (unchanged behavior).
+  const result = await executeApPayment(admin, { invoice, params: v.data });
+  return res.status(result.status).json(result.body);
+}
+
+// Execute a validated AP payment against a payable invoice: insert the payment
+// row, post the cash + sibling JEs, stamp pointers, and enqueue a notification.
+// Shared by the direct (below threshold) handler path AND the approvals
+// decide-hook (once a gated payment has been approved). `params` is validatePay
+// output. Returns { status, body } so both callers can relay it.
+export async function executeApPayment(admin, { invoice, params }) {
+  const v = { data: params };
+
   // 2. Resolve bank account (default if not supplied).
   const { data: entity } = await admin
     .from("entities")
@@ -101,9 +165,9 @@ export default async function handler(req, res) {
     v.data.bank_account_id || entity?.default_bank_account_id ||
     (await findAccountByCode(admin, invoice.entity_id, "1010"))?.id;
   if (!bankAccountId) {
-    return res.status(400).json({
+    return { status: 400, body: {
       error: "No bank account configured (supply bank_account_id or seed entities.default_bank_account_id / gl_accounts.code='1010')",
-    });
+    } };
   }
 
   // 3. Insert the invoice_payments row. The overpay trigger guards against
@@ -125,9 +189,9 @@ export default async function handler(req, res) {
     .single();
   if (pErr) {
     if (pErr.code === "23514" || /overpayment/i.test(pErr.message || "")) {
-      return res.status(409).json({ error: `Overpayment rejected: ${pErr.message}` });
+      return { status: 409, body: { error: `Overpayment rejected: ${pErr.message}` } };
     }
-    return res.status(500).json({ error: pErr.message });
+    return { status: 500, body: { error: pErr.message } };
   }
 
   // 4. Resolve ap_account and a default expense_account for the cash-basis side.
@@ -139,7 +203,7 @@ export default async function handler(req, res) {
   if (!apAccountId) {
     // Rollback the payment row — we can't post.
     await admin.from("invoice_payments").delete().eq("id", payment.id);
-    return res.status(400).json({ error: "AP account not configured for this invoice" });
+    return { status: 400, body: { error: "AP account not configured for this invoice" } };
   }
   let expenseAccountId = invoice.expense_account_id;
   if (!expenseAccountId) {
@@ -157,7 +221,7 @@ export default async function handler(req, res) {
   }
   if (!expenseAccountId) {
     await admin.from("invoice_payments").delete().eq("id", payment.id);
-    return res.status(400).json({ error: "No expense_account_id available for cash-basis JE (seed gl_accounts.code='6000' or set invoice.expense_account_id)" });
+    return { status: 400, body: { error: "No expense_account_id available for cash-basis JE (seed gl_accounts.code='6000' or set invoice.expense_account_id)" } };
   }
 
   // 5. Dispatch apInvoicePaid via postEvent (produces accrual + cash sibling JEs).
@@ -185,12 +249,12 @@ export default async function handler(req, res) {
     // invoices.paid_amount_cents). The operator can void the payment via a
     // future credit-memo flow. We return 500 with the underlying message.
     if (e instanceof PostingError) {
-      return res.status(400).json({
+      return { status: 400, body: {
         error: `Payment recorded (${payment.id}) but JE posting failed: ${e.message}`,
         payment_id: payment.id,
-      });
+      } };
     }
-    return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    return { status: 500, body: { error: e instanceof Error ? e.message : String(e) } };
   }
 
   // 6. Stamp the payment + invoice with the cash JE id.
@@ -242,7 +306,7 @@ export default async function handler(req, res) {
     });
   } catch { /* non-fatal */ }
 
-  return res.status(200).json({
+  return { status: 200, body: {
     payment_id: payment.id,
     accrual_je_id: postResult.accrual_je_id,
     cash_je_id: postResult.cash_je_id,
@@ -250,7 +314,13 @@ export default async function handler(req, res) {
     fully_paid: !!isFullyPaid,
     paid_amount_cents: updatedInvoice?.paid_amount_cents?.toString?.() || String(updatedInvoice?.paid_amount_cents || 0),
     total_amount_cents: updatedInvoice?.total_amount_cents?.toString?.() || String(updatedInvoice?.total_amount_cents || 0),
-  });
+  } };
+}
+
+// Coerce a possibly-array header value to a trimmed string (or null).
+function headerStr(v) {
+  const s = Array.isArray(v) ? v[0] : v;
+  return typeof s === "string" && s.trim() ? s.trim() : null;
 }
 
 export function validatePay(body) {

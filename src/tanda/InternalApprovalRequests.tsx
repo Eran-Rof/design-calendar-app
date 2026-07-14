@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
@@ -18,12 +19,23 @@ import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 const APPROVAL_REQ_TABLE_KEY = "tangerine:approvalrequests:columns";
 const APPROVAL_REQ_COLUMNS: ColumnDef[] = [
   { key: "kind",         label: "Kind" },
+  { key: "requester",    label: "Requester" },
   { key: "context",      label: "Context" },
   { key: "amount",       label: "Amount" },
   { key: "current_step", label: "Current step" },
   { key: "status",       label: "Status" },
   { key: "created",      label: "Created" },
+  { key: "age",          label: "Age" },
 ];
+
+// Human-readable labels for the maker/checker rule kinds (+ existing kinds).
+const KIND_LABEL: Record<string, string> = {
+  je_manual_post: "Manual journal entry",
+  ap_payment: "AP payment",
+  ap_invoice: "AP invoice",
+  ar_invoice: "AR invoice",
+  customer_credit_extension: "Credit-limit extension",
+};
 
 type Step = {
   id: string;
@@ -97,6 +109,49 @@ function currentStep(req: Request): Step | null {
   return sorted.find((s) => !s.fulfilled_at) || null;
 }
 
+// MM/DD/YYYY, hh:mm (house rule — US dates everywhere).
+function fmtDateUS(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
+    month: "2-digit", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+// Compact relative age from created_at (e.g. "3d", "5h", "12m", "just now").
+function ageLabel(iso: string | null): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
+}
+
+// A human-readable one-liner for what the request is about — never a raw UUID.
+function contextSummary(req: Request): string {
+  const p = (req.payload || {}) as Record<string, unknown>;
+  const str = (k: string): string | null => (typeof p[k] === "string" && p[k] ? String(p[k]) : null);
+  if (req.kind === "je_manual_post") {
+    const basis = str("basis");
+    return [str("description") || "Journal entry", basis ? `(${basis})` : ""].filter(Boolean).join(" ");
+  }
+  if (req.kind === "ap_payment") {
+    const inv = str("invoice_number");
+    const method = str("method");
+    return [inv ? `Invoice ${inv}` : "AP payment", method ? `· ${method}` : ""].filter(Boolean).join(" ");
+  }
+  return (
+    str("invoice_number") ? `Invoice ${str("invoice_number")}` :
+    str("customer_name") || str("vendor_name") || str("description") ||
+    (req.context_table || "—")
+  );
+}
+
 export default function InternalApprovalRequests() {
   const [rows, setRows] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +159,20 @@ export default function InternalApprovalRequests() {
   const [statusFilter, setStatusFilter] = useState<Request["status"]>("pending");
   const [kindFilter, setKindFilter] = useState("");
   const [deciding, setDeciding] = useState<Request | null>(null);
+  const { employees } = useEmployeeOptions();
+  const meId = getCachedAuthUserId();
+
+  // Map a requester (created_by_user_id) to a readable name — never a UUID.
+  const requesterLabel = useMemo(() => {
+    const byId = new Map(employees.map((e) => [e.id, e]));
+    return (id: string | null): string => {
+      if (!id) return "—";
+      const e = byId.get(id);
+      if (!e) return "Unknown user";
+      const name = [e.first_name, e.last_name].filter(Boolean).join(" ").trim();
+      return (e.code && name) ? `${e.code} — ${name}` : (name || e.email || "Unknown user");
+    };
+  }, [employees]);
 
   // Wave 5 — universal column show/hide.
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(
@@ -118,6 +187,8 @@ export default function InternalApprovalRequests() {
     accessors: {
       amount: (r) => r.requested_amount_cents,
       created: (r) => r.created_at,
+      age: (r) => r.created_at,
+      requester: (r) => requesterLabel(r.created_by_user_id),
     },
   });
 
@@ -220,28 +291,46 @@ export default function InternalApprovalRequests() {
           <thead>
             <tr>
               <SortableTh label="Kind" sortKey="kind" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("kind")} />
+              <SortableTh label="Requester" sortKey="requester" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("requester")} />
               <th style={th} hidden={!isVisible("context")}>Context</th>
               <SortableTh label="Amount" sortKey="amount" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("amount")} />
               <th style={th} hidden={!isVisible("current_step")}>Current step</th>
               <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
               <SortableTh label="Created" sortKey="created" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("created")} />
+              <SortableTh label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("age")} />
               <th style={th}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td style={td} colSpan={7}>Loading…</td></tr>}
+            {loading && <tr><td style={td} colSpan={9}>Loading…</td></tr>}
             {!loading && rows.length === 0 && (
-              <tr><td style={td} colSpan={7}>
+              <tr><td style={td} colSpan={9}>
                 <span style={{ color: C.textMuted }}>No requests in this state.</span>
               </td></tr>
             )}
             {sorted.map((r) => {
               const cur = currentStep(r);
+              const isSelf = !!r.created_by_user_id && r.created_by_user_id === meId;
               return (
-                <tr key={r.id}>
-                  <td style={{ ...td, fontFamily: "monospace" }} hidden={!isVisible("kind")}>{r.kind}</td>
-                  <td style={{ ...td, fontSize: 11, color: C.textSub }} hidden={!isVisible("context")}>
-                    {r.context_table || "—"}
+                <tr
+                  key={r.id}
+                  onClick={() => setDeciding(r)}
+                  style={{ cursor: "pointer" }}
+                  title="Open to review and decide"
+                >
+                  {/* Clickable identifier — house rule: blue #3B82F6, no ↗ arrow. */}
+                  <td hidden={!isVisible("kind")}
+                      style={{ ...td, color: C.primary, fontWeight: 600, textDecoration: "underline" }}>
+                    {KIND_LABEL[r.kind] || r.kind}
+                  </td>
+                  <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!isVisible("requester")}>
+                    {requesterLabel(r.created_by_user_id)}
+                    {isSelf && (
+                      <span style={{ color: C.warn, marginLeft: 6, fontSize: 11 }} title="You created this request">(you)</span>
+                    )}
+                  </td>
+                  <td style={{ ...td, fontSize: 12, color: C.textSub }} hidden={!isVisible("context")}>
+                    {contextSummary(r)}
                   </td>
                   <td style={td} hidden={!isVisible("amount")}>{formatCents(r.requested_amount_cents)}</td>
                   <td style={td} hidden={!isVisible("current_step")}>
@@ -249,12 +338,15 @@ export default function InternalApprovalRequests() {
                   </td>
                   <td style={{ ...td, color: STATUS_COLOR[r.status] }} hidden={!isVisible("status")}>{r.status}</td>
                   <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!isVisible("created")}>
-                    {new Date(r.created_at).toLocaleString()}
+                    {fmtDateUS(r.created_at)}
                   </td>
-                  <td style={td}>
+                  <td style={{ ...td, color: C.textSub, fontSize: 12 }} hidden={!isVisible("age")}>
+                    {ageLabel(r.created_at)}
+                  </td>
+                  <td style={td} onClick={(e) => e.stopPropagation()}>
                     {r.status === "pending" && cur && (
                       <>
-                        <button style={btnPrimary} onClick={() => setDeciding(r)}>Decide</button>
+                        <button style={btnPrimary} onClick={() => setDeciding(r)}>Review</button>
                         &nbsp;
                         <button style={btnDanger} onClick={() => void cancelRequest(r)}>Cancel</button>
                       </>
@@ -284,7 +376,13 @@ function DecideModal({ request, onCancel, onSaved }: {
   onSaved: () => void;
 }) {
   const step = currentStep(request);
-  const [decision, setDecision] = useState<"approve" | "reject" | "request_changes">("approve");
+  // Segregation of duties: the requester cannot approve their own request. When
+  // the signed-in user IS the maker, hide the Approve option (and the server
+  // enforces it too — this is UI defense-in-depth, not the control itself).
+  const isSelf = !!request.created_by_user_id && request.created_by_user_id === getCachedAuthUserId();
+  const [decision, setDecision] = useState<"approve" | "reject" | "request_changes">(
+    isSelf ? "request_changes" : "approve",
+  );
   const [notes, setNotes] = useState("");
   // Pre-fill from the auth bridge cache so the operator never sees or types a
   // uuid. The signed-in user is the default actor; an "act as another user"
@@ -304,20 +402,40 @@ function DecideModal({ request, onCancel, onSaved }: {
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Self-approval only matters when the chosen actor is the maker AND the
+  // decision is "approve". Recompute against the currently-selected actor so
+  // "act as another user" is honored.
+  const actorIsMaker = !!request.created_by_user_id && request.created_by_user_id === actor;
+  const wouldSelfApprove = decision === "approve" && actorIsMaker;
+
   async function submit() {
     setErr(null);
     if (!step) { setErr("No current step"); return; }
     if (!actor) { setErr("No signed-in user — pick who you're acting as."); return; }
+    // Mandatory decision note (house rule for approvals).
+    if (!notes.trim()) { notify("A note is required to record this decision.", "error"); return; }
+    if (wouldSelfApprove) {
+      notify("Segregation of duties: the requester cannot approve their own request. A different approver is required.", "error");
+      return;
+    }
+    if (decision === "approve") {
+      const ok = await confirmDialog(
+        "Approve this request? This posts the underlying journal entry / payment to the ledger.",
+        { title: "Approve request", icon: "", confirmText: "Approve", confirmColor: C.success },
+      );
+      if (!ok) return;
+    }
     setSaving(true);
     try {
       const r = await fetch(`/api/internal/approval-requests/${request.id}/decide`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          step_id: step.id, decision, notes: notes || undefined, actor_user_id: actor,
+          step_id: step.id, decision, notes: notes.trim(), actor_user_id: actor,
         }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(`Decision recorded: ${decision.replace("_", " ")}.`, "success");
       onSaved();
     } catch (e) {
       setErr((e as Error).message);
@@ -335,33 +453,41 @@ function DecideModal({ request, onCancel, onSaved }: {
         background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8,
         padding: 24, width: "min(540px, 95vw)", maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
       }}>
-        <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>Decide step</h2>
+        <h2 style={{ margin: "0 0 16px 0", fontSize: 18 }}>Review approval request</h2>
 
         <div style={{ marginBottom: 12, fontSize: 13, color: C.textSub }}>
-          <div>Request: <strong style={{ color: C.text }}>{request.kind}</strong></div>
-          <div>Context: {request.context_table}#{request.context_id.slice(0, 12)}</div>
+          <div>Request: <strong style={{ color: C.text }}>{KIND_LABEL[request.kind] || request.kind}</strong></div>
+          <div>What: <span style={{ color: C.text }}>{contextSummary(request)}</span></div>
+          <div>Amount: <span style={{ color: C.text }}>{formatCents(request.requested_amount_cents)}</span></div>
           {step && (
             <div>Step {step.step_order} — mode <code>{step.mode}</code>, role required <code>{step.role_required}</code></div>
           )}
         </div>
+
+        {actorIsMaker && (
+          <div style={{ background: "#78350f", color: "#fde68a", padding: 10, borderRadius: 6, marginBottom: 12, fontSize: 12 }}>
+            You created this request. Segregation of duties requires a different approver — you can Reject or Request changes, but not Approve.
+          </div>
+        )}
 
         <Field label="Decision">
           <SearchableSelect
             value={decision}
             onChange={(v) => setDecision(v as typeof decision)}
             options={[
-              { value: "approve", label: "✓ Approve" },
-              { value: "reject", label: "✗ Reject (terminal)" },
-              { value: "request_changes", label: "↻ Request changes (logged, no status change)" },
+              ...(actorIsMaker ? [] : [{ value: "approve", label: "Approve" }]),
+              { value: "reject", label: "Reject (terminal)" },
+              { value: "request_changes", label: "Request changes (logged, no status change)" },
             ]}
             inputStyle={inputStyle}
           />
         </Field>
 
-        <Field label="Notes (optional)">
+        <Field label="Note (required)">
           <textarea
             style={{ ...inputStyle, minHeight: 60 }}
             value={notes}
+            placeholder="Reason for this decision (recorded in the approval audit trail)"
             onChange={(e) => setNotes(e.target.value)}
           />
         </Field>
@@ -402,7 +528,16 @@ function DecideModal({ request, onCancel, onSaved }: {
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button style={btnSecondary} onClick={onCancel} disabled={saving}>Cancel</button>
-          <button style={btnPrimary} onClick={() => void submit()} disabled={saving}>
+          <button
+            style={{ ...btnPrimary, opacity: (saving || wouldSelfApprove || !notes.trim()) ? 0.5 : 1 }}
+            onClick={() => void submit()}
+            disabled={saving || wouldSelfApprove || !notes.trim()}
+            title={
+              wouldSelfApprove ? "You cannot approve your own request (segregation of duties)"
+              : !notes.trim() ? "A note is required"
+              : ""
+            }
+          >
             {saving ? "Saving…" : "Submit"}
           </button>
         </div>

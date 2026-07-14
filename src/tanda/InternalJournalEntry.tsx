@@ -576,14 +576,31 @@ function ManualJEModal({ onClose, onPosted }: { onClose: () => void; onPosted: (
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      const resBody = (await r.json().catch(() => ({}))) as {
+        error?: string;
+        requires_approval?: boolean;
+        approval_request_id?: string;
+        posted?: Array<{ basis: string; je_id: string }>;
+      };
       if (!r.ok) {
-        const e = (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`;
-        throw new Error(e);
+        throw new Error(resBody.error || `HTTP ${r.status}`);
+      }
+      // Maker/checker (segregation of duties): a JE at/above the approval
+      // threshold is routed to an approval_request instead of posting. It posts
+      // only once a DIFFERENT authorized user approves it (Approvals inbox).
+      if (resBody.requires_approval) {
+        setDirty(false);
+        notify(
+          "Journal entry submitted for approval (at or above the $5,000 threshold). It will post once a different authorized user approves it in the Approvals inbox.",
+          "info",
+        );
+        onPosted();
+        return;
       }
       // Upload any documents staged during entry to the freshly-posted JE.
       // For a BOTH-basis post we attach to the ACCRUAL entry (the primary book).
       if (stagedDocs.length > 0) {
-        const posted = ((await r.json().catch(() => ({}))).posted || []) as Array<{ basis: string; je_id: string }>;
+        const posted = (resBody.posted || []) as Array<{ basis: string; je_id: string }>;
         const target = posted.find((p) => p.basis === "ACCRUAL")?.je_id || posted[0]?.je_id;
         if (target) {
           try {

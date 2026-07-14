@@ -12,6 +12,8 @@ import { createClient } from "@supabase/supabase-js";
 import { decide as decideLib, ApprovalsError } from "../../../_lib/approvals/index.js";
 import { postInvoice as postApInvoice } from "../ap-invoices/post.js";
 import { postInvoice as postArInvoice } from "../ar-invoices/post.js";
+import { postManualJournalEntry } from "../journal-entries/index.js";
+import { executeApPayment } from "../ap-invoices/pay.js";
 
 export const config = { maxDuration: 30 };
 
@@ -67,10 +69,67 @@ export default async function handler(req, res, params) {
       try {
         const { data: reqRow } = await admin
           .from("approval_requests")
-          .select("id, kind, context_table, context_id, entity_id")
+          .select("id, kind, context_table, context_id, entity_id, payload")
           .eq("id", id)
           .maybeSingle();
-        if (reqRow && reqRow.kind === "ap_invoice" && reqRow.context_table === "invoices") {
+
+        // Maker/checker: manual JE. The JE was NOT written when the request was
+        // opened — the full post payload is snapshotted in payload. Post it now
+        // (attributed to the maker, not the approver), then rewrite context_id
+        // to the real posted JE so JEDetailModal links the approval history.
+        if (reqRow && reqRow.kind === "je_manual_post" && reqRow.context_table === "journal_entries") {
+          const p = reqRow.payload || {};
+          const result = await postManualJournalEntry(admin, {
+            entityId: p.entity_id,
+            data: {
+              basis: p.basis,
+              posting_date: p.posting_date,
+              description: p.description,
+              journal_type: p.journal_type,
+              lines: p.lines,
+            },
+            reason: p.reason || `Approved manual journal entry (approval ${id})`,
+            actor: { auth_id: p.created_by_user_id || null, employee_id: null, display_name: null },
+            correlation_id: id,
+          });
+          postedHook = result.body || { status: result.status };
+          const posted = result?.body?.posted;
+          if (Array.isArray(posted) && posted.length) {
+            const primary = posted.find((x) => x.basis === "ACCRUAL") || posted[0];
+            if (primary?.je_id) {
+              await admin.from("approval_requests").update({ context_id: primary.je_id }).eq("id", id);
+            }
+          }
+        }
+        // Maker/checker: AP payment. No invoice_payments row was written when
+        // the request opened — the pay params are snapshotted in payload.
+        // Execute the payment now (posts cash + sibling JEs).
+        else if (reqRow && reqRow.kind === "ap_payment" && reqRow.context_table === "invoices") {
+          const p = reqRow.payload || {};
+          const { data: invoice } = await admin
+            .from("invoices")
+            .select("*")
+            .eq("id", reqRow.context_id)
+            .maybeSingle();
+          if (invoice && invoice.gl_status === "posted") {
+            const result = await executeApPayment(admin, {
+              invoice,
+              params: {
+                payment_date: p.payment_date,
+                amount_cents: p.amount_cents,
+                bank_account_id: p.bank_account_id || null,
+                method: p.method,
+                reference: p.reference || null,
+                notes: p.notes || null,
+                created_by_user_id: p.created_by_user_id || null,
+              },
+            });
+            postedHook = result.body || { status: result.status };
+          } else {
+            postedHook = { skipped: `invoice not payable (gl_status=${invoice?.gl_status ?? "missing"})` };
+          }
+        }
+        else if (reqRow && reqRow.kind === "ap_invoice" && reqRow.context_table === "invoices") {
           const { data: invoice } = await admin
             .from("invoices")
             .select("*")
@@ -186,6 +245,8 @@ function mapApprovalsErrorStatus(code) {
     case "prior_steps_open":
     case "actor_role_mismatch":
       return 409;
+    case "self_approval_forbidden":
+      return 403;
     case "invalid_decision":
     case "missing_request_id":
     case "missing_step_id":

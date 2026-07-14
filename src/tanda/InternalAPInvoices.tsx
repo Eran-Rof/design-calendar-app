@@ -1196,7 +1196,21 @@ function APPaymentModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const j = (await r.json().catch(() => ({}))) as {
+        error?: string; requires_approval?: boolean; approval_request_id?: string;
+      };
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      // Maker/checker: a payment at/above the threshold is routed to an
+      // approval_request instead of posting. It settles once a DIFFERENT
+      // authorized user approves it in the Approvals inbox.
+      if (j.requires_approval) {
+        notify(
+          "Payment submitted for approval (at or above the $5,000 threshold). It will post once a different authorized user approves it in the Approvals inbox.",
+          "info",
+        );
+        onPaid();
+        return;
+      }
       onPaid();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));

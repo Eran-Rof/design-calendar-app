@@ -12,9 +12,11 @@
 //
 // Tangerine P1 Chunk 8c. Wraps Chunk 3's posting service from the accountant UI.
 
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope } from "../../../_lib/brandContext.js";
 import { expandJeLines } from "../../../_lib/glAllocation.js";
+import { requestIfRequired } from "../../../_lib/approvals/index.js";
 import {
   extractActorFromRequest,
   setAuditSessionVars,
@@ -138,89 +140,161 @@ export default async function handler(req, res) {
     const reasonGate = requireReason("POST", reason);
     if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
 
-    // T11-2 audit context. Push session vars onto the current connection
-    // BEFORE the gl_post_journal_entry RPC. PostgREST wraps each rpc()
-    // call in its own transaction so the set_config(..., is_local=true)
-    // performed here only travels to the trigger if the next RPC reuses
-    // the same connection. For the manual JE flow this is best-effort —
-    // the trigger's fall-through path stamps an audit_trigger_failure row
-    // when context is missing, which we treat as a known v1 gap (the
-    // dedicated `post_journal_entry_with_audit` wrapper is the supported
-    // path; this endpoint is documented as best-effort until P12 lands a
-    // request-pinned connection helper).
     const actor = await extractActorFromRequest(req, admin);
+    // Maker identity for the segregation-of-duties gate. The SPA fetch shim
+    // (src/utils/internalApiAuth.ts) injects X-Auth-User-Id on every
+    // /api/internal/** call, so that header is the reliable maker id in this
+    // deployment (the per-user Supabase JWT is optional).
+    const makerAuthId =
+      headerStr(req.headers?.["x-auth-user-id"]) || actor.auth_id || null;
     const correlation_id =
       req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
+
+    // ── Maker/checker gate (HUMAN manual path only) ─────────────────────────
+    // This endpoint IS the human "post a manual JE" path (source_module=
+    // 'manual'). Automated posters — the Xoro mirror, crons, backfill scripts,
+    // and audit_source='migration' SQL — call gl_post_journal_entry directly
+    // and never reach this handler, so they are inherently exempt. If an active
+    // approval_rule matches the JE's total debits, hold the post and open an
+    // approval_request instead of writing the ledger. The JE only posts once a
+    // DIFFERENT authorized user approves (see decide.js je_manual_post hook).
+    const totalDebitCents = sumDebitCents(v.data.lines);
+    let gate = { required: false };
     try {
-      await setAuditSessionVars(admin, {
-        actor,
-        reason,
-        source: "manual",
-        correlation_id,
+      gate = await requestIfRequired(admin, {
+        kind: "je_manual_post",
+        entity_id: entityId,
+        context_table: "journal_entries",
+        // No JE row exists yet (we post only on approval). Use a synthetic id;
+        // the decide hook rewrites context_id to the real JE id once posted so
+        // JEDetailModal can render the approval history against the posted JE.
+        context_id: randomUUID(),
+        amount_cents: Number(totalDebitCents),
+        currency: "USD",
+        source_kind: "manual",
+        payload: {
+          entity_id: entityId,
+          basis: v.data.basis,
+          journal_type: v.data.journal_type || "manual",
+          posting_date: v.data.posting_date,
+          description: v.data.description,
+          reason,
+          lines: v.data.lines,
+          total_debit_cents: totalDebitCents.toString(),
+          created_by_user_id: makerAuthId,
+        },
+        created_by_user_id: makerAuthId,
       });
     } catch (e) {
-      // Don't block — the trigger's audit_trigger_failure path will
-      // record the missing context.
-      console.warn(
-        "[je-post] setAuditSessionVars failed (best-effort):",
-        e instanceof Error ? e.message : String(e),
-      );
+      return res.status(500).json({
+        error: `Approval routing failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+    if (gate.required) {
+      return res.status(202).json({
+        requires_approval: true,
+        approval_request_id: gate.request_id,
+        status: "pending_approval",
+        message:
+          "This journal entry is at or above the approval threshold and was submitted for approval. It will post once a different authorized user approves it.",
+      });
     }
 
-    // M50 C — split any brand-rollup account line into its brand-child accounts
-    // by the allocation %. No-op unless BRAND_SCOPE_MODE=enforce. Stays balanced
-    // (each split foots to the original) so the RPC posts unchanged.
-    const postLines = await expandJeLines(admin, v.data.lines);
-
-    // Build the payload(s) — BOTH expands to two RPC calls; single-basis is one.
-    const bases = v.data.basis === "BOTH" ? ["ACCRUAL", "CASH"] : [v.data.basis];
-    const journalType = v.data.journal_type || "manual";
-    const description = v.data.description;
-
-    const payloadFor = (basis) => ({
-      entity_id: entityId,
-      basis,
-      journal_type: journalType,
-      posting_date: v.data.posting_date,
-      source_module: "manual",
-      source_table: null,
-      source_id: null,
-      description,
-      sibling_je_id: null,
-      created_by_user_id: null,
-      lines: postLines,
+    // Below threshold — post immediately (unchanged behavior).
+    const result = await postManualJournalEntry(admin, {
+      entityId,
+      data: v.data,
+      reason,
+      actor,
+      correlation_id,
     });
-
-    const jeIds = [];
-    try {
-      for (const b of bases) {
-        const { data, error } = await admin.rpc("gl_post_journal_entry", { payload: payloadFor(b) });
-        if (error) {
-          // If the second call fails after the first succeeded, the first is left
-          // posted. The caller can see this via the partial response and reverse.
-          return res.status(400).json({
-            error: `Posting failed on basis=${b}: ${error.message}`,
-            partial: jeIds,
-          });
-        }
-        jeIds.push({ basis: b, je_id: data });
-      }
-      // If BOTH, link the sibling pair.
-      if (jeIds.length === 2) {
-        const { error } = await admin.rpc("gl_link_sibling_je", {
-          je_a: jeIds[0].je_id,
-          je_b: jeIds[1].je_id,
-        });
-        if (error) return res.status(500).json({ error: `Sibling link failed: ${error.message}`, posted: jeIds });
-      }
-      return res.status(201).json({ posted: jeIds });
-    } catch (e) {
-      return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
-    }
+    return res.status(result.status).json(result.body);
   }
 
   res.setHeader("Allow", "GET, POST");
   return res.status(405).json({ error: "Method not allowed" });
+}
+
+// Post a validated manual JE to the ledger. Shared by the direct (below
+// threshold) handler path AND the approvals decide-hook (once a gated JE has
+// been approved). Returns { status, body } so both callers can relay it.
+//
+// T11-2 audit context is best-effort here (the manual JE flow's documented v1
+// gap re: PostgREST connection pooling — the trigger's audit_trigger_failure
+// path records missing context). `actor` is { auth_id, employee_id,
+// display_name } (may be all-null for service callers).
+export async function postManualJournalEntry(admin, { entityId, data, reason, actor, correlation_id }) {
+  const safeActor = actor || { auth_id: null, employee_id: null, display_name: null };
+  try {
+    await setAuditSessionVars(admin, {
+      actor: safeActor,
+      reason,
+      source: "manual",
+      correlation_id: correlation_id || null,
+    });
+  } catch (e) {
+    console.warn(
+      "[je-post] setAuditSessionVars failed (best-effort):",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  // M50 C — split any brand-rollup account line into its brand-child accounts
+  // by the allocation %. No-op unless BRAND_SCOPE_MODE=enforce. Stays balanced.
+  const postLines = await expandJeLines(admin, data.lines);
+
+  const bases = data.basis === "BOTH" ? ["ACCRUAL", "CASH"] : [data.basis];
+  const journalType = data.journal_type || "manual";
+  const payloadFor = (basis) => ({
+    entity_id: entityId,
+    basis,
+    journal_type: journalType,
+    posting_date: data.posting_date,
+    source_module: "manual",
+    source_table: null,
+    source_id: null,
+    description: data.description,
+    sibling_je_id: null,
+    created_by_user_id: safeActor.auth_id || null,
+    lines: postLines,
+  });
+
+  const jeIds = [];
+  try {
+    for (const b of bases) {
+      const { data: jeId, error } = await admin.rpc("gl_post_journal_entry", { payload: payloadFor(b) });
+      if (error) {
+        // If the second call fails after the first succeeded, the first is left
+        // posted. The caller can see this via the partial response and reverse.
+        return { status: 400, body: { error: `Posting failed on basis=${b}: ${error.message}`, partial: jeIds } };
+      }
+      jeIds.push({ basis: b, je_id: jeId });
+    }
+    if (jeIds.length === 2) {
+      const { error } = await admin.rpc("gl_link_sibling_je", { je_a: jeIds[0].je_id, je_b: jeIds[1].je_id });
+      if (error) return { status: 500, body: { error: `Sibling link failed: ${error.message}`, posted: jeIds } };
+    }
+    return { status: 201, body: { posted: jeIds } };
+  } catch (e) {
+    return { status: 500, body: { error: e instanceof Error ? e.message : String(e) } };
+  }
+}
+
+// Coerce a possibly-array header value to a trimmed string (or null).
+function headerStr(v) {
+  const s = Array.isArray(v) ? v[0] : v;
+  return typeof s === "string" && s.trim() ? s.trim() : null;
+}
+
+// Sum the debit side of validated lines, in integer cents (BigInt). Used to
+// drive the approval-rule amount matcher.
+function sumDebitCents(lines) {
+  let total = 0n;
+  for (const l of lines || []) {
+    const c = toCents(l.debit, "debit");
+    if (!c.error) total += c.cents;
+  }
+  return total;
 }
 
 export function validateManualPost(body) {

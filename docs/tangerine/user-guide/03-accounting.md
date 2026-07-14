@@ -973,3 +973,31 @@ Tangerine's ledger was built bottom-up from the **AR and AP subledgers**, so it 
 **Result.** 85 journal entries spanning 2024-08 → 2026-06, **$3,143,455.65** of payroll and bad-debt expense, each entry balanced, the global trial balance still at $0.00, and the monthly total tying to Xoro's own payroll figure **to the cent**. Accounts payable (2000) is untouched. Every entry carries a T11 audit reason citing the Xoro transaction number, date and memo, and re-running the script posts nothing new (it dedupes by Xoro transaction id) — so the future full-ledger mirror will extend this naturally.
 
 The ROF chart already mirrors Xoro's payroll accounts one-for-one (6115 Payroll Expense - Hourly, 6119 Salaries, 6125 Payroll Tax, 2401 Payroll Payable, 1408 Payroll Asset, 6305 Bad Debt, …); the only account added was **6135 Payroll Expense - Executive Salary**. A few accounts (6127 Meredith commission, 6128 Severance, 6132 processing fees) also carry earlier AP-side postings — the controller reconciles those against this payroll truth in a later AP slice.
+
+## Approvals & segregation of duties (maker-checker, 2026-07-14)
+
+The formal audit's #1 internal-controls finding was that a single person could both create **and** post a manual journal entry or release an AP payment with no independent review. **Maker-checker** closes that gap: above a dollar threshold, the person who enters the transaction (the *maker*) can no longer complete it alone — a **different** authorized user (the *checker*) must approve it first. That the approver may not be the requester **is** the control.
+
+### What requires approval
+
+Two human actions are gated. Everything else is untouched.
+
+| Action | Threshold | Who approves |
+|---|---|---|
+| **Manual journal entry** (the Journal Entries panel) | total debits **≥ $5,000** | any user with the **admin** role, other than the maker |
+| **AP payment** (Record payment on a posted AP bill) | payment amount **≥ $5,000** | any user with the **admin** role, other than the maker |
+
+Below the threshold, nothing changes — the entry posts / the payment settles immediately.
+
+**Automated postings are never gated.** The Xoro GL mirror, the nightly crons, the AR/AP backfill sweeps and every SQL migration post to the ledger through their own service paths and never touch these two human screens, so they are inherently exempt — maker-checker applies only to a person clicking *Post* or *Record payment* in the app.
+
+### How it works, end to end
+
+1. **Maker submits.** When a manual JE (or AP payment) is at/above the threshold, the server does **not** write it to the ledger. Instead it opens an **approval request** and returns a "submitted for approval" message. No journal entry is created and no cash moves yet — the transaction is held, not posted.
+2. **Checker reviews.** The request appears in **Approvals** (the Approval Inbox). Each row shows the kind, the requester, the amount, a plain-language summary of what it is (JE description / invoice number), and how long it has been waiting. Click any row to open it.
+3. **Checker decides — with a mandatory note.** The reviewer chooses **Approve**, **Reject**, or **Request changes** and must type a note (recorded in the approval audit trail). **You cannot approve your own request:** if you are the maker, the Approve option is hidden and the button is disabled, with a tooltip explaining why. The server enforces the same rule, so it cannot be bypassed from the browser.
+4. **On approval, it posts.** Approving immediately posts the held journal entry (attributed to the original maker, not the approver) or executes the held payment. **Reject** leaves it unposted with the rejection note; **Request changes** logs feedback without posting. The maker can also cancel/withdraw their own pending request.
+
+### Changing the thresholds or approver role (CEO)
+
+The rules live in the `approval_rules` table (kinds `je_manual_post` and `ap_payment`). To raise the manual-JE bar to $10,000, set that rule's `match` to `{"min_amount_cents": 1000000}`. To require a different approver role, edit the step's `role_required` (must be one of `admin`, `accountant`, `staff`, `readonly`). To switch a control off without deleting it, set `is_active = false`. Defaults shipped: **$5,000** for both, **one admin approval** each.
