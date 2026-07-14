@@ -16,6 +16,26 @@ const KEY_PREFIX  = "ai_conversation_";
 const TTL_DAYS    = 30;
 const MAX_TURNS   = 10;  // 10 user/assistant pairs = 20 messages
 
+// P28-3 companion mode: apps where the conversation is ONE THREAD PER DAY
+// (the morning brief starts a fresh context each day; yesterday's thread
+// restoring at 9am reads as stale). Other apps keep the 30-day TTL.
+const DAY_SCOPED_APPS = new Set(["tangerine"]);
+
+/** Local calendar date (operator's clock) — day threads roll at midnight
+ *  where the operator sits, not UTC. Exported for tests. */
+export function localDay(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Should a stored thread be discarded under day-scoping? Pure; tested. */
+export function isStaleForDayScope(appId: string, savedAt: string | null | undefined, now: Date = new Date()): boolean {
+  if (!DAY_SCOPED_APPS.has(String(appId || ""))) return false;
+  if (!savedAt) return true;
+  const t = new Date(savedAt);
+  if (!Number.isFinite(t.getTime())) return true;
+  return localDay(t) !== localDay(now);
+}
+
 /** Subset of ChatMessage that's safe to persist (no React-specific state). */
 export interface StoredChatMessage {
   id: string;
@@ -104,7 +124,7 @@ export function loadConversation(
 
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.messages)) return null;
 
-  if (isExpired(parsed.savedAt)) {
+  if (isExpired(parsed.savedAt) || isStaleForDayScope(appId, parsed.savedAt)) {
     // Reclaim the slot — keeps localStorage tidy for the next session.
     try { storage.removeItem(keyFor(appId, userId)); } catch { /* ignore */ }
     return null;

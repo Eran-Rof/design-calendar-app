@@ -183,6 +183,19 @@ golden-suite comparison says otherwise.
   hand-allocating an SO → surface Auto-allocate with fill modes. Each tip links its user-guide
   chapter. Frequency-capped + dismissible (a nagging assistant is worse than none).
 
+**As built (P28-3, 2026-07-14):** screen-context feed = `publishScreenContext()` /
+`getScreenContext()` on askAIBridge; the SHELL publishes `{panel_key, label}` on every module
+hop (universal baseline — panels may re-publish richer detail later); AskAIPanel forwards it as
+`screen_context`, server sanitises (`sanitizeScreenContext`: slug-only panel key, ≤8 params,
+length clamps — client input entering a prompt) and renders a "Current Tangerine screen" block;
+the answer-cache key gains the panel as an extra dimension. Day thread = day-scoped
+conversationStore (`DAY_SCOPED_APPS = {tangerine}`, local-midnight roll — mornings start fresh
+with the brief). Coach = `AssistantCoach` chip near the Ask AI button, fed by the SAME
+suggestions the Today aggregate computes (already RBAC- and dismissal-filtered): once per panel
+per tab session, ✕ persists a day dismissal, "Ask the assistant" opens the chat pre-filled.
+Panel-scoped trigger RULES beyond the aggregate suggestions (e.g. reacting to in-panel behavior)
+are deferred until packs carry per-panel rules.
+
 ## 8. Phase 4 — doing, not just showing
 
 Pack actions graduate to `write_confirm` in earnest: draft JEs/reclasses, chargeback match

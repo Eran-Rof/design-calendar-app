@@ -95,3 +95,41 @@ export function buildRowAskPrompt(row: RowSummary): string {
   const header = lines.join("\n");
   return `About this row:\n${header}\n\nTell me anything notable: recent shipment trend, open commitments, churn signal, related styles.`;
 }
+
+// ── P28-3: screen-context feed (companion mode) ─────────────────────────
+//
+// The reverse direction of this bridge: the HOST tells the assistant what
+// the operator is looking at. The Tangerine shell publishes on every
+// module change ({ panel_key, label }); individual panels may re-publish
+// with richer detail (a record id, active filters) while mounted. The
+// Ask AI panel reads the CURRENT context when a question is sent and
+// forwards it to the server as `screen_context`, so "why is this one
+// unbalanced?" needs no restating of where the operator is.
+//
+// Module-level store (not React state): the panel only needs the value
+// at send time, and a plain variable works across React trees.
+
+export interface ScreenContext {
+  /** Tangerine module key (or another app's stable screen id). */
+  panel_key: string;
+  /** Human label ("Journal Entries"). */
+  label?: string;
+  /** Small key→value bag: record ids, active filter values. Clamped
+   *  server-side — keep it to what a colleague would need to follow. */
+  params?: Record<string, string>;
+  /** One free-text line of extra orientation ("viewing JE-2026-00412"). */
+  detail?: string;
+}
+
+let currentScreen: ScreenContext | null = null;
+
+/** Host/panels call on navigation or when richer context is available.
+ *  Pass null when leaving a screen. */
+export function publishScreenContext(ctx: ScreenContext | null): void {
+  currentScreen = ctx && ctx.panel_key ? ctx : null;
+}
+
+/** Read the operator's current screen (null when nothing published). */
+export function getScreenContext(): ScreenContext | null {
+  return currentScreen;
+}
