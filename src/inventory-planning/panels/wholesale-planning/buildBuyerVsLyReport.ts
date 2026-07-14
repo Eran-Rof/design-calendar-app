@@ -61,16 +61,18 @@ const addInto = (target: number[], idx: number, v: number | null | undefined): v
   if (idx >= 0) target[idx] += v ?? 0;
 };
 
-/** Drop rows where BOTH the SP/LY and TY/Buyer totals are zero — a color row
- *  with nothing last year and nothing planned this year. Styles left with no
- *  colors, and customers left with no styles, drop too. Totals are unchanged
- *  (removed rows contributed 0 to every period). Pure — used by the report's
- *  "hide zero rows" toggle so the view AND its PDF/Excel exports stay in sync. */
+/** Drop color rows with NO buy planned this year — i.e. the TY/Buyer total is
+ *  zero. This is a buy-planning report, so a color you aren't buying is an empty
+ *  row even if it had last-year sales (those show as a full negative Δ when the
+ *  toggle is off). Styles left with no colors, and customers left with no
+ *  styles, drop too. Totals are unchanged (removed rows contributed 0 to the
+ *  Buyer side). Pure — the report's "hide zero rows" toggle applies it to the
+ *  view AND its PDF/Excel exports so a download matches what's on screen. */
 export function filterOutZeroReportRows(report: BuyerVsLyReport): BuyerVsLyReport {
   const customers = report.customers
     .map((cust) => {
       const styles = cust.styles
-        .map((sty) => ({ ...sty, colors: sty.colors.filter((c) => c.lyTotal !== 0 || c.tyTotal !== 0) }))
+        .map((sty) => ({ ...sty, colors: sty.colors.filter((c) => c.tyTotal !== 0) }))
         .filter((sty) => sty.colors.length > 0);
       return { ...cust, styles };
     })
