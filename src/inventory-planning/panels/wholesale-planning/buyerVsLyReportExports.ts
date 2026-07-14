@@ -2,8 +2,8 @@
 // pure BuyerVsLyReport shape (buildBuyerVsLyReport) and lay it out per customer
 // as three blocks — SP/LY, TY/Buyer, Comparison (Comp + %).
 
-import * as XLSX from "xlsx";
 import { exportPdf, type PdfColumn, type PdfSection } from "../../../shared/pdfExport";
+import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, XLP, NUMFMT, type AoaCell } from "../../../shared/excelLogo";
 import { reportComp, reportPct, type BuyerVsLyReport, type ReportCustomer } from "./buildBuyerVsLyReport";
 
 function fileStem(runName: string): string {
@@ -101,62 +101,91 @@ function compRows(cust: ReportCustomer, codes: string[]): Record<string, unknown
   return out;
 }
 
-// ── Excel ──────────────────────────────────────────────────────────────────
+// ── Excel (Ring-of-Fire / Tangerine styled, ExcelJS) ────────────────────────
+// Mirrors every other Tangerine .xlsx: logo banner, blue header band, bold-blue
+// key column, blue total rows, red negatives — via the shared excelLogo engine.
 
-type Cell = string | number | { v: number; t: "n"; z: string } | null;
+// xlsx-js-style shape consumed by renderStyledAoa's applyAoaStyle.
+type Sty = {
+  font?: { bold?: boolean; italic?: boolean; sz?: number; color?: { rgb: string } };
+  fill?: { fgColor: { rgb: string } };
+  alignment?: { horizontal?: "left" | "center" | "right"; vertical?: "center"; wrapText?: boolean };
+};
+type Align = "left" | "center" | "right";
 
-export function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): void {
+const S_HEADER = (a: Align): Sty => ({ font: { bold: true, sz: 10, color: { rgb: XLP.HEADER_TEXT } }, fill: { fgColor: { rgb: XLP.HEADER_FILL } }, alignment: { horizontal: a, vertical: "center", wrapText: true } });
+const S_KEY: Sty = { font: { bold: true, sz: 10, color: { rgb: XLP.KEY_TEXT } }, alignment: { horizontal: "left", vertical: "center" } };
+const S_BODY = (a: Align): Sty => ({ font: { sz: 10, color: { rgb: XLP.BODY_TEXT } }, alignment: { horizontal: a, vertical: "center" } });
+const S_NEG: Sty = { font: { bold: true, sz: 10, color: { rgb: XLP.NEG_TEXT } }, alignment: { horizontal: "right", vertical: "center" } };
+const S_MUTED: Sty = { font: { sz: 10, color: { rgb: XLP.MUTED_TEXT } }, alignment: { horizontal: "right", vertical: "center" } };
+const S_TOTAL = (a: Align): Sty => ({ font: { bold: true, sz: 10, color: { rgb: XLP.TOTAL_TEXT } }, fill: { fgColor: { rgb: XLP.TOTAL_FILL } }, alignment: { horizontal: a, vertical: "center" } });
+const S_SUBHEAD: Sty = { font: { bold: true, sz: 11, color: { rgb: XLP.KEY_TEXT } }, alignment: { horizontal: "left", vertical: "center" } };
+const S_CUST: Sty = { font: { bold: true, sz: 13, color: { rgb: XLP.HEADER_FILL } }, alignment: { horizontal: "left", vertical: "center" } };
+
+const qtyCell = (v: number, s: Sty): AoaCell => ({ v, s, z: NUMFMT.QTY });
+const pctCell = (frac: number | null): AoaCell => (frac == null ? { v: "", s: S_MUTED } : { v: frac, s: S_MUTED, z: NUMFMT.PCT });
+
+export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): Promise<void> {
   const { periods } = report;
-  const aoa: Cell[][] = [];
-  aoa.push(["Buyer vs Last Year", opts.runName]);
-  aoa.push([opts.scopeLabel]);
-  aoa.push([]);
-
-  const pct = (frac: number | null): Cell => (frac == null ? "" : { v: frac, t: "n", z: "0%" });
+  const nP = periods.length;
+  const maxCols = Math.max(nP + 3, nP * 2 + 4); // comparison block is widest
+  const aoa: AoaCell[][] = [];
+  const blank = () => aoa.push([]);
+  const heading = (text: string, s: Sty) => aoa.push([{ v: text, s }]);
 
   for (const cust of report.customers) {
-    aoa.push(["Customer", cust.customer]);
-    aoa.push([]);
+    heading(cust.customer, S_CUST);
+    blank();
 
-    // SP/LY block
-    aoa.push(["SP/LY (Last Year)"]);
-    aoa.push(["Style", "Color", ...periods.map((p) => p.lyLabel), "TOTAL"]);
-    for (const sty of cust.styles)
-      for (const c of sty.colors) aoa.push([c.style, c.color, ...c.ly, c.lyTotal]);
-    aoa.push(["", "TOTAL", ...cust.lyTotals, cust.lyTotal]);
-    aoa.push([]);
-
-    // TY/Buyer block
-    aoa.push(["TY / Buyer (This Year)"]);
-    aoa.push(["Style", "Color", ...periods.map((p) => p.tyLabel), "TOTAL"]);
-    for (const sty of cust.styles)
-      for (const c of sty.colors) aoa.push([c.style, c.color, ...c.ty, c.tyTotal]);
-    aoa.push(["", "TOTAL", ...cust.tyTotals, cust.tyTotal]);
-    aoa.push([]);
-
-    // Comparison block
-    aoa.push(["Comparison (TY − LY)"]);
-    aoa.push(["Style", "Color", ...periods.flatMap((p) => [p.tyLabel, "%"]), "TOTAL", "%"]);
-    for (const sty of cust.styles)
-      for (const c of sty.colors) {
-        const cells: Cell[] = [c.style, c.color];
-        periods.forEach((_, i) => { cells.push(reportComp(c.ty[i], c.ly[i]), pct(reportPct(c.ty[i], c.ly[i]))); });
-        cells.push(reportComp(c.tyTotal, c.lyTotal), pct(reportPct(c.tyTotal, c.lyTotal)));
-        aoa.push(cells);
+    // Shared qty-block renderer (SP/LY or TY/Buyer).
+    const qtyBlock = (title: string, label: (p: (typeof periods)[number]) => string, pick: "ly" | "ty") => {
+      heading(title, S_SUBHEAD);
+      aoa.push([{ v: "Style", s: S_HEADER("left") }, { v: "Color", s: S_HEADER("left") },
+        ...periods.map((p) => ({ v: label(p), s: S_HEADER("right") })), { v: "Total", s: S_HEADER("right") }]);
+      for (const sty of cust.styles) {
+        for (const c of sty.colors) {
+          const arr = pick === "ly" ? c.ly : c.ty;
+          aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
+            ...arr.map((v) => qtyCell(v, S_BODY("right"))), qtyCell(pick === "ly" ? c.lyTotal : c.tyTotal, { ...S_BODY("right"), font: { bold: true, sz: 10, color: { rgb: XLP.BODY_TEXT } } })]);
+        }
       }
-    {
-      const cells: Cell[] = ["", "TOTAL"];
-      periods.forEach((_, i) => { cells.push(reportComp(cust.tyTotals[i], cust.lyTotals[i]), pct(reportPct(cust.tyTotals[i], cust.lyTotals[i]))); });
-      cells.push(reportComp(cust.tyTotal, cust.lyTotal), pct(reportPct(cust.tyTotal, cust.lyTotal)));
-      aoa.push(cells);
+      const tot = pick === "ly" ? cust.lyTotals : cust.tyTotals;
+      aoa.push([{ v: "", s: S_TOTAL("left") }, { v: "TOTAL", s: S_TOTAL("left") },
+        ...tot.map((v) => qtyCell(v, S_TOTAL("right"))), qtyCell(pick === "ly" ? cust.lyTotal : cust.tyTotal, S_TOTAL("right"))]);
+      blank();
+    };
+    qtyBlock("SP/LY — Last Year", (p) => p.lyLabel, "ly");
+    qtyBlock("TY / Buyer — This Year", (p) => p.tyLabel, "ty");
+
+    // Comparison block (Δ + %).
+    heading("Comparison — TY − LY", S_SUBHEAD);
+    aoa.push([{ v: "Style", s: S_HEADER("left") }, { v: "Color", s: S_HEADER("left") },
+      ...periods.flatMap((p) => [{ v: `${p.tyLabel} Δ`, s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]),
+      { v: "Total Δ", s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]);
+    const dCell = (ty: number, ly: number): AoaCell => { const d = reportComp(ty, ly); return { v: d, s: d < 0 ? S_NEG : S_BODY("right"), z: NUMFMT.QTY }; };
+    for (const sty of cust.styles) {
+      for (const c of sty.colors) {
+        aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
+          ...periods.flatMap((_p, i) => [dCell(c.ty[i], c.ly[i]), pctCell(reportPct(c.ty[i], c.ly[i]))]),
+          dCell(c.tyTotal, c.lyTotal), pctCell(reportPct(c.tyTotal, c.lyTotal))]);
+      }
     }
-    aoa.push([]);
-    aoa.push([]);
+    aoa.push([{ v: "", s: S_TOTAL("left") }, { v: "TOTAL", s: S_TOTAL("left") },
+      ...periods.flatMap((_p, i) => {
+        const d = reportComp(cust.tyTotals[i], cust.lyTotals[i]);
+        return [{ v: d, s: S_TOTAL("right"), z: NUMFMT.QTY } as AoaCell, { v: reportPct(cust.tyTotals[i], cust.lyTotals[i]) ?? "", s: S_TOTAL("right"), z: NUMFMT.PCT } as AoaCell];
+      }),
+      { v: reportComp(cust.tyTotal, cust.lyTotal), s: S_TOTAL("right"), z: NUMFMT.QTY },
+      { v: reportPct(cust.tyTotal, cust.lyTotal) ?? "", s: S_TOTAL("right"), z: NUMFMT.PCT }]);
+    blank();
+    blank();
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa as (string | number)[][]);
-  ws["!cols"] = [{ wch: 16 }, { wch: 16 }, ...periods.flatMap(() => [{ wch: 10 }, { wch: 7 }]), { wch: 10 }, { wch: 7 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Buyer vs LY");
-  XLSX.writeFile(wb, `${fileStem(opts.runName)}.xlsx`);
+  const wb = newWorkbook();
+  const cols = [16, 16, ...Array(Math.max(0, maxCols - 2)).fill(11)];
+  renderStyledAoa(wb, "Buyer vs LY", aoa, {
+    banner: { title: "Buyer vs Last Year", subtitle: `${opts.runName} · ${opts.scopeLabel}`, cols: maxCols, logoWidth: 200 },
+    cols,
+  });
+  await downloadExcelWorkbook(wb, `${fileStem(opts.runName)}.xlsx`);
 }

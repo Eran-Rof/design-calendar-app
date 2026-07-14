@@ -61,6 +61,23 @@ const addInto = (target: number[], idx: number, v: number | null | undefined): v
   if (idx >= 0) target[idx] += v ?? 0;
 };
 
+/** Drop rows where BOTH the SP/LY and TY/Buyer totals are zero — a color row
+ *  with nothing last year and nothing planned this year. Styles left with no
+ *  colors, and customers left with no styles, drop too. Totals are unchanged
+ *  (removed rows contributed 0 to every period). Pure — used by the report's
+ *  "hide zero rows" toggle so the view AND its PDF/Excel exports stay in sync. */
+export function filterOutZeroReportRows(report: BuyerVsLyReport): BuyerVsLyReport {
+  const customers = report.customers
+    .map((cust) => {
+      const styles = cust.styles
+        .map((sty) => ({ ...sty, colors: sty.colors.filter((c) => c.lyTotal !== 0 || c.tyTotal !== 0) }))
+        .filter((sty) => sty.colors.length > 0);
+      return { ...cust, styles };
+    })
+    .filter((cust) => cust.styles.length > 0);
+  return { periods: report.periods, customers };
+}
+
 /** Comparison helpers shared by the view + exports. */
 export function reportComp(ty: number, ly: number): number { return ty - ly; }
 export function reportPct(ty: number, ly: number): number | null {
