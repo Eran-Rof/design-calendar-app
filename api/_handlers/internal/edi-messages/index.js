@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   let q = admin
     .from("edi_messages")
-    .select("id, vendor_id, direction, transaction_set, interchange_id, status, attempts, last_error, error_message, transmitted, ack_status, file_name, tpl_provider_id, tpl_shipment_id, created_at, vendors(name, code), tpl_providers(name, code)")
+    .select("id, vendor_id, direction, transaction_set, interchange_id, status, attempts, last_error, error_message, transmitted, ack_status, file_name, tpl_provider_id, tpl_shipment_id, edi_customer_partner_id, ar_invoice_id, created_at, vendors(name, code), tpl_providers(name, code), edi_customer_partners(customers(name, customer_code))")
     .order("created_at", { ascending: false })
     .limit(limit);
   if (direction) q = q.eq("direction", direction);
@@ -56,6 +56,8 @@ export default async function handler(req, res) {
   const messages = (data || []).map((m) => ({
     id: m.id, vendor_id: m.vendor_id, vendor_name: m.vendors?.name || null,
     tpl_provider_id: m.tpl_provider_id, tpl_provider_name: m.tpl_providers?.name || null,
+    edi_customer_partner_id: m.edi_customer_partner_id, ar_invoice_id: m.ar_invoice_id,
+    customer_name: m.edi_customer_partners?.customers?.name || null,
     direction: m.direction, transaction_set: m.transaction_set, interchange_id: m.interchange_id,
     status: m.status, attempts: m.attempts, transmitted: m.transmitted, ack_status: m.ack_status,
     file_name: m.file_name, error_message: m.error_message || m.last_error, created_at: m.created_at,

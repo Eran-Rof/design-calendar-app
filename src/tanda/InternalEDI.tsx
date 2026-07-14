@@ -43,10 +43,11 @@ const STAT_COLOR: Record<string, string> = {
   staged: C.violet, parsed: C.primary, generated: C.textMuted, queued: C.warn, failed: C.danger, error: C.danger,
 };
 const DOC_TYPES = ["940", "944", "945", "846", "997"];
+const RETAIL_DOC_TYPES = ["856", "810", "997"];
 const fmtDT = (s: string | null) => (s ? new Date(s).toLocaleString("en-US") : "—");
 
 type Partner = { id: string; vendor_id: string; vendor_name: string | null; vendor_code: string | null; partner_id: string; transport: string | null; status: string; last_sync_at: string | null; last_sync_status: string | null; last_sync_error: string | null };
-type Message = { id: string; vendor_id: string; vendor_name: string | null; tpl_provider_id: string | null; tpl_provider_name: string | null; direction: string; transaction_set: string; interchange_id: string | null; status: string; attempts: number | null; transmitted: boolean | null; ack_status: string | null; file_name: string | null; error_message: string | null; created_at: string };
+type Message = { id: string; vendor_id: string; vendor_name: string | null; tpl_provider_id: string | null; tpl_provider_name: string | null; customer_name?: string | null; edi_customer_partner_id?: string | null; ar_invoice_id?: string | null; direction: string; transaction_set: string; interchange_id: string | null; status: string; attempts: number | null; transmitted: boolean | null; ack_status: string | null; file_name: string | null; error_message: string | null; created_at: string };
 type Vendor = { id: string; name: string; code?: string };
 type Provider = {
   id: string; name: string; code?: string; is_active?: boolean;
@@ -56,13 +57,26 @@ type Provider = {
   enabled_doc_types: string[] | null; edi_poll_enabled?: boolean; edi_last_polled_at: string | null;
 };
 type MsgDetail = Message & { group_control_number?: string | null; transport_detail?: string | null; last_error?: string | null; raw_content?: string | null; parsed_content?: unknown; next_attempt_at?: string | null; acked_at?: string | null; updated_at?: string | null };
+type Customer = { id: string; name: string; customer_code?: string; code?: string };
+type RetailPartner = {
+  id: string; customer_id: string; customer_name?: string; customer_code?: string; is_active: boolean;
+  our_isa_qualifier: string | null; our_isa_id: string | null; our_gs_id: string | null;
+  partner_isa_qualifier: string | null; partner_isa_id: string | null; partner_gs_id: string | null;
+  enabled_docs: string[] | null; usage_indicator: string | null; doc_map?: unknown;
+  edi_protocol: string | null; edi_endpoint: string | null; edi_port: number | null; edi_username: string | null;
+  edi_secret_set?: boolean; edi_outbound_dir: string | null; edi_inbound_dir: string | null; edi_archive_dir: string | null;
+  edi_poll_enabled?: boolean; edi_last_polled_at?: string | null;
+};
 
 export default function InternalEDI() {
-  const [tab, setTab] = useState<"partners" | "connections" | "messages">("partners");
+  const [tab, setTab] = useState<"partners" | "retail" | "connections" | "messages">("partners");
   const [partners, setPartners] = useState<Partner[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [retail, setRetail] = useState<RetailPartner[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [editRetail, setEditRetail] = useState<RetailPartner | "new" | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
@@ -85,6 +99,10 @@ export default function InternalEDI() {
     const r = await fetch("/api/internal/tpl-providers").then((x) => x.json()).catch(() => ({}));
     setProviders(Array.isArray(r.providers) ? r.providers : []);
   }
+  async function loadRetail() {
+    const r = await fetch("/api/internal/edi/customer-partners?include_inactive=true").then((x) => x.json()).catch(() => []);
+    setRetail(Array.isArray(r) ? r : []);
+  }
   async function loadMessages() {
     const p = new URLSearchParams();
     if (dir) p.set("direction", dir);
@@ -92,9 +110,10 @@ export default function InternalEDI() {
     const r = await fetch(`/api/internal/edi-messages?${p.toString()}`).then((x) => x.json()).catch(() => ({}));
     setMessages(Array.isArray(r.messages) ? r.messages : []);
   }
-  useEffect(() => { (async () => { setLoading(true); await Promise.all([loadPartners(), loadProviders(), loadMessages()]); setLoading(false); })(); }, []);
+  useEffect(() => { (async () => { setLoading(true); await Promise.all([loadPartners(), loadProviders(), loadRetail(), loadMessages()]); setLoading(false); })(); }, []);
   useEffect(() => { void loadMessages(); /* eslint-disable-next-line */ }, [dir, txn]);
   useEffect(() => { fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setVendors(a as Vendor[]); }).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/internal/customer-master?limit=2000").then((r) => r.json()).then((a) => { if (Array.isArray(a)) setCustomers(a as Customer[]); }).catch(() => {}); }, []);
 
   const vendName = useMemo(() => new Map(vendors.map((v) => [v.id, v.name])), [vendors]);
 
@@ -105,7 +124,7 @@ export default function InternalEDI() {
   const { sorted: sortedMessages, sortKey: mk, sortDir: md, onHeaderClick: onMSort } = useSort(messages, {
     persistKey: "tangerine:edi-messages:sort",
     accessors: {
-      when: (m) => m.created_at, party: (m) => m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "",
+      when: (m) => m.created_at, party: (m) => m.customer_name || m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "",
       direction: (m) => m.direction, document: (m) => TXN_LABEL[m.transaction_set] || m.transaction_set,
       interchange: (m) => m.interchange_id || "", status: (m) => m.status, ack: (m) => m.ack_status || "",
     },
@@ -155,7 +174,7 @@ export default function InternalEDI() {
     { key: "document", header: "Document" }, { key: "interchange", header: "Interchange" }, { key: "status", header: "Status" }, { key: "ack", header: "Ack" },
   ];
   const mRows = messages.map((m) => ({
-    when: fmtDT(m.created_at), party: m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "",
+    when: fmtDT(m.created_at), party: m.customer_name || m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "",
     direction: m.direction, document: TXN_LABEL[m.transaction_set] || m.transaction_set, interchange: m.interchange_id || "",
     status: m.status, ack: m.ack_status || "",
   }));
@@ -166,7 +185,8 @@ export default function InternalEDI() {
         <h2 style={{ margin: 0, fontSize: 18 }}>EDI</h2>
         <span style={{ color: C.textMuted, fontSize: 12 }}>X12 trading-partner exchange — vendors + 3PL warehouse</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <button style={tabBtn(tab === "partners")} onClick={() => setTab("partners")}>Partners ({partners.length})</button>
+          <button style={tabBtn(tab === "partners")} onClick={() => setTab("partners")}>Vendors ({partners.length})</button>
+          <button style={tabBtn(tab === "retail")} onClick={() => setTab("retail")}>Retail Partners ({retail.length})</button>
           <button style={tabBtn(tab === "connections")} onClick={() => setTab("connections")}>3PL Connections ({providers.length})</button>
           <button style={tabBtn(tab === "messages")} onClick={() => setTab("messages")}>Messages ({messages.length})</button>
         </div>
@@ -174,6 +194,8 @@ export default function InternalEDI() {
 
       {loading ? <div style={{ color: C.textMuted }}>Loading…</div> : tab === "partners" ? (
         <PartnersTab {...{ partners, sortedPartners, pk, pd, onPSort, vendName, vendors, enabling, setEnabling, vendId, setVendId, partnerId, setPartnerId, transport, setTransport, busy, enable, pRows, pCols }} />
+      ) : tab === "retail" ? (
+        <RetailPartnersTab retail={retail} onEdit={setEditRetail} onNew={() => setEditRetail("new")} />
       ) : tab === "connections" ? (
         <ConnectionsTab providers={providers} onEdit={setEditProvider} />
       ) : (
@@ -200,7 +222,7 @@ export default function InternalEDI() {
               {sortedMessages.map((m) => (
                 <tr key={m.id} onClick={() => openDetail(m.id)} style={{ cursor: "pointer" }}>
                   <td style={{ ...td, color: C.textMuted, fontSize: 12 }}>{fmtDT(m.created_at)}</td>
-                  <td style={{ ...td, ...linkCell }}>{m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "—"}</td>
+                  <td style={{ ...td, ...linkCell }}>{m.customer_name || m.tpl_provider_name || m.vendor_name || vendName.get(m.vendor_id) || "—"}</td>
                   <td style={td}>{m.direction === "inbound" ? "in" : "out"}</td>
                   <td style={td}>{TXN_LABEL[m.transaction_set] || m.transaction_set}</td>
                   <td style={{ ...td, fontFamily: "monospace", color: C.textMuted, fontSize: 12 }}>{m.interchange_id || "—"}</td>
@@ -215,6 +237,7 @@ export default function InternalEDI() {
       )}
 
       {editProvider && <ConnectionModal provider={editProvider} onClose={() => setEditProvider(null)} onSaved={async () => { setEditProvider(null); await loadProviders(); }} />}
+      {editRetail && <RetailPartnerModal partner={editRetail} customers={customers} existing={retail} onClose={() => setEditRetail(null)} onSaved={async () => { setEditRetail(null); await loadRetail(); }} />}
       {(detail || detailBusy) && <MessageDetailModal detail={detail} busy={detailBusy} onClose={() => setDetail(null)} onRetry={retryMessage} />}
     </div>
   );
@@ -261,6 +284,199 @@ function PartnersTab(p: any) {
       </table>
       </div>
     </div>
+  );
+}
+
+// ── Retail Partners tab (customer-side outbound 856/810) ──────────────────────
+function RetailPartnersTab({ retail, onEdit, onNew }: { retail: RetailPartner[]; onEdit: (p: RetailPartner) => void; onNew: () => void }) {
+  const cols: ExportColumn<Record<string, string>>[] = [
+    { key: "customer", header: "Customer" }, { key: "docs", header: "Enabled docs" }, { key: "usage", header: "Usage" },
+    { key: "our_id", header: "Our ISA ID" }, { key: "their_id", header: "Their ISA ID" }, { key: "transport", header: "Transport" }, { key: "secret", header: "Secret" }, { key: "active", header: "Active" },
+  ];
+  const rows = retail.map((p) => ({
+    customer: p.customer_name || "", docs: (p.enabled_docs || []).join(" "), usage: p.usage_indicator === "P" ? "Production" : "Test",
+    our_id: p.our_isa_id || "", their_id: p.partner_isa_id || "", transport: p.edi_protocol || "", secret: p.edi_secret_set ? "set" : "—", active: p.is_active ? "yes" : "no",
+  }));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+        <ExportButton rows={rows} columns={cols} filename="edi-retail-partners" />
+        <button style={btnP} onClick={onNew}>+ Add retail partner</button>
+        <span style={{ color: C.textMuted, fontSize: 12, marginLeft: "auto" }}>Click a partner to configure the ASN (856) + invoice (810) connection. Docs generate at AR-invoice post.</span>
+      </div>
+      <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr>{["Customer", "Enabled docs", "Usage", "Our ISA ID", "Their ISA ID", "Transport", "Secret", "Active"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {retail.length === 0 && <tr><td style={{ ...td, textAlign: "center", color: C.textMuted, padding: 30 }} colSpan={8}>No retail EDI partners yet — add one to emit 856 ASN + 810 invoices to a retail customer.</td></tr>}
+            {retail.map((p) => (
+              <tr key={p.id} onClick={() => onEdit(p)} style={{ cursor: "pointer" }}>
+                <td style={{ ...td, ...linkCell }}>{p.customer_name || "—"}{p.customer_code ? ` (${p.customer_code})` : ""}</td>
+                <td style={{ ...td, fontSize: 12 }}>{(p.enabled_docs || []).map((d) => TXN_LABEL[d] || d).join(", ") || "—"}</td>
+                <td style={td}><span style={chip(p.usage_indicator === "P" ? C.success : C.warn)}>{p.usage_indicator === "P" ? "Production" : "Test"}</span></td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{p.our_isa_id || "—"}</td>
+                <td style={{ ...td, fontFamily: "monospace", fontSize: 12 }}>{p.partner_isa_id || "—"}</td>
+                <td style={td}>{p.edi_protocol ? <span style={chip(C.primary)}>{p.edi_protocol}</span> : <span style={{ color: C.textMuted }}>not set</span>}</td>
+                <td style={td}>{p.edi_secret_set ? <span style={chip(C.success)}>set</span> : <span style={chip(C.warn)}>none</span>}</td>
+                <td style={td}><span style={chip(p.is_active ? C.success : C.textMuted)}>{p.is_active ? "yes" : "no"}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Retail partner editor modal (create + edit) ───────────────────────────────
+function RetailPartnerModal({ partner, customers, existing, onClose, onSaved }: { partner: RetailPartner | "new"; customers: Customer[]; existing: RetailPartner[]; onClose: () => void; onSaved: () => void }) {
+  const isNew = partner === "new";
+  const p = isNew ? null : (partner as RetailPartner);
+  const [customerId, setCustomerId] = useState(p?.customer_id || "");
+  const [f, setF] = useState({
+    our_isa_qualifier: p?.our_isa_qualifier || "ZZ", our_isa_id: p?.our_isa_id || "", our_gs_id: p?.our_gs_id || "",
+    partner_isa_qualifier: p?.partner_isa_qualifier || "ZZ", partner_isa_id: p?.partner_isa_id || "", partner_gs_id: p?.partner_gs_id || "",
+    usage_indicator: p?.usage_indicator || "T",
+    edi_protocol: p?.edi_protocol || "SFTP", edi_endpoint: p?.edi_endpoint || "", edi_port: p?.edi_port ? String(p.edi_port) : "22",
+    edi_username: p?.edi_username || "", edi_secret: "", edi_outbound_dir: p?.edi_outbound_dir || "", edi_inbound_dir: p?.edi_inbound_dir || "", edi_archive_dir: p?.edi_archive_dir || "",
+    edi_poll_enabled: p?.edi_poll_enabled !== false, is_active: p?.is_active !== false,
+    doc_map: p?.doc_map ? JSON.stringify(p.doc_map, null, 2) : "{}",
+  });
+  const [docs, setDocs] = useState<string[]>(p?.enabled_docs || RETAIL_DOC_TYPES);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
+  const set = (k: string, v: string | boolean) => setF((s) => ({ ...s, [k]: v }));
+
+  const usedCustomerIds = new Set(existing.map((e) => e.customer_id).filter((id) => id !== p?.customer_id));
+  const custOptions = customers.filter((c) => !usedCustomerIds.has(c.id)).map((c) => ({ value: c.id, label: c.name, searchHaystack: `${c.name} ${c.customer_code || c.code || ""}` }));
+
+  function bodyFromState(): Record<string, unknown> {
+    let doc_map: unknown = {};
+    try { doc_map = f.doc_map.trim() ? JSON.parse(f.doc_map) : {}; } catch { throw new Error("Doc map must be valid JSON"); }
+    const body: Record<string, unknown> = {
+      our_isa_qualifier: f.our_isa_qualifier, our_isa_id: f.our_isa_id, our_gs_id: f.our_gs_id,
+      partner_isa_qualifier: f.partner_isa_qualifier, partner_isa_id: f.partner_isa_id, partner_gs_id: f.partner_gs_id,
+      usage_indicator: f.usage_indicator, enabled_docs: docs, doc_map,
+      edi_protocol: f.edi_protocol, edi_endpoint: f.edi_endpoint, edi_port: f.edi_port, edi_username: f.edi_username,
+      edi_outbound_dir: f.edi_outbound_dir, edi_inbound_dir: f.edi_inbound_dir, edi_archive_dir: f.edi_archive_dir,
+      edi_poll_enabled: f.edi_poll_enabled, is_active: f.is_active,
+    };
+    if (f.edi_secret.trim() !== "") body.edi_secret = f.edi_secret;
+    return body;
+  }
+
+  async function save(): Promise<string | null> {
+    setSaving(true);
+    try {
+      const body = bodyFromState();
+      if (isNew) {
+        if (!customerId) { notify("Pick a customer", "error"); return null; }
+        const r = await fetch("/api/internal/edi/customer-partners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customer_id: customerId, ...body }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "failed");
+        notify("Retail partner created", "success");
+        onSaved();
+        return j.id || null;
+      }
+      const r = await fetch(`/api/internal/edi/customer-partners/${(p as RetailPartner).id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "failed");
+      notify("Retail partner saved", "success");
+      onSaved();
+      return (p as RetailPartner).id;
+    } catch (e) { notify("Save failed — " + (e instanceof Error ? e.message : String(e)), "error"); return null; }
+    finally { setSaving(false); }
+  }
+
+  async function test() {
+    setTesting(true); setTestResult(null);
+    try {
+      const savedId = await save();
+      if (!savedId) { setTesting(false); return; }
+      const r = await fetch(`/api/internal/edi/customer-partners/${savedId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test" }) });
+      const j = await r.json();
+      setTestResult({ ok: !!j.ok, detail: j.detail || j.error || "no response" });
+    } catch (e) { setTestResult({ ok: false, detail: e instanceof Error ? e.message : String(e) }); }
+    finally { setTesting(false); }
+  }
+
+  const field = (l: string, k: keyof typeof f, ph = "", w = 160) => (
+    <div style={{ minWidth: w, flex: `1 1 ${w}px` }}>
+      <label style={label}>{l}</label>
+      <input style={{ ...input, width: "100%" }} value={String(f[k])} placeholder={ph} onChange={(e) => set(k, e.target.value)} />
+    </div>
+  );
+
+  return (
+    <Modal title={isNew ? "New retail EDI partner" : `Retail EDI partner — ${p?.customer_name || ""}`} onClose={onClose} footer={
+      <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%" }}>
+        <button style={btnS} disabled={testing || saving} onClick={test}>{testing ? "Testing…" : "Save & test connection"}</button>
+        {testResult && <span style={{ fontSize: 12, color: testResult.ok ? C.success : C.danger, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{testResult.ok ? "✓ " : "✕ "}{testResult.detail}</span>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button style={btnS} onClick={onClose}>Close</button>
+          <button style={btnP} disabled={saving} onClick={() => { void save(); }}>{saving ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
+    }>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ flexBasis: "100%", minWidth: 220 }}>
+          <label style={label}>Customer</label>
+          {isNew ? <SearchableSelect options={custOptions} value={customerId} onChange={setCustomerId} placeholder="Customer…" inputStyle={input} />
+            : <div style={{ ...input, background: C.panel }}>{p?.customer_name}{p?.customer_code ? ` (${p.customer_code})` : ""}</div>}
+        </div>
+        <div style={{ flexBasis: "100%", fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 }}>Interchange identity</div>
+        {field("Our ISA qualifier", "our_isa_qualifier", "ZZ", 120)}
+        {field("Our ISA ID (sender)", "our_isa_id", "RINGOFFIRE", 170)}
+        {field("Our GS ID", "our_gs_id", "RINGOFFIRE", 140)}
+        {field("Their ISA qualifier", "partner_isa_qualifier", "12", 120)}
+        {field("Their ISA ID (receiver)", "partner_isa_id", "RETAILERDC", 170)}
+        {field("Their GS ID", "partner_gs_id", "RETAILER", 140)}
+        <div style={{ minWidth: 140, flex: "1 1 140px" }}>
+          <label style={label}>Usage</label>
+          <SearchableSelect value={f.usage_indicator} onChange={(v) => set("usage_indicator", v)} options={[{ value: "T", label: "Test (cert)" }, { value: "P", label: "Production" }]} inputStyle={input} />
+        </div>
+        <div style={{ flexBasis: "100%" }}>
+          <label style={label}>Enabled documents</label>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {RETAIL_DOC_TYPES.map((d) => (
+              <label key={d} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: C.textSub, cursor: "pointer" }}>
+                <input type="checkbox" checked={docs.includes(d)} onChange={(e) => setDocs((s) => e.target.checked ? [...new Set([...s, d])] : s.filter((x) => x !== d))} />
+                {TXN_LABEL[d] || d}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ flexBasis: "100%", fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 8 }}>SFTP transport (leave blank to generate + queue without transmitting)</div>
+        <div style={{ minWidth: 140, flex: "1 1 140px" }}>
+          <label style={label}>Transport</label>
+          <SearchableSelect value={f.edi_protocol} onChange={(v) => set("edi_protocol", v)} options={[{ value: "SFTP", label: "SFTP" }, { value: "AS2", label: "AS2 (soon)" }, { value: "VAN", label: "VAN (soon)" }]} inputStyle={input} />
+        </div>
+        {field("SFTP host", "edi_endpoint", "sftp.retailer.com")}
+        {field("Port", "edi_port", "22", 90)}
+        {field("Username", "edi_username", "ringoffire")}
+        <div style={{ minWidth: 200, flex: "1 1 200px" }}>
+          <label style={label}>Password / private key {p?.edi_secret_set ? "(configured — leave blank to keep)" : ""}</label>
+          <input type="password" autoComplete="new-password" style={{ ...input, width: "100%" }} value={f.edi_secret} placeholder={p?.edi_secret_set ? "••••••••" : "SFTP password or PEM key"} onChange={(e) => set("edi_secret", e.target.value)} />
+        </div>
+        {field("Outbound dir (we upload 856/810)", "edi_outbound_dir", "/inbound", 200)}
+        {field("Inbound dir (partner drops 997)", "edi_inbound_dir", "/outbound", 200)}
+        {field("Archive dir (processed)", "edi_archive_dir", "/archive", 200)}
+        <div style={{ flexBasis: "100%" }}>
+          <label style={label}>Per-doc map overrides (JSON) — segment/qualifier variations per retailer</label>
+          <textarea style={{ ...input, width: "100%", minHeight: 90, fontFamily: "monospace", fontSize: 12, resize: "vertical" }} value={f.doc_map} onChange={(e) => set("doc_map", e.target.value)} placeholder={'{"810":{"line_id_qual":"UP"},"856":{"hierarchy":["S","O","T","I"],"gs1_prefix":"0361234"}}'} />
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textSub, cursor: "pointer", flexBasis: "100%" }}>
+          <input type="checkbox" checked={f.edi_poll_enabled} onChange={(e) => set("edi_poll_enabled", e.target.checked)} />
+          Poll this partner's inbound directory for 997 acks on the transport cron
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: C.textSub, cursor: "pointer", flexBasis: "100%" }}>
+          <input type="checkbox" checked={f.is_active} onChange={(e) => set("is_active", e.target.checked)} />
+          Active — generate + queue 856/810 when an AR invoice posts for this customer
+        </label>
+      </div>
+    </Modal>
   );
 }
 
@@ -430,7 +646,7 @@ function MessageDetailModal({ detail, busy, onClose, onRetry }: { detail: MsgDet
       </div>
     }>
       <div style={{ marginBottom: 12 }}>
-        {row("Partner", detail.tpl_provider_name || detail.vendor_name || "—")}
+        {row("Partner", detail.customer_name || detail.tpl_provider_name || detail.vendor_name || "—")}
         {row("Status", <span style={chip(STAT_COLOR[detail.status] || C.textMuted)}>{detail.status}</span>)}
         {row("Interchange #", <span style={{ fontFamily: "monospace" }}>{detail.interchange_id || "—"}</span>)}
         {detail.group_control_number ? row("Group control #", <span style={{ fontFamily: "monospace" }}>{detail.group_control_number}</span>) : null}
