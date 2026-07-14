@@ -1757,7 +1757,10 @@ export default function WholesalePlanningWorkbench() {
         group_name: row.group_name ?? null,
         sub_category_name: row.sub_category_name ?? null,
       });
-      setPromotedTbdKeys((prev) => new Set(prev).add(`${row.sku_style}|${row.sku_color}`));
+      // Lowercased key so every row with this style+color (across all periods
+      // and customers) recognizes the promote — the render gate matches the
+      // same normalized key.
+      setPromotedTbdKeys((prev) => new Set(prev).add(`${style.toLowerCase()}|${color.toLowerCase()}`));
       const parts: string[] = [];
       if (r.style_created) parts.push("style created"); else if (r.style_existed) parts.push("style already existed");
       if (r.item_created) parts.push("item created"); else if (r.item_existed) parts.push("item already existed");

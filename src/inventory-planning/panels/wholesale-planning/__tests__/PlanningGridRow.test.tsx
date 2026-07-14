@@ -227,6 +227,34 @@ describe("<PlanningGridRow /> — TBD planner-added rows", () => {
     }));
     expect(screen.queryByTitle("Delete this planner-added row")).not.toBeInTheDocument();
   });
+
+  // Add-to-DB button gating (#1740).
+  const promoteRow = (over: Partial<IpPlanningGridRow> = {}) => row({
+    is_tbd: true, is_user_added: true, tbd_id: "t1",
+    sku_style: "RYB0412PPK", sku_color: "Red", customer_name: "(Supply Only)",
+    ...over,
+  });
+
+  it("shows Add to DB for a genuinely-new color not yet promoted", () => {
+    renderRow(defaultProps({ row: promoteRow({ is_new_color: true }), onPromoteTbdRow: vi.fn(async () => {}) }));
+    expect(screen.getByText("Add to DB")).toBeInTheDocument();
+  });
+
+  it("hides Add to DB when the color is already in the DB (is_new_color false)", () => {
+    renderRow(defaultProps({ row: promoteRow({ is_new_color: false }), onPromoteTbdRow: vi.fn(async () => {}) }));
+    expect(screen.queryByText("Add to DB")).not.toBeInTheDocument();
+    expect(screen.queryByText("✓ in DB")).not.toBeInTheDocument();
+  });
+
+  it("shows ✓ in DB (not the button) once promoted this session — case-insensitively", () => {
+    renderRow(defaultProps({
+      row: promoteRow({ is_new_color: true }),
+      onPromoteTbdRow: vi.fn(async () => {}),
+      promotedTbdKeys: new Set(["ryb0412ppk|red"]), // lowercased key
+    }));
+    expect(screen.queryByText("Add to DB")).not.toBeInTheDocument();
+    expect(screen.getByText("✓ in DB")).toBeInTheDocument();
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
