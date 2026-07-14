@@ -130,6 +130,16 @@ A row whose style isn't yet in the item master shows an amber **NEW** badge; it 
 
 > **↶ Undo** in the toolbar reverses your **+ Add row** actions — up to the **last 4** batches. The button shows the depth (`↶ Undo (3)` means three adds are still undoable). Each press removes the *entire* most-recent batch — every customer × period × color row it created for that style/color — and refreshes the grid. Editing a TBD row's customer, color, or style, or switching to another run, clears the undo history.
 
+### Buyer vs Last Year report
+
+The **Buyer vs LY Report** button (toolbar) opens a formatted, printable comparison. For each **Customer**, it breaks out **Style → Color** across the run's months in three blocks:
+
+- **SP/LY** — same-period-last-year quantities (the SP/LY column).
+- **TY / Buyer** — this year's **Buyer** quantities.
+- **Comparison** — the difference (**Δ = TY − LY**) and **%** per month and in total. A brand-new color with no last-year history reads **+100%**.
+
+A toggle at the top switches the report between your **current grid filters** and the **full run**. Use **Download PDF** for a landscape, Ring-of-Fire-branded sheet, or **Download Excel** for a workbook with the three blocks per customer (percentages come through as real Excel `%` cells you can re-sort or chart).
+
 ### Future demand requests
 
 The second tab on the Wholesale screen, **Future demand requests**, is where buyer-submitted future demand lives (with its own per-category sales-history readout). Applied requests fold into the next build and the build toast tells you how many were marked applied.
