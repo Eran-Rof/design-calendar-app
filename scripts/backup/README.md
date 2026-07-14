@@ -38,11 +38,12 @@ business data lives there.
 **GitHub Actions artifacts**, 30-day retention (tunable via the
 `workflow_dispatch` `retention_days` input, or edit the default in the YAML).
 
-**Storage math (probed 2026-07-14):** prod is 5383 MB total (3753 MB heap +
-1080 MB indexes). `pg_dump -Fc` excludes indexes and compresses the heap, so
-each encrypted dump is roughly **0.7–1.2 GB**. At 30 daily copies that is
-~25–35 GB of Actions storage. That is a working baseline and well within a
-paid GitHub plan; if you want a smaller footprint, lower `retention_days`.
+**Storage math (measured 2026-07-14):** prod is 5383 MB total (3753 MB heap +
+1080 MB indexes). `pg_dump -Fc` excludes indexes and compresses the heap; the
+first live run produced a **~346 MiB** encrypted dump (421 table-data
+sections, verified). At 30 daily copies that is ~10 GB of Actions storage —
+comfortably within a paid GitHub plan. Lower `retention_days` for a smaller
+footprint. (Dumps will grow with the dataset; ~346 MiB is the 2026-07 baseline.)
 
 **Retention/prune:** artifact retention handles pruning automatically — GitHub
 deletes each artifact when it ages past the retention window. No cron to
