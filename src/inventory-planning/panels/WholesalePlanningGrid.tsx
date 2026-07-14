@@ -107,14 +107,29 @@ export interface WholesalePlanningGridProps {
   // How many "+ Add row" batches are on the undo stack (0-4). Drives the
   // toolbar Undo button's visibility + its "(N)" count.
   undoDepth?: number;
-  // Identity of the row the planner just added — pinned to the top
-  // of displayRows so it's the first thing they see. Cleared from
-  // the workbench if/when the planner does another add.
+  // Identity of the most recently added TBD row. No longer pins it to
+  // the top of the grid (planners found the sticky row disruptive and
+  // it only surfaced ONE of a multi-period batch) — the workbench now
+  // shows a "Show them" toast instead (see focusBatch). Still used to
+  // prefer the freshest planner-added row as the aggregate Buy-routing
+  // target, and to bump edit-recency.
   lastAddedTbdMarker?: {
     style_code: string;
     color: string;
     customer_id: string;
     period_code: string;
+  } | null;
+  // "Show them" request from the workbench's add-row toast: sets the
+  // grid's filters to exactly the just-added batch (style + color +
+  // customers + periods) so the planner can see/edit the whole batch on
+  // demand. `nonce` changes per click so re-clicking re-applies even if
+  // the batch is identical. Null when there's no pending request.
+  focusBatch?: {
+    style_code: string;
+    color: string;
+    customer_ids: string[];
+    period_codes: string[];
+    nonce: number;
   } | null;
   // Master color set (lowercased, run-wide) used by the TBD color
   // picker to decide whether a typed color is "new". Sourced from
@@ -251,7 +266,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, focusBatch, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -453,6 +468,28 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
     if (match) bumpRowEditOrder(match.forecast_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastAddedTbdMarker]);
+
+  // "Show them" from the workbench's add-row toast — set the grid's
+  // filters to exactly the batch the planner just added so all of its
+  // rows (every period/customer) are visible together. Also clears the
+  // search box and any other narrowing filters that could hide part of
+  // the batch. Keyed on `nonce` so re-clicking re-applies.
+  useEffect(() => {
+    if (!focusBatch) return;
+    setSearch("");
+    setFilterStyle([focusBatch.style_code]);
+    setFilterColor([focusBatch.color]);
+    setFilterCustomer(focusBatch.customer_ids);
+    setFilterPeriod(focusBatch.period_codes);
+    // Clear the other dimension filters so nothing else hides the batch.
+    setFilterCategory([]);
+    setFilterSubCat([]);
+    setFilterGender([]);
+    setFilterAction([]);
+    setFilterConfidence([]);
+    setFilterMethod([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusBatch?.nonce]);
 
   // Inline confirmation modal state — replaces window.confirm so the
   // warning matches the rest of the app's dark-theme styling. Resolved
@@ -1573,44 +1610,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
   const { displayRows, childIds } = useMemo(() => {
     const ids = new Set<string>();
     let base: typeof filtered = filtered;
-    // The just-added row's child forecast_id (the synthetic id we
-    // emit in buildGridRows for the underlying TBD row) — used both
-    // to auto-expand whichever aggregate contains it AND to position
-    // it first among that aggregate's children below.
-    let pinnedChildFid: string | null = null;
-    if (lastAddedTbdMarker) {
-      const matches = (r: IpPlanningGridRow) =>
-        r.is_tbd
-        && r.is_user_added
-        && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
-        && (r.sku_color ?? "") === lastAddedTbdMarker.color
-        && r.customer_id === lastAddedTbdMarker.customer_id
-        && r.period_code === lastAddedTbdMarker.period_code;
-      const matchedRow = rows.find(matches);
-      if (matchedRow) pinnedChildFid = matchedRow.forecast_id;
-    }
     // Build the effective expansion set — the planner's manual
-    // expandedAggs PLUS:
-    //   1. Any aggregate that contains the just-added row's
-    //      forecast_id (so the new line is visible under the
-    //      collapsed header without the planner clicking ▶).
-    //   2. Any aggregate whose children match the active search
-    //      term — when a planner types a search query, they want
-    //      to see the matching row, not just the bucket header.
-    // The auto-expanders honor manuallyCollapsedAggs: an aggregate
-    // the planner explicitly collapsed via the chevron stays
-    // collapsed even if it would otherwise be auto-expanded.
+    // expandedAggs PLUS any aggregate whose children match the active
+    // search term (when a planner types a query, they want to see the
+    // matching row, not just the bucket header). Honors
+    // manuallyCollapsedAggs: an aggregate the planner explicitly
+    // collapsed via the chevron stays collapsed even if it would
+    // otherwise be auto-expanded.
     const effectiveExpanded = new Set(expandedAggs);
-    if (pinnedChildFid) {
-      for (const r of filtered) {
-        if (!r.is_aggregate) continue;
-        const key = r.aggregate_key ?? r.forecast_id;
-        if (manuallyCollapsedAggs.has(key)) continue;
-        if (r.aggregate_underlying_ids?.includes(pinnedChildFid)) {
-          effectiveExpanded.add(key);
-        }
-      }
-    }
     const searchTrim = deferredSearch.trim();
     if (searchTrim.length > 0) {
       // Auto-expand every aggregate while the planner is searching
@@ -1634,21 +1641,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
         // a-z / 0-9 toggles apply WITHIN each expanded bucket — the
         // bucket header keeps its position dictated by collapse
         // grouping but the rows below it follow the user's sort).
-        // Pinned (just-added) child still wins by being lifted to
-        // the front after the sort.
         const childRows: IpPlanningGridRow[] = [];
         for (const fid of underlying) {
           const c = mutedById.get(fid);
           if (c) childRows.push(c);
         }
         childRows.sort((a, b) => cmpMulti(a, b, sortStack));
-        if (pinnedChildFid) {
-          const pinnedIdx = childRows.findIndex((c) => c.forecast_id === pinnedChildFid);
-          if (pinnedIdx > 0) {
-            const [pinnedRow] = childRows.splice(pinnedIdx, 1);
-            childRows.unshift(pinnedRow);
-          }
-        }
         // Chain children through applyRollingPool starting from the
         // parent aggregate's rolled incoming on-hand (set by `filtered`
         // above). Receipts dedupe per (sku, period) so multi-customer
@@ -1688,69 +1686,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
       }
       base = out;
     }
-    // Pin the just-added TBD row right under its parent aggregate
-    // (e.g., if the planner added a TBD row in sub-cat BAGGY while
-    // collapsed by Sub Cat, the row appears as the first line under
-    // the BAGGY aggregate header — not at the top of the grid). The
-    // marker is a 4-tuple identity so it survives the synthetic
-    // forecast_id refresh on rebuild. If the row isn't in the
-    // filtered set we still surface it — the workbench fires a
-    // separate toast warning so the planner knows their filters
-    // would have hidden it.
-    if (lastAddedTbdMarker) {
-      const matches = (r: IpPlanningGridRow) =>
-        r.is_tbd
-        && r.is_user_added
-        && (r.sku_style ?? "") === lastAddedTbdMarker.style_code
-        && (r.sku_color ?? "") === lastAddedTbdMarker.color
-        && r.customer_id === lastAddedTbdMarker.customer_id
-        && r.period_code === lastAddedTbdMarker.period_code;
-      // Locate the row (or fetch from unfiltered if filters hide it).
-      // Note: when multiple aggregates expand and contain the same
-      // child forecast_id (rare cross-collapse case), `base` can
-      // hold N copies of the matching row. Strip ALL of them, not
-      // just the first — otherwise the pin re-insert would
-      // duplicate.
-      let pinned: IpPlanningGridRow | null = null;
-      const inBase = base.filter(matches);
-      if (inBase.length > 0) {
-        pinned = inBase[0];
-      } else {
-        const fromAllRows = rows.find(matches);
-        if (fromAllRows) pinned = fromAllRows;
-      }
-      if (pinned) {
-        const stripped = base.filter((r) => !matches(r));
-        // Find the parent aggregate row this row "belongs under" by
-        // active collapse mode. When found, insert right after it so
-        // the planner sees the new line immediately under the
-        // collapsed header. When no aggregate matches (e.g., no
-        // collapse active, or the collapse mode doesn't bucket on a
-        // dim the new row carries), fall back to top-of-grid.
-        let parentIdx = -1;
-        if (collapse.subCat) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.sub_category_name === pinned!.sub_category_name);
-        } else if (collapse.category) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.group_name === pinned!.group_name);
-        } else if (collapse.allCustomersPerCategory) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.group_name === pinned!.group_name);
-        } else if (collapse.allCustomersPerSubCat) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.sub_category_name === pinned!.sub_category_name);
-        } else if (collapse.allCustomersPerStyle) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && (r.sku_style ?? r.sku_code) === (pinned!.sku_style ?? pinned!.sku_code));
-        } else if (collapse.customerAllStyles) {
-          parentIdx = stripped.findIndex((r) => r.is_aggregate && r.customer_id === pinned!.customer_id);
-        }
-        if (parentIdx >= 0) {
-          base = [...stripped.slice(0, parentIdx + 1), pinned, ...stripped.slice(parentIdx + 1)];
-        } else {
-          // No collapsed parent to anchor against — pin to top.
-          base = [pinned, ...stripped];
-        }
-      }
-    }
+    // (Removed) The just-added TBD row used to be pinned to the top of
+    // the grid. Planners found the single sticky row disruptive and it
+    // only surfaced ONE period of a multi-period batch. The workbench
+    // now shows a "Show them" toast that filters the grid to the whole
+    // batch on demand (see focusBatch), so no reordering happens here.
     return { displayRows: base, childIds: ids };
-  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, lastAddedTbdMarker, rows, collapse, deferredSearch, sortSig]);
+  }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, rows, collapse, deferredSearch, sortSig]);
 
   // computeTotals moved to ./wholesale-planning/computeTotals (tested).
   const totals = useMemo(() => computeTotals(mutedRows, skuPeriodMath), [mutedRows, skuPeriodMath]);

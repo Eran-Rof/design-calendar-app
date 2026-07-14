@@ -118,6 +118,16 @@ export default function WholesalePlanningWorkbench() {
   const [ingestTo, setIngestTo] = useState(new Date().toISOString().slice(0, 10));
   const [selectedRow, setSelectedRow] = useState<IpPlanningGridRow | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  // "Show them" target for the add-row toast — filters the grid to the
+  // batch just added. nonce bumps per request so the grid re-applies
+  // even when the same batch is requested twice.
+  const [focusBatch, setFocusBatch] = useState<{
+    style_code: string;
+    color: string;
+    customer_ids: string[];
+    period_codes: string[];
+    nonce: number;
+  } | null>(null);
   // Per-section collapse toggles. Each card on the workbench (sales
   // history bar, monthly totals cards) can be hidden via a small ▾
   // chevron at the card's top-right edge so the planner can free up
@@ -1083,31 +1093,37 @@ export default function WholesalePlanningWorkbench() {
             setRows((prev) => prev.filter((row) => row.forecast_id !== synthFid));
           }));
       }
-      // Warn when the current grid filters don't match the new row's
-      // dimensions — it'd otherwise vanish from the visible set and
-      // the planner would think the save failed.
-      // Warn when filters would normally hide the new row. The grid
-      // pin still forces it to the top, but the planner should know
-      // their filters don't include it so they can clear what they
-      // need to. Covers every dim the grid filters by — including
-      // gender / action / confidence / method, which the new row
-      // doesn't carry meaningful values for.
-      const mismatches: string[] = [];
-      if (buildFilter?.customer_id && !args.customer_ids.includes(buildFilter.customer_id)) mismatches.push("customer");
-      if (buildFilter?.style_code && buildFilter.style_code !== args.style_code) mismatches.push("style");
-      if (buildFilter?.group_name && buildFilter.group_name !== (args.group_name ?? null)) mismatches.push("category");
-      if (buildFilter?.sub_category_name && buildFilter.sub_category_name !== (args.sub_category_name ?? null)) mismatches.push("sub cat");
-      if (buildFilter?.period_code && !periodSamples.some((p) => p.period_code === buildFilter.period_code)) mismatches.push("period");
-      if (buildFilter?.recommended_action && buildFilter.recommended_action !== "monitor") mismatches.push("action");
-      if (buildFilter?.confidence_level && buildFilter.confidence_level !== "estimate") mismatches.push("confidence");
-      if (buildFilter?.forecast_method && buildFilter.forecast_method !== "zero_floor") mismatches.push("method");
+      // Confirm the add with a sticky toast that names the batch and
+      // carries a "Show them" action. The grid no longer pins the row to
+      // the top; instead "Show them" filters the grid to exactly this
+      // batch (style + color + customers + periods) — the reliable way
+      // to surface a multi-period / multi-customer add even when the
+      // planner's current filters or sort would otherwise scatter it.
       const rowCount = combos.length;
-      const rowLabel = `${rowCount} TBD row${rowCount === 1 ? "" : "s"}`;
-      if (mismatches.length > 0) {
-        setToast({ text: `Added ${rowLabel} — pinned to top. Filters don't match (${mismatches.join(", ")}); clear to see them.`, kind: "info" });
-      } else {
-        setToast({ text: `Added ${rowLabel}`, kind: "success" });
-      }
+      const rowLabel = `${rowCount} row${rowCount === 1 ? "" : "s"}`;
+      const batchPeriodCodes = periodSamples.map((p) => p.period_code).sort();
+      const periodRange = batchPeriodCodes.length === 1
+        ? formatPeriodCode(batchPeriodCodes[0])
+        : `${formatPeriodCode(batchPeriodCodes[0])}–${formatPeriodCode(batchPeriodCodes[batchPeriodCodes.length - 1])}`;
+      const custLabel = args.customer_ids.length === 1
+        ? (customers.find((c) => c.id === args.customer_ids[0])?.name ?? "1 customer")
+        : `${args.customer_ids.length} customers`;
+      const colorLabel = args.color === "TBD" ? "" : `${args.color} · `;
+      setToast({
+        text: `Added ${rowLabel}: ${colorLabel}${custLabel} · ${periodRange}`,
+        kind: "success",
+        sticky: true,
+        action: {
+          label: "Show them",
+          onClick: () => setFocusBatch({
+            style_code: args.style_code,
+            color: args.color,
+            customer_ids: args.customer_ids,
+            period_codes: batchPeriodCodes,
+            nonce: Date.now(),
+          }),
+        },
+      });
       // Fire-and-forget the grid rebuild so the Save button releases
       // as soon as the upsert returns. Without this the form sat on
       // "Saving…" for as long as the rebuild took (10+ parallel
@@ -2473,6 +2489,7 @@ export default function WholesalePlanningWorkbench() {
                 customer_id: addUndoStack[addUndoStack.length - 1].customer_ids[0],
                 period_code: addUndoStack[addUndoStack.length - 1].period_codes[0],
               } : undefined}
+              focusBatch={focusBatch}
               runName={selectedRun?.name}
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
