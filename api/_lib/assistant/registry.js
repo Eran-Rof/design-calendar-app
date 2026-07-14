@@ -20,8 +20,11 @@
 
 import accounting from "./packs/accounting.js";
 import po from "./packs/po.js";
+import soAllocations from "./packs/so_allocations.js";
+import planning from "./packs/planning.js";
+import masterData from "./packs/master_data.js";
 
-export const PACKS = [po, accounting];
+export const PACKS = [po, soAllocations, planning, masterData, accounting];
 
 const SEVERITIES = new Set(["action", "warn", "error", "info"]);
 

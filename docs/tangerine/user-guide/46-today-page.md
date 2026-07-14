@@ -22,6 +22,11 @@ What can appear here today:
 | Chargebacks to disposition | open items on the chargeback worklist | Chargebacks |
 | Prior months not closed / close not in use | the month-end close checklist state | Month-End Close |
 | Nightly job errors (last 24h) | cron runs that logged errors | Sync Health |
+| Draft SOs older than 3 days | sales orders entered but never confirmed | Sales Orders |
+| SO lines due to ship this week / past requested ship | open demand lines by requested ship date | Allocations Workbench |
+| Factored lines shipping soon without factor approval | the factor-credit gate will block these | Allocations Workbench |
+| Buy-plan batches awaiting approval | draft execution batches in the Planning app | Planning |
+| Styles missing a size scale / PPK styles without a matrix | master-data quality views (bulk Auto-assign / Prepack Matrices fix them) | Style Master / Prepack Matrices |
 
 **Access-rights aware:** when RBAC enforcement is on, you only see rows for modules you hold read access to — a warehouse user's Today page and the bookkeeper's look completely different.
 

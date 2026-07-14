@@ -207,12 +207,23 @@ describe("real packs run against canned counts", () => {
     ip_open_purchase_orders: (s) => (filterVal(s, "lt", "expected_date") ? 12 : 6),
     tanda_po_qc_inspections: () => 0,
     edi_messages: (s) => (filterVal(s, "gte", "attempts") !== undefined ? 0 : 2),
+    // P28-1-3 packs
+    sales_orders: () => 2,
+    v_allocation_demand: (s) => {
+      if (filterVal(s, "eq", "is_factored") !== undefined) return 9;      // factor gate
+      if (filterVal(s, "lt", "requested_ship_date")) return 40;           // overdue
+      return 15;                                                          // due ≤7d
+    },
+    ip_execution_batches: () => 1,
+    v_style_scale_candidates: () => 2119,
+    v_prepack_ppk_needed: () => 59,
   };
   const ROWS = {
     xoro_mirror_runs: [
       { domain: "ar", status: "success", mirror_date: "2026-07-13", completed_at: "x" },
       { domain: "ap", status: "error", errors: "boom", completed_at: "y" },
     ],
+    ip_planning_runs: [{ id: "r1", name: "July run", status: "complete", created_at: "z" }],
     ai_insights: [],
   };
   const admin = fakeAdmin((state) => {
@@ -239,14 +250,28 @@ describe("real packs run against canned counts", () => {
     expect(byKey["po.receipts_overdue"].count).toBe(12);
     expect(byKey["po.qc_failed_open"]).toBeUndefined();            // zero → hidden
 
+    // P28-1-3 packs
+    expect(byKey["so.drafts_aging"].count).toBe(2);
+    expect(byKey["so.ship_due_7d"].count).toBe(15);
+    expect(byKey["so.ship_overdue"].count).toBe(40);
+    expect(byKey["so.factor_not_submitted"].count).toBe(9);
+    expect(byKey["planning.exec_batches_draft"].count).toBe(1);
+    expect(byKey["planning.exec_batches_draft"].href).toBe("/planning");
+    expect(byKey["master.scales_missing"].count).toBe(2119);
+    expect(byKey["master.ppk_matrix_needed"].count).toBe(59);
+
     const procs = Object.fromEntries(out.processes.map((p) => [p.key, p]));
     expect(procs["accounting.mirror.ar"].state).toBe("ok");
     expect(procs["accounting.mirror.ap"].state).toBe("error");
     expect(procs["po.edi_outbox"].state).toBe("running");          // 2 queued, 0 stuck
+    expect(procs["planning.latest_run"].state).toBe("ok");
 
     // suggestions fired off the aggregate
     expect(out.suggestions.map((s) => s.key).sort()).toEqual([
-      "accounting.suggest_close_adoption", "po.suggest_chase_overdue",
+      "accounting.suggest_close_adoption",
+      "master.suggest_bulk_scale_assign",
+      "po.suggest_chase_overdue",
+      "so.suggest_auto_allocate",
     ]);
 
     // every emitted item uses the closed severity vocabulary
