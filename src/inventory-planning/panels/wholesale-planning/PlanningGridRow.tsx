@@ -320,7 +320,17 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
               && r.sku_style && r.sku_style.toUpperCase() !== "TBD"
               && r.sku_color && r.sku_color.toUpperCase() !== "TBD"
               && (() => {
-                const promoted = promotedTbdKeys?.has(`${r.sku_style}|${r.sku_color}`);
+                // Case-insensitive key so "Red"/"red" across rows still match a
+                // single promote.
+                const promoted = promotedTbdKeys?.has(`${(r.sku_style ?? "").toLowerCase()}|${(r.sku_color ?? "").toLowerCase()}`);
+                // The color is already in the company DB when it was promoted
+                // this session OR it exists in the master (is_new_color false).
+                // In both cases the "Add to DB" button must NOT appear on any
+                // period / customer for this style+color. Only a genuinely-new,
+                // not-yet-promoted color shows the button; a just-promoted one
+                // shows a ✓ (session feedback); an always-in-master color shows
+                // nothing.
+                if (!promoted && !r.is_new_color) return null;
                 return promoted ? (
                   <span
                     title="Added to the company database (Tangerine + ATS)"
