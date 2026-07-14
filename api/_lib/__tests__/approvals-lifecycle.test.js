@@ -10,6 +10,10 @@ const ENTITY = "00000000-0000-0000-0000-000000000001";
 const ACTOR = "00000000-0000-0000-0000-0000000000aa";
 const ADMIN = "00000000-0000-0000-0000-0000000000bb";
 const STAFF = "00000000-0000-0000-0000-0000000000cc";
+// Independent accountant (NOT the request creator) — used by the multi-step
+// tests so the approver differs from the maker (segregation of duties: the
+// requester can never approve their own request).
+const ACCT  = "00000000-0000-0000-0000-0000000000dd";
 
 function buildClient(state) {
   return {
@@ -206,10 +210,10 @@ describe("decide", () => {
         { step_order: 2, mode: "any", role_required: "admin" },
       ],
     });
-    // Add accountant to entity_users
-    state.entity_users.push({ id: "eu-acct", auth_id: ACTOR, entity_id: ENTITY, role: "accountant" });
+    // Add an INDEPENDENT accountant (not the maker ACTOR) to approve step 1.
+    state.entity_users.push({ id: "eu-acct", auth_id: ACCT, entity_id: ENTITY, role: "accountant" });
     const step1Id = state.approval_request_steps.find((s) => s.step_order === 1).id;
-    const out = await decide(sb, { request_id, step_id: step1Id, decision: "approve" }, { actor_user_id: ACTOR });
+    const out = await decide(sb, { request_id, step_id: step1Id, decision: "approve" }, { actor_user_id: ACCT });
     expect(out.finalized).toBe(false);
     expect(state.approval_requests[0].status).toBe("pending");
   });
@@ -221,10 +225,10 @@ describe("decide", () => {
         { step_order: 2, mode: "any", role_required: "admin" },
       ],
     });
-    state.entity_users.push({ id: "eu-acct", auth_id: ACTOR, entity_id: ENTITY, role: "accountant" });
+    state.entity_users.push({ id: "eu-acct", auth_id: ACCT, entity_id: ENTITY, role: "accountant" });
     const step1Id = state.approval_request_steps.find((s) => s.step_order === 1).id;
     const step2Id = state.approval_request_steps.find((s) => s.step_order === 2).id;
-    await decide(sb, { request_id, step_id: step1Id, decision: "approve" }, { actor_user_id: ACTOR });
+    await decide(sb, { request_id, step_id: step1Id, decision: "approve" }, { actor_user_id: ACCT });
     const out = await decide(sb, { request_id, step_id: step2Id, decision: "approve" }, { actor_user_id: ADMIN });
     expect(out.finalized).toBe(true);
     expect(state.approval_requests[0].status).toBe("approved");
