@@ -11,6 +11,11 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { getCachedAuthUserName } from "../utils/tangerineAuthUser";
+import { usePersonalization } from "../hooks/usePersonalization";
+
+// menuKeys key for this page — setting it as home_route makes Today the
+// operator's auto-landing screen (T4-4 redirect, once per tab session).
+const TODAY_MENU_KEY = "tanda/today";
 
 const C = {
   bg: "#0F172A",
@@ -81,6 +86,8 @@ export default function InternalToday() {
   const [data, setData] = useState<TodayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const { homeRoute, setHomeRoute, status: prefStatus } = usePersonalization();
+  const isHome = homeRoute === TODAY_MENU_KEY;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -139,15 +146,32 @@ export default function InternalToday() {
             {data ? fmtDateUS(data.greeting.date) : ""} — here is where your day stands.
           </div>
         </div>
-        <button
-          onClick={load}
-          style={{
-            background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub,
-            borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13,
-          }}
-        >
-          ↻ Refresh
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {prefStatus === "ready" && !isHome && (
+            <button
+              title="Land on Today when you open Tangerine"
+              onClick={() => { setHomeRoute(TODAY_MENU_KEY).catch(() => {}); }}
+              style={{
+                background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub,
+                borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13,
+              }}
+            >
+              ★ Make this my landing page
+            </button>
+          )}
+          {prefStatus === "ready" && isHome && (
+            <span style={{ color: C.textMuted, fontSize: 13, alignSelf: "center" }}>★ Your landing page</span>
+          )}
+          <button
+            onClick={load}
+            style={{
+              background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub,
+              borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13,
+            }}
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {err && (

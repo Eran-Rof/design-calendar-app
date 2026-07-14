@@ -217,6 +217,10 @@ describe("real packs run against canned counts", () => {
     ip_execution_batches: () => 1,
     v_style_scale_candidates: () => 2119,
     v_prepack_ppk_needed: () => 59,
+    // P28-1-4 packs
+    mfg_build_orders: () => 3,
+    cases: (s) => (filterVal(s, "eq", "assignee_user_id") ? 2 : 5),   // mine vs unassigned
+    notification_dispatches: () => 138,
   };
   const ROWS = {
     xoro_mirror_runs: [
@@ -260,6 +264,12 @@ describe("real packs run against canned counts", () => {
     expect(byKey["master.scales_missing"].count).toBe(2119);
     expect(byKey["master.ppk_matrix_needed"].count).toBe(59);
 
+    // P28-1-4 packs — mine-vs-unassigned split works, personal items keyed on ctx.userId
+    expect(byKey["mfg.builds_open"].count).toBe(3);
+    expect(byKey["cases.mine_open"].count).toBe(2);
+    expect(byKey["cases.unassigned_open"].count).toBe(5);
+    expect(byKey["cases.notifications_unread"].count).toBe(138);
+
     const procs = Object.fromEntries(out.processes.map((p) => [p.key, p]));
     expect(procs["accounting.mirror.ar"].state).toBe("ok");
     expect(procs["accounting.mirror.ap"].state).toBe("error");
@@ -276,5 +286,15 @@ describe("real packs run against canned counts", () => {
 
     // every emitted item uses the closed severity vocabulary
     for (const t of out.todos) expect(isValidSeverity(t.severity), t.key).toBe(true);
+  });
+
+  it("personal items stay hidden without a resolvable user", async () => {
+    const out = await buildToday(admin, {
+      userId: null, permissions: null, dismissedKeys: new Set(), todayISO: "2026-07-14",
+    });
+    const keys = new Set(out.todos.map((t) => t.key));
+    expect(keys.has("cases.mine_open")).toBe(false);
+    expect(keys.has("cases.notifications_unread")).toBe(false);
+    expect(keys.has("cases.unassigned_open")).toBe(true); // entity-wide item still shows
   });
 });
