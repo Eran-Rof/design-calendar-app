@@ -159,6 +159,7 @@ const KEYS = [
   "tanda/reports/ap-aging",
   "tanda/reports/sales-by-rep",
   "tanda/reports/sales-by-customer",
+  "tanda/today",
   "tanda/reports/hub",
   "tanda/reports/gl-detail",
   "tanda/reports/upc-report",

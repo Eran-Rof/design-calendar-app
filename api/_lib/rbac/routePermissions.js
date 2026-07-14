@@ -66,6 +66,11 @@ const SEGMENT_MODULE = {
   // entity-switch) — every signed-in user manages their OWN prefs, so it is
   // intentionally UNMAPPED (not gated). Only the distinct "users-access" admin
   // route requires the users_access permission.
+  // P28 "assistant" segment (Today page aggregate + dismissals) is
+  // deliberately UNMAPPED: like users-access/me the payload self-filters by
+  // the CALLER'S own effective permissions (summary counts only), and every
+  // drill target it links to is enforced on its own route. Gating it would
+  // 403 the legacy PLM-session path that has no per-user JWT.
   "users-access": "users_access",
   "audit": "audit_log",
   "analytics": "analytics", "insights": "analytics", "scorecards": "analytics",

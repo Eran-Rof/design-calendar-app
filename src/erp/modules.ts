@@ -5,6 +5,8 @@
 // Tangerine modules — the 6 admin panels shipped in P1 Chunks 7/7b/7c/8a/8b/8c
 // ─────────────────────────────────────────────────────────────────────────────
 export type ModuleKey =
+  // P28-1-2 — the assistant-first Today landing page (arch §5).
+  | "today"
   | "style_master"
   | "pim_catalog"
   | "fabric_codes"
@@ -160,7 +162,7 @@ export type ModuleKey =
   // M15 — External / Partner API key admin.
   | "api_keys";
 
-export type GroupKey = "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Manufacturing" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
+export type GroupKey = "Today" | "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Manufacturing" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
 export type ModuleDef = {
   key: ModuleKey;
@@ -178,6 +180,8 @@ export type ModuleDef = {
 // short while preserving the group taxonomy. Every GroupKey must appear in
 // exactly one section (else its modules vanish from the nav).
 export const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] }[] = [
+  // P28-1-2 — Today first: the assistant-first landing surface.
+  { section: "Today",       emoji: "🌅", groups: ["Today"] },
   { section: "Master Data", emoji: "📚", groups: ["Master Data", "EDI"] },
   { section: "Accounting",  emoji: "💼", groups: ["Accounting", "Reports", "Approvals"] },
   // #983 — Treasury: cash/FX/cards/SCF/discounts/tax + parallel-run recon.
@@ -204,6 +208,7 @@ export const NAV_SECTIONS: { section: string; emoji: string; groups: GroupKey[] 
 ];
 
 export const GROUP_ICON: Record<GroupKey, string> = {
+  "Today":            "🌅",
   "Master Data":      "📚",
   "EDI":              "🔌",
   "Accounting":       "💼",
@@ -232,6 +237,8 @@ export const GROUP_ICON: Record<GroupKey, string> = {
 };
 
 export const MODULES: ModuleDef[] = [
+  // P28-1-2 — assistant-first landing page: to-dos, processes, current state.
+  { key: "today",             label: "Today",             emoji: "🌅", group: "Today" },
   { key: "style_master",      label: "Style Master",      emoji: "🎨", group: "Master Data" },
   // P8-8: PIM Product Catalog — metadata (attributes / descriptions / images)
   // on top of the styles created in Style Master.
