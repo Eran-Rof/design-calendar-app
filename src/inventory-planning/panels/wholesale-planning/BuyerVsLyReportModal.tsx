@@ -13,8 +13,9 @@ import {
 } from "./buildBuyerVsLyReport";
 import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExports";
 
-const qfmt = (n: number): string => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
-const pfmt = (frac: number | null): string => (frac == null ? "—" : `${(frac * 100).toFixed(0)}%`);
+// Zero quantities render blank (not "0") so the eye lands only on real numbers.
+const qfmt = (n: number): string => (n === 0 ? "" : n.toLocaleString("en-US", { maximumFractionDigits: 0 }));
+const pfmt = (frac: number | null): string => (frac == null || frac === 0 ? "" : `${(frac * 100).toFixed(0)}%`);
 
 export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }: {
   fullRows: IpPlanningGridRow[];

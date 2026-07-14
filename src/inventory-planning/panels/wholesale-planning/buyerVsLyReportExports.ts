@@ -10,6 +10,9 @@ function fileStem(runName: string): string {
   return `buyer-vs-ly-${(runName || "run").replace(/[^\w.-]+/g, "_")}`;
 }
 
+// Zero quantities export as blank (empty) so downloads match the on-screen view.
+const bz = (n: number): number | string => (n === 0 ? "" : n);
+
 // ── PDF ────────────────────────────────────────────────────────────────────
 
 export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): void {
@@ -67,8 +70,9 @@ function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[]): Rec
   for (const sty of cust.styles) {
     for (const c of sty.colors) {
       const arr = block === "ly" ? c.ly : c.ty;
-      const o: Record<string, unknown> = { label: `${c.style} · ${c.color}`, total: block === "ly" ? c.lyTotal : c.tyTotal };
-      codes.forEach((code, i) => { o[code] = arr[i]; });
+      const tot = block === "ly" ? c.lyTotal : c.tyTotal;
+      const o: Record<string, unknown> = { label: `${c.style} · ${c.color}`, total: bz(tot) };
+      codes.forEach((code, i) => { o[code] = bz(arr[i]); });
       out.push(o);
     }
   }
@@ -77,8 +81,8 @@ function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[]): Rec
 
 function totalRow(cust: ReportCustomer, block: "ly" | "ty", codes: string[]): Record<string, unknown> {
   const arr = block === "ly" ? cust.lyTotals : cust.tyTotals;
-  const o: Record<string, unknown> = { label: "TOTAL", total: block === "ly" ? cust.lyTotal : cust.tyTotal };
-  codes.forEach((code, i) => { o[code] = arr[i]; });
+  const o: Record<string, unknown> = { label: "TOTAL", total: bz(block === "ly" ? cust.lyTotal : cust.tyTotal) };
+  codes.forEach((code, i) => { o[code] = bz(arr[i]); });
   return o;
 }
 
@@ -87,11 +91,13 @@ function compRows(cust: ReportCustomer, codes: string[]): Record<string, unknown
   const push = (label: string, tyArr: number[], lyArr: number[], tyTot: number, lyTot: number) => {
     const o: Record<string, unknown> = { label };
     codes.forEach((code, i) => {
-      o[`d_${code}`] = reportComp(tyArr[i], lyArr[i]);
-      o[`p_${code}`] = reportPct(tyArr[i], lyArr[i]);
+      o[`d_${code}`] = bz(reportComp(tyArr[i], lyArr[i]));
+      const p = reportPct(tyArr[i], lyArr[i]);
+      o[`p_${code}`] = p === 0 ? "" : p;
     });
-    o.total_d = reportComp(tyTot, lyTot);
-    o.total_p = reportPct(tyTot, lyTot);
+    o.total_d = bz(reportComp(tyTot, lyTot));
+    const tp = reportPct(tyTot, lyTot);
+    o.total_p = tp === 0 ? "" : tp;
     out.push(o);
   };
   for (const sty of cust.styles) {
@@ -122,8 +128,9 @@ const S_TOTAL = (a: Align): Sty => ({ font: { bold: true, sz: 10, color: { rgb: 
 const S_SUBHEAD: Sty = { font: { bold: true, sz: 11, color: { rgb: XLP.KEY_TEXT } }, alignment: { horizontal: "left", vertical: "center" } };
 const S_CUST: Sty = { font: { bold: true, sz: 13, color: { rgb: XLP.HEADER_FILL } }, alignment: { horizontal: "left", vertical: "center" } };
 
-const qtyCell = (v: number, s: Sty): AoaCell => ({ v, s, z: NUMFMT.QTY });
-const pctCell = (frac: number | null): AoaCell => (frac == null ? { v: "", s: S_MUTED } : { v: frac, s: S_MUTED, z: NUMFMT.PCT });
+// Zero → blank cell (keeps the styled box, no "0") so the workbook matches the view.
+const qtyCell = (v: number, s: Sty): AoaCell => (v === 0 ? { v: "", s } : { v, s, z: NUMFMT.QTY });
+const pctCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_MUTED } : { v: frac, s: S_MUTED, z: NUMFMT.PCT });
 
 export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): Promise<void> {
   const { periods } = report;
@@ -162,7 +169,9 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
     aoa.push([{ v: "Style", s: S_HEADER("left") }, { v: "Color", s: S_HEADER("left") },
       ...periods.flatMap((p) => [{ v: `${p.tyLabel} Δ`, s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]),
       { v: "Total Δ", s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]);
-    const dCell = (ty: number, ly: number): AoaCell => { const d = reportComp(ty, ly); return { v: d, s: d < 0 ? S_NEG : S_BODY("right"), z: NUMFMT.QTY }; };
+    const dCell = (ty: number, ly: number): AoaCell => { const d = reportComp(ty, ly); return d === 0 ? { v: "", s: S_BODY("right") } : { v: d, s: d < 0 ? S_NEG : S_BODY("right"), z: NUMFMT.QTY }; };
+    const dTotCell = (d: number): AoaCell => (d === 0 ? { v: "", s: S_TOTAL("right") } : { v: d, s: S_TOTAL("right"), z: NUMFMT.QTY });
+    const pTotCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_TOTAL("right") } : { v: frac, s: S_TOTAL("right"), z: NUMFMT.PCT });
     for (const sty of cust.styles) {
       for (const c of sty.colors) {
         aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
@@ -171,12 +180,8 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
       }
     }
     aoa.push([{ v: "", s: S_TOTAL("left") }, { v: "TOTAL", s: S_TOTAL("left") },
-      ...periods.flatMap((_p, i) => {
-        const d = reportComp(cust.tyTotals[i], cust.lyTotals[i]);
-        return [{ v: d, s: S_TOTAL("right"), z: NUMFMT.QTY } as AoaCell, { v: reportPct(cust.tyTotals[i], cust.lyTotals[i]) ?? "", s: S_TOTAL("right"), z: NUMFMT.PCT } as AoaCell];
-      }),
-      { v: reportComp(cust.tyTotal, cust.lyTotal), s: S_TOTAL("right"), z: NUMFMT.QTY },
-      { v: reportPct(cust.tyTotal, cust.lyTotal) ?? "", s: S_TOTAL("right"), z: NUMFMT.PCT }]);
+      ...periods.flatMap((_p, i) => [dTotCell(reportComp(cust.tyTotals[i], cust.lyTotals[i])), pTotCell(reportPct(cust.tyTotals[i], cust.lyTotals[i]))]),
+      dTotCell(reportComp(cust.tyTotal, cust.lyTotal)), pTotCell(reportPct(cust.tyTotal, cust.lyTotal))]);
     blank();
     blank();
   }
