@@ -163,14 +163,17 @@ describe("buildTieoutRows", () => {
     expect(r.status).toBe("break");
   });
 
-  it("AP breaks normally once payments exist in the bills ledger", () => {
+  it("AP with live payments that does not tie is waived as non-cash GL relief residual (reported, not alerted)", () => {
     const inputs = baseInputs();
     inputs.ap = { open_cents: 5_000, paid_total_cents: 500, bills: 3 };
     const rows = buildTieoutRows(inputs);
     const r = rows.find((x) => x.account_code === "2000");
     expect(r.diff_cents).toBe(3_000);
-    expect(r.status).toBe("break");
-    expect(r.waived).toBeNull();
+    // Cash payments are live (paid_total !== 0) but the residual is non-cash
+    // GL relief — waived, and carried as a non-'break' status so the daily
+    // tie-out does not alert while it stays a books-level reconciliation item.
+    expect(r.status).toBe("pending_payments");
+    expect(r.waived).toBe("ap_noncash_gl_relief_residual");
   });
 
   it("AP is waived as pending_payments while sum(paid)=0 across posted bills", () => {

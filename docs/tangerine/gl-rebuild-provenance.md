@@ -298,3 +298,67 @@ trial-close gates on): clean 2,772 · intentional 176 · **missing_txn 0** ·
 **only clean + intentional** — zero unexplained, zero missing. No transactions were
 invented; the 161 open-month gaps are left to the nightly sync (idempotent by
 `source_id`).
+
+## 8. Cash-side subledger derivation (#1754, 2026-07-14)
+
+Formal-audit gap #2: `ar_receipts` had **0 rows** (no AR cash application, so no
+DSO and no real aging) and AP bill payments lived only inside the GL mirror, so
+the AP subledger could not self-prove (tie-out waived `pending_payments`). The
+cash JEs **already exist** in the ledger (`journal_type='xoro_gl_mirror'`,
+`source_id` = Xoro payment `txn_id`). This work derives the SUBLEDGER
+cash-application records FROM that mirror — **posting NOTHING new to the GL**
+(`journal_entries` count before = after = **99,252**; `journal_entry_lines`
+694,711 unchanged).
+
+**Method.** Migration `20260992000010` adds `source_txn_id` provenance +
+idempotency indexes to `ar_receipts` / `invoice_payments`, a
+`cashside_backfill_exceptions` ledger, and the `v_dso_dpo_monthly` view.
+Operational backfill (idempotent, deterministic md5-derived ids +
+`ON CONFLICT DO NOTHING`): `scripts/gl-rebuild/stage5_ar_receipts_backfill.sql`
+and `stage6_ap_payments_backfill.sql`. Memo-parse / allocation rules are unit
+-tested in `src/lib/cashApplication.ts`.
+
+- **AR** (`Invoice Payment` txns). One `ar_receipts` row per txn (amount = Σ of
+  its `Invoice Ref # <n>` leg magnitudes), one `ar_receipt_applications` row per
+  matched invoice (EXACT invoice-number match only). Per-invoice Σ applied is
+  **clamped** to the invoice total (ordered by receipt date); excess is parked.
+  Multi-payment invoices (stage4 left NULL) now get their several applications.
+  Result: **5,072 receipts / $44,247,328.93**, **8,838 applications /
+  $38,767,980.88 applied**, AR invoices with non-zero paid **5,331 → 12,080**.
+  Every invoice's applications sum **exactly equals** its `paid_amount_cents`
+  (self-proving), and **0 invoices** are over-applied (paid ≤ total everywhere).
+  Parked / flagged (all in `cashside_backfill_exceptions`, nothing dropped):
+  over-application **701 invoices / $815,426.85**; existing non-zero paid that
+  disagreed with the mirror **14 invoices / $26,424.93 — NOT overwritten**,
+  excluded and flagged; unmatched invoice refs **290 / $4,649,881.94** (payments
+  citing invoices that predate the AR history cutoff / aren't yet backfilled).
+
+- **AP** (`Bill Payment` txns). One `invoice_payments` row per (txn, bill),
+  matched bill + existing mirror JE required (a payment with no mirror JE never
+  relieved GL 2000, so it is not counted). **3,566 payments / $34,903,223.94**
+  across **3,333 bills**. `paid_amount_cents` is **PRESERVED, not overwritten**
+  (the `maintain_paid`/overpay USER triggers are disabled for the insert): the
+  booked paid ($41,132,881.10) already includes **non-cash relief** (credit
+  memos, factor settlements, 8007/1308 reclasses) that no vendor-bill payment
+  can represent. `invoice_payments` is therefore a **cash-provenance + DPO**
+  layer, not asserted to equal `paid_amount`. Parked: unmatched bills **2 /
+  $2,524.50**; non-cash relief gap **$6,229,657.16** (booked paid − mirrored
+  cash).
+
+**Waiver status (AP 2000).** Still does **not** tie: GL 2000 net credit
+$5,953,021.40 vs subledger open (total − paid) $10,066,478.48 → **residual
+−$4,113,457.08**. Per the acceptance rule the waiver was **not** flipped to an
+active check; instead `api/_lib/accounting/tieouts.js` now emits a precise,
+non-alerting waiver `ap_noncash_gl_relief_residual` (payments are live but the
+residual is non-cash GL relief pending accountant review) that carries its live
+diff into the daily digest so a *growing* gap stays visible. The original
+`pending_payments` (paid=0) waiver is retained defensively. **CEO/accountant
+review item:** the $4.11M AP 2000 residual is a books-level reconciliation of
+GL-side non-cash relief vs the bills ledger — it predates and is outside the
+cash-side scope.
+
+**DSO / DPO.** `v_dso_dpo_monthly` = amount-weighted average days between
+invoice date and cash settlement date, by application month (DSO from AR
+receipt applications, DPO from AP payments). Surfaced read-only on the
+Reconciliation Dashboard (`/api/internal/recon/dso-dpo`). Current shape: DSO
+~46–57 days, DPO ~84–163 days.

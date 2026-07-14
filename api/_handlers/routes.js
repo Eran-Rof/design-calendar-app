@@ -452,6 +452,7 @@ import r_internal_purchase_orders_split_by_lot from "./internal/purchase-orders/
 import r_internal_rbac_observations from "./internal/rbac/observations.js";
 import r_internal_recon_clear from "./internal/recon/clear.js";
 import r_internal_recon_cutovers from "./internal/recon/cutovers.js";
+import r_internal_recon_dso_dpo from "./internal/recon/dso-dpo.js";
 import r_internal_recon_run_ap from "./internal/recon/run-ap.js";
 import r_internal_recon_run_ar from "./internal/recon/run-ar.js";
 import r_internal_recon_run_cash from "./internal/recon/run-cash.js";
@@ -1103,6 +1104,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/mobile/push-test", handler: r_vendor_mobile_push_test },
   { pattern: "/api/vendor/reports/invoices", handler: r_vendor_reports_invoices },
   { pattern: "/api/internal/ai/user-facts", handler: r_internal_ai_user_facts },
+  { pattern: "/api/internal/recon/dso-dpo", handler: r_internal_recon_dso_dpo },
   { pattern: "/api/internal/reports/spend", handler: r_internal_reports_spend },
   { pattern: "/api/vendor/reports/summary", handler: r_vendor_reports_summary },
   { pattern: "/api/vendor/tax/withholding", handler: r_vendor_tax_withholding },

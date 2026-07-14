@@ -170,28 +170,44 @@ export function buildTieoutRows({ accountIdByCode, tbRowByCode, arByAccountId, a
     });
   }
 
-  // AP 2000 — WAIVED while the payments ledger is empty. Vendor-bill JEs
-  // only ever CREDIT 2000 (per-bill posting, #1662); until invoice_payments
-  // start relieving it, GL 2000 = all-time billed while the subledger's
-  // "unpaid balance" would eventually diverge the moment Xoro marks bills
-  // paid without a Tangerine payment JE. sum(paid_amount_cents)=0 across
-  // posted bills ⇒ report 'pending_payments' (with the diff, for the JSON
-  // summary) instead of alerting.
+  // AP 2000 — the vendor-bill subledger (invoices.total − paid).
+  //
+  // Two distinct waiver regimes, both NON-alerting (status !== 'break'):
+  //
+  //   1. pending_payments — sum(paid_amount_cents)=0 across posted bills.
+  //      The original #1665 waiver: bills only accrued, no relief yet.
+  //      (Retained defensively; should not fire now that payments are live.)
+  //
+  //   2. ap_noncash_gl_relief_residual — payments ARE now live (the cash-side
+  //      subledger backfill of 2026-07-14 mirrored every Xoro Bill Payment
+  //      into invoice_payments), BUT GL 2000 also carries NON-CASH relief that
+  //      no vendor-bill payment can represent: credit memos, factor
+  //      settlements, and the 8007/1308 reclasses (#1675/#1680/#1716). So the
+  //      subledger's open balance (total − paid) cannot tie to GL 2000 by cash
+  //      application alone. The residual is a books-level reconciliation item
+  //      under accountant/CEO review — reported (with its live diff) rather
+  //      than alerted, so a GROWING gap is still visible in the daily digest.
+  //
+  // Flip to an active 'ok' automatically the moment it ties within tolerance.
   {
     const gl_cents = glNetCents(tbRowByCode.get(AP_CONTROL_CODE), "credit");
     const subledger_cents = ap?.open_cents || 0;
     const diff_cents = gl_cents - subledger_cents;
     const withinTolerance = Math.abs(diff_cents) <= TOLERANCE_CENTS;
-    const pendingPayments = (ap?.paid_total_cents || 0) === 0;
-    rows.push({
-      account_code: AP_CONTROL_CODE,
-      side: "credit",
-      gl_cents,
-      subledger_cents,
-      diff_cents,
-      status: withinTolerance ? "ok" : pendingPayments ? "pending_payments" : "break",
-      waived: !withinTolerance && pendingPayments ? "pending_payments" : null,
-    });
+    const paymentsLive = (ap?.paid_total_cents || 0) !== 0;
+    let status;
+    let waived;
+    if (withinTolerance) {
+      status = "ok";
+      waived = null;
+    } else if (!paymentsLive) {
+      status = "pending_payments";
+      waived = "pending_payments";
+    } else {
+      status = "pending_payments";
+      waived = "ap_noncash_gl_relief_residual";
+    }
+    rows.push({ account_code: AP_CONTROL_CODE, side: "credit", gl_cents, subledger_cents, diff_cents, status, waived });
   }
 
   return rows;

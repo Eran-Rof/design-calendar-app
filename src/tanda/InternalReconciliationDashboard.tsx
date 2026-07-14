@@ -151,9 +151,49 @@ export type ReconCutover = {
   notes: string | null;
 };
 
+export type DsoDpoRow = {
+  month: string;                 // first-of-month, YYYY-MM-DD
+  metric: "DSO" | "DPO";
+  weighted_days: number;
+  total_cents: number;
+  n_applications: number;
+};
+
+export type DsoDpoPivot = {
+  month: string;
+  dso_days: number | null;
+  dso_cents: number | null;
+  dpo_days: number | null;
+  dpo_cents: number | null;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // Pure helpers — exported for unit tests.
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pivot the flat DSO/DPO rows (one per month × metric) into one row per
+ * month carrying both metrics side by side, newest month first.
+ */
+export function pivotDsoDpo(rows: DsoDpoRow[]): DsoDpoPivot[] {
+  const byMonth = new Map<string, DsoDpoPivot>();
+  for (const r of rows) {
+    const cur = byMonth.get(r.month) || {
+      month: r.month, dso_days: null, dso_cents: null, dpo_days: null, dpo_cents: null,
+    };
+    if (r.metric === "DSO") { cur.dso_days = r.weighted_days; cur.dso_cents = r.total_cents; }
+    else { cur.dpo_days = r.weighted_days; cur.dpo_cents = r.total_cents; }
+    byMonth.set(r.month, cur);
+  }
+  return [...byMonth.values()].sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0));
+}
+
+/** Format a first-of-month YYYY-MM-DD as US MM/YYYY. */
+export function fmtMonth(monthIso: string): string {
+  if (!monthIso || monthIso.length < 7) return monthIso || "";
+  const [y, m] = monthIso.split("-");
+  return `${m}/${y}`;
+}
 
 /** Build the GET /api/internal/recon/runs URL with all current filters. */
 export function buildRunsQuery(f: {
@@ -373,6 +413,11 @@ export default function InternalReconciliationDashboard() {
   // is in flight so the operator can't double-fire.
   const [running, setRunning] = useState<Domain | null>(null);
 
+  // DSO / DPO by month — derived from the cash-side subledger's real
+  // application dates (independent of the daily recon grid range).
+  const [dsoDpo, setDsoDpo] = useState<DsoDpoRow[]>([]);
+  const [dsoDpoLoading, setDsoDpoLoading] = useState(true);
+
   // Column visibility for the cutover-history table (operator ask #1).
   const cutoverPrefs = useTablePrefs(CUTOVER_TABLE_KEY, CUTOVER_COLUMNS);
   const cutoverVisible = cutoverPrefs.visibleColumns;
@@ -438,7 +483,22 @@ export default function InternalReconciliationDashboard() {
     }
   }
 
+  async function loadDsoDpo() {
+    setDsoDpoLoading(true);
+    try {
+      const r = await fetch(`/api/internal/recon/dso-dpo`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return; // non-critical surface — leave the section empty
+      setDsoDpo(Array.isArray(j.rows) ? (j.rows as DsoDpoRow[]) : []);
+    } catch {
+      // ignore — non-critical
+    } finally {
+      setDsoDpoLoading(false);
+    }
+  }
+
   useEffect(() => { void loadRuns(); void loadCutovers(); }, [from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadDsoDpo(); }, []); // month KPIs are range-independent
 
   const latest = useMemo(() => latestRunPerDomain(runs), [runs]);
   const byDomainDate = useMemo(() => indexRunsByDomainDate(runs), [runs]);
@@ -680,6 +740,9 @@ export default function InternalReconciliationDashboard() {
         )}
       </div>
 
+      {/* ───── DSO / DPO by month ───── */}
+      <DsoDpoPanel rows={dsoDpo} loading={dsoDpoLoading} />
+
       {/* ───── Cutover history table ───── */}
       <div style={{ marginBottom: 24 }} data-testid="recon-cutover-history">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -760,6 +823,84 @@ export default function InternalReconciliationDashboard() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DSO / DPO by month — amount-weighted days-to-collect (AR) and days-to-pay
+// (AP), derived from the cash-side subledger's real application dates
+// (v_dso_dpo_monthly). Table-first, newest month on top, xlsx export.
+// ─────────────────────────────────────────────────────────────────────────
+function DsoDpoPanel({ rows, loading }: { rows: DsoDpoRow[]; loading: boolean }) {
+  const pivot = useMemo(() => pivotDsoDpo(rows), [rows]);
+  const exportRows = useMemo(
+    () =>
+      pivot.map((p) => ({
+        month: fmtMonth(p.month),
+        dso_days: p.dso_days,
+        dso_dollars: p.dso_cents == null ? null : p.dso_cents / 100,
+        dpo_days: p.dpo_days,
+        dpo_dollars: p.dpo_cents == null ? null : p.dpo_cents / 100,
+      })),
+    [pivot],
+  );
+
+  return (
+    <div style={{ marginBottom: 24 }} data-testid="recon-dso-dpo">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: C.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+          DSO / DPO by month · cash-application basis
+        </h3>
+        <ExportButton
+          rows={exportRows as unknown as Array<Record<string, unknown>>}
+          filename="dso-dpo-monthly"
+          sheetName="DSO_DPO"
+          columns={[
+            { key: "month",       header: "Month" },
+            { key: "dso_days",    header: "DSO (days)",  format: "number" },
+            { key: "dso_dollars", header: "AR collected", format: "currency" },
+            { key: "dpo_days",    header: "DPO (days)",  format: "number" },
+            { key: "dpo_dollars", header: "AP paid",      format: "currency" },
+          ] as ExportColumn<Record<string, unknown>>[]}
+        />
+      </div>
+      <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto" }}>
+        {loading ? (
+          <div style={{ padding: 20, color: C.textMuted, textAlign: "center", fontSize: 12 }}>Loading…</div>
+        ) : pivot.length === 0 ? (
+          <div style={{ padding: 20, color: C.textMuted, textAlign: "center", fontSize: 12 }}>
+            No cash applications yet — DSO/DPO appears once receipts and payments are backfilled.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }} data-testid="recon-dso-dpo-table">
+            <thead>
+              <tr>
+                <th style={th}>Month</th>
+                <th style={{ ...th, textAlign: "right" }}>DSO (days)</th>
+                <th style={{ ...th, textAlign: "right" }}>AR collected</th>
+                <th style={{ ...th, textAlign: "right" }}>DPO (days)</th>
+                <th style={{ ...th, textAlign: "right" }}>AP paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pivot.map((p) => (
+                <tr key={p.month} data-testid={`recon-dso-dpo-row-${p.month}`}>
+                  <td style={{ ...td, fontWeight: 600 }}>{fmtMonth(p.month)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {p.dso_days == null ? "—" : p.dso_days.toFixed(1)}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(p.dso_cents)}</td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {p.dpo_days == null ? "—" : p.dpo_days.toFixed(1)}
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtCents(p.dpo_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
