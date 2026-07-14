@@ -28,7 +28,8 @@ async function nextCode(admin, entityId) {
   if (data && data[0] && data[0].asset_code) { const p = parseInt(String(data[0].asset_code).slice(3), 10); if (Number.isFinite(p)) n = p + 1; }
   return `FA-${String(n).padStart(4, "0")}`;
 }
-const EDIT = ["name", "category", "acquisition_date", "acquisition_cost_cents", "salvage_value_cents", "useful_life_months", "depreciation_start", "asset_account_id", "accum_deprec_account_id", "deprec_expense_account_id", "notes"];
+const METHODS = new Set(["straight_line", "declining_balance_200", "declining_balance_150", "units_of_production"]);
+const EDIT = ["name", "description", "category", "acquisition_date", "acquisition_cost_cents", "salvage_value_cents", "useful_life_months", "method", "in_service_date", "depreciation_start", "units_total", "asset_account_id", "accum_deprec_account_id", "deprec_expense_account_id", "notes"];
 
 export default async function handler(req, res) {
   cors(res);
@@ -51,15 +52,20 @@ export default async function handler(req, res) {
     if (!body.name) return res.status(400).json({ error: "name required" });
     if (!body.acquisition_date) return res.status(400).json({ error: "acquisition_date required" });
     if (!(Number(body.useful_life_months) > 0)) return res.status(400).json({ error: "useful_life_months must be > 0" });
+    const method = body.method && METHODS.has(body.method) ? body.method : "straight_line";
+    if (body.method && !METHODS.has(body.method)) return res.status(400).json({ error: `method must be one of ${[...METHODS].join(", ")}` });
+    if (method === "units_of_production" && !(Number(body.units_total) > 0)) return res.status(400).json({ error: "units_total (> 0) is required for units_of_production" });
     const { data: entity } = await admin.from("entities").select("id").eq("code", "ROF").maybeSingle();
     if (!entity) return res.status(500).json({ error: "Default entity (ROF) not found" });
+    const inService = body.in_service_date || body.depreciation_start || body.acquisition_date;
     const row = {
       entity_id: entity.id, asset_code: await nextCode(admin, entity.id),
-      name: body.name, category: body.category || null, acquisition_date: body.acquisition_date,
+      name: body.name, description: body.description || null, category: body.category || null, acquisition_date: body.acquisition_date,
       acquisition_cost_cents: Math.round(Number(body.acquisition_cost_cents) || 0),
       salvage_value_cents: Math.round(Number(body.salvage_value_cents) || 0),
       useful_life_months: Math.round(Number(body.useful_life_months)),
-      depreciation_start: body.depreciation_start || body.acquisition_date,
+      method, in_service_date: inService, depreciation_start: inService,
+      units_total: method === "units_of_production" ? Math.round(Number(body.units_total)) : null,
       asset_account_id: body.asset_account_id || null, accum_deprec_account_id: body.accum_deprec_account_id || null,
       deprec_expense_account_id: body.deprec_expense_account_id || null,
       notes: body.notes || null, created_by_user_id: body.created_by_user_id || null,

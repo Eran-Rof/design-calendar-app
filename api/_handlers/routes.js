@@ -311,7 +311,10 @@ import r_internal_fba_sync_returns from "./internal/fba/sync-returns.js";
 import r_internal_fba_sync_settlements from "./internal/fba/sync-settlements.js";
 import r_internal_finance_kpis_index from "./internal/finance-kpis/index.js";
 import r_internal_fixed_assets_id from "./internal/fixed-assets/[id].js";
+import r_internal_fixed_assets_generate_schedule from "./internal/fixed-assets/generate-schedule.js";
 import r_internal_fixed_assets_index from "./internal/fixed-assets/index.js";
+import r_internal_fixed_assets_post_depreciation from "./internal/fixed-assets/post-depreciation.js";
+import r_internal_fixed_assets_tieout from "./internal/fixed-assets/tieout.js";
 import r_internal_form_1099_index from "./internal/form-1099/index.js";
 import r_internal_fx_rates from "./internal/fx/rates.js";
 import r_internal_genders_id from "./internal/genders/[id].js";
@@ -953,6 +956,8 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/vendor-invoice-drafts", handler: r_internal_procurement_vendor_invoice_drafts_index },
   { pattern: "/api/internal/style-master/auto-assign-scales", handler: r_internal_style_master_auto_assign_scales },
   { pattern: "/api/internal/analytics/sustainability-trend", handler: r_internal_analytics_sustainability_trend },
+  { pattern: "/api/internal/fixed-assets/generate-schedule", handler: r_internal_fixed_assets_generate_schedule },
+  { pattern: "/api/internal/fixed-assets/post-depreciation", handler: r_internal_fixed_assets_post_depreciation },
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: r_internal_planning_sync_tangerine_supply },
   { pattern: "/api/internal/sales-orders/parse-customer-po", handler: r_internal_sales_orders_parse_customer_po },
   { pattern: "/api/internal/part-matrix/resolve-part-size", handler: r_internal_part_matrix_resolve_part_size },
@@ -1033,6 +1038,7 @@ export const ROUTES = [
   { pattern: "/api/internal/commissions/reverse", handler: r_internal_commissions_reverse },
   { pattern: "/api/internal/costing/rfq-compare", handler: r_internal_costing_rfq_compare_index },
   { pattern: "/api/internal/crm/pipeline-report", handler: r_internal_crm_pipeline_report_index },
+  { pattern: "/api/internal/fixed-assets/tieout", handler: r_internal_fixed_assets_tieout },
   { pattern: "/api/internal/marketplace/inquire", handler: r_internal_marketplace_inquire },
   { pattern: "/api/internal/recon/run-inventory", handler: r_internal_recon_run_inventory },
   { pattern: "/api/internal/rfqs/messages-inbox", handler: r_internal_rfqs_messages_inbox_index },
