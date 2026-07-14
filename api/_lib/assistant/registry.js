@@ -14,9 +14,28 @@
 //     processes:    [{ key, module_key, run(admin, ctx) => processItem[] }]
 //     suggestions:  [{ key, module_key, derive(aggregate) => suggestionItem[] }]
 //     panels:       { <tangerine module key>: {} } — routable destinations
+//     actions:      [{ name, module_key, mode, required_action, preview, commit }]  (P28-4)
 //   }
 //   todoItem:    { key, title, detail?, count, severity: action|warn|info, panel?, href?, drill? }
 //   processItem: { key, label, state: ok|running|warn|error, detail?, last_run_at?, panel? }
+//
+// Pack action contract (P28-4, arch doc §4 as refined in §11) — a drafted,
+// confirm-gated write the assistant can PREVIEW but never execute:
+//   {
+//     name:            globally-unique snake_case key; doubles as the run_action arg
+//     module_key:      P14 gate (same vocabulary as todo providers)
+//     mode:            "read" | "draft" | "write_confirm"
+//     required_action: "write" | "post" (non-read modes) — checked at confirm
+//     description:     model-facing one-liner
+//     input_schema:    JSON Schema for the action's input (tool-defs.js style)
+//     preview(admin, input, ctx) => { summary, commit_payload, warnings? }
+//                      MODEL-REACHABLE. Read-only. MUST NOT write.
+//     commit(admin, commit_payload, ctx)  NEVER model-reachable — only the
+//                      authenticated confirm endpoint calls it, post-token-verify
+//                      + post-RBAC. The ONLY write point.
+//   }
+// NO pack ships an action yet (P28-4-1 is plumbing only); the contract +
+// validation exist so P28-4-2+ packs slot in with zero registry change.
 
 import accounting from "./packs/accounting.js";
 import po from "./packs/po.js";
@@ -29,6 +48,8 @@ import casesInbox from "./packs/cases_inbox.js";
 export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting];
 
 const SEVERITIES = new Set(["action", "warn", "error", "info"]);
+const ACTION_MODES = new Set(["read", "draft", "write_confirm"]);
+const ACTION_REQUIRED = new Set(["write", "post"]);
 
 /** Structural validation — used by tests and (cheaply) by dev tooling.
  *  Returns an array of problem strings; empty = valid.                 */
@@ -51,6 +72,27 @@ export function validatePack(pack) {
     if (typeof r.derive !== "function") problems.push(`suggestion ${r.key} missing derive()`);
   }
   if (!pack.panels || typeof pack.panels !== "object") problems.push("missing panels");
+
+  // P28-4 — validate the optional actions[] contract. A pack without actions
+  // is unaffected (the key is optional); a pack WITH one must declare each
+  // fully so run_action / the confirm endpoint can trust the shape.
+  if (pack.actions !== undefined) {
+    if (!Array.isArray(pack.actions)) {
+      problems.push("actions must be an array");
+    } else {
+      for (const a of pack.actions) {
+        const nm = a && typeof a.name === "string" ? a.name : null;
+        if (!nm) { problems.push("action missing name"); continue; }
+        if (!a.module_key) problems.push(`action ${nm} missing module_key`);
+        if (!ACTION_MODES.has(a.mode)) problems.push(`action ${nm} has invalid mode`);
+        if (typeof a.preview !== "function") problems.push(`action ${nm} missing preview()`);
+        if (a.mode !== "read") {
+          if (typeof a.commit !== "function") problems.push(`action ${nm} missing commit()`);
+          if (!ACTION_REQUIRED.has(a.required_action)) problems.push(`action ${nm} needs required_action write|post`);
+        }
+      }
+    }
+  }
   return problems;
 }
 
@@ -64,6 +106,27 @@ export function allProviderKeys(packs = PACKS) {
     }
   }
   return keys;
+}
+
+/** All pack action names — the run_action allowlist (P28-4). Globally
+ *  unique (they double as the run_action arg + the confirm token `act`). */
+export function allActionNames(packs = PACKS) {
+  const names = [];
+  for (const pack of packs) {
+    for (const a of pack.actions || []) if (a && a.name) names.push(a.name);
+  }
+  return names;
+}
+
+/** Resolve an action by its globally-unique name, or null. */
+export function actionByName(name, packs = PACKS) {
+  if (!name) return null;
+  for (const pack of packs) {
+    for (const a of pack.actions || []) {
+      if (a && a.name === name) return a;
+    }
+  }
+  return null;
 }
 
 /** Union of routable panel keys — the open_panel allowlist (Phase 2). */

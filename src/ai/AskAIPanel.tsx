@@ -110,6 +110,17 @@ interface ChatMessage {
   // and can re-ask to force a fresh run.
   cached?: boolean;
   cachedAgeSeconds?: number;
+  /** P28-4: a drafted action awaiting the operator's Confirm click. The
+   *  model previewed a write and returned a signed token; the panel renders
+   *  a Confirm card and, on Confirm, POSTs the token to the authenticated
+   *  confirm endpoint. The model never performs the write. */
+  confirm?: {
+    summary: string;
+    token: string;
+    action: string;
+    status?: "idle" | "busy" | "done" | "error";
+    resultText?: string;
+  };
 }
 
 function formatAge(seconds: number): string {
@@ -621,7 +632,10 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
       // P28-2: open_panel is navigation, not a grid mutation — dispatch it
       // through the host's onOpenPanel regardless of grid setters.
       const navActions = actions.filter(a => a.type === "open_panel");
-      const gridActions = actions.filter(a => a.type !== "open_panel");
+      // P28-4: a drafted-action Confirm card. Not a grid mutation and not a
+      // navigation — rendered as an interactive card on the reply bubble.
+      const confirmAction = actions.find(a => a.type === "present_confirmation");
+      const gridActions = actions.filter(a => a.type !== "open_panel" && a.type !== "present_confirmation");
       if (onOpenPanel) {
         for (const nav of navActions) {
           const panel = typeof nav.params?.panel === "string" ? nav.params.panel : "";
@@ -661,6 +675,14 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
         }
         return {
           ...m, pending: false, text: finalText, actionLabel,
+          confirm: confirmAction && confirmAction.type === "present_confirmation"
+            ? {
+                summary: String(confirmAction.params?.summary || "Confirm this action?"),
+                token: String(confirmAction.params?.token || ""),
+                action: String(confirmAction.params?.action || ""),
+                status: "idle" as const,
+              }
+            : undefined,
           suggestion: finalPayload?.suggestion ?? null,
           followups: followups && followups.length > 0 ? followups : undefined,
           trace: Array.isArray(finalPayload?.trace) ? finalPayload!.trace : undefined,
@@ -675,6 +697,58 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
     } finally {
       setBusy(false);
       setTimeout(() => inputRef.current?.focus(), 30);
+    }
+  }
+
+  /**
+   * confirmDraftAction(msgId, decision) — P28-4 Confirm-card handler. On
+   * "confirm" it POSTs the signed token to the authenticated confirm endpoint
+   * (installInternalApiAuth injects Authorization / X-Auth-User-Id, so the
+   * server binds the write to the real operator, never to a client-supplied
+   * id). The model never performs the write — this click is the only trigger.
+   * On "cancel" it simply clears the card.
+   */
+  async function confirmDraftAction(msgId: string, decision: "confirm" | "cancel") {
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg?.confirm) return;
+    if (decision === "cancel") {
+      setMessages(prev => prev.map(m => m.id === msgId
+        ? { ...m, confirm: { ...m.confirm!, status: "done", resultText: "Cancelled." } }
+        : m));
+      return;
+    }
+    if (msg.confirm.status === "busy" || msg.confirm.status === "done") return;
+    setMessages(prev => prev.map(m => m.id === msgId
+      ? { ...m, confirm: { ...m.confirm!, status: "busy" } }
+      : m));
+    try {
+      const resp = await fetch("/api/internal/assistant/actions/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: msg.confirm.token }),
+      });
+      let payload: Record<string, unknown> = {};
+      try { payload = await resp.json(); } catch { /* non-JSON body */ }
+      if (!resp.ok) {
+        const err = typeof payload.error === "string" ? payload.error : `Error ${resp.status}`;
+        setMessages(prev => prev.map(m => m.id === msgId
+          ? { ...m, confirm: { ...m.confirm!, status: "error", resultText: err } }
+          : m));
+        return;
+      }
+      // 202 = maker-checker held (a second human must approve). Surface it
+      // distinctly from an immediate commit so the operator knows to wait.
+      const held = resp.status === 202;
+      const done = held
+        ? "Submitted for approval — a second approver must sign off."
+        : "Done.";
+      setMessages(prev => prev.map(m => m.id === msgId
+        ? { ...m, confirm: { ...m.confirm!, status: "done", resultText: done } }
+        : m));
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === msgId
+        ? { ...m, confirm: { ...m.confirm!, status: "error", resultText: `Network error: ${String((err as Error).message || err)}` } }
+        : m));
     }
   }
 
@@ -1123,6 +1197,66 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
                   fontStyle: "italic",
                 }}>
                   → {m.actionLabel}
+                </div>
+              )}
+              {/* P28-4 Confirm card — a drafted write awaiting the operator's
+                  explicit Confirm click. Dark palette; functional glyphs only. */}
+              {m.confirm && (
+                <div style={{
+                  marginTop: 10,
+                  background: "#0F172A",
+                  border: "1px solid #334155",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
+                    color: "#3B82F6", textTransform: "uppercase", marginBottom: 4,
+                  }}>
+                    Confirm action
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#F1F5F9", lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                    {m.confirm.summary}
+                  </div>
+                  {m.confirm.status === "done" || m.confirm.status === "error" ? (
+                    <div style={{
+                      marginTop: 8, fontSize: 11.5, fontWeight: 600,
+                      color: m.confirm.status === "error" ? "#F87171" : "#6EE7B7",
+                    }}>
+                      {m.confirm.status === "error" ? "✕ " : "✓ "}{m.confirm.resultText}
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" as const }}>
+                      <button
+                        type="button"
+                        onClick={() => confirmDraftAction(m.id, "confirm")}
+                        disabled={m.confirm.status === "busy"}
+                        style={{
+                          background: "#3B82F6", border: "1px solid #2563EB", color: "#fff",
+                          borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                          fontFamily: "inherit",
+                          cursor: m.confirm.status === "busy" ? "not-allowed" : "pointer",
+                          opacity: m.confirm.status === "busy" ? 0.6 : 1,
+                        }}
+                      >
+                        {m.confirm.status === "busy" ? "Working…" : "✓ Confirm"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => confirmDraftAction(m.id, "cancel")}
+                        disabled={m.confirm.status === "busy"}
+                        style={{
+                          background: "#1E293B", border: "1px solid #334155", color: "#F1F5F9",
+                          borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                          fontFamily: "inherit",
+                          cursor: m.confirm.status === "busy" ? "not-allowed" : "pointer",
+                          opacity: m.confirm.status === "busy" ? 0.6 : 1,
+                        }}
+                      >
+                        ✕ Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               {m.suggestion && !m.suggestionPushed && setters && Object.keys(setters).length > 0 && (
