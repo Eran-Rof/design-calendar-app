@@ -25,7 +25,9 @@ import {
   checklistComplete,
 } from "../../../_lib/accounting/closeChecklist.js";
 
-export const config = { maxDuration: 30 };
+// 60s: the close re-runs close_run_auto_checks, which can take ~18s on a cold
+// buffer cache at mirror scale (695k JE lines) — see mig 20260994.
+export const config = { maxDuration: 60 };
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
