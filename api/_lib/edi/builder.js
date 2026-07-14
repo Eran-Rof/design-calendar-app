@@ -13,14 +13,14 @@ const SEP = "*";
 const COMP = ">";
 const SEG = "~";
 
-function pad(value, len, filler = " ", align = "left") {
+export function pad(value, len, filler = " ", align = "left") {
   const s = String(value ?? "");
   if (s.length >= len) return s.slice(0, len);
   const p = filler.repeat(len - s.length);
   return align === "left" ? s + p : p + s;
 }
 
-function fmtDate(d) { // YYMMDD for ISA09, YYYYMMDD for GS04 etc.
+export function fmtDate(d) { // YYMMDD for ISA09, YYYYMMDD for GS04 etc.
   const dt = d instanceof Date ? d : new Date(d);
   const yyyy = String(dt.getUTCFullYear());
   const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
@@ -28,24 +28,27 @@ function fmtDate(d) { // YYMMDD for ISA09, YYYYMMDD for GS04 etc.
   return { yy: yyyy.slice(-2), yyyy, mm, dd };
 }
 
-function fmtTime(d) {
+export function fmtTime(d) {
   const dt = d instanceof Date ? d : new Date(d);
   const hh = String(dt.getUTCHours()).padStart(2, "0");
   const mm = String(dt.getUTCMinutes()).padStart(2, "0");
   return hh + mm;
 }
 
-function seg(...parts) { return parts.join(SEP); }
+export function seg(...parts) { return parts.join(SEP); }
 
-function isa({ sender, receiver, controlNumber, now = new Date(), usageIndicator = "P" }) {
+// ISA interchange header. senderQual/receiverQual default to "ZZ" (mutually
+// defined) — the legacy behaviour used by build850/820/940/997 via wrapEnvelope;
+// retail partners override them (01=DUNS, 12=phone, 08=UCC/EAN, etc.).
+function isa({ sender, receiver, controlNumber, now = new Date(), usageIndicator = "P", senderQual = "ZZ", receiverQual = "ZZ" }) {
   const d = fmtDate(now);
   const t = fmtTime(now);
   return [
     "ISA",
     "00", pad("", 10),           // auth qual + value
     "00", pad("", 10),           // security qual + value
-    "ZZ", pad(sender,   15),     // sender qual + id
-    "ZZ", pad(receiver, 15),     // receiver qual + id
+    pad(senderQual, 2), pad(sender,   15),   // sender qual + id
+    pad(receiverQual, 2), pad(receiver, 15), // receiver qual + id
     `${d.yy}${d.mm}${d.dd}`,
     t,
     "U",                         // repetition separator (U = legacy)
@@ -64,15 +67,26 @@ function gs({ functionalId, sender, receiver, controlNumber, now = new Date() })
 
 function ge(count, controlNumber) { return seg("GE", String(count), String(controlNumber)); }
 function iea(count, controlNumber) { return seg("IEA", String(count), pad(String(controlNumber), 9, "0", "right")); }
-function se(segCount, controlNumber) { return seg("SE", String(segCount), String(controlNumber)); }
+export function se(segCount, controlNumber) { return seg("SE", String(segCount), String(controlNumber)); }
 
 function wrapEnvelope(sender, receiver, controlNumber, functionalId, transactionContent) {
-  const now = new Date();
+  return x12Envelope({ sender, receiver, controlNumber, functionalId, transactionContent });
+}
+
+// General ISA/GS…GE/IEA envelope with per-partner ISA qualifiers, usage
+// indicator (P/T), and optional distinct GS control number. transactionContent
+// already ends with its SE~. Emits every segment terminated by SEG.
+export function x12Envelope({
+  sender, receiver, controlNumber, functionalId, transactionContent,
+  senderQual = "ZZ", receiverQual = "ZZ", gsSender, gsReceiver,
+  groupControlNumber, usageIndicator = "P", now = new Date(),
+}) {
+  const gsCtl = groupControlNumber != null ? groupControlNumber : controlNumber;
   const parts = [
-    isa({ sender, receiver, controlNumber, now }),
-    gs({ functionalId, sender, receiver, controlNumber, now }),
+    isa({ sender, receiver, controlNumber, now, usageIndicator, senderQual, receiverQual }),
+    gs({ functionalId, sender: gsSender || sender, receiver: gsReceiver || receiver, controlNumber: gsCtl, now }),
     transactionContent,
-    ge(1, controlNumber),
+    ge(1, gsCtl),
     iea(1, controlNumber),
   ];
   return parts.map((s) => s + SEG).join("");

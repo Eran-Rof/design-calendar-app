@@ -17,8 +17,18 @@
 // Tangerine — EDI Customers. Service-role writes; anon-read in DB (RLS).
 
 import { createClient } from "@supabase/supabase-js";
+import { encryptFieldValue } from "../../../../_lib/crypto.js";
 
 export const config = { maxDuration: 15 };
+
+// Columns NEVER serialized back to the client. The UI gets an edi_secret_set flag.
+const SECRET_COLS = ["edi_secret_ciphertext"];
+export function scrubPartner(p) {
+  if (!p || typeof p !== "object") return p;
+  const out = { ...p, edi_secret_set: !!p.edi_secret_ciphertext };
+  for (const c of SECRET_COLS) delete out[c];
+  return out;
+}
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -87,7 +97,7 @@ export default async function handler(req, res) {
     const nameMap = await resolveCustomerNames(admin, rows.map((r) => r.customer_id));
     let out = rows.map((r) => {
       const c = nameMap.get(r.customer_id) || { name: "", code: "" };
-      return { ...r, customer_name: c.name, customer_code: c.code };
+      return { ...scrubPartner(r), customer_name: c.name, customer_code: c.code };
     });
 
     if (q) {
@@ -126,7 +136,7 @@ export default async function handler(req, res) {
     // Echo the customer name back so the UI can render it without a re-fetch.
     const nameMap = await resolveCustomerNames(admin, [data.customer_id]);
     const c = nameMap.get(data.customer_id) || { name: "", code: "" };
-    return res.status(201).json({ ...data, customer_name: c.name, customer_code: c.code });
+    return res.status(201).json({ ...scrubPartner(data), customer_name: c.name, customer_code: c.code });
   }
 
   res.setHeader("Allow", "GET, POST");
@@ -141,6 +151,47 @@ export function normalizeDocs(raw) {
   return [...new Set(arr.map((d) => String(d).trim()).filter(Boolean))];
 }
 
+// Text fields copied through verbatim (trimmed; "" → null). Secret is handled
+// separately (write-only encrypt); customer_id/entity_id are set by the caller.
+export const RETAIL_TEXT_FIELDS = [
+  "partner_isa_qualifier", "partner_isa_id", "partner_gs_id",
+  "our_isa_qualifier", "our_isa_id", "our_gs_id",
+  "edi_protocol", "edi_endpoint", "edi_username", "edi_credential_ref",
+  "edi_outbound_dir", "edi_inbound_dir", "edi_archive_dir",
+];
+
+// Shared field builder for insert + patch. Only assigns keys present in `body`.
+export function pickRetailFields(body, { forInsert = false } = {}) {
+  const out = {};
+  for (const f of RETAIL_TEXT_FIELDS) {
+    if (body[f] === undefined) continue;
+    const v = body[f];
+    out[f] = (v == null || String(v).trim() === "") ? null : String(v).trim();
+  }
+  if (body.edi_port !== undefined) {
+    const n = parseInt(body.edi_port, 10);
+    out.edi_port = Number.isFinite(n) ? n : null;
+  }
+  if (body.enabled_docs !== undefined) out.enabled_docs = normalizeDocs(body.enabled_docs);
+  if (body.supported_docs !== undefined || forInsert) out.supported_docs = normalizeDocs(body.supported_docs);
+  if (body.usage_indicator !== undefined) {
+    out.usage_indicator = String(body.usage_indicator).toUpperCase().startsWith("P") ? "P" : "T";
+  }
+  if (body.doc_map !== undefined) {
+    out.doc_map = (body.doc_map && typeof body.doc_map === "object" && !Array.isArray(body.doc_map)) ? body.doc_map : {};
+  }
+  if (body.edi_poll_enabled !== undefined) out.edi_poll_enabled = !!body.edi_poll_enabled;
+  if (body.is_active !== undefined) {
+    out.is_active = typeof body.is_active === "boolean" ? body.is_active : (body.is_active === "true" || body.is_active === 1);
+  }
+  // Secret is write-only: a non-empty plaintext encrypts; "" clears it.
+  if (body.edi_secret !== undefined) {
+    const raw = typeof body.edi_secret === "string" ? body.edi_secret : "";
+    out.edi_secret_ciphertext = raw.trim() === "" ? null : encryptFieldValue(raw);
+  }
+  return out;
+}
+
 export function validateInsert(body) {
   if (body == null || typeof body !== "object") {
     return { error: "Request body must be an object" };
@@ -148,17 +199,12 @@ export function validateInsert(body) {
   if (!body.customer_id || !UUID_RE.test(String(body.customer_id))) {
     return { error: "customer_id is required (uuid)" };
   }
-  const isActive = body.is_active == null ? true :
-    typeof body.is_active === "boolean" ? body.is_active :
-      body.is_active === "true" || body.is_active === 1;
-
+  const fields = pickRetailFields(body, { forInsert: true });
   return {
     data: {
-      customer_id:           String(body.customer_id),
-      partner_isa_qualifier: body.partner_isa_qualifier ? String(body.partner_isa_qualifier).trim() : null,
-      partner_isa_id:        body.partner_isa_id ? String(body.partner_isa_id).trim() : null,
-      supported_docs:        normalizeDocs(body.supported_docs),
-      is_active:             isActive,
+      customer_id: String(body.customer_id),
+      is_active: body.is_active === undefined ? true : fields.is_active,
+      ...fields,
     },
   };
 }

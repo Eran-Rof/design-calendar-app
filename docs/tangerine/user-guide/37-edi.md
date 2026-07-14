@@ -195,3 +195,62 @@ order.
 raw X12 payload, the parsed content, delivery status, attempt count, transport
 outcome, and 997 ack status. Failed outbound messages carry a **Re-queue /
 retry** action. Everything exports from the table's export button.
+
+## 37.5 Selling to retailers via EDI (856 ASN + 810 invoice)
+
+**Where:** **EDI → Retail Partners** tab. This is the supplier→retailer side —
+the documents a big-box retailer requires from you as their vendor. Ring of Fire
+generates two OUTBOUND documents per shipment:
+
+| Document | Direction | Meaning |
+|---|---|---|
+| **856** | out → retailer | Advance Ship Notice (ASN) — what's on the truck, boxed how, with an SSCC carton label per pack |
+| **810** | out → retailer | Invoice — the bill for the shipment, per SKU with UPC/GTIN, terms, allowances/charges |
+| **997** | in ← retailer | Functional Acknowledgment — the retailer confirms they accepted (or rejected) your 856/810 |
+
+### How it fires
+
+An 810 and (if enabled) an 856 are **generated and queued automatically when you
+post an AR invoice** for a customer that is configured as an active retail EDI
+partner. Nothing fires on historical invoices — only on a fresh post. The same
+transport cron that sends 3PL 940s uploads the queued 856/810 over the partner's
+SFTP connection every 15 minutes, retries with backoff, and reconciles the
+retailer's 997 by control number. **Until a partner has credentials configured,
+messages generate and queue but never transmit** (inert-safe) — so you can build
+and inspect the exact X12 before a single byte leaves the building.
+
+**Carton detail:** Tangerine has no WMS pack-out data for customer shipments, so
+the ASN is generated as a **single tare** — one SSCC-18 carton label over all
+line items. The SSCC is a valid GS1 Mod-10 code built from your GS1 company
+prefix (Master Data → GS1 settings). When true carton-level packing becomes
+available (a pack-out/WMS feed), the ASN hierarchy expands to one tare per
+physical carton. A `single_pack` flag on each 856 marks this.
+
+### Per-retailer configuration (the map)
+
+Every retailer's 856/810 spec differs — which id qualifier they want on a line
+(UPC vs GTIN-14 vs vendor part), whether the ASN uses a Tare or Pack level, the
+buyer party qualifier, and so on. Rather than hardcode one retailer, each partner
+carries a **per-document map** (JSON) that overrides the spec defaults. Common
+keys: `"810": {"line_id_qual":"UP","buyer_qual":"92","buyer_id":"…"}` and
+`"856": {"hierarchy":["S","O","T","I"],"man_qual":"GM","gs1_prefix":"…"}`.
+
+### Per-retailer onboarding checklist
+
+Before you can certify with a retail partner, collect from **them**:
+
+1. **Interchange identity** — their ISA qualifier + ISA ID (receiver) and GS
+   application ID. They also assign or confirm YOUR ISA/GS IDs as their vendor.
+2. **Transport** — SFTP host/port + username, and either a password or an SSH
+   key (or an AS2/VAN endpoint if that's their channel). The inbound directory
+   where they drop 997s, and the outbound directory where you upload 856/810.
+3. **Document specs** — their 856 and 810 implementation guides: required
+   segments/qualifiers, the HL hierarchy they expect, and label placement rules
+   (where the SSCC/UCC-128 carton label goes on the box).
+4. **Certification** — the test cycle. Keep **Usage = Test** on the partner until
+   their EDI team signs off on your test 856/810; then flip to **Production**.
+
+Enter all of this on **EDI → Retail Partners → Add retail partner**, set the
+enabled documents (856/810/997), paste any map overrides, and use **Save & test
+connection** to prove the SFTP link. Post a test AR invoice for that customer to
+generate the first 856/810 and inspect the raw X12 in **EDI → Messages**.

@@ -26,6 +26,7 @@ import { enqueue as enqueueNotification } from "../../../_lib/notifications/inde
 import { postEvent, PostingError } from "../../../_lib/accounting/posting/index.js";
 import { checkCreditLimit } from "../../../_lib/customers/creditCheck.js";
 import { brandScopeMode, resolveReceivingPartition } from "../../../_lib/brandContext.js";
+import { enqueueRetailEdiForInvoice } from "../../../_lib/edi/retailEnqueue.js";
 
 export const config = { maxDuration: 30 };
 
@@ -469,6 +470,16 @@ export async function postInvoice(admin, opts) {
     });
   } catch { /* non-fatal */ }
 
+  // 8. Retailer EDI — if this customer is an active EDI trading partner, generate
+  //    + QUEUE the outbound 856 ASN / 810 invoice (per partner.enabled_docs).
+  //    Fully non-fatal and INERT-SAFE: it only queues (nothing transmits here),
+  //    and no-ops silently when the customer has no active EDI partner. Never
+  //    fires on historical data — this path runs only on a fresh post.
+  let retail_edi = null;
+  try {
+    retail_edi = await enqueueRetailEdiForInvoice(admin, { invoice });
+  } catch { /* non-fatal — EDI must never block a GL post */ }
+
   return {
     status: 200,
     body: {
@@ -476,6 +487,7 @@ export async function postInvoice(admin, opts) {
       accrual_je_id: postResult.accrual_je_id,
       gl_status: "sent",
       consume_results: postResult.consume_results || [],
+      retail_edi: retail_edi && retail_edi.queued && retail_edi.queued.length ? retail_edi.queued : undefined,
     },
   };
 }
