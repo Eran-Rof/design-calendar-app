@@ -2453,6 +2453,7 @@ export default function WholesalePlanningWorkbench() {
                 customer_id: addUndoStack[addUndoStack.length - 1].customer_ids[0],
                 period_code: addUndoStack[addUndoStack.length - 1].period_codes[0],
               } : undefined}
+              runName={selectedRun?.name}
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}

@@ -1,0 +1,68 @@
+import { describe, it, expect } from "vitest";
+import { buildBuyerVsLyReport, reportComp, reportPct } from "../buildBuyerVsLyReport";
+import type { IpPlanningGridRow } from "../../../types/wholesale";
+
+function row(over: Partial<IpPlanningGridRow>): IpPlanningGridRow {
+  return {
+    forecast_id: "f", sku_code: "S", sku_style: "S", sku_color: "black",
+    customer_name: "Ross Stores", period_code: "2027-01",
+    ly_reference_qty: 0, buyer_request_qty: 0,
+    ...over,
+  } as IpPlanningGridRow;
+}
+
+describe("buildBuyerVsLyReport", () => {
+  it("pivots customer → style → color across periods with LY + TY blocks", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_color: "black", period_code: "2027-01", ly_reference_qty: 1000, buyer_request_qty: 1200 }),
+      row({ sku_color: "black", period_code: "2027-02", ly_reference_qty: 800, buyer_request_qty: 754 }),
+      row({ sku_color: "black camo", period_code: "2027-01", ly_reference_qty: 3620, buyer_request_qty: 4200 }),
+    ]);
+    expect(rep.periods.map((p) => p.tyLabel)).toEqual(["Jan-27", "Feb-27"]);
+    expect(rep.periods.map((p) => p.lyLabel)).toEqual(["Jan-26", "Feb-26"]);
+    const cust = rep.customers[0];
+    expect(cust.customer).toBe("Ross Stores");
+    const colors = cust.styles[0].colors;
+    const black = colors.find((c) => c.color === "black")!;
+    expect(black.ly).toEqual([1000, 800]);
+    expect(black.ty).toEqual([1200, 754]);
+    expect(black.tyTotal).toBe(1954);
+    // customer period totals sum both colors for Jan.
+    expect(cust.tyTotals[0]).toBe(1200 + 4200);
+    expect(cust.lyTotals[0]).toBe(1000 + 3620);
+  });
+
+  it("keeps styles and customers separate and sorted", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "Burlington", sku_style: "RCB1510", sku_color: "black", buyer_request_qty: 5 }),
+      row({ customer_name: "Ross Stores", sku_style: "RYB0412PPK", sku_color: "black", buyer_request_qty: 9 }),
+    ]);
+    expect(rep.customers.map((c) => c.customer)).toEqual(["Burlington", "Ross Stores"]);
+    expect(rep.customers[1].styles[0].style).toBe("RYB0412PPK");
+  });
+
+  it("aggregates multiple rows sharing the same (customer, style, color, period)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ buyer_request_qty: 100, ly_reference_qty: 50 }),
+      row({ buyer_request_qty: 200, ly_reference_qty: 25 }),
+    ]);
+    const black = rep.customers[0].styles[0].colors[0];
+    expect(black.ty).toEqual([300]);
+    expect(black.ly).toEqual([75]);
+  });
+
+  it("skips aggregate rows", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ buyer_request_qty: 100 }),
+      row({ buyer_request_qty: 999, is_aggregate: true }),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].ty).toEqual([100]);
+  });
+
+  it("comp + pct helpers: new color (no LY) reads +100%", () => {
+    expect(reportComp(600, 0)).toBe(600);
+    expect(reportPct(600, 0)).toBe(1);       // brand new
+    expect(reportPct(1200, 1000)).toBeCloseTo(0.2);
+    expect(reportPct(0, 0)).toBeNull();      // 0 vs 0 → no %
+  });
+});
