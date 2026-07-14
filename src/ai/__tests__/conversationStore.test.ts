@@ -231,3 +231,24 @@ describe("clearConversation", () => {
     expect(() => clearConversation("ats", "u999", storage)).not.toThrow();
   });
 });
+
+
+// ── P28-3: day-scoped threads (tangerine) ───────────────────────────────
+import { isStaleForDayScope, localDay } from "../conversationStore";
+
+describe("isStaleForDayScope", () => {
+  const now = new Date("2026-07-14T15:00:00");
+  it("tangerine threads roll at local midnight", () => {
+    expect(isStaleForDayScope("tangerine", "2026-07-14T08:00:00", now)).toBe(false);
+    expect(isStaleForDayScope("tangerine", "2026-07-13T23:59:00", now)).toBe(true);
+    expect(isStaleForDayScope("tangerine", null, now)).toBe(true);
+    expect(isStaleForDayScope("tangerine", "garbage", now)).toBe(true);
+  });
+  it("other apps keep the 30-day TTL (never day-stale)", () => {
+    expect(isStaleForDayScope("ats", "2026-06-20T08:00:00", now)).toBe(false);
+    expect(isStaleForDayScope("", null, now)).toBe(false);
+  });
+  it("localDay formats the local calendar date", () => {
+    expect(localDay(new Date(2026, 6, 14, 23, 59))).toBe("2026-07-14");
+  });
+});

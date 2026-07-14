@@ -186,7 +186,8 @@ import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, set
 import { appConfig } from "./config/env";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import { AskAIPanel } from "./ai/AskAIPanel";
-import { onAskAIRequest } from "./ai/askAIBridge";
+import { onAskAIRequest, publishScreenContext } from "./ai/askAIBridge";
+import AssistantCoach from "./tanda/AssistantCoach";
 import type { GridContextSnapshot } from "./ai/tools";
 
 // Module registry + palette extracted to src/erp/ (Tangerine.tsx shrink).
@@ -359,6 +360,15 @@ export default function Tangerine() {
     url.searchParams.delete("view");
     window.history.pushState({ module: key }, "", url.toString());
   }
+  // P28-3 - companion mode: tell the assistant which module the operator
+  // is on, on every hop. Panels may re-publish richer detail while
+  // mounted; this shell-level publish is the universal baseline.
+  useEffect(() => {
+    if (!activeModule) { publishScreenContext(null); return; }
+    const def = (MODULES as { key: string; label: string }[]).find((m) => m.key === activeModule);
+    publishScreenContext({ panel_key: activeModule, label: def?.label });
+    return () => publishScreenContext(null);
+  }, [activeModule]);
 
   // popstate: handle browser back / forward buttons.
   useEffect(() => {
@@ -791,6 +801,7 @@ export default function Tangerine() {
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
 
+      <AssistantCoach activeModule={activeModule} />
       <AskAIPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}

@@ -50,6 +50,8 @@ import { runStreaming } from "../../_lib/ai/streaming.js";
 import {
   sanitizeHistory,
   buildGridContextBlock,
+  buildScreenContextBlock,
+  sanitizeScreenContext,
   summarizeToolResult,
   formatCacheAge,
   sanitizeFollowups,
@@ -158,7 +160,10 @@ export default async function handler(req, res) {
   }
 
   const contextBlock = buildGridContextBlock(gridContext);
-  const textBlock    = `## Current ATS grid context\n${contextBlock}\n\n## User question\n${question}`;
+  // P28-3 companion mode - what the operator is looking at (sanitised;
+  // empty string when the host publishes nothing).
+  const screenBlock  = buildScreenContextBlock(body.screen_context);
+  const textBlock    = `## Current ATS grid context\n${contextBlock}${screenBlock}\n\n## User question\n${question}`;
   // Anthropic multimodal user message: image blocks FIRST so the model
   // sees them as referent to the question that follows. Falls back to
   // a plain string when no attachments — preserves prompt-cache hits
@@ -184,8 +189,9 @@ export default async function handler(req, res) {
   // produces different entries.
   // Cache: skip when attachments present (images change per turn and
   // the cache key doesn't hash them) AND when there's prior history.
+  const screenForKey = sanitizeScreenContext(body.screen_context);
   const cacheKey = history.length === 0 && attachments.length === 0
-    ? buildCacheKey(question, gridContext)
+    ? buildCacheKey(question, gridContext, screenForKey?.panel_key || "")
     : null;
   if (cacheKey) {
     const hit = await readAnswerCache(db, cacheKey);

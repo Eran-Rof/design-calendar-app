@@ -12,6 +12,7 @@ import {
   type GridSuggestion,
   type ToolTraceEntry,
 } from "./tools";
+import { getScreenContext } from "./askAIBridge";
 import {
   loadConversation,
   saveConversation,
@@ -511,6 +512,9 @@ export const AskAIPanel: React.FC<AskAIPanelProps> = ({
           // parameter.
           user_id: userId,
           app_id: appId || null,
+          // P28-3 companion mode: what the operator is looking at right
+          // now (published by the host shell / panels via askAIBridge).
+          screen_context: getScreenContext(),
           // Vision (PR #218): only present on a turn with staged images.
           ...(sendAttachments.length > 0
             ? { attachments: sendAttachments.map(a => ({ media_type: a.media_type, data: a.data })) }

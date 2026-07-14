@@ -131,3 +131,43 @@ export function sseWrite(res, event, data) {
   if (event) res.write(`event: ${event}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
+
+// ── P28-3: screen-context block (companion mode) ────────────────────────
+//
+// Sanitise + render the client's `screen_context` body field into the
+// prompt block the model sees. Hard clamps everywhere — this is client
+// input travelling into a prompt.
+
+const SCREEN_KEY_MAX = 40;
+const SCREEN_VAL_MAX = 120;
+const SCREEN_PARAMS_MAX = 8;
+
+export function sanitizeScreenContext(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const panelKey = typeof raw.panel_key === "string" ? raw.panel_key.trim().slice(0, SCREEN_KEY_MAX) : "";
+  if (!panelKey || !/^[a-z0-9_]+$/i.test(panelKey)) return null;
+  const out = { panel_key: panelKey };
+  if (typeof raw.label === "string" && raw.label.trim()) out.label = raw.label.trim().slice(0, SCREEN_VAL_MAX);
+  if (typeof raw.detail === "string" && raw.detail.trim()) out.detail = raw.detail.trim().slice(0, 300);
+  if (raw.params && typeof raw.params === "object") {
+    const params = {};
+    for (const [k, v] of Object.entries(raw.params).slice(0, SCREEN_PARAMS_MAX)) {
+      const key = String(k).trim().slice(0, SCREEN_KEY_MAX);
+      const val = String(v ?? "").trim().slice(0, SCREEN_VAL_MAX);
+      if (key && val) params[key] = val;
+    }
+    if (Object.keys(params).length > 0) out.params = params;
+  }
+  return out;
+}
+
+export function buildScreenContextBlock(screen) {
+  const sc = sanitizeScreenContext(screen);
+  if (!sc) return "";
+  const lines = [`Panel: ${sc.label ? `${sc.label} (${sc.panel_key})` : sc.panel_key}`];
+  if (sc.params) {
+    for (const [k, v] of Object.entries(sc.params)) lines.push(`${k}: ${v}`);
+  }
+  if (sc.detail) lines.push(sc.detail);
+  return `\n\n## Current Tangerine screen (what the operator is looking at)\n${lines.join("\n")}`;
+}

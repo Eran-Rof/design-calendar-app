@@ -1,6 +1,6 @@
 # 46. Today Page (your daily starting point)
 
-> **Status (2026-07):** Phases 1 + 2 shipped. The Today page is the first step of the **assistant-first** program (arch: `P28-assistant-first-architecture.md`): a per-user landing surface that shows what's waiting on you, what the system is doing, and what deserves attention — across **every module you have access to**, not just accounting. Phase 2 adds the AI assistant's spoken morning brief and "what do you want to work on?" routing.
+> **Status (2026-07):** Phases 1 + 2 + 3 shipped. The Today page is the first step of the **assistant-first** program (arch: `P28-assistant-first-architecture.md`): a per-user landing surface that shows what's waiting on you, what the system is doing, and what deserves attention — across **every module you have access to**, not just accounting. Phase 2 adds the AI assistant's spoken morning brief and "what do you want to work on?" routing.
 
 **Where:** `/tangerine?m=today` — the **🌅 Today** section at the far left of the top nav.
 
@@ -40,6 +40,14 @@ What can appear here today:
 | Build orders open | draft / issued / in-progress manufacturing builds | Build Orders |
 
 **Access-rights aware:** when RBAC enforcement is on, you only see rows for modules you hold read access to — a warehouse user's Today page and the bookkeeper's look completely different.
+
+## 46.1b The assistant follows you (companion mode)
+
+The assistant is not confined to the Today page:
+
+- **It knows what you're looking at.** Every module you open is reported to the assistant, so on any panel you can ask *"what am I looking at?"*, *"what's wrong here?"*, or *"how do I use this screen?"* without explaining where you are. (It still fetches real numbers from the database - the screen context is orientation, not data.)
+- **One thread per day.** Your conversation carries across panels all day - ask about an approval on the Today page, open Journal Entries, and keep talking. Overnight the thread resets so each morning starts fresh with the new brief.
+- **Coach tips.** When you land on a panel where the assistant has a relevant suggestion (e.g. Style Master while thousands of styles are missing a size scale), a small tip chip appears near the ✨ Ask AI button. **Ask the assistant** opens the chat pre-filled; **✕** dismisses it for the day. A tip shows at most once per panel per session - the assistant is meant to help, not nag.
 
 ## 46.2 Active processes
 
