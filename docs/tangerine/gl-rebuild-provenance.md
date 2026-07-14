@@ -310,7 +310,7 @@ cash-application records FROM that mirror — **posting NOTHING new to the GL**
 (`journal_entries` count before = after = **99,252**; `journal_entry_lines`
 694,711 unchanged).
 
-**Method.** Migration `20260992000000` adds `source_txn_id` provenance +
+**Method.** Migration `20260992000010` adds `source_txn_id` provenance +
 idempotency indexes to `ar_receipts` / `invoice_payments`, a
 `cashside_backfill_exceptions` ledger, and the `v_dso_dpo_monthly` view.
 Operational backfill (idempotent, deterministic md5-derived ids +
