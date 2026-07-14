@@ -89,6 +89,7 @@ import InternalUpcReport          from "./tanda/InternalUpcReport";
 import InternalARBackfill         from "./tanda/InternalARBackfill";
 import InternalTrialBalance       from "./tanda/InternalTrialBalance";
 import InternalFactorRecon        from "./tanda/InternalFactorRecon";
+import InternalChargebacks         from "./tanda/InternalChargebacks";
 import InternalMonthEndClose      from "./tanda/InternalMonthEndClose";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
 import InternalSegmentPL          from "./tanda/InternalSegmentPL";
@@ -688,6 +689,7 @@ export default function Tangerine() {
         {activeModule === "bank_reconciliation" && <InternalBankReconciliation />}
         {activeModule === "bank_recon_report" && <InternalBankReconReport />}
         {activeModule === "factor_recon"      && <InternalFactorRecon />}
+        {activeModule === "chargebacks"       && <InternalChargebacks />}
         {activeModule === "month_end_close"   && <InternalMonthEndClose />}
         {activeModule === "approval_rules"     && <InternalApprovalRules />}
         {activeModule === "approval_requests"  && <InternalApprovalRequests />}

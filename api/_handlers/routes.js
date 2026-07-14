@@ -176,6 +176,9 @@ import r_internal_cases_index from "./internal/cases/index.js";
 import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
+import r_internal_chargebacks_id from "./internal/chargebacks/[id].js";
+import r_internal_chargebacks_dilution_summary from "./internal/chargebacks/dilution-summary.js";
+import r_internal_chargebacks_index from "./internal/chargebacks/index.js";
 import r_internal_client_errors from "./internal/client-errors.js";
 import r_internal_colors_id from "./internal/colors/[id].js";
 import r_internal_colors_index from "./internal/colors/index.js";
@@ -947,6 +950,7 @@ export const ROUTES = [
   { pattern: "/api/internal/part-matrix/resolve-part-size", handler: r_internal_part_matrix_resolve_part_size },
   { pattern: "/api/internal/planning/link-planning-vendor", handler: r_internal_planning_link_planning_vendor },
   { pattern: "/api/internal/tpl-providers/test-connection", handler: r_internal_tpl_providers_test_connection },
+  { pattern: "/api/internal/chargebacks/dilution-summary", handler: r_internal_chargebacks_dilution_summary },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
@@ -1177,6 +1181,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ap-invoices/:id", handler: r_internal_ap_invoices_id },
   { pattern: "/api/internal/ar-invoices/:id", handler: r_internal_ar_invoices_id },
   { pattern: "/api/internal/ar-receipts/:id", handler: r_internal_ar_receipts_id },
+  { pattern: "/api/internal/chargebacks/:id", handler: r_internal_chargebacks_id },
   { pattern: "/api/internal/gl-accounts/:id", handler: r_internal_gl_accounts_id },
   { pattern: "/api/internal/part-master/:id", handler: r_internal_part_master_id },
   { pattern: "/api/internal/price-lists/:id", handler: r_internal_price_lists_id },
@@ -1360,6 +1365,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-invoices", handler: r_internal_ar_invoices_index },
   { pattern: "/api/internal/ar-receipts", handler: r_internal_ar_receipts_index },
   { pattern: "/api/internal/ats-by-size", handler: r_internal_ats_by_size },
+  { pattern: "/api/internal/chargebacks", handler: r_internal_chargebacks_index },
   { pattern: "/api/internal/gl-accounts", handler: r_internal_gl_accounts_index },
   { pattern: "/api/internal/mfg-reports", handler: r_internal_mfg_reports_index },
   { pattern: "/api/internal/part-master", handler: r_internal_part_master_index },

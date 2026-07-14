@@ -66,6 +66,7 @@ export const TANGERINE_MODULES = [
   { key: "bank_reconciliation", display_name: "Bank Reconciliation", group_name: "Accounting", sort_order: 57, available_actions: ["read","write","post","void","export"] },
   { key: "bank_recon_report", display_name: "Recon Report", group_name: "Accounting", sort_order: 58, available_actions: ["read","write","post","void","export"] },
   { key: "factor_recon", display_name: "Factor (Rosenthal)", group_name: "Accounting", sort_order: 59, available_actions: ["read","write","post","void","export"] },
+  { key: "chargebacks", display_name: "Chargebacks", group_name: "Accounting", sort_order: 59, available_actions: ["read","write","export"] },
   { key: "month_end_close", display_name: "Month-End Close", group_name: "Accounting", sort_order: 60, available_actions: ["read","write","post","void","export"] },
   { key: "commission_accruals", display_name: "Commission Accruals", group_name: "Accounting", sort_order: 61, available_actions: ["read","write","post","void","export"] },
   { key: "commission_payouts", display_name: "Commission Payouts", group_name: "Accounting", sort_order: 62, available_actions: ["read","write","post","void","export"] },

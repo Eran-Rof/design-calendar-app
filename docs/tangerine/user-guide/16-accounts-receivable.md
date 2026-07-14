@@ -587,3 +587,44 @@ CR 1051 Factor Advances - Rosenthal   (the factor charges costs to the loan)
 The recap's "ACCRUED FEES/OTHER TRANSFERS (FACILITY)" is deliberately NOT posted whole — it contains the **prior** month's interest being charged to the loan (already expensed in its accrual month), so only the facility FEES+OTHER components are new cost. Chargebacks are AR-side and excluded from cost JEs. Idempotent per month (`source_module='factor_recap'`, `source_id=<statement month>`; `uq_je_source_basis` backstop). Posted 2024-10 → 2025-09 (12 JEs, **$515,690.72** total factoring cost). Known exception: Oct-24's facility OTHER is a one-off −$188,930.78 loan credit (not a fee — three orders of magnitude beyond every other month's OTHER) and is excluded from 6803 pending CEO/Rosenthal clarification.
 
 **Statement gaps:** CLIENT RECAP statements Oct 2025 → Jun 2026 have not been provided yet — `factor_statements` (and therefore cost JEs) end at Sep 2025; the AR snapshots and chargeback detail already run through Jun 2026. Re-run `import-factor-pdfs.mjs` + `post-factor-cost-jes.mjs` when the CEO forwards them.
+
+## Chargeback Management — matched invoices, disposition workflow, dilution (#1744, 2026-07-14)
+
+> Promotes the raw factor-chargeback ledger (the Factor-Recon **Chargebacks tab** above, which stays as the month-at-a-glance import view) from **recording-grade to management-grade**. This was a top-5 finding in the formal audit: chargebacks were imported but never linked to the invoice that caused them, never dispositioned, and never measured as a dilution rate.
+
+**Panel:** Tangerine → Accounting → **Chargebacks** (`?m=chargebacks`). Two tabs.
+
+### Worklist tab
+
+Every chargeback / creditback (5,928 rows) as a filterable, sortable worklist. Columns: item/invoice number (rendered blue — click **anywhere on the row** to open the detail; there are no ↗ arrows), customer, the **matched AR invoice**, C/B date, reason, amount, disposition and owner. Filters: disposition · customer · reason (incl. **Un-coded**) · month · matched/unmatched · type · free-text. Paginated 100/page. **Export** (Excel/PDF) on the table honours the current filter.
+
+**Auto-match to the originating AR invoice.** The importer leaves `item_num` as free text (Rosenthal's format: an 11-digit zero-padded invoice number like `00000010360`, sometimes the prefixed form `ROF-I141259`). A deterministic matcher links each chargeback to `ar_invoices` by **exact normalized equality only** — two disjoint, unambiguous methods:
+
+- **`invoice_number_suffix`** — a purely numeric `item_num`, leading zeros stripped, equals an invoice's trailing digit-run (ROF / ROF-ECOM / PT share one global Xoro invoice sequence, so the numeric core is globally unique).
+- **`invoice_number_exact`** — the prefixed form, matched on the alphanumeric-normalized full string (`ROF-I141259` → `ROFI141259`).
+
+**House rule: a token that resolves to 2+ invoices is left UNMATCHED** — a wrong link is worse than no link. Match rate **86.4 %** (5,120 / 5,928); the ~808 unmatched are mostly Macy's internal deduction/RA document numbers that are not ROF invoice numbers. Matching validated against invoice amount/customer (e.g. `00000142222` → `ROF-I142222`, a −$29.40 creditback against that invoice's exact $29.40 total). The matcher runs in the migration and is idempotent (re-runs never clobber a **manual** link).
+
+### Detail modal + disposition workflow
+
+Full-row click opens the chargeback with its matched invoice. The **matched invoice number is a blue link** that drills to the AR invoice (no raw UUIDs are ever shown). From here you:
+
+- Set the **reason code** (governed master `chargeback_reason_codes`: shortage, pricing/allowance, short-pay, unearned-discount, markdown, compliance, packing, freight, co-op, defective/RTV, returns, interest/fees, misc, unknown). The raw Rosenthal `reason`/`reason_code` strings are preserved untouched; the governed code is the new classification layer. The ~3 % of rows Rosenthal captions were pre-coded on import where the mapping was exact/obvious; everything else is **Un-coded** until a human codes it (`unknown` is never auto-assigned).
+- Move the **disposition**: `open → valid / disputed / recovered / written_off`. **A disposition change requires a reason note** (enforced on both the API and the UI); each change is appended to the row's `status_history` (`{at, by, field:'disposition', from, to, note}`) in the T11 spirit.
+- Assign an **owner**.
+
+Re-importing a month **never** overwrites match, disposition, reason-code, owner or notes.
+
+### Dilution tab
+
+Table-first analytics (no chart libraries). Sign convention: **positive = a chargeback deduction the customer took; negative = a creditback / recovery / reversal.** "Dilution %" = **gross chargeback deductions ÷ gross sales** (the standard chargeback rate); gross sales come from `ar_invoices` (`v_chargeback_gross_sales`). The chargeback's customer is resolved as `COALESCE(factor_chargebacks.customer_id, matched invoice's customer_id)` so the deliberately-unlinked **Macys Corporate 577512** rows still roll up via their matched invoices.
+
+- **Top offenders — by customer**: chargebacks, creditbacks, net, gross sales, dilution %, item count. Highest-dilution customers on prod: Macy's Backstage ~44 %, Macys ~32 %, Bealls ~14 % (Ross/Burlington are ~0.2–0.5 % on much larger volume).
+- **By reason**: share of total gross deductions per governed reason (Un-coded shown explicitly).
+- **Monthly trend**: chargebacks and dilution % by report month.
+
+Each sub-table has its own **Export** button.
+
+### API + RBAC
+
+`GET /api/internal/chargebacks` (worklist, filters + pagination), `PATCH /api/internal/chargebacks/:id` (disposition / owner / reason / manual link), `GET /api/internal/chargebacks/dilution-summary`. The `chargebacks` route segment maps to the **finance_misc** RBAC module (same class as Factor): GETs are read-gated, the PATCH is write-gated. Migration `20260988000000_chargeback_management.sql`; auto-match + reason normalization are idempotent SQL in the same migration; token-extraction and dilution aggregation are the pure, unit-tested functions in `api/_lib/chargebackMatch.js`.
