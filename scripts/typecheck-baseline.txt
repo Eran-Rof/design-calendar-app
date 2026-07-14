@@ -82,8 +82,6 @@ src/inventory-planning/services/wholesaleForecastService.ts | TS2345 | Argument 
 src/inventory-planning/supply/services/supplyReconciliationService.ts | TS2322 | Type '{ po_number: string; expected_date: string; qty_open: number; }[]' is not assignable to type '{ vendor_id: string; expected_date: string; qty: number; }[]'.
 src/tanda/InternalAnalytics.tsx | TS2440 | Import declaration conflicts with local declaration of 'fmtMoney'.
 src/tanda/InternalAnalytics.tsx | TS2769 | No overload matches this call.
-src/tanda/InternalIncomeStatement.tsx | TS17001 | JSX elements cannot have multiple attributes with the same name.
-src/tanda/InternalIncomeStatement.tsx | TS2551 | Property 'account_subtype' does not exist on type 'ISRow'. Did you mean 'account_type'?
 src/tanda/InternalSalesOrders.tsx | TS2559 | Type '"Approve credit override"' has no properties in common with type 'ConfirmOptions'.
 src/tanda/InternalSalesOrders.tsx | TS2559 | Type '"Select location before allocating"' has no properties in common with type 'ConfirmOptions'.
 src/tanda/InternalUpcReport.tsx | TS2339 | Property 'isVisible' does not exist on type 'UseTablePrefs'.
