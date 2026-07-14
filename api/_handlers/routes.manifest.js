@@ -766,4 +766,7 @@ export default [
   ["/api/internal/month-end-close/close"                     , "./internal/month-end-close/close.js"],
   ["/api/internal/month-end-close/reopen"                    , "./internal/month-end-close/reopen.js"],
   ["/api/xoro/sync-gl"                                       , "./xoro/sync-gl.js"],
+  // P28-1-2 - assistant Today page aggregate + per-day item dismissals.
+  ["/api/internal/assistant/today"                           , "./internal/assistant/today.js"],
+  ["/api/internal/assistant/dismiss"                         , "./internal/assistant/dismiss.js"],
 ];

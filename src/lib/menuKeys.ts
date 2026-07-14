@@ -231,6 +231,7 @@ const TANDA_MENU: MenuKey[] = [
   // Nav reorg: Sales by Rep moved to the Sales section; Sales by Customer to Customers.
   { key: "tanda/reports/sales-by-rep",  label: "Sales by Rep",      app: "tanda", route: "/tangerine?m=sales_by_rep",      group: "Sales", icon: "🧑‍💼" },
   { key: "tanda/reports/sales-by-customer", label: "Sales by Customer", app: "tanda", route: "/tangerine?m=sales_by_customer", group: "Customers", icon: "🤝" },
+  { key: "tanda/today",                label: "Today",               app: "tanda", route: "/tangerine?m=today",            group: "Today", icon: "🌅" },
   { key: "tanda/reports/hub",           label: "Reports & Analytics", app: "tanda", route: "/tangerine?m=reports_hub",      group: "Reports", icon: "📊" },
   { key: "tanda/reports/gl-detail",     label: "GL Detail",         app: "tanda", route: "/tangerine?m=gl_detail",         group: "Reports", icon: "🔍" },
   { key: "tanda/reports/upc-report",    label: "UPC Report",        app: "tanda", route: "/tangerine?m=upc_report",        group: "Reports", icon: "🔖" },

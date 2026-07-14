@@ -129,6 +129,8 @@ import r_internal_ar_receipts_id from "./internal/ar-receipts/[id].js";
 import r_internal_ar_receipts_index from "./internal/ar-receipts/index.js";
 import r_internal_ar_receipts_post from "./internal/ar-receipts/post.js";
 import r_internal_ar_receipts_void from "./internal/ar-receipts/void.js";
+import r_internal_assistant_dismiss from "./internal/assistant/dismiss.js";
+import r_internal_assistant_today from "./internal/assistant/today.js";
 import r_internal_ats_by_size from "./internal/ats-by-size.js";
 import r_internal_ats_size_matrix from "./internal/ats-size-matrix.js";
 import r_internal_audit_log from "./internal/audit/log.js";
@@ -1048,6 +1050,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-master/notes", handler: r_internal_style_master_notes },
   { pattern: "/api/internal/year-end-close/run", handler: r_internal_year_end_close_run },
   { pattern: "/api/internal/allocations/rules", handler: r_internal_allocations_rules },
+  { pattern: "/api/internal/assistant/dismiss", handler: r_internal_assistant_dismiss },
   { pattern: "/api/internal/audit/row-history", handler: r_internal_audit_row_history },
   { pattern: "/api/internal/crm/opportunities", handler: r_internal_crm_opportunities_index },
   { pattern: "/api/internal/factor/open-items", handler: r_internal_factor_open_items },
@@ -1073,6 +1076,7 @@ export const ROUTES = [
   { pattern: "/api/internal/ap-backfill/run", handler: r_internal_ap_backfill_run },
   { pattern: "/api/internal/ar-aging/detail", handler: r_internal_ar_aging_detail },
   { pattern: "/api/internal/ar-backfill/run", handler: r_internal_ar_backfill_run },
+  { pattern: "/api/internal/assistant/today", handler: r_internal_assistant_today },
   { pattern: "/api/internal/fba/sync-orders", handler: r_internal_fba_sync_orders },
   { pattern: "/api/internal/pricing/resolve", handler: r_internal_pricing_resolve },
   { pattern: "/api/internal/recon/variances", handler: r_internal_recon_variances },
