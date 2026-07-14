@@ -65,13 +65,19 @@ export function TbdColorCell({
     return optionList.filter((c) => c.toLowerCase().includes(q));
   }, [query, optionList]);
   const queryTrim = query.trim();
-  // The query is "new" when no master color anywhere matches it.
-  // Picking a category sibling's color (already in allKnownColorsLower)
-  // is NOT new even if it isn't on the current style yet. The literal
-  // "TBD" is the canonical placeholder — never flagged as new.
-  const queryIsNew = queryTrim.length > 0
-    && queryTrim.toLowerCase() !== "tbd"
-    && !allKnownColorsLower.has(queryTrim.toLowerCase());
+  const queryTrimLower = queryTrim.toLowerCase();
+  // Whether the typed value already appears verbatim in the filtered option
+  // list (then the planner just clicks it — no "add" row needed).
+  const queryHasExactOption = filtered.some((c) => c.toLowerCase() === queryTrimLower);
+  // Offer to ADD the typed color whenever it's non-empty, isn't the "TBD"
+  // placeholder, and isn't already an exact option in this category's list.
+  // This covers BOTH a brand-new color AND a known color from another
+  // category/style (e.g. "Red") that just isn't in this style's set yet —
+  // previously the latter fell through with no "add" affordance at all.
+  const canAddTyped = queryTrim.length > 0 && queryTrimLower !== "tbd" && !queryHasExactOption;
+  // "new" = not in the master anywhere (drives the orange NEW badge). A color
+  // known elsewhere in the run is added but NOT flagged new.
+  const queryIsNew = canAddTyped && !allKnownColorsLower.has(queryTrimLower);
 
   async function commit(color: string, isNew: boolean) {
     if (busy) return;
@@ -152,7 +158,7 @@ export function TbdColorCell({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && queryIsNew) { e.preventDefault(); void commit(queryTrim, true); }
+                if (e.key === "Enter" && canAddTyped) { e.preventDefault(); void commit(queryTrim, queryIsNew); }
               }}
               style={{ ...S.input, width: "100%" }}
             />
@@ -162,7 +168,7 @@ export function TbdColorCell({
                 : "Pick any color used in this category, or type a new one (flagged NEW until the master catches up)."}
             </div>
           </div>
-          {filtered.length === 0 && !queryIsNew && (
+          {filtered.length === 0 && !canAddTyped && (
             <div style={{ padding: 12, color: PAL.textMuted, fontSize: 12 }}>No matches</div>
           )}
           {filtered.map((c) => {
@@ -205,29 +211,31 @@ export function TbdColorCell({
               </div>
             );
           })}
-          {queryIsNew && (
+          {canAddTyped && (
             <div
               role="option"
               tabIndex={0}
-              // onMouseDown + preventDefault so "Add as NEW color" commits before
-              // the search input blurs (portal + autofocus would otherwise drop
-              // the onClick — this was the "typed color doesn't add" bug).
-              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim, true); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim, true); } }}
+              // onMouseDown + preventDefault so the add commits before the search
+              // input blurs (portal + autofocus would otherwise drop the onClick —
+              // this was the "typed color doesn't add" bug).
+              onMouseDown={(e) => { e.preventDefault(); void commit(queryTrim, queryIsNew); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(queryTrim, queryIsNew); } }}
               style={{
                 padding: "10px 12px",
                 cursor: "pointer",
                 fontSize: 13,
-                color: PAL.yellow,
-                background: `${PAL.yellow}11`,
+                color: queryIsNew ? PAL.yellow : PAL.accent,
+                background: queryIsNew ? `${PAL.yellow}11` : `${PAL.accent}11`,
                 borderTop: filtered.length > 0 ? `1px solid ${PAL.borderFaint}` : undefined,
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
               }}
-              title="This color isn't in the item master yet — it'll be flagged NEW until a future build sees it."
+              title={queryIsNew
+                ? "This color isn't in the item master yet — it'll be flagged NEW until a future build sees it."
+                : "This color is used elsewhere in the run but not on this style yet — added without the NEW flag."}
             >
-              <span>Add as NEW color:</span>
+              <span>{queryIsNew ? "Add as NEW color:" : "Add color:"}</span>
               <strong>{queryTrim}</strong>
             </div>
           )}
