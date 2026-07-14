@@ -23,8 +23,10 @@ import po from "./packs/po.js";
 import soAllocations from "./packs/so_allocations.js";
 import planning from "./packs/planning.js";
 import masterData from "./packs/master_data.js";
+import manufacturing from "./packs/manufacturing.js";
+import casesInbox from "./packs/cases_inbox.js";
 
-export const PACKS = [po, soAllocations, planning, masterData, accounting];
+export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting];
 
 const SEVERITIES = new Set(["action", "warn", "error", "info"]);
 

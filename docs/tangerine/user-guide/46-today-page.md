@@ -27,6 +27,9 @@ What can appear here today:
 | Factored lines shipping soon without factor approval | the factor-credit gate will block these | Allocations Workbench |
 | Buy-plan batches awaiting approval | draft execution batches in the Planning app | Planning |
 | Styles missing a size scale / PPK styles without a matrix | master-data quality views (bulk Auto-assign / Prepack Matrices fix them) | Style Master / Prepack Matrices |
+| Cases assigned to you / unassigned open cases | customer-service case queue | Cases |
+| Unread notifications | your in-app notification inbox | Notifications |
+| Build orders open | draft / issued / in-progress manufacturing builds | Build Orders |
 
 **Access-rights aware:** when RBAC enforcement is on, you only see rows for modules you hold read access to — a warehouse user's Today page and the bookkeeper's look completely different.
 
@@ -42,4 +45,4 @@ Analysis-grade items: coded suggestions (e.g. *overdue PO lines usually mean a s
 
 - **Refresh** (↻, top right) re-computes everything on demand; the page also loads fresh on every visit.
 - If one section's source has a hiccup, the rest of the page still renders — a footnote tells you counts may be partial.
-- The Today page is **opt-in** for now (a nav item, not the forced landing screen). Once it proves itself it becomes the default post-login view.
+- **Make it your landing page:** the **★ Make this my landing page** button (top right) sets Today as your personal auto-landing screen (the same home-route preference the ★ favorites system uses) - next sign-in opens here. Each user decides for themselves; nothing is forced.
