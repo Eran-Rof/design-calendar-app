@@ -78,8 +78,18 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}"
-          pg_dump --version
-          pg_restore --version
+          # The /usr/bin/pg_dump wrapper (postgresql-common) picks a version by
+          # an unreliable heuristic on the runner (it can dispatch pg_dump and
+          # pg_restore to DIFFERENT majors → "unsupported version in file
+          # header" at restore). Pin the exact v17 bindir at the FRONT of PATH
+          # so pg_dump AND pg_restore are the SAME matched v17 binaries for
+          # every later step.
+          PG_BIN="/usr/lib/postgresql/${PG_MAJOR}/bin"
+          test -x "$PG_BIN/pg_dump" || { echo "::error::$PG_BIN/pg_dump missing"; exit 1; }
+          echo "$PG_BIN" >> "$GITHUB_PATH"
+          echo "Pinned $PG_BIN — versions:"
+          "$PG_BIN/pg_dump" --version
+          "$PG_BIN/pg_restore" --version
 
       - name: Verify required secrets present
         env:
