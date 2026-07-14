@@ -89,9 +89,28 @@ function yearStartISO(isoDate: string): string {
   return `${yr}-01-01`;
 }
 
+// Same month/day, one calendar year earlier (TZ-safe string shift). Feb-29 as-of
+// dates fall back to Feb-28 of the prior year.
+function priorYearISO(isoDate: string): string {
+  const m = String(isoDate || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return isoDate || "";
+  const py = Number(m[1]) - 1;
+  if (m[2] === "02" && m[3] === "29") return `${py}-02-28`;
+  return `${py}-${m[2]}-${m[3]}`;
+}
+
+// $ change formatted with sign; "—" when there is no prior-year figure.
+function pctChange(cur: number, prior: number): string {
+  if (!prior) return cur ? "n/m" : "—";
+  return `${(((cur - prior) / Math.abs(prior)) * 100).toFixed(1)}%`;
+}
+
 export default function InternalBalanceSheet() {
   const [rows, setRows] = useState<BSRow[]>([]);
   const [currentYearEarnings, setCurrentYearEarnings] = useState<number>(0);
+  const [pyRows, setPyRows] = useState<BSRow[]>([]);
+  const [pyCurrentYearEarnings, setPyCurrentYearEarnings] = useState<number>(0);
+  const [comparePY, setComparePY] = useState<boolean>(true);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [basis, setBasis] = useState<Basis>("ACCRUAL");
@@ -118,54 +137,52 @@ export default function InternalBalanceSheet() {
   // slower earlier response must never clobber the newest state.
   const seqGuard = useSeqGuard();
 
+  // Balance sheet as of a date + its year-to-date net income (Current Year
+  // Earnings). Returns null on a hard failure of the BS fetch.
+  async function fetchAsOf(asOfDate: string): Promise<{ rows: BSRow[]; cye: number } | null> {
+    const bsParams = new URLSearchParams({ basis, as_of: asOfDate });
+    const bsRes = await fetch(`/api/internal/balance-sheet?${bsParams.toString()}`);
+    if (!bsRes.ok) {
+      throw new Error((await bsRes.json().catch(() => ({}))).error || `HTTP ${bsRes.status}`);
+    }
+    const bsData = await bsRes.json();
+    const bsRows = (bsData.rows || []) as BSRow[];
+
+    // Sibling fetch: income statement YTD (year-start → as-of) for net income.
+    // The IS view encodes the sign per account_type, so:
+    //   net_income = Σ(revenue) − Σ(contra_revenue) − Σ(expense)
+    let cye = 0;
+    const isParams = new URLSearchParams({ basis, from: yearStartISO(asOfDate), to: asOfDate });
+    const isRes = await fetch(`/api/internal/income-statement?${isParams.toString()}`);
+    if (isRes.ok) {
+      const isRows = ((await isRes.json()).rows || []) as ISRow[];
+      let revenueNet = 0, contraRevenueNet = 0, expenseNet = 0;
+      for (const r of isRows) {
+        const amt = Number(r.amount_cents || 0);
+        if (r.account_type === "revenue") revenueNet += amt;
+        else if (r.account_type === "contra_revenue") contraRevenueNet += amt;
+        else if (r.account_type === "expense") expenseNet += amt;
+      }
+      cye = revenueNet - contraRevenueNet - expenseNet;
+    }
+    return { rows: bsRows, cye };
+  }
+
   async function load() {
     const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
-      // Primary fetch: balance sheet rows.
-      const bsParams = new URLSearchParams({ basis, as_of: asOf });
-      const bsRes = await fetch(`/api/internal/balance-sheet?${bsParams.toString()}`);
-      if (!bsRes.ok) {
-        throw new Error((await bsRes.json().catch(() => ({}))).error || `HTTP ${bsRes.status}`);
-      }
-      const bsData = await bsRes.json();
+      // Current + prior-year fetched together, applied together under one seq so
+      // a slow comparative can never clobber a newer window (comparative fetches
+      // must be guarded as a unit — see report seq-guard rule).
+      const cur = await fetchAsOf(asOf);
+      const py = comparePY ? await fetchAsOf(priorYearISO(asOf)) : { rows: [], cye: 0 };
       if (!seqGuard.isCurrent(seq)) return; // superseded by a newer load — drop stale result
-      setRows((bsData.rows || []) as BSRow[]);
-
-      // Sibling fetch: income statement for current-year net income.
-      // YTD = year-start through as_of, same basis.
-      const isParams = new URLSearchParams({
-        basis,
-        from: yearStartISO(asOf),
-        to: asOf,
-      });
-      const isRes = await fetch(`/api/internal/income-statement?${isParams.toString()}`);
-      if (isRes.ok) {
-        const isData = await isRes.json();
-        if (!seqGuard.isCurrent(seq)) return;
-        const isRows = (isData.rows || []) as ISRow[];
-        // Net income = revenue (net credits) - expense (net debits).
-        // The IS view already encodes the sign per account_type:
-        //   revenue        : credit - debit (positive = revenue earned)
-        //   contra_revenue : debit - credit (positive = reduces revenue)
-        //   expense        : debit - credit (positive = expense incurred)
-        // So: net_income = Σ(revenue) - Σ(contra_revenue) - Σ(expense)
-        let revenueNet = 0;
-        let contraRevenueNet = 0;
-        let expenseNet = 0;
-        for (const r of isRows) {
-          const amt = Number(r.amount_cents || 0);
-          if (r.account_type === "revenue") revenueNet += amt;
-          else if (r.account_type === "contra_revenue") contraRevenueNet += amt;
-          else if (r.account_type === "expense") expenseNet += amt;
-        }
-        setCurrentYearEarnings(revenueNet - contraRevenueNet - expenseNet);
-      } else {
-        // IS endpoint not yet deployed (P5-3 may still be in flight) — fall
-        // back to zero. Variance footer will show the gap until P5-3 ships.
-        if (seqGuard.isCurrent(seq)) setCurrentYearEarnings(0);
-      }
+      setRows(cur?.rows || []);
+      setCurrentYearEarnings(cur?.cye || 0);
+      setPyRows(py?.rows || []);
+      setPyCurrentYearEarnings(py?.cye || 0);
     } catch (e: unknown) {
       if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -173,7 +190,7 @@ export default function InternalBalanceSheet() {
     }
   }
 
-  useEffect(() => { void load(); }, [basis, asOf]);
+  useEffect(() => { void load(); }, [basis, asOf, comparePY]);
 
   // ── Bucket rows by section ──────────────────────────────────────────────
   const assetsRows  = rows.filter((r) => r.account_type === "asset" || r.account_type === "contra_asset");
@@ -198,12 +215,46 @@ export default function InternalBalanceSheet() {
   // Variance = Assets − Liabilities − Equity − CurrentYearEarnings.
   const variance = totalAssetsNet - totalLiabilities - totalEquityWithCYE;
 
+  // ── Prior-year comparative ──────────────────────────────────────────────
+  const pyAsOf = priorYearISO(asOf);
+  // code → prior-year balance_cents (display-signed: contra_asset negated).
+  const pyByCode = new Map<string, number>();
+  for (const r of pyRows) {
+    const signed = r.account_type === "contra_asset" ? -Number(r.balance_cents || 0) : Number(r.balance_cents || 0);
+    pyByCode.set(`${r.account_type}-${r.code}`, signed);
+  }
+  const pySum = (rs: BSRow[]) => rs.reduce((a, r) => a + Number(r.balance_cents || 0), 0);
+  const pyAssetsRows = pyRows.filter((r) => r.account_type === "asset" || r.account_type === "contra_asset");
+  const pyLiabRows   = pyRows.filter((r) => r.account_type === "liability");
+  const pyEquityRows = pyRows.filter((r) => r.account_type === "equity");
+  const pyTotalAssetsNet     = pySum(pyAssetsRows.filter((r) => r.account_type === "asset")) - pySum(pyAssetsRows.filter((r) => r.account_type === "contra_asset"));
+  const pyTotalLiabilities   = pySum(pyLiabRows);
+  const pyTotalEquityWithCYE = pySum(pyEquityRows) + pyCurrentYearEarnings;
+
+  // Colspan of a section table (Account + Balance [+ PY + Change] ).
+  const secCols = comparePY ? 4 : 2;
+
+  function changeCell(cur: number, prior: number, opts: { bold?: boolean; italic?: boolean } = {}) {
+    const d = cur - prior;
+    return (
+      <>
+        <td style={{ ...tdNum, color: C.textMuted, fontWeight: opts.bold ? 700 : 400, fontStyle: opts.italic ? "italic" : undefined }}>
+          {fmtCents(prior)}
+        </td>
+        <td style={{ ...tdNum, color: d < 0 ? C.danger : C.success, fontWeight: opts.bold ? 700 : 400, fontStyle: opts.italic ? "italic" : undefined }}>
+          {fmtCents(d)}<span style={{ color: C.textMuted, fontSize: 11, marginLeft: 6 }}>{pctChange(cur, prior)}</span>
+        </td>
+      </>
+    );
+  }
+
   function renderSection(
     title: string,
     sectionRows: BSRow[],
     totalLabel: string,
     totalValue: number,
-    options?: { extraTrailingRow?: { label: string; value: number; indent?: boolean } },
+    pyTotalValue: number,
+    options?: { extraTrailingRow?: { label: string; value: number; pyValue: number; indent?: boolean } },
   ) {
     return (
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflow: "hidden" }}>
@@ -213,14 +264,16 @@ export default function InternalBalanceSheet() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={{ ...th, width: "65%" }}>Account</th>
+              <th style={{ ...th, width: comparePY ? "40%" : "65%" }}>Account</th>
               <th style={{ ...th, textAlign: "right" }}>Balance</th>
+              {comparePY && <th style={{ ...th, textAlign: "right" }}>PY {pyAsOf}</th>}
+              {comparePY && <th style={{ ...th, textAlign: "right" }}>Change</th>}
             </tr>
           </thead>
           <tbody>
             {sectionRows.length === 0 && !options?.extraTrailingRow && (
               <tr>
-                <td style={{ ...td, color: C.textMuted, textAlign: "center" }} colSpan={2}>—</td>
+                <td style={{ ...td, color: C.textMuted, textAlign: "center" }} colSpan={secCols}>—</td>
               </tr>
             )}
             {sectionRows.map((r) => {
@@ -228,6 +281,7 @@ export default function InternalBalanceSheet() {
               // contra_asset: render with indent + negative sign (the stored
               // balance_cents is positive — it's a credit reducing the asset).
               const displayBalance = isContra ? -Number(r.balance_cents || 0) : Number(r.balance_cents || 0);
+              const pyBalance = pyByCode.get(`${r.account_type}-${r.code}`) || 0;
               const drillable = !!r.account_id;
               return (
                 <tr
@@ -246,6 +300,7 @@ export default function InternalBalanceSheet() {
                   <td style={{ ...tdNum, color: isContra ? C.textMuted : C.text }}>
                     {fmtCents(displayBalance)}
                   </td>
+                  {comparePY && changeCell(displayBalance, pyBalance)}
                 </tr>
               );
             })}
@@ -257,6 +312,7 @@ export default function InternalBalanceSheet() {
                 <td style={{ ...tdNum, fontStyle: "italic", color: C.textSub }}>
                   {fmtCents(options.extraTrailingRow.value)}
                 </td>
+                {comparePY && changeCell(options.extraTrailingRow.value, options.extraTrailingRow.pyValue, { italic: true })}
               </tr>
             )}
           </tbody>
@@ -264,6 +320,7 @@ export default function InternalBalanceSheet() {
             <tr style={{ background: "#111827" }}>
               <td style={{ ...td, fontWeight: 700, color: C.textSub }}>{totalLabel}</td>
               <td style={{ ...tdNum, fontWeight: 700 }}>{fmtCents(totalValue)}</td>
+              {comparePY && changeCell(totalValue, pyTotalValue, { bold: true })}
             </tr>
           </tfoot>
         </table>
@@ -304,26 +361,33 @@ export default function InternalBalanceSheet() {
             style={{ ...inputStyle, width: 160 }}
           />
         </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
+          <input type="checkbox" checked={comparePY} onChange={(e) => setComparePY(e.target.checked)} /> Compare prior year
+        </label>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <ExportButton
           rows={(() => {
             const out: Array<Record<string, unknown>> = [];
+            const mk = (section: string, kind: string, account_type: string, code: string, name: string, cur: number, py: number) =>
+              (comparePY
+                ? { section, kind, account_type, code, name, balance_cents: cur, py_balance_cents: py, change_cents: cur - py }
+                : { section, kind, account_type, code, name, balance_cents: cur });
             for (const r of assetsRows) {
               const isContra = r.account_type === "contra_asset";
               const bal = isContra ? -Number(r.balance_cents || 0) : Number(r.balance_cents || 0);
-              out.push({ section: "Assets", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: bal });
+              out.push(mk("Assets", "row", r.account_type, r.code, r.name, bal, pyByCode.get(`${r.account_type}-${r.code}`) || 0));
             }
-            out.push({ section: "Assets", kind: "subtotal", account_type: "", code: "", name: "TOTAL ASSETS", balance_cents: totalAssetsNet });
+            out.push(mk("Assets", "subtotal", "", "", "TOTAL ASSETS", totalAssetsNet, pyTotalAssetsNet));
             for (const r of liabRows) {
-              out.push({ section: "Liabilities", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: Number(r.balance_cents || 0) });
+              out.push(mk("Liabilities", "row", r.account_type, r.code, r.name, Number(r.balance_cents || 0), pyByCode.get(`${r.account_type}-${r.code}`) || 0));
             }
-            out.push({ section: "Liabilities", kind: "subtotal", account_type: "", code: "", name: "TOTAL LIABILITIES", balance_cents: totalLiabilities });
+            out.push(mk("Liabilities", "subtotal", "", "", "TOTAL LIABILITIES", totalLiabilities, pyTotalLiabilities));
             for (const r of equityRows) {
-              out.push({ section: "Equity", kind: "row", account_type: r.account_type, code: r.code, name: r.name, balance_cents: Number(r.balance_cents || 0) });
+              out.push(mk("Equity", "row", r.account_type, r.code, r.name, Number(r.balance_cents || 0), pyByCode.get(`${r.account_type}-${r.code}`) || 0));
             }
-            out.push({ section: "Equity", kind: "row", account_type: "equity", code: "", name: "Current Year Earnings", balance_cents: currentYearEarnings });
-            out.push({ section: "Equity", kind: "subtotal", account_type: "", code: "", name: "TOTAL EQUITY", balance_cents: totalEquityWithCYE });
-            out.push({ section: "Variance", kind: "total", account_type: "", code: "", name: "Variance (Assets − Liab − Equity)", balance_cents: variance });
+            out.push(mk("Equity", "row", "equity", "", "Current Year Earnings", currentYearEarnings, pyCurrentYearEarnings));
+            out.push(mk("Equity", "subtotal", "", "", "TOTAL EQUITY", totalEquityWithCYE, pyTotalEquityWithCYE));
+            out.push(mk("Variance", "total", "", "", "Variance (Assets − Liab − Equity)", variance, pyTotalAssetsNet - pyTotalLiabilities - pyTotalEquityWithCYE));
             return out;
           })()}
           filename={`balance-sheet-${basis}-${asOf}`}
@@ -335,6 +399,10 @@ export default function InternalBalanceSheet() {
             { key: "code",          header: "Code" },
             { key: "name",          header: "Account" },
             { key: "balance_cents", header: "Balance", format: "currency_cents" },
+            ...(comparePY ? [
+              { key: "py_balance_cents", header: `PY (${pyAsOf})`, format: "currency_cents" },
+              { key: "change_cents",     header: "Change",         format: "currency_cents" },
+            ] : []),
           ] as ExportColumn<Record<string, unknown>>[]}
         />
       </div>
@@ -353,15 +421,16 @@ export default function InternalBalanceSheet() {
         <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
       ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            {renderSection("Assets", assetsRows, "TOTAL ASSETS", totalAssetsNet)}
-            {renderSection("Liabilities", liabRows, "TOTAL LIABILITIES", totalLiabilities)}
+          <div style={{ display: "grid", gridTemplateColumns: comparePY ? "1fr" : "1fr 1fr 1fr", gap: 16 }}>
+            {renderSection("Assets", assetsRows, "TOTAL ASSETS", totalAssetsNet, pyTotalAssetsNet)}
+            {renderSection("Liabilities", liabRows, "TOTAL LIABILITIES", totalLiabilities, pyTotalLiabilities)}
             {renderSection(
               "Equity",
               equityRows,
               "TOTAL EQUITY",
               totalEquityWithCYE,
-              { extraTrailingRow: { label: "Current Year Earnings", value: currentYearEarnings } },
+              pyTotalEquityWithCYE,
+              { extraTrailingRow: { label: "Current Year Earnings", value: currentYearEarnings, pyValue: pyCurrentYearEarnings } },
             )}
           </div>
 

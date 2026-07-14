@@ -5,10 +5,11 @@
 //
 // Layout:
 //   - Top controls: basis toggle (ACCRUAL/CASH) + from-date + to-date.
-//   - Three collapsible sections — Operating / Investing / Financing.
-//   - Operating section detailed (Net Income, ΔAR, ΔInv, ΔAP, subtotal).
-//   - Investing + Financing show 1 placeholder row + a small "Configure
-//     account tagging in P22+" note.
+//   - Three collapsible sections — Operating / Investing / Financing — all live
+//     from GL activity (mig 20260993000000: gl_accounts.cashflow_section drives a
+//     deterministic classification; the statement foots by construction).
+//   - Operating section: Net Income + working-capital adjustment lines + subtotal.
+//   - Investing / Financing: real per-line detail (PP&E, loans, factor, equity…).
 //   - Footer reconciliation block:
 //       Beginning Cash + Net Change = Ending Cash
 //     With a sanity-check yellow warning if they don't tie within $0.01.
@@ -21,6 +22,7 @@ import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
+import { reconcileCashFlow } from "./lib/cashflow";
 
 type Row = {
   section: string;
@@ -113,33 +115,26 @@ export default function InternalCashFlow() {
 
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Partition rows by section. _cash_reference rows are pulled out for the
-  // footer reconciliation block.
+  // Partition rows by section (for rendering). _cash_reference rows drive the
+  // footer reconciliation block, computed by the shared reconcileCashFlow helper.
   const sectionRows: Record<string, Row[]> = { operating: [], investing: [], financing: [] };
-  let beginningCash = 0;
-  let endingCash = 0;
-
   for (const r of rows) {
-    if (r.section === "_cash_reference") {
-      if (r.line_item === "Beginning Cash") beginningCash = r.amount_cents;
-      else if (r.line_item === "Ending Cash") endingCash = r.amount_cents;
-    } else if (sectionRows[r.section]) {
-      sectionRows[r.section].push(r);
-    }
+    if (r.section !== "_cash_reference" && sectionRows[r.section]) sectionRows[r.section].push(r);
   }
 
-  // Net change = sum of each section's last row (the subtotal line). Defensively
-  // walk by `Net cash from` prefix in case the RPC emits more details later.
+  const recon = reconcileCashFlow(rows);
+  const beginningCash = recon.beginningCash;
+  const endingCash = recon.endingCash;
+  const netChange = recon.netChange;
+  const computedEnding = recon.computedEnding;
+  const reconciliationOk = recon.foots;
+
+  // Per-section subtotal for the section header (the "Net cash from …" row).
   const sectionNet = (sec: string): number => {
     const list = sectionRows[sec] || [];
     const sub = list.find((r) => r.line_item.toLowerCase().startsWith("net cash from"));
     return sub ? sub.amount_cents : 0;
   };
-
-  const netChange = sectionNet("operating") + sectionNet("investing") + sectionNet("financing");
-  const computedEnding = beginningCash + netChange;
-  const reconciliationGap = Math.abs(computedEnding - endingCash);
-  const reconciliationOk = reconciliationGap < 1; // within 1 cent
 
   function toggleSection(key: string) {
     setCollapsed((c) => ({ ...c, [key]: !c[key] }));
@@ -298,18 +293,6 @@ export default function InternalCashFlow() {
                             </tr>
                           );
                         })}
-                        {(sec === "investing" || sec === "financing") && (
-                          <tr>
-                            <td colSpan={2} style={{
-                              padding: "6px 12px 6px 28px",
-                              color: C.textMuted,
-                              fontSize: 11,
-                              fontStyle: "italic",
-                            }}>
-                              Configure account tagging in P22+.
-                            </td>
-                          </tr>
-                        )}
                       </tbody>
                     </table>
                   )}
@@ -356,7 +339,7 @@ export default function InternalCashFlow() {
                 </tbody>
               </table>
               <div style={{ marginTop: 6, padding: "0 12px", color: C.textMuted, fontSize: 11 }}>
-                Cash accounts identified by heuristic: account_type=&apos;asset&apos; AND code starts with &apos;1&apos; AND name ILIKE &apos;%cash%&apos; OR &apos;%bank%&apos;.
+                All three sections are computed from GL account activity via a deterministic, data-driven classification (gl_accounts.cashflow_section). The statement foots by construction: Operating + Investing + Financing = Net Change in Cash = Ending − Beginning cash. Cash &amp; cash equivalents = the Cash &amp; Bank group (codes 1000–1030). Year-end close / retained-earnings roll entries are excluded so Net Income and Financing are not double-counted. Any account that fails to classify appears as an explicit &quot;Change in Other / Unclassified Accounts&quot; line — never hidden.
               </div>
             </div>
           </>
