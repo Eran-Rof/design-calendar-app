@@ -94,12 +94,17 @@ Each row is a customer × style × color × period demand line. Columns can be s
 | Override | The adjustment you've made | derived from System edits |
 | Final | The committed forecast — the **live sum of System + Buyer + Override** (floored at 0). It recomputes the instant you edit any of those cells, so it always reflects the columns to its left. | No (computed) |
 | Conf. / Method | Confidence band + method used for the line | No |
-| On hand / On SO / Receipts / Hist Recv / **ATS** | Supply context | No |
+| On hand / On SO / **Receipts** / **Hist Recv** / **ATS** | Supply context. **Receipts** = incoming units still due (open POs landing in that period); **Hist Recv** = units already received historically in that period. See *Where receipts come from* below. | No |
 | **Buy** | Your planned buy quantity for the line | **Yes** |
 | Avg Cost / **Unit Cost** | Cost per unit (Unit Cost overrides Avg Cost for this line) | **Unit Cost: Yes** |
 | Buy $ | Buy × Unit Cost | No (computed) |
 | Short / Excess | Shortage / excess vs supply | No |
 | Action | The recommended action (buy / hold / monitor / reduce / expedite) | No |
+
+**Where receipts come from.** Both receipt columns are derived from the PO WIP app's purchase orders — Tangerine holds the receipt data itself; there is no separate receipt feed from Xoro.
+
+- **Receipts** (incoming) = the still-open quantity on purchase orders whose expected arrival lands in that period.
+- **Hist Recv** (historical) = the received quantity on POs that have already landed, bucketed into the period of the PO line's expected/delivery date. Because the source records *how much* was received but not a literal scan timestamp, receipts bucket by **expected arrival date** — the same date the rest of planning uses for a PO. A PO received across several deliveries shows against its line's expected date, not each physical receipt day. Historical receipts refresh every night alongside the open-PO sync.
 
 **Editing cells:**
 

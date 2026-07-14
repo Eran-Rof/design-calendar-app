@@ -75,6 +75,7 @@ export type ModuleKey =
   | "factor_recon"
   | "chargebacks"
   | "month_end_close"
+  | "xoro_recon"
   | "approval_rules"
   | "approval_requests"
   | "notifications"
@@ -317,6 +318,8 @@ export const MODULES: ModuleDef[] = [
   { key: "chargebacks",       label: "Chargebacks",        emoji: "🧾", group: "Accounting" },
   // Month-End Close — per-period close checklist (auto tie-outs + manual sign-offs) + period locking.
   { key: "month_end_close",   label: "Month-End Close",    emoji: "🔒", group: "Accounting" },
+  // Xoro Monthly Recon — divergence-aware month-by-month TB recon vs the Xoro GL mirror.
+  { key: "xoro_recon",        label: "Xoro Monthly Recon", emoji: "🔬", group: "Accounting" },
   // P7-6: M44 Commission Accruals + Commission Payouts. (Sales Reps master
   // removed — reps are managed as Employees; commission panels read the
   // sales_reps table directly via /api/internal/sales-reps GET.)
