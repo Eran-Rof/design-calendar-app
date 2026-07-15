@@ -15,6 +15,7 @@
 export const FEED_CHECKS = [
   { key: "onhand_planning", label: "Planning on-hand (ip_inventory_snapshot, xoro)", table: "ip_inventory_snapshot", col: "snapshot_date", dateOnly: true, filter: { source: "tangerine" }, maxAgeHours: 40 },
   { key: "onhand_layers", label: "Live on-hand layers (inventory_layers, xoro_rest_size)", table: "inventory_layers", col: "created_at", filter: { source_kind: "xoro_rest_size" }, maxAgeHours: 40 },
+  { key: "onhand_matrix", label: "Inventory Matrix on-hand (tangerine_size_onhand)", table: "tangerine_size_onhand", col: "snapshot_date", dateOnly: true, maxAgeHours: 40 },
   { key: "sales_wholesale", label: "Wholesale sales history", table: "ip_sales_history_wholesale", col: "created_at", maxAgeHours: 48 },
   { key: "open_pos", label: "Open POs (PO WIP / tanda_pos)", table: "tanda_pos", col: "synced_at", maxAgeHours: 48 },
   { key: "receipts", label: "Receipts history", table: "ip_receipts_history", col: "created_at", maxAgeHours: 48 },
