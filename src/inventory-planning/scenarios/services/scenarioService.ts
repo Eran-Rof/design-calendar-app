@@ -29,6 +29,7 @@
 //     ip_open_purchase_orders (keeps base clean).
 
 import type { IpPlanningRun } from "../../types/wholesale";
+import { WHOLESALE_WAREHOUSES } from "../../config/warehouses";
 import type { IpProjectedInventory } from "../../supply/types/supply";
 import type { IpScenario, IpScenarioType } from "../types/scenarios";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
@@ -437,7 +438,7 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
     assumptions,
   ] = await Promise.all([
     wholesaleRepo.listItems(),
-    wholesaleRepo.listInventorySnapshots(),
+    wholesaleRepo.listInventorySnapshots(WHOLESALE_WAREHOUSES),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listReceipts(earlierIso(run.source_snapshot_date, 24)),
     supplyRepo.listActiveRules(),

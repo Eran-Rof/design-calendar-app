@@ -23,6 +23,7 @@
 // horizon instead of re-using the same snapshot in every month.
 
 import type { IpPlanningRun } from "../../types/wholesale";
+import { WHOLESALE_WAREHOUSES } from "../../config/warehouses";
 import type { IpIsoDate } from "../../types/entities";
 import { monthOf, monthsBetween } from "../../compute/periods";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
@@ -84,7 +85,7 @@ export async function runReconciliationPass(run: IpPlanningRun): Promise<RunReco
     wholesaleRepo.listCategories(),
     // M31 dir-B: read on-hand + open POs from the run's chosen supply
     // source ('xoro' mirror, default, or native 'tangerine').
-    wholesaleRepo.listInventorySnapshots(run.supply_source),
+    wholesaleRepo.listInventorySnapshots(WHOLESALE_WAREHOUSES),
     wholesaleRepo.listOpenPos("wholesale", run.supply_source),
     wholesaleRepo.listReceipts(earlierIso(run.source_snapshot_date, 24)),
     supplyRepo.listActiveRules(),
