@@ -171,6 +171,12 @@ export async function resolveCustomerId(supabase, { entity_id, src_customer_id }
     .select("id")
     .eq("entity_id", entity_id)
     .eq("customer_code", legacy.customer_code)
+    // Never resolve to a merged-away / soft-deleted duplicate. When an ALL-CAPS
+    // mirror duplicate has been merged into its proper-cased sibling (and
+    // tombstoned), a future mirror run must NOT re-attach invoices to the
+    // tombstone — it logs the customer as unmatched instead, leaving the already
+    // merged AR under the keeper.
+    .is("deleted_at", null)
     .maybeSingle();
   return {
     customer_id: matched?.id || null,

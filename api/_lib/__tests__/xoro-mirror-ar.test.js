@@ -59,6 +59,8 @@ function makeSupabase(seed = {}) {
           if (f.op === "eq" && row[f.col] !== f.val) return false;
           if (f.op === "gte" && !(row[f.col] >= f.val)) return false;
           if (f.op === "lt" && !(row[f.col] < f.val)) return false;
+          if (f.op === "is" && f.val === null && !(row[f.col] === null || row[f.col] === undefined)) return false;
+          if (f.op === "is" && f.val !== null && row[f.col] !== f.val) return false;
         }
         return true;
       });
@@ -107,6 +109,7 @@ function makeSupabase(seed = {}) {
     const builder = {
       select(cols = "*") { selectCols = cols; if (mode === "insert") { postSelect = true; postSelectCols = cols; } return builder; },
       eq(col, val) { filters.push({ op: "eq", col, val }); return builder; },
+      is(col, val) { filters.push({ op: "is", col, val }); return builder; },
       gte(col, val) { filters.push({ op: "gte", col, val }); return builder; },
       lt(col, val) { filters.push({ op: "lt", col, val }); return builder; },
       insert(rows) { mode = "insert"; toInsert = rows; return builder; },
@@ -342,6 +345,15 @@ describe("resolveCustomerId", () => {
     const r = await resolveCustomerId(sb, { entity_id: ENTITY_ID, src_customer_id: "ipc-1" });
     expect(r.customer_id).toBe(null);
     expect(r.code).toBe("CUST-X");
+  });
+  it("never resolves to a soft-deleted (merged-away) duplicate", async () => {
+    const { sb } = makeSupabase({
+      ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "AMAZON FBM" }],
+      customers: [{ id: "c-dupe", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A", deleted_at: "2026-07-15T00:00:00Z" }],
+    });
+    const r = await resolveCustomerId(sb, { entity_id: ENTITY_ID, src_customer_id: "ipc-1" });
+    expect(r.customer_id).toBe(null);
+    expect(r.code).toBe("CUST-A");
   });
 });
 
