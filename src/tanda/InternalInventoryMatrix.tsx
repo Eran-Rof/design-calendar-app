@@ -23,6 +23,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { computeSizeCollapse } from "../shared/matrix";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
+import { colPriceCents, colCostCents } from "./snapshotPricing";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 import { drillToModule } from "./scorecardDrill";
@@ -415,21 +416,21 @@ type SnapshotRow = {
   sold: number; purchased: number; avg_cost_cents: number | null;
   sale_price_cents: number | null;
   // Per-column transaction prices (per-each cents): On SO → open_so_price;
-  // Sold → sold_price; inventory/PO columns → current_price (most-recent SO).
+  // Sold → sold_price; inventory/PO columns → sale_price (qty-weighted avg SO
+  // price — the representative wholesale price, same basis as the Avrg Sale
+  // column). NOT current_price (single most-recent SO line), which is an
+  // outlier that inflated On Hand / Allocated / Purchased on the totals strip.
   open_so_price_cents?: number | null;
   sold_price_cents?: number | null;
   current_price_cents?: number | null;
+  // Qty-weighted unit cost of the OPEN purchase-order lines feeding On PO (and
+  // In Trnst) — the actual PO cost, so the On PO column ties to the PO grid
+  // rather than the item-master historical blend (avg_cost_cents).
+  on_po_cost_cents?: number | null;
 };
 
-// Which per-each price a given quantity column is valued at (per-column
-// transaction pricing). Returns cents or null (null → excluded from that
-// column's Avg Sale, so unpriced units never dilute it).
-function colPriceCents(r: SnapshotRow, k: string): number | null {
-  const v = k === "on_so" ? r.open_so_price_cents
-    : k === "sold" ? r.sold_price_cents
-    : r.current_price_cents; // on_hand / allocated / ats / ats_incl_po / on_po / purchased / in_transit
-  return (v == null || !Number.isFinite(v)) ? null : v;
-}
+// Per-column cost/price basis for the totals strip lives in snapshotPricing.ts
+// (pure + unit-tested): colPriceCents / colCostCents, imported below.
 // A snapshot row after client-side roll-up. `_merged` flags a Merge-PPK row
 // (base + its PPK sibling combined) so the table can style it distinctly.
 // `_components` carries the underlying base-style + PPK-pack rows (already
@@ -566,10 +567,10 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         if (!both) { out.push(...c.base, ...c.ppk); continue; } // data on only one side -> unchanged
         const all = [...c.base, ...c.ppk];
         const stemCode = stemOf((c.base[0] ?? all[0]).style_code);
-        const g: MergedRow & { _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] } = {
+        const g: MergedRow & { _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[]; _poCost: number[] } = {
           style_id: "", style_code: `${stemCode}/PPK`, description: "", color: null, category: null,
           on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
-          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
+          sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null, _merged: true, _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [], _poCost: [] };
         for (const r of all) {
           if (!isPpk(r.style_code)) { g.description = r.description; g.category = r.category; if (!g.style_id) g.style_id = r.style_id; }
           if (r.color && !g.color) g.color = r.color;
@@ -579,14 +580,15 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
           if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
           if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
           if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
+          if (r.on_po_cost_cents != null) g._poCost.push(r.on_po_cost_cents);
         }
-        const { _cost, _sale, _openSo, _sold, _cur, ...row } = g;
+        const { _cost, _sale, _openSo, _sold, _cur, _poCost, ...row } = g;
         const avgOf = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
         // Keep the underlying base + PPK rows (already per-unit) so the merged
         // line can be expanded (▾) to drill into its components; only those
         // carrying data are shown. They sum back to the merged totals exactly.
         const components = all.filter(hasData);
-        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), open_so_price_cents: avgOf(_openSo), sold_price_cents: avgOf(_sold), current_price_cents: avgOf(_cur), _components: components } as MergedRow);
+        out.push({ ...row, avg_cost_cents: avgOf(_cost), sale_price_cents: avgOf(_sale), open_so_price_cents: avgOf(_openSo), sold_price_cents: avgOf(_sold), current_price_cents: avgOf(_cur), on_po_cost_cents: avgOf(_poCost), _components: components } as MergedRow);
       }
     }
     src = out;
@@ -599,7 +601,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
   //    collapse onto Item Category shows just the category, the rest blank).
   if (collapseCols.size === 0) return src; // nothing chosen -> no roll-up
   const keyDims = DIMS.filter((k) => collapseCols.has(k));
-  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[] };
+  type G = MergedRow & { _vals: Record<string, Set<string>>; _sids: Set<string>; _cost: number[]; _sale: number[]; _openSo: number[]; _sold: number[]; _cur: number[]; _poCost: number[] };
   const map = new Map<string, G>();
   for (const r of src) {
     const key = keyDims.map((k) => String(r[k] ?? "")).join(""); // sep avoids value collisions
@@ -609,7 +611,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
         on_hand: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0, ats: 0, ats_incl_po: 0,
         sold: 0, purchased: 0, avg_cost_cents: null, sale_price_cents: null,
         _vals: { style_code: new Set(), color: new Set(), description: new Set(), category: new Set() },
-        _sids: new Set(), _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [] };
+        _sids: new Set(), _cost: [], _sale: [], _openSo: [], _sold: [], _cur: [], _poCost: [] };
       map.set(key, g);
     }
     for (const d of DIMS) g._vals[d].add(String(r[d] ?? ""));
@@ -619,12 +621,13 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
     if (r.open_so_price_cents != null) g._openSo.push(r.open_so_price_cents);
     if (r.sold_price_cents != null) g._sold.push(r.sold_price_cents);
     if (r.current_price_cents != null) g._cur.push(r.current_price_cents);
+    if (r.on_po_cost_cents != null) g._poCost.push(r.on_po_cost_cents);
     if (r._merged) g._merged = true;
     g._sids.add(r.style_id);
   }
   const avgOf2 = (a: number[]) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
   return [...map.values()].map((g) => {
-    const { _vals, _sids, _cost, _sale, _openSo, _sold, _cur, ...row } = g;
+    const { _vals, _sids, _cost, _sale, _openSo, _sold, _cur, _poCost, ...row } = g;
     const one = (d: string): string | null => (_vals[d].size === 1 ? ([..._vals[d]][0] || null) : null); // constant value, else blank
     return { ...row,
       style_id: _sids.size === 1 ? [..._sids][0] : "",
@@ -634,6 +637,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
       category: one("category"),
       avg_cost_cents: avgOf2(_cost),
       sale_price_cents: avgOf2(_sale),
+      on_po_cost_cents: avgOf2(_poCost),
       open_so_price_cents: avgOf2(_openSo),
       sold_price_cents: avgOf2(_sold),
       current_price_cents: avgOf2(_cur),
@@ -734,10 +738,10 @@ function SnapshotView({
   }, [grouped, sortKey, sortDir]);
 
   // Totals across the displayed rows, per quantity column. qty = unit counts;
-  // cost = qty × avg unit cost (avg_cost_cents); wholesale = qty × avg wholesale
-  // SO sale price (sale_price_cents — the SO unit_price, i.e. the wholesale
-  // selling price, NOT a retail list price). avgCost / avgWhol are the per-unit
-  // means = $ total ÷ qty for that column (#10). Mirrors the ATS totals view.
+  // cost = qty × per-column unit cost (item-master avg, or the open-PO cost for
+  // On PO / In Trnst); wholesale = qty × per-column sale price (qty-weighted avg
+  // SO wholesale price, or the open-SO / sold price for those columns). avgCost /
+  // avgWhol are the per-unit means = $ total ÷ priced qty for that column (#10).
   const totals = useMemo(() => {
     const qty: Record<string, number> = {};
     const cost: Record<string, number> = {};
@@ -748,15 +752,16 @@ function SnapshotView({
     const pQty: Record<string, number> = {};
     for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; wholesale[k] = 0; cQty[k] = 0; pQty[k] = 0; }
     for (const r of sorted) {
-      const hasC = r.avg_cost_cents != null;
-      const c = (r.avg_cost_cents ?? 0) / 100;
       for (const k of SNAP_SUM_COLS) {
         const v = num(r[k] as number);
         qty[k] += v;
-        if (hasC) { cost[k] += v * c; cQty[k] += v; }
+        // Per-column cost: On PO / In Trnst use the actual open-PO unit cost
+        // (ties to the PO grid); every other column the item-master avg cost.
+        const cc = colCostCents(r, k);
+        if (cc != null) { cost[k] += v * (cc / 100); cQty[k] += v; }
         // Per-column transaction price: On SO uses the open-SO price, Sold the
-        // actual sold price, inventory/PO columns the current price. Unpriced
-        // rows are excluded from that column's average (no dilution).
+        // actual sold price, inventory/PO columns the qty-weighted avg SO price.
+        // Unpriced rows are excluded from that column's average (no dilution).
         const pc = colPriceCents(r, k);
         if (pc != null) { wholesale[k] += v * (pc / 100); pQty[k] += v; }
       }
@@ -2178,12 +2183,15 @@ export default function InternalInventoryMatrix() {
       const pQty: Record<string, number> = {}; // qty of rows with a price (per column)
       for (const k of SNAP_SUM_COLS) { qty[k] = 0; cost[k] = 0; whol[k] = 0; cQty[k] = 0; pQty[k] = 0; }
       for (const r of data) {
-        const hasC = (r as MergedRow).avg_cost_cents != null;
-        const c = (num((r as MergedRow).avg_cost_cents) ?? 0) / 100;
         for (const k of SNAP_SUM_COLS) {
           const v = num((r as unknown as Record<string, number>)[k]);
           qty[k] += v;
-          if (hasC) { cost[k] += v * c; cQty[k] += v; }
+          // Same per-column cost/price basis as the on-screen totals strip so
+          // the workbook and the screen agree exactly (On PO / In Trnst costed
+          // at the open-PO unit cost; inventory columns priced at the qty-
+          // weighted avg SO price).
+          const cc = colCostCents(r as MergedRow, k);
+          if (cc != null) { cost[k] += v * (cc / 100); cQty[k] += v; }
           const pc = colPriceCents(r as MergedRow, k);
           if (pc != null) { whol[k] += v * (pc / 100); pQty[k] += v; }
         }
