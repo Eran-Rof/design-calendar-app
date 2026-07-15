@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   processStatesDiverged,
   aggregatesDiverged,
+  briefNeedsRefresh,
   computeBriefProgress,
   buildBriefPrompt,
 } from "../../../_handlers/internal/assistant/brief.js";
@@ -198,5 +199,49 @@ describe("buildBriefPrompt", () => {
     const prompt = buildBriefPrompt(aggregate, null, "2026-07-15", progress);
     expect(prompt).not.toContain("PROGRESS:");
     expect(prompt).toContain("first read of the day");
+  });
+});
+
+describe("briefNeedsRefresh", () => {
+  const base = {
+    todos: [{ key: "a", count: 10 }, { key: "b", count: 5 }],
+    suggestions: [{ key: "s1" }],
+    processes: [{ key: "p1", state: "ok" }],
+    partial: false,
+  };
+  const now = new Date("2026-07-15T17:00:00Z");
+  const fresh = "2026-07-15T16:30:00Z";  // 30 min old
+  const old = "2026-07-15T14:45:00Z";    // 135 min old
+
+  it("regenerates when the to-do SET changed (item completed)", () => {
+    const live = { ...base, todos: [{ key: "a", count: 10 }] };  // 'b' cleared
+    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(true);
+  });
+
+  it("regenerates when the brief is older than the stale window even if the set is unchanged", () => {
+    // Same keys, only counts drifted — the exact bug the operator hit.
+    const live = { ...base, todos: [{ key: "a", count: 8 }, { key: "b", count: 3 }] };
+    expect(briefNeedsRefresh(base, live, old, 60, now)).toBe(true);
+  });
+
+  it("does NOT regenerate a fresh brief whose set is unchanged (count drift within the window)", () => {
+    const live = { ...base, todos: [{ key: "a", count: 8 }, { key: "b", count: 3 }] };
+    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(false);
+  });
+
+  it("regenerates when the partial flag flips (stale 'counts may be incomplete' caveat)", () => {
+    const cachedPartial = { ...base, partial: true };
+    const liveComplete = { ...base, partial: false };
+    expect(briefNeedsRefresh(cachedPartial, liveComplete, fresh, 60, now)).toBe(true);
+  });
+
+  it("regenerates on a process state flip", () => {
+    const live = { ...base, processes: [{ key: "p1", state: "error" }] };
+    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(true);
+  });
+
+  it("tolerates a missing/garbage created_at (no age-based regen, no throw)", () => {
+    expect(briefNeedsRefresh(base, base, null, 60, now)).toBe(false);
+    expect(briefNeedsRefresh(base, base, "not-a-date", 60, now)).toBe(false);
   });
 });

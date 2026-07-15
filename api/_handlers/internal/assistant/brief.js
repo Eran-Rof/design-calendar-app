@@ -26,6 +26,15 @@ export const config = { maxDuration: 45 };
 const BRIEF_MAX_TOKENS = 500;
 const HANDLER = "assistant/brief";
 
+// A cached brief is refreshed once it is older than this many minutes even if
+// the to-do SET hasn't changed — so its counts and its "some data is partial"
+// caveat don't sit stale all day (a brief written at 2:45 must not still show
+// morning numbers at 5 PM). Set-change / process-flip / partial-flip still
+// trigger an IMMEDIATE regen (see briefNeedsRefresh); this is the slow-drift
+// backstop. Env-overridable; keep it comfortably above a page-load cadence so
+// it doesn't regen on every refresh.
+const BRIEF_STALE_MINUTES = Number(process.env.ASSISTANT_BRIEF_STALE_MIN) || 60;
+
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -140,6 +149,38 @@ export function computeBriefProgress(cached, live) {
 }
 
 /**
+ * Pure — exported for tests. Should a cached brief be regenerated? True when:
+ *   - the to-do / suggestion SET changed or a process state flipped
+ *     (aggregatesDiverged — an item was completed, a new one appeared, a card
+ *     flipped): the prose is actively wrong → regenerate now; OR
+ *   - the `partial` flag flipped (data was incomplete when written and is now
+ *     complete, or vice-versa): the "counts may be incomplete" caveat is now
+ *     wrong → regenerate; OR
+ *   - the brief is older than `staleMinutes`: counts drift through the day, so
+ *     refresh even a still-accurate-set brief so it doesn't show morning numbers
+ *     all afternoon.
+ * Best-effort caller wraps this; on any doubt it returns false (serve cached).
+ *
+ * @param {object} cachedSource  the cached brief's source_json aggregate
+ * @param {object} live          the current aggregateForModel(payload)
+ * @param {string|Date} createdAt the cached brief's created_at
+ * @param {number} staleMinutes  age threshold
+ * @param {Date} now             injectable clock (tests)
+ */
+export function briefNeedsRefresh(cachedSource, live, createdAt, staleMinutes, now = new Date()) {
+  if (aggregatesDiverged(cachedSource, live)) return true;
+  const cPartial = Boolean(cachedSource && cachedSource.partial);
+  const lPartial = Boolean(live && live.partial);
+  if (cPartial !== lPartial) return true;
+  const t = createdAt ? new Date(createdAt).getTime() : NaN;
+  if (Number.isFinite(t)) {
+    const ageMin = (now.getTime() - t) / 60000;
+    if (ageMin >= staleMinutes) return true;
+  }
+  return false;
+}
+
+/**
  * Pure — exported for tests. The entire model input for a brief. When
  * `progress.completed` is non-empty the brief opens with a brief, genuine
  * acknowledgment of what the operator cleared and closes by inviting the next
@@ -228,7 +269,7 @@ export default async function handler(req, res) {
       // to the cached brief so the staleness check can never break the endpoint.
       let stale = false;
       try {
-        stale = aggregatesDiverged(hit.source_json, currentAggregate);
+        stale = briefNeedsRefresh(hit.source_json, currentAggregate, hit.created_at, BRIEF_STALE_MINUTES);
       } catch {
         stale = false;
       }
