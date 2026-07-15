@@ -8,6 +8,7 @@
 // All three read from Phase 0 history and Phase 2 forecast tables.
 
 import type { IpIsoDate } from "../../types/entities";
+import { ECOM_WAREHOUSES } from "../../config/warehouses";
 import type { IpPlanningRun } from "../../types/wholesale";
 import { weekOf, weeksBetween, weekOffset } from "../../compute/periods";
 import { buildRollingWholesaleSupply, latestOnHandBySku } from "../../compute/supply";
@@ -171,7 +172,7 @@ export async function buildEcomGridRows(run: IpPlanningRun): Promise<IpEcomGridR
     ecomRepo.listCategories(),
     ecomRepo.listForecast(run.id),
     ecomRepo.listProductChannelStatus(),
-    wholesaleRepo.listInventorySnapshots(),
+    wholesaleRepo.listInventorySnapshots(ECOM_WAREHOUSES),
     wholesaleRepo.listOpenPos("ecom"),
     wholesaleRepo.listReceipts(receiptsFrom),
   ]);

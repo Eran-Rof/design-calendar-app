@@ -9,6 +9,7 @@
 // Computation is pure; this file only coordinates.
 
 import type { IpIsoDate } from "../types/entities";
+import { WHOLESALE_WAREHOUSES } from "../config/warehouses";
 import type {
   IpForecastComputeInput,
   IpForecastMethod,
@@ -255,7 +256,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     // first build flipped their status.
     wholesaleRepo.listActiveRequestsForBuild(),
     wholesaleRepo.listOverrides(run.id),
-    wholesaleRepo.listInventorySnapshots(),
+    wholesaleRepo.listInventorySnapshots(WHOLESALE_WAREHOUSES),
     wholesaleRepo.listOpenPos(),
     // Load openSos so buildRollingWholesaleSupply can deduct SO
     // commitments in their ship-month (Phase 2 SO-by-month accuracy
@@ -816,7 +817,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // LY-1 month. The trailing-3 calc below filters in-memory so the
     // Hist T3 column still reflects the prior quarter only.
     wholesaleRepo.listWholesaleSales(historySince(run.source_snapshot_date)),
-    wholesaleRepo.listInventorySnapshots(),
+    wholesaleRepo.listInventorySnapshots(WHOLESALE_WAREHOUSES),
     wholesaleRepo.listOpenPos(),
     wholesaleRepo.listOpenSos(),
     wholesaleRepo.listReceipts(historySince(run.source_snapshot_date, 3)),
