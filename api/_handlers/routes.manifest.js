@@ -604,6 +604,7 @@ export default [
   ["/api/internal/xoro-mirror/summary-je"                    , "./internal/xoro-mirror/summary-je.js"],
   ["/api/internal/xoro-mirror/backfill-range"               , "./internal/xoro-mirror/backfill-range.js"],
   ["/api/internal/xoro-mirror/backfill-job"                 , "./internal/xoro-mirror/backfill-job.js"],
+  ["/api/internal/xoro-mirror-runs"                          , "./internal/xoro-mirror-runs.js"],
   ["/api/cron/xoro-mirror-nightly"                           , "../cron/xoro-mirror-nightly.js"],
   ["/api/cron/xoro-mirror-backfill-worker"                  , "../cron/xoro-mirror-backfill-worker.js"],
   ["/api/cron/menu-usage-decay"                              , "../cron/menu-usage-decay.js"],
