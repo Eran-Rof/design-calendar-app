@@ -20,6 +20,7 @@
 //        purchased,          // lifetime Σ receipts qty
 //        avg_cost_cents,     // representative avg cost for the colour
 //        sale_price_cents,   // qty-weighted avg SO sale price for the colour
+//        on_po_cost_cents,   // qty-weighted open-PO unit cost (On PO / In Trnst)
 //      }] }
 //
 // Entity scoped (ROF default). Read-only. No migration — reuses existing tables.
@@ -212,6 +213,10 @@ export default async function handler(req, res) {
           //   Sold column price; most-recent SO line → "current" price for the
           //   inventory/PO columns (On Hand/Allocated/ATS/On PO/Purchased/In Transit).
           _openSoValC: 0, _openSoEa: 0, _soldValC: 0, _soldEa: 0, _curDate: null, _curCents: null,
+          // Qty-weighted unit cost of the OPEN native PO lines (per-each cents) —
+          // the actual PO cost, so the On PO column ties to the PO grid instead
+          // of the item-master historical blend.
+          _poCostC: 0, _poEa: 0,
         };
         buckets.set(k, b);
       }
@@ -292,7 +297,7 @@ export default async function handler(req, res) {
       fetchChunked(itemIds, (ids) => admin.from("inventory_layers").select("item_id, remaining_qty, location_id, notes, lot_number").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("tangerine_size_onhand").select("item_id, snapshot_date, qty_on_hand, warehouse_code").in("item_id", ids)),
       fetchChunked(itemIds, (ids) => admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, qty_allocated, qty_shipped, unit_price_cents, sales_orders!inner(status, order_date)").in("inventory_item_id", ids)),
-      fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, purchase_orders!inner(status, po_number)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
+      fetchChunked(itemIds, (ids) => admin.from("purchase_order_lines").select("inventory_item_id, qty_ordered, qty_received, unit_cost_cents, purchase_orders!inner(status, po_number)").in("inventory_item_id", ids).in("purchase_orders.status", NATIVE_INBOUND_STATUSES)),
       styleSet.size > 0 ? fetchTandaOpenLines(admin, [...styleSet]) : Promise.resolve([]),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_wholesale").select("sku_id, qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("txn_date", from); if (to) q = q.lte("txn_date", to); return q; }),
       fetchChunked(itemIds, (ids) => { let q = admin.from("ip_sales_history_ecom").select("sku_id, net_qty, net_amount, channel_id").in("sku_id", ids); if (from) q = q.gte("order_date", from); if (to) q = q.lte("order_date", to); return q; }),
@@ -374,10 +379,16 @@ export default async function handler(req, res) {
     const nativePoNums = new Set(polRows.map((r) => normPo(r.purchase_orders?.po_number)).filter(Boolean));
     for (const r of polRows) {
       const b = bucketOfItem(r.inventory_item_id); if (!b) continue;
-      const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0) * mult(r.inventory_item_id);
+      const m = mult(r.inventory_item_id);
+      const open = Math.max((Number(r.qty_ordered) || 0) - (Number(r.qty_received) || 0), 0) * m;
       if (open <= 0) continue;
       b.on_po += open;
       if (NATIVE_TRANSIT_STATUSES.includes(r.purchase_orders?.status)) b.in_transit += open;
+      // Open-PO unit cost, qty-weighted. unit_cost_cents is at PACK grain for
+      // PPK (like the SO price), so divide by the same units-per-pack multiplier
+      // to land per-each — matching the eaches in `open` (pack value invariant).
+      const uc = Number(r.unit_cost_cents) || 0;
+      if (uc > 0) { b._poCostC += open * (uc / m); b._poEa += open; }
     }
     // On PO + In transit (Xoro mirror tanda_pos / po_line_items) — skip POs
     // already counted from the native side (same po_number) to avoid double-count.
@@ -457,12 +468,15 @@ function finalizeRow(b) {
   const open_so_price_cents = b._openSoEa > 0 ? Math.round(b._openSoValC / b._openSoEa) : null;
   const sold_price_cents = b._soldEa > 0 ? Math.round(b._soldValC / b._soldEa) : null;
   const current_price_cents = b._curCents != null ? Math.round(b._curCents) : sale_price_cents;
+  // Qty-weighted open-PO unit cost for the colour (null when no priced open PO
+  // line) — the On PO / In Trnst columns cost off this instead of avg_cost_cents.
+  const on_po_cost_cents = b._poEa > 0 ? Math.round(b._poCostC / b._poEa) : null;
   return {
     style_id: b.style_id, style_code: b.style_code, description: b.description,
     color: b.color, category: b.category,
     on_hand: b.on_hand, allocated: b.allocated, on_so: b.on_so,
     on_po: b.on_po, in_transit: b.in_transit, ats, ats_incl_po,
     sold: b.sold, purchased: b.purchased, avg_cost_cents, sale_price_cents,
-    open_so_price_cents, sold_price_cents, current_price_cents,
+    open_so_price_cents, sold_price_cents, current_price_cents, on_po_cost_cents,
   };
 }
