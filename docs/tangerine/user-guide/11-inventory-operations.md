@@ -570,12 +570,16 @@ on days it costs anything. A quiet day fills 0.
 ### Grain, buckets & filters
 
 - **Group by** — Style · Style + Color · SKU (size) · Category · Warehouse · Vendor.
-- **Buckets** — six age buckets from five configurable day cut-offs (default
-  `30,60,90,180,365` → `0-30 / 31-60 / 61-90 / 91-180 / 181-365 / 366+`).
-- **Filters** — Category, Vendor, Brand, Warehouse, Gender, Style code, Color, Size,
-  **Min age** (only layers ≥ N days), single **Bucket**, **Slow ≥** (no sale in ≥ N
-  days, incl. never-sold), **Min $** / **Min qty** (group thresholds), **Include zero
-  on-hand**, plus a client-side result search.
+- **Buckets** — six fixed age buckets: `0-30 / 31-60 / 61-90 / 91-180 / 181-365 / 366+`.
+- **Filters** — Category, Vendor, Brand, Warehouse, Gender, **Min age** (only layers ≥ N
+  days), single **Bucket**, **Slow ≥** (no sale in ≥ N days, incl. never-sold), **Min $** /
+  **Min qty** (group thresholds), **Include zero on-hand**, plus a client-side result search.
+
+> **Age buckets are measured from the Aged date, not from today.** Stock received within
+> 30 days of the aged date lands in **0-30** — even if that date is more than 30 days
+> before today. When the aged date is not today, the toolbar shows an amber
+> **"Aged as of MM/DD/YYYY — not today"** pill with a **Use today** button, so the
+> buckets are never misread. Set the aged date to **Today** for age-from-now.
 
 ### What each row shows
 
