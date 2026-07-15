@@ -1,5 +1,5 @@
 // POST /api/planning/sync-onhand-xoro — re-source the Xoro by-size on-hand
-// (tangerine_size_onhand) into ip_inventory_snapshot as source='tangerine'.
+// (live inventory_layers, per warehouse) into ip_inventory_snapshot as source='tangerine'.
 //
 // PR1 of the on-hand single-source-of-truth work
 // (docs/tangerine/onhand-single-source-of-truth.md). ADDITIVE: it does not

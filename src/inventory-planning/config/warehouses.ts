@@ -6,5 +6,9 @@
 // never counts ecom stock and vice-versa. The exact strings match the
 // warehouse_code values the Xoro pull writes into tangerine_size_onhand.
 
-export const WHOLESALE_WAREHOUSES: readonly string[] = ["ROF Main", "Psycho Tuna"];
-export const ECOM_WAREHOUSES: readonly string[] = ["ROF - ECOM", "Psycho Tuna Ecom"];
+// Three real inventory warehouses (from inventory_locations; the on-hand
+// roll-up writes these names as warehouse_code). "Psycho Tuna Ecom" is NOT a
+// stock location — it's a sales-posting construct — so it is deliberately
+// absent; ecom inventory is the single "ROF Ecom" location.
+export const WHOLESALE_WAREHOUSES: readonly string[] = ["Main Warehouse", "Psycho Tuna"];
+export const ECOM_WAREHOUSES: readonly string[] = ["ROF Ecom"];
