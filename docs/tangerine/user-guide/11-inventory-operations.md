@@ -543,8 +543,21 @@ Snapshot layers often carry **$0 cost**. The report fills cost per layer in orde
 has no cost is counted as **Uncosted** (a KPI tile + an amber per-row badge + a column)
 and **excluded from value totals**, so a `$0` reads as *"no cost on file"*, not
 *"worth $0."* **Quantities and ages are always exact regardless of cost**, so
-aging-by-units is fully reliable even where value isn't. (Back-filling the missing
-costs from PO/receipt lines is a separate data pass.)
+aging-by-units is fully reliable even where value isn't.
+
+**Cost back-fill (#1803).** A two-tier back-fill fills the report-fallback cost
+(`ip_item_avg_cost`, source `po_backfill`) for items that had no cost on file — no
+GL / on-hand / layer impact, idempotent, never overwriting a real cost:
+- **Tier 1 — native PO lines:** weighted-average `unit_cost_cents` per item from
+  `purchase_order_lines` (**1,832 items / ~301k units**; exact join). *Applied.*
+- **Tier 2 — style-sibling average:** for the fragmented remainder (whose color
+  fields carry size fragments, so exact matching fails), apply the **average cost of
+  the style** from its own already-costed stock (**~1,841 items / ~156k units**;
+  ~19 items with no costed sibling stay flagged). *Staged in `scripts/backfills/`,
+  applied on review.*
+
+After Tier 1, entity uncosted units fell 455,726 → 154,491 and on-hand value rose
+$4.25M → $6.00M. A residual of items with no cost anywhere stays honestly flagged.
 
 ### Grain, buckets & filters
 
