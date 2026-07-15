@@ -413,11 +413,27 @@ export default function PlanningRunControls({
               onClick={() => { setShowSaveModal(true); setSavedBuildName(""); setSavedBuildNote(""); }}
               disabled={building || saveBuildBusy}
               title={selectedSavedBuild
-                ? "Fork this saved build into a new snapshot you can edit independently"
+                ? "Fork this saved build into a SEPARATE new copy you can edit independently. Your current build already saves itself as you edit — use Fork only to branch off a second version."
                 : "Save this build as a snapshot — preserves forecast rows, planner edits, TBD stock-buys, recs, bucket buys. Find it later in the Saved builds dropdown."}
             >
-              {selectedSavedBuild ? "Fork & save" : "Save build"}
+              {selectedSavedBuild ? "Fork" : "Save build"}
             </button>
+            {/* When viewing a saved build, edits/added rows write straight to
+                it — there is no pending "save". Say so, because the only
+                save-like button here is "Fork", which reads as "you must fork
+                to save" and confuses planners. */}
+            {selectedSavedBuild && (
+              <span
+                title="This saved build is a live plan — every edit and added row saves to it automatically. There is no separate Save step. Use Fork only to branch off a separate copy."
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: 11, fontWeight: 600, color: "#10B981",
+                  border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "4px 9px",
+                }}
+              >
+                ✓ Changes save automatically to this build
+              </span>
+            )}
             {selected.status !== "active" && (
               <button style={S.btnSecondary} onClick={() => setStatus("active")}>Mark active</button>
             )}
