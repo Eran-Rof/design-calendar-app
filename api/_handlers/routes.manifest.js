@@ -779,6 +779,9 @@ export default [
   // Inventory On-Hand Accuracy monitor (#1763) — read-only feed reconciliation.
   ["/api/internal/inventory-accuracy/summary"                , "./internal/inventory-accuracy/summary.js"],
   ["/api/internal/inventory-accuracy/detail"                 , "./internal/inventory-accuracy/detail.js"],
+  // Perpetual by-size inventory ledger — SHADOW / pre-cutover (Phase 2, #1795).
+  ["/api/internal/inventory-accuracy/perpetual"              , "./internal/inventory-accuracy/perpetual.js"],
+  ["/api/internal/inventory-accuracy/perpetual-movements"    , "./internal/inventory-accuracy/perpetual-movements.js"],
   ["/api/cron/inventory-onhand-check"                        , "./cron/inventory-onhand-check.js"],
   ["/api/internal/month-end-close/periods"                   , "./internal/month-end-close/periods.js"],
   ["/api/internal/month-end-close/checklist"                 , "./internal/month-end-close/checklist.js"],
