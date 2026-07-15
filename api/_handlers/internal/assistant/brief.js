@@ -39,6 +39,28 @@ function client() {
   return createClient(SB_URL, SERVICE_KEY, { auth: { persistSession: false } });
 }
 
+/**
+ * Pure — exported for tests. Have any PROCESS STATE flipped since a cached
+ * brief was written? Matches by `key` and compares `state` only (ok/running/
+ * warn/error). A process present in one set and absent in the other also
+ * counts as diverged. Count/detail drift is deliberately ignored — counts
+ * change through the day and must NOT trigger constant regenerations; only a
+ * state flip (e.g. a Xoro mirror error→ok) makes a cached brief contradict the
+ * live process cards, which is what we regenerate for.
+ */
+export function processStatesDiverged(cachedProcesses, liveProcesses) {
+  const cached = Array.isArray(cachedProcesses) ? cachedProcesses : [];
+  const live = Array.isArray(liveProcesses) ? liveProcesses : [];
+  const cMap = new Map();
+  for (const p of cached) if (p && p.key) cMap.set(p.key, p.state ?? null);
+  const lMap = new Map();
+  for (const p of live) if (p && p.key) lMap.set(p.key, p.state ?? null);
+  for (const k of cMap.keys()) if (!lMap.has(k)) return true;
+  for (const k of lMap.keys()) if (!cMap.has(k)) return true;
+  for (const [k, st] of cMap) if (lMap.get(k) !== st) return true;
+  return false;
+}
+
 /** Pure — exported for tests. The entire model input for a brief. */
 export function buildBriefPrompt(aggregate, name, day) {
   const who = name ? ` ${name}` : "";
@@ -82,12 +104,27 @@ export default async function handler(req, res) {
   if (!refresh) {
     const { data: hit } = await admin
       .from("assistant_briefs")
-      .select("body, created_at, model")
+      .select("body, created_at, model, source_json")
       .eq("user_id", authUserId)
       .eq("brief_date", day)
       .maybeSingle();
     if (hit?.body) {
-      return res.status(200).json({ body: hit.body, brief_date: day, cached: true, model: hit.model });
+      // Stale-brief guard: the brief snapshots process STATES at generation
+      // time; if a process has since flipped state (e.g. a Xoro mirror went
+      // error→ok after a mid-day fix) the cached prose contradicts the live
+      // cards below it. Regenerate in that case instead of serving the stale
+      // brief. Best-effort — any failure here falls back to the cached brief
+      // so the staleness check can never break the endpoint.
+      let stale = false;
+      try {
+        stale = processStatesDiverged(hit.source_json?.processes, payload.processes);
+      } catch {
+        stale = false;
+      }
+      if (!stale) {
+        return res.status(200).json({ body: hit.body, brief_date: day, cached: true, model: hit.model });
+      }
+      // else: fall through to the regeneration path (same as ?refresh=1).
     }
   }
 
