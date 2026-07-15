@@ -240,7 +240,7 @@ export default async function handler(req, res, params) {
         // CASCADE (wholesale delete silently wiped D3 commitments + the in-transit
         // overlay). Match incoming lines to existing ones by item/part.
         const { data: existing, error: exErr } = await admin.from("purchase_order_lines")
-          .select("id, inventory_item_id, part_id, line_number")
+          .select("id, inventory_item_id, part_id, line_number, qty_received")
           .eq("purchase_order_id", id)
           .order("line_number", { ascending: true });
         if (exErr) return res.status(500).json({ error: `Line read failed: ${exErr.message}` });
@@ -256,10 +256,29 @@ export default async function handler(req, res, params) {
           const match = (pool.get(keyOf(n)) || []).shift();
           if (match) {
             const { line_number: _ln, purchase_order_id: _po, ...fields } = n;
-            updates.push({ id: match.id, fields });
+            updates.push({ id: match.id, fields, received: Number(match.qty_received) || 0, inventory_item_id: match.inventory_item_id || null });
           } else {
             inserts.push(n);
           }
+        }
+        // Guard: a revision must never drop a kept line's ordered quantity below
+        // what's already been received (that would produce an impossible negative
+        // remaining / over-received line). The UI restricts editing to the
+        // remain-to-ship on received POs, but the API is the authoritative check.
+        const violations = updates.filter((u) => u.received > 0 && Number(u.fields.qty_ordered) < u.received);
+        if (violations.length) {
+          const vItemIds = [...new Set(violations.map((v) => v.inventory_item_id).filter(Boolean))];
+          let byId = new Map();
+          if (vItemIds.length) {
+            const { data: skus } = await admin.from("ip_item_master").select("id, sku_code, style_code, color, size").in("id", vItemIds);
+            byId = new Map((skus || []).map((s) => [s.id, s]));
+          }
+          const detail = violations.map((v) => {
+            const s = v.inventory_item_id ? byId.get(v.inventory_item_id) : null;
+            const name = s ? (`${s.style_code || ""} ${s.color || ""} ${s.size || ""}`.replace(/\s+/g, " ").trim() || s.sku_code || "a line") : "a line";
+            return `${name} (ordered ${Number(v.fields.qty_ordered)} < received ${v.received})`;
+          }).join("; ");
+          return res.status(409).json({ error: `A revision can't reduce a line's ordered quantity below what's already been received: ${detail}. Adjust the remaining-to-ship quantity instead.` });
         }
         const removed = [...pool.values()].flat();
         if (removed.length) {
