@@ -127,7 +127,11 @@ export default function InternalJournalEntry() {
   const [err, setErr] = useState<string | null>(null);
   const [basisFilter, setBasisFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
-  const [includeDrafts, setIncludeDrafts] = useState(false);
+  // Month-End Close → "Review" on the *No draft / unposted JEs* check drills in
+  // with ?include_drafts=true so the panel opens showing the very entries that
+  // need posting or deleting. One-shot: consumed on mount (below) so leaving and
+  // returning doesn't silently re-force drafts on.
+  const [includeDrafts, setIncludeDrafts] = useState(() => readDrillParam("include_drafts") === "true");
   // Scorecard drill-through: ?q=<vendor/customer code> seeds a client-side text
   // filter over description + source ref. JE has no party column, so the
   // scorecard passes the party code/name and we match it against the JE text.
@@ -142,8 +146,10 @@ export default function InternalJournalEntry() {
     const jeParam = readDrillParam("je");
     if (jeParam) {
       setDetail({ id: jeParam } as JE);
-      consumeDrillParams(["je"]);
     }
+    // include_drafts is read into initial state above; strip it here (with `je`)
+    // so a later visit doesn't re-apply the one-shot drill.
+    consumeDrillParams(["je", "include_drafts"]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
