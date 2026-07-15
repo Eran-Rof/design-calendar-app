@@ -101,6 +101,7 @@ export type ModuleKey =
   | "inventory_transfers"
   | "inventory_adjustments"
   | "inventory_accuracy"
+  | "inventory_aging"
   | "cycle_counts"
   | "scanner_sessions"
   | "cases"
@@ -367,6 +368,8 @@ export const MODULES: ModuleDef[] = [
   { key: "inventory_adjustments", label: "Inventory Adjustments", emoji: "📐", group: "Inventory" },
   // Read-only on-hand accuracy monitor: layers-vs-Xoro-REST divergence.
   { key: "inventory_accuracy", label: "Inventory Accuracy", emoji: "🎯", group: "Inventory" },
+  // Read-only aged-inventory report: FIFO-layer ages, carrying cost, velocity.
+  { key: "inventory_aging",   label: "Inventory Aging",   emoji: "⏳", group: "Inventory" },
   { key: "cycle_counts",      label: "Cycle Counts",      emoji: "📋", group: "Inventory" },
   { key: "scanner_sessions",  label: "Scanner Sessions",  emoji: "📱", group: "Inventory" },
   // Manufacturing — parts inventory + (later) BOM + build orders.
