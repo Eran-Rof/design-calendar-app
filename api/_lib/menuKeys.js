@@ -143,6 +143,7 @@ const KEYS = [
   "tanda/accounting/income-statement",
   "tanda/accounting/segment-pl",
   "tanda/accounting/balance-sheet",
+  "tanda/accounting/consolidation",
   "tanda/accounting/cash-flow",
   "tanda/accounting/year-end-close",
   "tanda/accounting/fixed-assets",

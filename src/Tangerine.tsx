@@ -98,6 +98,7 @@ import InternalXoroRecon          from "./tanda/InternalXoroRecon";
 import InternalIncomeStatement    from "./tanda/InternalIncomeStatement";
 import InternalSegmentPL          from "./tanda/InternalSegmentPL";
 import InternalBalanceSheet       from "./tanda/InternalBalanceSheet";
+import InternalConsolidation       from "./tanda/InternalConsolidation";
 import InternalCashFlow           from "./tanda/InternalCashFlow";
 import InternalYearEndClose       from "./tanda/InternalYearEndClose";
 import InternalBankReconciliation from "./tanda/InternalBankReconciliation";
@@ -713,6 +714,7 @@ export default function Tangerine() {
         {activeModule === "income_statement"  && <InternalIncomeStatement />}
         {activeModule === "segment_pl"        && <InternalSegmentPL />}
         {activeModule === "balance_sheet"     && <InternalBalanceSheet />}
+        {activeModule === "consolidation"     && <InternalConsolidation />}
         {activeModule === "cash_flow"         && <InternalCashFlow />}
         {activeModule === "year_end_close"    && <InternalYearEndClose />}
         {activeModule === "bank_reconciliation" && <InternalBankReconciliation />}
