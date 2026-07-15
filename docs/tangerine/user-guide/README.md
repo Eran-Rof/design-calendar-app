@@ -59,6 +59,7 @@ Login is the same for both; access to the data inside each panel is gated by Row
 42. [Costing Module](42-costing-module.md) — the `/costing` price/cost workbook: project-header gating, the costing grid (FOB/Landed vs **DDP** cost modes, editable **Sell Tgt** margin that back-solves cost), PPK-exploded PO history + LY/T3 comp, the incomplete-row guard, and the RFQ → compare → award flow.
 45. [Lot Numbers](45-lot-numbers.md) — per style+color **lot** on PO / SO lines + inventory layers (not on Style Master): auto-stamped to the PO# at issue, inherited from the SO's customer PO on a PO-from-SO, editable via the 🏷 lot column, and carried onto the FIFO layer at receiving.
 46. [Today Page](46-today-page.md) - your daily starting point: per-user to-dos (approvals, vendor replies, 3-way exceptions, receipts due, QC failures, chargebacks, close state), active-process status cards (mirror, EDI), and current-state suggestions - RBAC-scoped, every row drills to its panel.
+47. [Assistant draft actions (P28-4)](47-assistant-draft-actions.md) - the assistant graduates from reading/routing to **drafting an action you confirm**: a single-unambiguous chargeback-match suggestion (Confirm writes the link) and copyable vendor/customer email drafts (compose-only, nothing sent or saved). Every write shows a Confirm card first; the assistant never self-executes, and money actions still route through approvals.
 
 ## 30-second quickstart
 

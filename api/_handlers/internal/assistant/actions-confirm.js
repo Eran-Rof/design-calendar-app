@@ -84,6 +84,29 @@ export function validateConfirmedAction({ token, commit_payload, callerId, packs
   return { ok: true, status: 200, action, claims, commit_payload: payload };
 }
 
+/**
+ * Replay guard (P28-4-2, arch doc §6.3). Single-use jti: INSERT it into
+ * assistant_action_confirmations; a duplicate (PK conflict, SQLSTATE 23505)
+ * means the token was already spent. Exported for tests.
+ *
+ * @returns {Promise<{ok:true} | {conflict:true} | {error:string}>}
+ */
+export async function reserveJti(admin, { jti, userId, action, entityId } = {}) {
+  if (!jti) return { error: "missing_jti" };
+  const row = { jti, action: action || null, user_id: userId || null };
+  if (entityId) row.entity_id = entityId;
+  const { error } = await admin.from("assistant_action_confirmations").insert(row);
+  if (!error) return { ok: true };
+  if (error.code === "23505" || /duplicate key|unique/i.test(error.message || "")) return { conflict: true };
+  return { error: error.message || "reserve_failed" };
+}
+
+/** Best-effort release of a reserved jti (only when commit fails after reserve). */
+export async function releaseJti(admin, jti) {
+  try { await admin.from("assistant_action_confirmations").delete().eq("jti", jti); }
+  catch { /* best-effort — a stuck jti only blocks re-confirming this one token */ }
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -124,14 +147,19 @@ export default async function handler(req, res) {
     }
   }
 
-  // TODO(P28-4-2): replay store — record v.claims.jti as single-use (a small
-  // assistant_action_confirmations table per arch doc §6.3 / open decision D5)
-  // and reject a second presentation of the same jti. Short TTL is the interim
-  // guard. Migration is intentionally NOT added in this chunk.
+  // 4b. Replay store (P28-4-2, arch doc §6.3 / decision D5) — reserve the token's
+  // jti as single-use BEFORE commit. A second presentation of the same token
+  // conflicts on the primary key and is rejected. Combined with the short TTL a
+  // captured token is useless after one use or five minutes. Migration:
+  // supabase/migrations/20261000000000_assistant_action_confirmations.sql.
+  const reserve = await reserveJti(admin, { jti: v.claims.jti, userId: who.authId, action: action.name, entityId });
+  if (reserve.conflict) return res.status(409).json({ error: "token_already_used" });
+  if (reserve.error) return res.status(500).json({ error: "replay_store_unavailable" });
 
   // 5. commit() — the ONLY write point. Money actions (later chunks) route
   // through requestIfRequired inside commit and may return an HTTP 202 held
-  // state, which we relay verbatim.
+  // state, which we relay verbatim. On any commit failure we RELEASE the
+  // reserved jti so a legitimate retry of the same confirm can still proceed.
   try {
     const result = await action.commit(admin, v.commit_payload, {
       userId: who.authId,
@@ -140,8 +168,10 @@ export default async function handler(req, res) {
     });
     const status = Number.isInteger(result?.status) ? result.status : 200;
     const payload = (result && typeof result === "object" && "body" in result) ? result.body : result;
+    if (status >= 400) await releaseJti(admin, v.claims.jti);
     return res.status(status).json(payload ?? { ok: true });
   } catch (err) {
+    await releaseJti(admin, v.claims.jti);
     return res.status(500).json({ error: String(err?.message || err) });
   }
 }

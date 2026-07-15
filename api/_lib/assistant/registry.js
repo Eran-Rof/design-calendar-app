@@ -34,8 +34,8 @@
 //                      authenticated confirm endpoint calls it, post-token-verify
 //                      + post-RBAC. The ONLY write point.
 //   }
-// NO pack ships an action yet (P28-4-1 is plumbing only); the contract +
-// validation exist so P28-4-2+ packs slot in with zero registry change.
+// P28-4-2 ships the first real actions: chargeback_actions.draft_chargeback_match
+// (write_confirm) + email_drafts.draft_{vendor,customer}_email (read/compose).
 
 import accounting from "./packs/accounting.js";
 import po from "./packs/po.js";
@@ -44,8 +44,10 @@ import planning from "./packs/planning.js";
 import masterData from "./packs/master_data.js";
 import manufacturing from "./packs/manufacturing.js";
 import casesInbox from "./packs/cases_inbox.js";
+import chargebackActions from "./packs/chargeback_actions.js";
+import emailDrafts from "./packs/email_drafts.js";
 
-export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting];
+export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting, chargebackActions, emailDrafts];
 
 const SEVERITIES = new Set(["action", "warn", "error", "info"]);
 const ACTION_MODES = new Set(["read", "draft", "write_confirm"]);
