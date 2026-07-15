@@ -129,6 +129,10 @@ export function buildExportPayload(
     customSalesRangeEnd:      options?.customSalesRangeEnd      ?? "",
     bySizeMatrix:             options?.bySizeMatrix             ?? false,
     buyerWorksheet:           options?.buyerWorksheet           ?? false,
+    // Permission gate (P14 RBAC `margins:export`). When true, every
+    // actual-margin column (T3/LY Mrgn %, Δ-margin) is dropped from the
+    // workbook. Threaded in by the caller via useCanSeeMargins.canExport.
+    hideMargins:              options?.hideMargins              ?? false,
   };
   // Buyer worksheet = the live pricing view for an internal buyer: shows the
   // Avg Cost column INLINE plus an editable Sls Prc with LIVE Mrgn % / Total $
@@ -167,7 +171,7 @@ export function buildExportPayload(
   // customer is selected; when a customer IS selected, only when the
   // operator opted in. Customer-facing mode forces the margin column
   // off regardless.
-  const showT3Margin   = !opts.customerFacing && (!opts.customerEnabled || opts.showCustomerMargin);
+  const showT3Margin   = !opts.customerFacing && !opts.hideMargins && (!opts.customerEnabled || opts.showCustomerMargin);
   const customerFilter = opts.customerEnabled ? opts.customer : "";
   // Sales-margin fraction shared by body / subtotal / total calcs.
   const slsMargin = opts.slsMarginPct / 100;

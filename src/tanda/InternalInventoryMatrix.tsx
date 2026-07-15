@@ -27,6 +27,7 @@ import { colPriceCents, colCostCents } from "./snapshotPricing";
 import { ColorSwatch } from "../shared/ui/ColorSwatch";
 import { fmtCurrency, fmtDate } from "../utils/tandaTypes";
 import { drillToModule } from "./scorecardDrill";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -646,7 +647,7 @@ function rollupSnapshot(rows: SnapshotRow[], mergePpk: boolean, collapseCols: Se
 }
 
 function SnapshotView({
-  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, showTotals,
+  rows, loading, err, sortKey, sortDir, onSort, thumbs, onOpenSold, onOpenPurchased, show, explodePpk, mergePpk, collapseCols, showTotals, canViewMargin,
 }: {
   rows: SnapshotRow[];
   loading: boolean;
@@ -663,6 +664,7 @@ function SnapshotView({
   mergePpk: boolean;   // collapse base style + its PPK sibling into one BASE/PPK row
   collapseCols: Set<string>; // text column(s) to collapse ONTO (group-by key; rest summed)
   showTotals: boolean; // totals strip above the headers (Qty + $ Cost + $ Wholesale + Avg Cost + Avg Sale stacked per column)
+  canViewMargin: boolean; // gates the Avg Mrgn line in the totals strip (permission)
 }) {
   // Zebra striping tint by row index — alternate rows get a clearly visible
   // background so long lists stay readable; mirrors the drill modals' zebra().
@@ -849,7 +851,7 @@ function SnapshotView({
                             <span style={{ color: C.base }}>{fmtUSD(totals.wholesale[k])}</span>
                             <span style={{ color: C.green }}>{fmtUSD2(totals.avgCost[k])}</span>
                             <span style={{ color: "#93C5FD" }}>{fmtUSD2(totals.avgWhol[k])}</span>
-                            <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>
+                            {canViewMargin && <span style={{ color: "#34D399" }}>{totals.avgWhol[k] > 0 ? `${(((totals.avgWhol[k] - totals.avgCost[k]) / totals.avgWhol[k]) * 100).toFixed(2)}%` : "—"}</span>}
                           </div>
                         </th>
                       );
@@ -865,7 +867,7 @@ function SnapshotView({
                             <span style={{ color: C.base }}>$ Wholesale</span>
                             <span style={{ color: C.green }}>Avg Cost</span>
                             <span style={{ color: "#93C5FD" }}>Avrg Sale</span>
-                            <span style={{ color: "#34D399" }}>Avg Mrgn</span>
+                            {canViewMargin && <span style={{ color: "#34D399" }}>Avg Mrgn</span>}
                           </div>
                         </th>
                       );
@@ -1423,7 +1425,11 @@ export default function InternalInventoryMatrix() {
     try { sessionStorage.setItem(SNAP_HIDE_KEY, JSON.stringify([...next])); } catch { /* noop */ }
     return next;
   });
-  const snapShow = (k: string) => !snapHidden.has(k);
+  // Margin visibility/export gate (permission-driven; fails open until enforced).
+  // The derived "Avg Mrgn %" column is absent on-screen when the caller can't
+  // view margins, and absent from the export when they can't export them.
+  const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
+  const snapShow = (k: string) => !snapHidden.has(k) && (canViewMargins || k !== "avg_margin_pct");
   // Collapse: which text column(s) to collapse ONTO — the checked dims become
   // the group-by key, all other text columns merge away, numerics sum.
   // Independent of column show/hide.
@@ -2156,7 +2162,7 @@ export default function InternalInventoryMatrix() {
   // Snapshot export — every visible (filtered) row, honoring the column show/hide
   // selection so the sheet matches the on-screen table.
   const snapExportColumns = useMemo<ExportColumn<Record<string, unknown>>[]>(
-    () => SNAP_COLS.filter((c) => snapShow(c.key as string)).map((c) => ({
+    () => SNAP_COLS.filter((c) => snapShow(c.key as string) && (canExportMargins || c.key !== "avg_margin_pct")).map((c) => ({
       key: c.key as string,
       header: c.label,
       format: c.key === "avg_margin_pct" ? "percent"
@@ -2164,7 +2170,7 @@ export default function InternalInventoryMatrix() {
         : (c.numeric ? "number" : undefined),
       ...(c.key === "avg_margin_pct" ? { digits: 2 } : {}),
     })),
-    [snapHidden],
+    [snapHidden, canViewMargins, canExportMargins],
   );
   // Export mirrors EXACTLY what's on screen: run the same Merge-PPK + Collapse
   // roll-up the table uses, so a collapsed/merged view exports collapsed/merged.
@@ -2370,7 +2376,7 @@ export default function InternalInventoryMatrix() {
               </button>
               {snapColsOpen && (
                 <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 30, background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", minWidth: 200, maxHeight: 340, overflowY: "auto" }}>
-                  {[{ key: "image", label: "Image" }, ...SNAP_COLS].map((col) => (
+                  {[{ key: "image", label: "Image" }, ...SNAP_COLS].filter((col) => canViewMargins || col.key !== "avg_margin_pct").map((col) => (
                     <label key={col.key as string} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 13, color: C.text, cursor: "pointer" }}>
                       <input type="checkbox" checked={snapShow(col.key as string)} onChange={() => toggleSnapCol(col.key as string)} />
                       {col.label}
@@ -2609,7 +2615,7 @@ export default function InternalInventoryMatrix() {
         <>
           <SnapshotProgressBar active={snapLoading} />
           <SnapshotView rows={snapVisibleRows} loading={snapLoading} err={snapErr} sortKey={snapSortKey} sortDir={snapSortDir} onSort={onSnapSort}
-            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={effectiveExplodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} />
+            thumbs={snapThumbs} onOpenSold={setSoldFor} onOpenPurchased={setPurchasedFor} show={snapShow} explodePpk={effectiveExplodePpk} mergePpk={mergePpk} collapseCols={snapCollapse} showTotals={snapTotals} canViewMargin={canViewMargins} />
         </>
       )}
 

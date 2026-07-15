@@ -13,6 +13,10 @@ interface StatsRowProps {
   totalPoValue: number;
   marginDollars: number;
   marginPct: number;
+  // When false, the Margin KPI card is omitted entirely (permission-gated
+  // via useCanSeeMargins in the parent) and the grid collapses to 8 cols
+  // so the row stays even.
+  canViewMargin: boolean;
   activeSort: string | null;
   setActiveSort: (k: string | null) => void;
 }
@@ -20,9 +24,9 @@ interface StatsRowProps {
 export const StatsRow: React.FC<StatsRowProps> = ({
   lowStock, zeroStock, negATSCount, totalSKUs,
   totalSoQty, totalSoValue, totalPoQty, totalPoValue,
-  marginDollars, marginPct, activeSort, setActiveSort,
+  marginDollars, marginPct, canViewMargin, activeSort, setActiveSort,
 }) => (
-  <div style={{ ...S.statsRow, gridTemplateColumns: "repeat(9,1fr)" }}>
+  <div style={{ ...S.statsRow, gridTemplateColumns: `repeat(${canViewMargin ? 9 : 8},1fr)` }}>
     <StatCard icon="△" label="Low Stock (≤10)" value={lowStock}      color="#F59E0B" sortKey="lowStock"  activeSort={activeSort} onSort={k => setActiveSort(k)} />
     <StatCard icon="▽" label="Zero Stock"       value={zeroStock}     color="#EF4444" sortKey="zeroStock" activeSort={activeSort} onSort={k => setActiveSort(k)} />
     <StatCard icon="↓" label="Negative ATS"     value={negATSCount}   color="#F87171" sortKey="negATS"    activeSort={activeSort} onSort={k => setActiveSort(k)} />
@@ -31,6 +35,8 @@ export const StatsRow: React.FC<StatsRowProps> = ({
     <StatCard icon="$" label="$ on Order"        value={totalSoValue}  color="#10B981" fmt="dollar" />
     <StatCard icon="⬆" label="Units on PO"       value={totalPoQty}    color="#60A5FA" />
     <StatCard icon="$" label="$ on PO"           value={totalPoValue}  color="#60A5FA" fmt="dollar" />
-    <StatCard icon="%" label="Margin"            value={marginDollars} color={marginDollars >= 0 ? "#A3E635" : "#F87171"} fmt="margin" marginPct={marginPct} />
+    {canViewMargin && (
+      <StatCard icon="%" label="Margin"            value={marginDollars} color={marginDollars >= 0 ? "#A3E635" : "#F87171"} fmt="margin" marginPct={marginPct} />
+    )}
   </div>
 );

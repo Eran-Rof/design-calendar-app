@@ -22,6 +22,7 @@ import { buildInventoryHealth, type InvGroupBy } from "../reports/inventoryHealt
 import { buildForecastAccuracy, type AccGroupBy } from "../reports/forecastAccuracy";
 import { buildBuyPlanSupply, type BuyGroupBy } from "../reports/buyPlanSupply";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { useCanSeeMargins } from "../../../hooks/useCanSeeMargins";
 
 type TabKey = "sales" | "inventory" | "accuracy" | "buy";
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -79,6 +80,10 @@ export default function ReportsWorkbench() {
 
 // ── Sales Performance ───────────────────────────────────────────────────────
 function SalesPanel({ ctx }: { ctx: LookupCtx }) {
+  // Margin visibility gate. The report builder is a pure module and cannot call
+  // the RBAC hook, so we thread the viewer's permission in. View + export are
+  // unified through the same ReportResult, so canView drives both. Fails open.
+  const { canView: canViewMargin } = useCanSeeMargins();
   const [groupBy, setGroupBy] = useState<SalesGroupBy>("month");
   const [txnType, setTxnType] = useState("invoice");
   const [tyStart, setTyStart] = useState(shiftMonths(TODAY, -12));
@@ -103,8 +108,8 @@ function SalesPanel({ ctx }: { ctx: LookupCtx }) {
   }, [sales]);
 
   const result = useMemo(
-    () => buildSalesPerformance(sales, ctx, { groupBy, txnType, tyStartIso: tyStart, endIso: end }),
-    [sales, ctx, groupBy, txnType, tyStart, end],
+    () => buildSalesPerformance(sales, ctx, { groupBy, txnType, tyStartIso: tyStart, endIso: end }, { includeMargins: canViewMargin }),
+    [sales, ctx, groupBy, txnType, tyStart, end, canViewMargin],
   );
 
   return (

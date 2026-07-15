@@ -23,6 +23,7 @@ import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from 
 import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
 import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 import {
   aggregateExplodeAware,
   totalsForDimRows,
@@ -379,6 +380,11 @@ export const SalesCompsModal: React.FC<Props> = ({
   allCategories, allSubCategories, allStyles, allStores,
   rows, excelData, explodePpk,
 }) => {
+  // Margin visibility gate (P14 RBAC `margins` capability): canView hides the
+  // on-screen TY/LY Mrgn% + Δ Mrgn pp columns and the Margin $ / Margin %
+  // summary rows (COGS stays — cost, not margin); canExport drops the same
+  // from the Excel workbook via hideMargins. Fails open until enforcement.
+  const { canView: canViewMargin, canExport: canExportMargin } = useCanSeeMargins();
   // Option lists come from the FULL dataset (not the filtered rows) so
   // operators can broaden the report past the grid's current scope.
   // Sorted for predictable presentation in the dropdowns.
@@ -1187,6 +1193,9 @@ export const SalesCompsModal: React.FC<Props> = ({
       },
       customerFacing,
       explodePpk,
+      // Permission gate — margin rows/columns never reach a workbook the
+      // caller isn't granted to export (preview-parity with the on-screen gate).
+      hideMargins: !canExportMargin,
       dimTotals,
       viewSections,
     });
@@ -1325,7 +1334,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                 color. 16px top margin breathes from the modal header
                 above. */}
             <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 16 }}>Totals</div>
-            <SummaryBlock dimTotals={dimTotals} customerFacing={customerFacing} />
+            <SummaryBlock dimTotals={dimTotals} customerFacing={customerFacing} canViewMargin={canViewMargin} />
 
             {/* Open-SO margin-coverage caveat. Surfaced when any open
                 SOs contributed to TY so the operator knows the TY
@@ -1333,7 +1342,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                 landed in the window (past windows where SOs all have
                 cancel dates ≥ today). Also hidden in customer-facing
                 mode — the margin columns are already suppressed there. */}
-            {!customerFacing && openSoAggregates.coverage.contributing > 0 && (
+            {!customerFacing && canViewMargin && openSoAggregates.coverage.contributing > 0 && (
               <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.4 }}>
                 TY margin includes estimated margin on {openSoAggregates.coverage.contributing} open SO{openSoAggregates.coverage.contributing === 1 ? "" : "s"} (cost from snapshot avg + in-window POs; {openSoAggregates.coverage.costMissing} had no resolvable cost).
               </div>
@@ -1418,6 +1427,7 @@ export const SalesCompsModal: React.FC<Props> = ({
                   rows={built}
                   totals={builtTotals}
                   customerFacing={customerFacing}
+                  canViewMargin={canViewMargin}
                   descByLabel={dim === "style" ? styleDescByCode : undefined}
                 />
               );
@@ -1519,7 +1529,11 @@ function compsSortValue(r: DimRow, key: CompsSortKey): number | string {
   }
 }
 
-function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
+function CompsTable({ colLabel, rows, totals, customerFacing, canViewMargin, descByLabel }: { colLabel: string; rows: DimRow[]; totals: CompsTotalsProp; customerFacing: boolean; canViewMargin: boolean; descByLabel?: Map<string, string> }): React.ReactElement {
+  // Margin columns show only when the report is internal-facing AND the
+  // operator holds the margins:read grant (module-level component, so the
+  // flag is threaded in as a prop rather than calling the hook here).
+  const showMrgn = !customerFacing && canViewMargin;
   // Per-column sort over the data rows. null = natural (upstream) order,
   // which is already TY-rev descending. Clicking a header sorts; clicking
   // the active header flips direction. Totals rows below are unaffected —
@@ -1566,12 +1580,12 @@ function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { c
         <td style={{ ...td(), fontWeight: 700, color: C.accent }}>{label}</td>
         <td style={{ ...td("right"), fontWeight: 700 }}>{t.tyQty.toLocaleString()}</td>
         <td style={{ ...td("right"), fontWeight: 700 }}>{fmtUSD(t.tyRev)}</td>
-        {!customerFacing && <td style={{ ...td("right"), fontWeight: 700 }}>{fmtPct(t.tyMrgn, t.tyRev)}</td>}
+        {showMrgn && <td style={{ ...td("right"), fontWeight: 700 }}>{fmtPct(t.tyMrgn, t.tyRev)}</td>}
         <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{t.lyQty.toLocaleString()}</td>
         <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtUSD(t.lyRev)}</td>
-        {!customerFacing && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(t.lyMrgn, t.lyRev)}</td>}
+        {showMrgn && <td style={{ ...td("right", C.textMuted), fontWeight: 700 }}>{fmtPct(t.lyMrgn, t.lyRev)}</td>}
         <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 700 }}>{growth.text}</td>
-        {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 700 }}>{mp.text}</td>}
+        {showMrgn && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 700 }}>{mp.text}</td>}
       </tr>
     );
   };
@@ -1583,12 +1597,12 @@ function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { c
             <SortTh k="label" label={colLabel} />
             <SortTh k="tyQty" label="TY Qty" align="right" />
             <SortTh k="tyRev" label="TY Rev" align="right" />
-            {!customerFacing && <SortTh k="tyMrgn" label="TY Mrgn%" align="right" />}
+            {showMrgn && <SortTh k="tyMrgn" label="TY Mrgn%" align="right" />}
             <SortTh k="lyQty" label="LY Qty" align="right" />
             <SortTh k="lyRev" label="LY Rev" align="right" />
-            {!customerFacing && <SortTh k="lyMrgn" label="LY Mrgn%" align="right" />}
+            {showMrgn && <SortTh k="lyMrgn" label="LY Mrgn%" align="right" />}
             <SortTh k="dRev" label="Δ Rev" align="right" />
-            {!customerFacing && <SortTh k="dMrgn" label="Δ Mrgn pp" align="right" />}
+            {showMrgn && <SortTh k="dMrgn" label="Δ Mrgn pp" align="right" />}
           </tr>
         </thead>
         <tbody>
@@ -1600,17 +1614,17 @@ function CompsTable({ colLabel, rows, totals, customerFacing, descByLabel }: { c
                 <td style={td()}>{r.label}{descByLabel?.get(r.label) && <span style={{ color: C.textMuted, fontWeight: 400 }}> — {descByLabel.get(r.label)}</span>}</td>
                 <td style={td("right")}>{r.tyQty.toLocaleString()}</td>
                 <td style={td("right")}>{fmtUSD(r.tyRev)}</td>
-                {!customerFacing && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
+                {showMrgn && <td style={td("right")}>{fmtPct(r.tyMrgn, r.tyRev)}</td>}
                 <td style={td("right", C.textMuted)}>{r.lyQty.toLocaleString()}</td>
                 <td style={td("right", C.textMuted)}>{fmtUSD(r.lyRev)}</td>
-                {!customerFacing && <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>}
+                {showMrgn && <td style={td("right", C.textMuted)}>{fmtPct(r.lyMrgn, r.lyRev)}</td>}
                 <td style={{ ...td("right"), color: growth.positive ? C.green : C.red, fontWeight: 600 }}>{growth.text}</td>
-                {!customerFacing && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>}
+                {showMrgn && <td style={{ ...td("right"), color: mp.positive ? C.green : C.red, fontWeight: 600 }}>{mp.text}</td>}
               </tr>
             );
           })}
           {rows.length === 0 && (
-            <tr><td colSpan={customerFacing ? 6 : 9} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
+            <tr><td colSpan={showMrgn ? 9 : 6} style={{ ...td(), color: C.textDim, textAlign: "center", padding: 18 }}>No sales in window for this scope.</td></tr>
           )}
           {/* Bottom TOTAL row(s) — when mixed grain is present in
               explode-OFF mode, render TWO totals (one per grain) so
@@ -1735,17 +1749,21 @@ function SoCompsTable({
 // === true), renders TWO stacks side-by-side (PPK packs vs each) so the
 // operator never sees packs + eaches summed into a single misleading
 // row. Otherwise renders the standard single-totals stack.
-function SummaryBlock({ dimTotals, customerFacing }: { dimTotals: DimTotals; customerFacing: boolean }): React.ReactElement {
-  type RowDef = { label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean };
+function SummaryBlock({ dimTotals, customerFacing, canViewMargin }: { dimTotals: DimTotals; customerFacing: boolean; canViewMargin: boolean }): React.ReactElement {
+  type RowDef = { label: string; ty: string; ly: string; diff: { text: string; positive: boolean }; tone?: "muted"; internalOnly?: boolean; marginRow?: boolean };
   const rowsFor = (totals: DimTotals["combined"]): RowDef[] => {
     const all: RowDef[] = [
       { label: "Units",    ty: totals.tyQty.toLocaleString(),       ly: totals.lyQty.toLocaleString(),       diff: fmtGrowth(totals.tyQty,  totals.lyQty)  },
       { label: "Revenue",  ty: fmtUSD(totals.tyRev),                ly: fmtUSD(totals.lyRev),                diff: fmtGrowth(totals.tyRev,  totals.lyRev)  },
       { label: "COGS",     ty: fmtUSD(totals.tyCogs),               ly: fmtUSD(totals.lyCogs),               diff: fmtGrowth(totals.tyCogs, totals.lyCogs), tone: "muted", internalOnly: true },
-      { label: "Margin $", ty: fmtUSD(totals.tyMrgn),               ly: fmtUSD(totals.lyMrgn),               diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn), internalOnly: true },
-      { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev), internalOnly: true },
+      { label: "Margin $", ty: fmtUSD(totals.tyMrgn),               ly: fmtUSD(totals.lyMrgn),               diff: fmtGrowth(totals.tyMrgn, totals.lyMrgn), internalOnly: true, marginRow: true },
+      { label: "Margin %", ty: fmtPct(totals.tyMrgn, totals.tyRev), ly: fmtPct(totals.lyMrgn, totals.lyRev), diff: fmtMarginPoints(totals.tyMrgn, totals.tyRev, totals.lyMrgn, totals.lyRev), internalOnly: true, marginRow: true },
     ];
-    return customerFacing ? all.filter(r => !r.internalOnly) : all;
+    // customerFacing drops all internal rows (COGS + margins); the margin
+    // permission gate additionally drops just the margin rows (COGS stays —
+    // cost data, not margin).
+    const base = customerFacing ? all.filter(r => !r.internalOnly) : all;
+    return canViewMargin ? base : base.filter(r => !r.marginRow);
   };
   const renderTable = (rows: RowDef[], heading?: string): React.ReactElement => (
     <div style={{ background: C.rowAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 0 }}>

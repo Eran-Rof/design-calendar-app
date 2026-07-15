@@ -21,6 +21,7 @@ import ExportButton from "./exports/ExportButton";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { displayCustomerCode } from "../shared/customers/displayCustomerCode";
 import { drillToModule } from "./scorecardDrill";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -255,6 +256,9 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
   // In-scorecard detail popup (invoice / SO / JE). Closing returns here.
   const [openDoc, setOpenDoc] = useState<{ kind: DocKind; id: string; number: string | null } | null>(null);
 
+  // Margin visibility gate (P14 `margins` capability; fails open until enforce).
+  const { canView } = useCanSeeMargins();
+
   // Filters
   const [brandId, setBrandId] = useState("");
   const [gender, setGender] = useState("");
@@ -439,8 +443,8 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                       <th style={{ ...th, textAlign: "right" }}>Units</th>
                       <th style={{ ...th, textAlign: "right" }}>AUR</th>
                       <th style={{ ...th, textAlign: "right" }}>Revenue</th>
-                      <th style={{ ...th, textAlign: "right" }}>Margin $</th>
-                      <th style={{ ...th, textAlign: "right" }}>Margin %</th>
+                      {canView && <th style={{ ...th, textAlign: "right" }}>Margin $</th>}
+                      {canView && <th style={{ ...th, textAlign: "right" }}>Margin %</th>}
                       <th style={{ ...th, textAlign: "right" }}>Dilution $</th>
                       <th style={{ ...th, textAlign: "right" }}>Dilution %</th>
                     </tr>
@@ -457,10 +461,12 @@ export default function CustomerScorecard({ customerId, onClose }: { customerId:
                         <td style={tdR}>{fmtNum(p.units)}</td>
                         <td style={tdR}>{fmtCents(p.aur_cents)}</td>
                         <td style={tdR}>{fmtCents(p.revenue_cents)}</td>
-                        <td style={tdR} title={p.cogs_complete ? undefined : "Some lines lack COGS — margin understated"}>
-                          {fmtCents(p.margin_cents)}{!p.cogs_complete ? " *" : ""}
-                        </td>
-                        <td style={tdR}>{fmtPct(p.margin_pct)}</td>
+                        {canView && (
+                          <td style={tdR} title={p.cogs_complete ? undefined : "Some lines lack COGS — margin understated"}>
+                            {fmtCents(p.margin_cents)}{!p.cogs_complete ? " *" : ""}
+                          </td>
+                        )}
+                        {canView && <td style={tdR}>{fmtPct(p.margin_pct)}</td>}
                         <td style={tdR}>{fmtCents(p.dilution_cents)}</td>
                         <td style={tdR}>{fmtPct(p.dilution_pct)}</td>
                       </tr>

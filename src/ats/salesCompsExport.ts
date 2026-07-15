@@ -100,6 +100,11 @@ export interface SalesCompsExportInput {
   };
   customerFacing: boolean;
   explodePpk:     boolean;
+  // Permission gate (P14 RBAC `margins:export`). When true, every actual-
+  // margin row/column (Margin $, Margin %, TY/LY Mrgn, Δ Margin pp) is
+  // dropped from the workbook; COGS stays. Optional so existing callers/tests
+  // stay valid (defaults false = margins included).
+  hideMargins?: boolean;
   // Totals stack at the top of the workbook.
   dimTotals: DimTotals;
   // Per-View By dimension. Order is the operator's selection order.
@@ -255,6 +260,7 @@ function pushTotalsStack(
   label: string,
   t: DimTotals["combined"],
   customerFacing: boolean,
+  hideMargins: boolean,
 ): void {
   const lbl = totalsRowLabelStyle();
   const num = totalsRowNumStyle();
@@ -292,6 +298,17 @@ function pushTotalsStack(
     numOrBlank(t.lyCogs, num, { numFmt: NUMFMT_USD }),
     growthCell(t.tyCogs, t.lyCogs, num),
   ]);
+  if (hideMargins) {
+    // Margin rows are permission-gated out — COGS becomes the bottom row of
+    // the stack; close it with the heavier TOTAL border (same as the
+    // customer-facing Revenue closure above).
+    const last = aoa[aoa.length - 1];
+    last[0] = { ...last[0], s: lblBot };
+    for (let i = 1; i < last.length; i++) {
+      last[i] = { ...last[i], s: { ...last[i].s, border: BORDER_TOTAL } };
+    }
+    return;
+  }
   // Margin $ row.
   aoa.push([
     { v: `Margin $ — ${label}`, t: "s", s: lbl },
@@ -330,15 +347,17 @@ function soSectionHeader(viewBy: ViewByKey[]): { showSoMeta: boolean; soDimLabel
 // ── Main entry point ───────────────────────────────────────────────────
 export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any; filename: string } {
   const { start, end, scope, customerFacing, explodePpk, dimTotals, viewSections } = input;
+  const hideMargins = input.hideMargins ?? false;
 
   // ── Layout setup ─────────────────────────────────────────────────────
   // The widest section drives the column count so every row pads to the
-  // same width. The per-dim sections (customerFacing ? 6 cols : 13 cols)
-  // are usually widest. SO with style co-selected is 9 cols (showSoMeta).
+  // same width. The per-dim sections (customerFacing ? 6 : hideMargins ? 8
+  // : 13 cols) are usually widest. SO with style co-selected is 9 cols
+  // (showSoMeta).
   let maxCols = 4; // top totals stack: label + TY + LY + Δ
   for (const sec of viewSections) {
     if (sec.kind === "dim") {
-      maxCols = Math.max(maxCols, customerFacing ? 6 : 13);
+      maxCols = Math.max(maxCols, customerFacing ? 6 : hideMargins ? 8 : 13);
     } else {
       const { showSoMeta } = soSectionHeader(sec.viewBy);
       maxCols = Math.max(maxCols, showSoMeta ? 9 : 6);
@@ -416,11 +435,11 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
   aoa.push(stackHeader);
 
   if (dimTotals.hasMixed) {
-    pushTotalsStack(aoa, "PPK packs", dimTotals.ppk, customerFacing);
+    pushTotalsStack(aoa, "PPK packs", dimTotals.ppk, customerFacing, hideMargins);
     aoa.push(padRow([{ v: "", t: "s" }])); // spacer between sub-stacks
-    pushTotalsStack(aoa, "each",      dimTotals.each, customerFacing);
+    pushTotalsStack(aoa, "each",      dimTotals.each, customerFacing, hideMargins);
   } else {
-    pushTotalsStack(aoa, "TOTAL", dimTotals.combined, customerFacing);
+    pushTotalsStack(aoa, "TOTAL", dimTotals.combined, customerFacing, hideMargins);
   }
 
   // Pad every totals row to maxCols.
@@ -466,15 +485,21 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
           headerCell("TY Qty",        PALETTE.HEADER_DARK),
           headerCell("TY Rev",        PALETTE.HEADER_DARK),
           headerCell("TY Cogs",       PALETTE.HEADER_DARK),
-          headerCell("TY Mrgn $",     PALETTE.HEADER_DARK),
-          headerCell("TY Mrgn %",     PALETTE.HEADER_DARK),
+          ...(hideMargins ? [] : [
+            headerCell("TY Mrgn $",   PALETTE.HEADER_DARK),
+            headerCell("TY Mrgn %",   PALETTE.HEADER_DARK),
+          ]),
           headerCell("LY Qty",        PALETTE.HEADER_DARK),
           headerCell("LY Rev",        PALETTE.HEADER_DARK),
           headerCell("LY Cogs",       PALETTE.HEADER_DARK),
-          headerCell("LY Mrgn $",     PALETTE.HEADER_DARK),
-          headerCell("LY Mrgn %",     PALETTE.HEADER_DARK),
+          ...(hideMargins ? [] : [
+            headerCell("LY Mrgn $",   PALETTE.HEADER_DARK),
+            headerCell("LY Mrgn %",   PALETTE.HEADER_DARK),
+          ]),
           headerCell("Δ Rev",         PALETTE.HEADER_DARK),
-          headerCell("Δ Margin pp",   PALETTE.HEADER_DARK),
+          ...(hideMargins ? [] : [
+            headerCell("Δ Margin pp", PALETTE.HEADER_DARK),
+          ]),
         ];
     aoa.push(padRow(headerRow));
     if (!firstHeaderRow) { firstHeaderRow = aoa[aoa.length - 1]; firstBodyRowsStart = aoa.length; }
@@ -502,19 +527,25 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
           numOrBlank(r.tyQty, bodyNumStyle(fill), { numFmt: NUMFMT_QTY }),
           numOrBlank(r.tyRev, bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
           numOrBlank(tyCogs,  bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
-          numOrBlank(r.tyMrgn,bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
-          tyPct > 0
-            ? { v: tyPct, t: "n", s: { ...bodyNumStyle(fill), numFmt: NUMFMT_PCT } }
-            : { v: "", t: "s", s: bodyNumStyle(fill) },
+          ...(hideMargins ? [] : [
+            numOrBlank(r.tyMrgn,bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
+            tyPct > 0
+              ? { v: tyPct, t: "n", s: { ...bodyNumStyle(fill), numFmt: NUMFMT_PCT } }
+              : { v: "", t: "s", s: bodyNumStyle(fill) },
+          ]),
           numOrBlank(r.lyQty, bodyNumStyle(fill), { numFmt: NUMFMT_QTY }),
           numOrBlank(r.lyRev, bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
           numOrBlank(lyCogs,  bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
-          numOrBlank(r.lyMrgn,bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
-          lyPct > 0
-            ? { v: lyPct, t: "n", s: { ...bodyNumStyle(fill), numFmt: NUMFMT_PCT } }
-            : { v: "", t: "s", s: bodyNumStyle(fill) },
+          ...(hideMargins ? [] : [
+            numOrBlank(r.lyMrgn,bodyNumStyle(fill), { numFmt: NUMFMT_USD }),
+            lyPct > 0
+              ? { v: lyPct, t: "n", s: { ...bodyNumStyle(fill), numFmt: NUMFMT_PCT } }
+              : { v: "", t: "s", s: bodyNumStyle(fill) },
+          ]),
           growthCell(r.tyRev, r.lyRev, bodyNumStyle(fill)),
-          marginPointsCell(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev, bodyNumStyle(fill)),
+          ...(hideMargins ? [] : [
+            marginPointsCell(r.tyMrgn, r.tyRev, r.lyMrgn, r.lyRev, bodyNumStyle(fill)),
+          ]),
         ]));
       }
     }
@@ -541,19 +572,25 @@ export function buildSalesCompsWorkbook(input: SalesCompsExportInput): { wb: any
           numOrBlank(t.tyQty, numS, { numFmt: NUMFMT_QTY }),
           numOrBlank(t.tyRev, numS, { numFmt: NUMFMT_USD }),
           numOrBlank(t.tyCogs,numS, { numFmt: NUMFMT_USD }),
-          numOrBlank(t.tyMrgn,numS, { numFmt: NUMFMT_USD }),
-          tyPct > 0
-            ? { v: tyPct, t: "n", s: { ...numS, numFmt: NUMFMT_PCT } }
-            : { v: "", t: "s", s: numS },
+          ...(hideMargins ? [] : [
+            numOrBlank(t.tyMrgn,numS, { numFmt: NUMFMT_USD }),
+            tyPct > 0
+              ? { v: tyPct, t: "n", s: { ...numS, numFmt: NUMFMT_PCT } }
+              : { v: "", t: "s", s: numS },
+          ]),
           numOrBlank(t.lyQty, numS, { numFmt: NUMFMT_QTY }),
           numOrBlank(t.lyRev, numS, { numFmt: NUMFMT_USD }),
           numOrBlank(t.lyCogs,numS, { numFmt: NUMFMT_USD }),
-          numOrBlank(t.lyMrgn,numS, { numFmt: NUMFMT_USD }),
-          lyPct > 0
-            ? { v: lyPct, t: "n", s: { ...numS, numFmt: NUMFMT_PCT } }
-            : { v: "", t: "s", s: numS },
+          ...(hideMargins ? [] : [
+            numOrBlank(t.lyMrgn,numS, { numFmt: NUMFMT_USD }),
+            lyPct > 0
+              ? { v: lyPct, t: "n", s: { ...numS, numFmt: NUMFMT_PCT } }
+              : { v: "", t: "s", s: numS },
+          ]),
           growthCell(t.tyRev, t.lyRev, numS),
-          marginPointsCell(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev, numS),
+          ...(hideMargins ? [] : [
+            marginPointsCell(t.tyMrgn, t.tyRev, t.lyMrgn, t.lyRev, numS),
+          ]),
         ]));
       }
     };

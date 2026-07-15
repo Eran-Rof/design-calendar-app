@@ -28,6 +28,7 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 import DateRangePresets from "./components/DateRangePresets";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const SO_TABLE_KEY = "tangerine:salesorders:columns";
@@ -64,6 +65,10 @@ const SO_COLUMNS: ColumnDef[] = [
   { key: "total_qty",   label: "Qty" },
   { key: "total",       label: "Total" },
 ];
+// Margin-gated columns/export keys (permission: `margins`). Column keys drive the
+// grid + column-picker visibility; export keys drive the CSV/Excel export.
+const SO_MARGIN_COL_KEYS = new Set(["margin_pct", "margin_amt", "total_margin_amt"]);
+const SO_MARGIN_EXPORT_KEYS = new Set(["margin_pct", "margin_cents", "total_margin_cents"]);
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -284,8 +289,16 @@ export default function InternalSalesOrders() {
     } catch { setSoLines((p) => ({ ...p, [so.id]: "error" })); }
   }
 
+  // Margin visibility/export gate (permission-driven; fails open until enforced).
+  const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
+  // Drop margin columns from the grid + column-picker when the caller can't view
+  // them (keeps SO_COLUMNS intact; filters only at the use site).
+  const soColumns = useMemo(
+    () => (canViewMargins ? SO_COLUMNS : SO_COLUMNS.filter((c) => !SO_MARGIN_COL_KEYS.has(c.key))),
+    [canViewMargins],
+  );
   // Wave 5 — universal column show/hide.
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, SO_COLUMNS);
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(SO_TABLE_KEY, soColumns);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
 
   const customerName = useMemo(() => {
@@ -339,7 +352,7 @@ export default function InternalSalesOrders() {
 
   // Export rows mirror the displayed list (same filter/search).
   const exportRows = useMemo(() => filteredRows.map(toExportRow), [filteredRows, toExportRow]);
-  const exportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
+  const allExportColumns: ExportColumn<(typeof exportRows)[number]>[] = [
     { key: "so_number",  header: "SO #" },
     { key: "customer",   header: "Customer" },
     { key: "store",      header: "Warehouse" },
@@ -357,6 +370,7 @@ export default function InternalSalesOrders() {
     { key: "total_qty",  header: "Qty", format: "number" },
     { key: "total_cents", header: "Total", format: "currency_cents" },
   ];
+  const exportColumns = allExportColumns.filter((c) => canExportMargins || !SO_MARGIN_EXPORT_KEYS.has(c.key as string));
 
   // Item 17 — "Export all": walk every server page (offset 0, 500, 1000, …) with
   // the SAME filters/search the list uses, so the download covers the whole
@@ -487,7 +501,7 @@ export default function InternalSalesOrders() {
         <button style={btnSecondary} onClick={() => void load()}>Refresh</button>
         <TablePrefsButton
           tableKey={SO_TABLE_KEY}
-          columns={SO_COLUMNS}
+          columns={soColumns}
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}

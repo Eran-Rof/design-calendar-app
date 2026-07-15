@@ -3,6 +3,7 @@ import { fmtDateDisplay } from "../helpers";
 import type { CtxMenu, SummaryCtxMenu } from "../types";
 import { getSkuSalesAggregates, type SkuSalesAggregates } from "../exportSalesFetch";
 import { askAI, buildRowAskPrompt } from "../../ai/askAIBridge";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 
 // Shared store pill — used by both summary and cell menus
 const storeTag = (store: string) => {
@@ -44,6 +45,9 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
   // the empty-zero object means the fetch ran but found nothing.
   const [salesAgg, setSalesAgg] = useState<SkuSalesAggregates | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
+  // Margin visibility gate (P14 RBAC `margins:read`). Fails open until
+  // enforcement is live. Hides the margin lines in this popover only.
+  const { canView } = useCanSeeMargins();
 
   useEffect(() => {
     setSalesAgg(null);
@@ -248,7 +252,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
               <div style={{ background: "rgba(245,158,11,0.12)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#FCD34D", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #3D2E00" }}>
                 Committed Sales Orders — {soList.length} order{soList.length !== 1 ? "s" : ""} · {isPrepack
                   ? `${totalSoQtyPacks.toLocaleString()} pack${totalSoQtyPacks !== 1 ? "s" : ""} (${totalSoQtyUnits.toLocaleString()} units)`
-                  : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(totalSoVal / totalSoQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                  : `${totalSoQtyPacks.toLocaleString()} units`}{totalSoVal > 0 ? ` · $${totalSoVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(totalSoVal / totalSoQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(totalSoVal / totalSoQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{canView && headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {Object.keys(soByStore).length > 1 && (
                 <div style={{ padding: "6px 14px", borderBottom: "1px solid #1a2030", display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -309,7 +313,7 @@ export const SummaryContextMenu: React.FC<SummaryContextMenuProps> = ({ summaryC
                       <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(g.date)}</span>
                       {grpUnitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${grpUnitPrice.toFixed(2)}</span>}
                       {g.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${g.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
-                      {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
+                      {canView && lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>
                   </div>
                 );
@@ -396,6 +400,9 @@ interface CellContextMenuProps {
 // Right-click popup for individual period cells. Shows PO + SO events
 // on that date with totals and click-through to PO WIP.
 export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRef, setCtxMenu }) => {
+  // Margin visibility gate (P14 RBAC `margins:read`). Fails open until
+  // enforcement is live. Hides the margin lines in this popover only.
+  const { canView } = useCanSeeMargins();
   if (!ctxMenu) return null;
 
   // Grain — pack-aware. Used by both the SO and PO sub-blocks below so
@@ -495,7 +502,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
               <div style={{ background: "rgba(59,130,246,0.15)", padding: "7px 14px", fontSize: 11, fontWeight: 700, color: "#93C5FD", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #1E3A5F" }}>
                 Sales Orders ({soList.length}) · {isPrepack
                   ? `${tQtyPacks.toLocaleString()} pack${tQtyPacks !== 1 ? "s" : ""} (${tQtyUnits.toLocaleString()} units)`
-                  : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(tVal / tQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
+                  : `${tQtyPacks.toLocaleString()} units`}{tVal > 0 ? ` · $${tVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Avg $${(tVal / tQtyPacks).toFixed(2)}/${isPrepack ? "pack" : "unit"}${isPrepack ? `/${ppkMult} Each $${(tVal / tQtyPacks / ppkMult).toFixed(2)}` : ""}` : ""}{canView && headerMarginPct !== null ? ` · Margin ${headerMarginPct >= 0 ? "" : "-"}${Math.abs(headerMarginPct).toFixed(1)}%` : ""}
               </div>
               {soList.map((g, i) => {
                 // Weighted-avg unit price across the collapsed lines.
@@ -531,7 +538,7 @@ export const CellContextMenu: React.FC<CellContextMenuProps> = ({ ctxMenu, ctxRe
                       <span style={{ color: "#94A3B8", fontSize: 11 }}>Cancel: {fmtDateDisplay(g.date)}</span>
                       {grpUnitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>{isPrepack ? "Pack" : "Unit"}: ${grpUnitPrice.toFixed(2)}</span>}
                       {g.totalPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Total: ${g.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
-                      {lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
+                      {canView && lineMargin !== null && <span style={{ color: marginColor, fontSize: 11, fontWeight: 600 }}>Margin {lineMargin >= 0 ? "" : "-"}{Math.abs(lineMargin).toFixed(1)}%</span>}
                     </div>
                   </div>
                 );
@@ -656,6 +663,9 @@ interface SalesHistoryBlockProps {
 }
 
 const SalesHistoryBlock: React.FC<SalesHistoryBlockProps> = ({ label, windowLabel, agg, avgCost, ppkMult, isPrepack, customerFilter }) => {
+  // Margin visibility gate (P14 RBAC `margins:read`). Fails open until
+  // enforcement is live. Hides the T3 / SP-LY margin figure only.
+  const { canView } = useCanSeeMargins();
   const empty = agg.qty === 0 && agg.totalPrice === 0;
   // agg.qty is at UNIT grain (qty_units from the DB, or qty fallback for
   // legacy rows). Both unitPrice and avgCost are now per-unit, so margin
@@ -692,7 +702,7 @@ const SalesHistoryBlock: React.FC<SalesHistoryBlockProps> = ({ label, windowLabe
           <span style={{ color: "#F59E0B", fontWeight: 700 }}>{qtyDisplay}</span>
           {agg.totalPrice > 0 && <span>${agg.totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
           {unitPrice > 0 && <span style={{ color: "#94A3B8", fontSize: 11 }}>Avg ${(isPrepack && ppkMult > 1 ? unitPrice * ppkMult : unitPrice).toFixed(2)}/{isPrepack ? "pack" : "unit"}</span>}
-          {margin !== null && <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>Margin {margin >= 0 ? "" : "-"}{Math.abs(margin).toFixed(1)}%</span>}
+          {canView && margin !== null && <span style={{ color: marginColor, fontWeight: 600, fontSize: 11 }}>Margin {margin >= 0 ? "" : "-"}{Math.abs(margin).toFixed(1)}%</span>}
         </div>
       )}
     </div>

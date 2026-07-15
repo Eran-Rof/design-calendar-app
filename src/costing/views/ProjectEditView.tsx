@@ -16,7 +16,8 @@ import CustomerPickerCell from "../panels/CustomerPickerCell";
 import SalesRepPickerCell from "../panels/SalesRepPickerCell";
 import { customerDisplayName, listPaymentTerms, type PaymentTermHit } from "../services/costingApi";
 import ExportButton from "../../tanda/exports/ExportButton";
-import { buildExportRows, COSTING_EXPORT_COLUMNS, buildExportFilename, computeExportTotals } from "../services/exportService";
+import { buildExportRows, costingExportColumns, buildExportFilename, computeExportTotals } from "../services/exportService";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 import { sbLoad as sbLoadSvc } from "../../store/supabaseService";
 import { tabStyle } from "./tabStyle";
 import { confirmDialog } from "../../shared/ui/warn";
@@ -49,6 +50,11 @@ export default function ProjectEditView() {
   const clear   = useCostingStore((s) => s.clearActive);
   const deleteLine = useCostingStore((s) => s.deleteLine);
   const setStageFilter = useCostingStore((s) => s.setStageFilter);
+
+  // Margin-visibility / export gate (P14 RBAC `margins`). canView drops the
+  // weighted-margin from the export TOTAL row; canExport drops the margin
+  // columns from the exported file. Both fail-open (TRUE) until enforce is live.
+  const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
 
   // Item 2 — incomplete-row guard. Rows missing style/color/vendor/qty/cost/
   // sell can't be sent; warn when leaving the project (or switching away from
@@ -100,7 +106,7 @@ export default function ProjectEditView() {
     // the grid's own footer. computeExportTotals lives in exportService so
     // the screen + export stay in lockstep. Skipped when there are no rows.
     if (rows.length === 0) return rows;
-    const t = computeExportTotals(rows);
+    const t = computeExportTotals(rows, canExportMargins);
     const totalsRow = {
       style_code: "TOTAL",
       style_name: "", description: "", size_scale: "", fabric: "", fit: "",
@@ -108,14 +114,14 @@ export default function ProjectEditView() {
       target_qty: t.totalQty,
       vendor: "",
       target_cost: "" as const, sell_target: "" as const, sell_price: "" as const,
-      margin_pct: t.weightedMargin,
+      margin_pct: canViewMargins ? t.weightedMargin : ("" as const),
       priced_date: "", ly_unit_cost: "" as const, ly_qty: "" as const,
       ly_margin_pct: "" as const, remarks: "",
       total_cost: t.totalCost,
       total_sales: t.totalSales,
     };
     return [...rows, totalsRow];
-  }, [lines, vendorQuotes]);
+  }, [lines, vendorQuotes, canViewMargins, canExportMargins]);
 
   const [form, setForm] = useState<CostingProjectPatch>({});
   const [tab, setTab] = useState<EditTab>("grid");
@@ -264,7 +270,7 @@ export default function ProjectEditView() {
           </span>
           <ExportButton
             rows={exportRows as unknown as Record<string, unknown>[]}
-            columns={COSTING_EXPORT_COLUMNS as unknown as never}
+            columns={costingExportColumns(canExportMargins) as unknown as never}
             filename={buildExportFilename(project)}
             sheetName="Costing"
           />

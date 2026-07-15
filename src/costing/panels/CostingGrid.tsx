@@ -32,6 +32,7 @@ import { fetchStyleSeedSku, generateRfqs, searchStyles } from "../services/costi
 import { resolveCost } from "../../shared/costResolution";
 import { confirmDialog, notify } from "../../shared/ui/warn";
 import { marginTierColor } from "../../techpack/calc";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 import {
   isDdpProject, lineCostBasis, lineMarginPct, solveCostFromMargin, solveSellFromMargin,
   rowMissingFields, projectHeaderMissing, num as cnum,
@@ -191,6 +192,15 @@ export default function CostingGrid() {
   // Other are not entered separately) and rename "Tgt Cost" → "Trgt DDP".
   // Match /DDP/i against the project's payment_terms_name snapshot so "DDP",
   // "DDP 30", "DDP 60" etc. all trigger it.
+  // Margin-visibility gate (P14 RBAC `margins:read`). When the caller lacks it,
+  // the three margin% columns (Margin %, LY Mgn %, T3 Mgn %) and the weighted-
+  // margin footer are dropped entirely — not just from the grid but from the
+  // column-picker too, since all three surfaces derive from displayColumns.
+  // Fail-open: canView is TRUE until enforcement is live. NOTE: _sell_from_margin
+  // is a SELL PRICE (not a margin figure) and is intentionally NOT gated.
+  const { canView: canViewMargins } = useCanSeeMargins();
+  const MARGIN_COLS = React.useMemo(() => new Set(["_margin", "ly_margin_pct", "t3_margin_pct"]), []);
+
   const isDdp = isDdpProject(project);
   // The FOB→Landed component columns. Grouped under one "FOB / Landed Target"
   // band in the header (item 4) and hidden entirely in DDP mode (the vendor
@@ -199,6 +209,7 @@ export default function CostingGrid() {
   const DDP_HIDDEN = new Set(FOB_GROUP);
   const displayColumns = COLUMNS
     .filter((c) => !(isDdp && DDP_HIDDEN.has(c.key)))
+    .filter((c) => canViewMargins || !MARGIN_COLS.has(c.key))
     .map((c) => (isDdp && c.key === "target_cost" ? { ...c, label: "Tgt DDP Cost" } : c));
 
   const visibleColumns = displayColumns.filter((c) => !hiddenColumns.has(c.key));

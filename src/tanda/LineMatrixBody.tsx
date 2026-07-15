@@ -31,6 +31,7 @@ import { canonSizeLabel } from "../shared/sizeSort";
 import { confirmDialog } from "../shared/ui/warn";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 const C = {
   card: "#1E293B", cardBdr: "#334155", text: "#F1F5F9", textMuted: "#94A3B8",
@@ -254,7 +255,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   // Per-mode presentation. PO buys (cost column, no margin, no availability);
   // SO / AR sell (price column, margin). Availability hints are SO-only.
   const moneyLabel = mode === "po" ? "Unit Cost $" : "Unit $";
-  const showMargin = mode !== "po";
+  // Margin visibility gate (permission-driven; fails open until enforced). When
+  // the caller can't view margins the projected-margin total AND the per-style
+  // below-cost badge are simply absent.
+  const { canView: canViewMargins } = useCanSeeMargins();
+  const showMargin = mode !== "po" && canViewMargins;
   const showAvail = mode === "so";
   const [styles, setStyles] = useState<Style[]>([]);
   const [sections, setSections] = useState<Section[]>([]);

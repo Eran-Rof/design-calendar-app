@@ -8,6 +8,7 @@ import { computeGridTotals } from "../computeTotals";
 import { periodAvail } from "../compute";
 import { StyleThumb } from "../../shared/ui/StyleThumb";
 import { useStyleThumbsByCode } from "../hooks/useStyleThumbsByCode";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 
 // Renders a qty cell that shows either the unit-grain or pack-grain
 // number based on the EXPLODE PPK toggle, with a small faded hint
@@ -231,6 +232,10 @@ export const GridTable: React.FC<GridTableProps> = ({
   // Wire arrow / pgup-pgdn / shift-home/end to scroll the grid when
   // no input has focus. See useArrowKeyScroll above.
   useArrowKeyScroll(tableRef);
+
+  // Margin visibility gate (P14 RBAC `margins:read`) — the totals-row cells
+  // show Mrgn $ / Mrgn % lines; both are absent without the grant.
+  const { canView: canViewMargin } = useCanSeeMargins();
 
   // Per-row style thumbnails. Fetch primary thumbs for the styles on the
   // CURRENT PAGE only (page size is bounded, so the request stays small)
@@ -466,14 +471,18 @@ export const GridTable: React.FC<GridTableProps> = ({
         <span style={{ ...valueStyle, color: "#94A3B8", fontWeight: 600, fontSize: 11 }}>{fmtUSD(cost)}</span>
         <span style={labelStyle}>Sale:</span>
         <span style={{ ...valueStyle, color: "#3B82F6", fontWeight: 600, fontSize: 11 }}>{fmtUSD(sale)}</span>
-        <Label>Mrgn $:</Label>
-        <span style={{ ...valueStyle, color: dollarColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
-          {sale > 0 ? fmtUSD(marginDollars) : "—"}
-        </span>
-        <Label>Mrgn:</Label>
-        <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
-          {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
-        </span>
+        {canViewMargin && (
+          <>
+            <Label>Mrgn $:</Label>
+            <span style={{ ...valueStyle, color: dollarColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
+              {sale > 0 ? fmtUSD(marginDollars) : "—"}
+            </span>
+            <Label>Mrgn:</Label>
+            <span style={{ ...valueStyle, color: marginColor, fontWeight: 600, fontSize: 11 }} title={skipTitle}>
+              {sale > 0 ? `${margin.toFixed(1)}%` : "—"}
+            </span>
+          </>
+        )}
         <span style={labelStyle} title="Ending inventory $ for the period (= B Inven + receipts$ − COGS$). Flows to the next period's B Inven.">E Inven:</span>
         <span style={{ ...valueStyle, color: "#F472B6", fontWeight: 600, fontSize: 11 }}>{eInven > 0 ? fmtUSD(eInven) : "—"}</span>
       </div>

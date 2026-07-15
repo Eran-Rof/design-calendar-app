@@ -26,6 +26,7 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import DateRangePresets from "./components/DateRangePresets.tsx";
 import SegmentGLDrillModal, { type SegmentGLDrillTarget } from "./components/SegmentGLDrillModal";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -150,6 +151,8 @@ export default function InternalSegmentPL() {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   // Drill-through Phase 2 — the cell → GL accounts modal.
   const [glDrill, setGlDrill] = useState<SegmentGLDrillTarget | null>(null);
+  // Margin visibility gate (P14 `margins` capability; fails open until enforce).
+  const { canView, canExport } = useCanSeeMargins();
 
   useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(columns)); } catch { /* ignore */ } }, [columns]);
 
@@ -256,11 +259,13 @@ export default function InternalSegmentPL() {
       });
     }
     measure("COGS", (a) => (a.cogsKnown ? a.cogs : null));
-    measure("Gross Margin", gm);
-    measure("Gross Margin %", gmPct);
+    if (canExport) {
+      measure("Gross Margin", gm);
+      measure("Gross Margin %", gmPct);
+    }
     measure("Units", (a) => a.qty);
     return out;
-  }, [displayCols, genders, byGender]);
+  }, [displayCols, genders, byGender, canExport]);
 
   const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => [
     { key: "measure", header: "Measure" },
@@ -429,8 +434,8 @@ export default function InternalSegmentPL() {
                 </tr>
               ))}
               {measureRow("COGS", (a) => (a.cogsKnown ? a.cogs : null), money, { drill: "cogs" })}
-              {measureRow("Gross Margin", gm, money, { bold: true, color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
-              {measureRow("Gross Margin %", gmPct, pct, { color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
+              {canView && measureRow("Gross Margin", gm, money, { bold: true, color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
+              {canView && measureRow("Gross Margin %", gmPct, pct, { color: (v) => (v == null ? C.textMuted : v >= 0 ? C.success : C.danger) })}
               {measureRow("Units", (a) => a.qty, (v) => (v == null ? "—" : Math.round(v).toLocaleString("en-US")))}
             </tbody>
           </table>

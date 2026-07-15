@@ -21,17 +21,20 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { TANGERINE_MODULES } from "../../../_lib/tangerineModules.js";
+import { CAPABILITY_MODULES } from "../../../_lib/capabilityModules.js";
 
 export const config = { maxDuration: 15 };
 
 // The User Access grid shows exactly the CURRENT Tangerine menu items (the
-// generated nav mirror). The DB module_keys table may carry stale legacy keys
+// generated nav mirror) PLUS the hand-curated cross-cutting capabilities
+// (api/_lib/capabilityModules.js — e.g. `margins`) that are grantable but are
+// not nav destinations. The DB module_keys table may carry stale legacy keys
 // (e.g. product_master, coa) that are no longer in the nav — those are dropped
 // from the grid. For keys that ARE current, any curated DB values
 // (display_name / available_actions / sort_order) override the mirror default.
 function mergeModules(dbRows) {
   const dbByKey = new Map((dbRows || []).map((r) => [r.key, r]));
-  return TANGERINE_MODULES
+  return [...TANGERINE_MODULES, ...CAPABILITY_MODULES]
     .map((m) => {
       const r = dbByKey.get(m.key);
       return {

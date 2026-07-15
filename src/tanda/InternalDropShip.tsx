@@ -14,6 +14,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -52,6 +53,9 @@ export default function InternalDropShip() {
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // Margin visibility/export gate (permission-driven; fails open until enforced).
+  const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
 
   const [custId, setCustId] = useState("");
   const [vendId, setVendId] = useState("");
@@ -170,11 +174,12 @@ export default function InternalDropShip() {
     }
     return body;
   }, [rows, custName, vendName]);
-  const exportCols: ExportColumn<ExportRow>[] = [
+  const allExportCols: ExportColumn<ExportRow>[] = [
     { key: "ds_number", header: "DS #" }, { key: "customer", header: "Customer" }, { key: "vendor", header: "Vendor" },
     { key: "status", header: "Status" }, { key: "lines", header: "Lines", format: "number" },
     { key: "revenue_dollars", header: "Revenue $", format: "currency_dollars" }, { key: "margin_dollars", header: "Margin $", format: "currency_dollars" },
   ];
+  const exportCols = allExportCols.filter((c) => canExportMargins || c.key !== "margin_dollars");
 
   return (
     <div style={{ background: C.bg, minHeight: "100%", color: C.text, padding: 16 }}>
@@ -229,7 +234,7 @@ export default function InternalDropShip() {
             <SortableTh label="Vendor" sortKey="vendor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
             <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
             <SortableTh label="Rev $" sortKey="revenue" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
-            <SortableTh label="Margin $" sortKey="margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            {canViewMargins && <SortableTh label="Margin $" sortKey="margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />}
             <th style={th}>Actions</th>
           </tr></thead>
           <tbody>
@@ -242,7 +247,7 @@ export default function InternalDropShip() {
                   <td style={td}>{o.vendors?.name || vendName.get(o.vendor_id) || "—"}</td>
                   <td style={td}><span style={chip(STATUS_COLOR[o.status] || C.textMuted)}>{o.status}</span></td>
                   <td style={{ ...td, textAlign: "right" }}>${(revenue(o) / 100).toFixed(2)}</td>
-                  <td style={{ ...td, textAlign: "right", color: margin(o) >= 0 ? C.success : C.danger }}>${(margin(o) / 100).toFixed(2)}</td>
+                  {canViewMargins && <td style={{ ...td, textAlign: "right", color: margin(o) >= 0 ? C.success : C.danger }}>${(margin(o) / 100).toFixed(2)}</td>}
                   <td style={td} onClick={(e) => e.stopPropagation()}>
                     {o.status === "requested" && <button style={{ ...btnS, padding: "4px 10px" }} disabled={busy} onClick={() => patch(o, { action: "confirm" })}>Confirm</button>}
                     {o.status === "confirmed" && <button style={{ ...btnP, padding: "4px 10px" }} disabled={busy} onClick={() => patch(o, { action: "ship" })}>Mark shipped</button>}
@@ -255,7 +260,7 @@ export default function InternalDropShip() {
                   <tr>
                     <td style={{ ...td, background: "#0b1220" }} colSpan={7}>
                       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}>
-                        <thead><tr><th style={th}>#</th><th style={th}>Item</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Cust $</th><th style={{ ...th, textAlign: "right" }}>Cost $</th><th style={{ ...th, textAlign: "right" }}>Margin $</th></tr></thead>
+                        <thead><tr><th style={th}>#</th><th style={th}>Item</th><th style={th}>Description</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Cust $</th><th style={{ ...th, textAlign: "right" }}>Cost $</th>{canViewMargins && <th style={{ ...th, textAlign: "right" }}>Margin $</th>}</tr></thead>
                         <tbody>
                           {o.drop_ship_lines.sort((a, b) => a.line_number - b.line_number).map((l) => (
                             <tr key={l.id}>
@@ -265,7 +270,7 @@ export default function InternalDropShip() {
                               <td style={{ ...td, textAlign: "right" }}>{Number(l.qty)}</td>
                               <td style={{ ...td, textAlign: "right" }}>${(l.customer_unit_price_cents / 100).toFixed(2)}</td>
                               <td style={{ ...td, textAlign: "right" }}>${(l.vendor_unit_cost_cents / 100).toFixed(2)}</td>
-                              <td style={{ ...td, textAlign: "right", color: C.textSub }}>${(Number(l.qty) * (l.customer_unit_price_cents - l.vendor_unit_cost_cents) / 100).toFixed(2)}</td>
+                              {canViewMargins && <td style={{ ...td, textAlign: "right", color: C.textSub }}>${(Number(l.qty) * (l.customer_unit_price_cents - l.vendor_unit_cost_cents) / 100).toFixed(2)}</td>}
                             </tr>
                           ))}
                         </tbody>

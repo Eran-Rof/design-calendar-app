@@ -25,6 +25,7 @@ import type {
 } from "../services/costingApi";
 import { fmtDateDisplay } from "../helpers";
 import CollapsibleHeader from "../panels/CollapsibleHeader";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 
 const fmtUnit = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtMoney = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -255,6 +256,11 @@ function quoteExtendedTotal(rfq: RfqCompareRfq, q: RfqCompareQuote): number | nu
 function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
   const quotes = rfq.quotes;
   const hasQuotes = quotes.length > 0;
+  // Margin-visibility gate (P14 RBAC `margins:read`). When false, every margin
+  // surface in the matrix — the per-cell "mgn", the per-vendor "Weighted margin"
+  // footer, the project-summary "Best margin", and the "best margin" vendor pill
+  // — is simply absent. Cost/price/spread cells are unaffected. Fail-open today.
+  const { canView: canViewMargins } = useCanSeeMargins();
 
   // Per-line sell-price overrides — seeded from server data, editable inline.
   // useEffect re-seeds whenever the server returns updated sell_price values so
@@ -401,7 +407,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
         ) : (
           <span style={{ color: C.subtle }}>No priced quotes to total.</span>
         )}
-        {bestMarginVendorIdx >= 0 && vendorMargins[bestMarginVendorIdx] !== null && (
+        {canViewMargins && bestMarginVendorIdx >= 0 && vendorMargins[bestMarginVendorIdx] !== null && (
           <span style={{ marginLeft: 18 }}>
             <strong style={{ color: C.bestFg }}>Best margin:</strong>{" "}
             {quotes[bestMarginVendorIdx].vendor_name || "Vendor"}{" "}
@@ -435,7 +441,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                     {i === cheapestVendorIdx && (
                       <span style={bestPill}>cheapest</span>
                     )}
-                    {i === bestMarginVendorIdx && vendorMargins[i] !== null && (
+                    {canViewMargins && i === bestMarginVendorIdx && vendorMargins[i] !== null && (
                       <span style={bestMarginPill}>best margin</span>
                     )}
                   </div>
@@ -519,9 +525,11 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
                           <>
                             <div>{unit(c.unit)}{isMin && <span style={{ fontSize: 10, marginLeft: 4 }}>best</span>}</div>
                             {ext !== null && <div style={{ fontSize: 11, color: C.subtle }}>ext {money(ext)}</div>}
-                            <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
-                              mgn {pctMargin(mgn)}
-                            </div>
+                            {canViewMargins && (
+                              <div style={{ fontSize: 11, color: marginColor(mgn), fontWeight: mgn !== null ? 600 : 400 }}>
+                                mgn {pctMargin(mgn)}
+                              </div>
+                            )}
                             {pctAbove > 0 && (
                               <div style={{ fontSize: 11, color: C.pctAbove }}>+{fmtPct.format(pctAbove)}%</div>
                             )}
@@ -559,6 +567,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
               ))}
               <td style={{ ...tdStyle, background: C.bandBg }} />
             </tr>
+            {canViewMargins && (
             <tr style={{ background: C.bandBg }}>
               <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 700, textAlign: "left" }}>
                 Weighted margin
@@ -582,6 +591,7 @@ function RfqMatrix({ rfq }: { rfq: RfqCompareRfq }) {
               })}
               <td style={{ ...tdStyle, background: C.bandBg }} />
             </tr>
+            )}
             <tr style={{ background: C.bandBg }}>
               <td style={{ ...tdStyle, position: "sticky", left: 0, background: C.bandBg, fontWeight: 600, textAlign: "left", color: C.subtle }}>
                 Lead time · Valid until

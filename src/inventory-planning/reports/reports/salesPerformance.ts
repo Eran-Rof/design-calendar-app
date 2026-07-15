@@ -35,7 +35,12 @@ export function buildSalesPerformance(
   sales: RepSaleW[],
   ctx: LookupCtx,
   params: SalesParams,
+  opts?: { includeMargins?: boolean },
 ): ReportResult {
+  // Margin visibility gate. Callers thread the viewer's margin permission here;
+  // when false the "Margin %" column + summary tile are omitted. Default true
+  // (fail-open) — this module cannot call the RBAC hook itself.
+  const includeMargins = opts?.includeMargins !== false;
   const { groupBy, txnType, tyStartIso, endIso } = params;
   const buckets = new Map<string, Bucket>();
 
@@ -94,7 +99,7 @@ export function buildSalesPerformance(
     { key: "units", header: "Units (TY)", format: "number", align: "right" },
     { key: "net_sales", header: "Net Sales (TY)", format: "currency_dollars", align: "right" },
     { key: "avg_price", header: "Avg Price", format: "currency_dollars", align: "right" },
-    { key: "margin_pct", header: "Margin %", format: "percent", align: "right" },
+    ...(includeMargins ? [{ key: "margin_pct", header: "Margin %", format: "percent", align: "right" } as ReportColumn] : []),
     { key: "units_ly", header: "Units (LY)", format: "number", align: "right" },
     { key: "net_sales_ly", header: "Net Sales (LY)", format: "currency_dollars", align: "right" },
     { key: "yoy_pct", header: "YoY %", format: "percent", align: "right" },
@@ -125,7 +130,7 @@ export function buildSalesPerformance(
   const summary = [
     { label: "Net Sales (TY)", value: money(tyNet) },
     { label: "Units (TY)", value: Math.round(tyUnits).toLocaleString() },
-    { label: "Margin %", value: `${pct(tyMargin, tyNet)}%` },
+    ...(includeMargins ? [{ label: "Margin %", value: `${pct(tyMargin, tyNet)}%` }] : []),
     {
       label: "YoY",
       value: lyNet ? `${round1(((tyNet - lyNet) / lyNet) * 100)}%` : "—",

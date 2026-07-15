@@ -8,6 +8,7 @@
 import React, { useMemo, useState } from "react";
 import type { ExcelData } from "../types";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 
 function todayIso(): string {
   const d = new Date();
@@ -101,6 +102,11 @@ export interface ExportOptions {
   // is mutually exclusive with Customer Facing. Optional so existing
   // ExportOptions constructors (defaults, tests) stay valid.
   buyerWorksheet?: boolean;
+  // Permission gate (P14 RBAC `margins:export`). When true, every actual-
+  // margin column (T3/LY Mrgn %, Δ-margin) is dropped from the workbook.
+  // NOT set by this modal's UI — threaded in by the caller (NavBar) from
+  // useCanSeeMargins.canExport. Optional so existing constructors stay valid.
+  hideMargins?: boolean;
 }
 
 interface Props {
@@ -117,6 +123,11 @@ interface Props {
 }
 
 export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, onView, excelData, defaultCustomer }) => {
+  // Margin visibility gate (P14 RBAC `margins` capability). canView hides the
+  // "Show margin column for trailing / SPLY" toggle (meaningless without the
+  // grant); canExport drops the actual-margin columns from the workbook via
+  // ExportOptions.hideMargins. Fails open until enforcement.
+  const { canView, canExport } = useCanSeeMargins();
   const [subtotals, setSubtotals]             = useState(true);
   const [avgCost, setAvgCost]                 = useState(false);
   const [slsPrcAtMrgn, setSlsPrcAtMrgn]       = useState(false);
@@ -203,6 +214,9 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
     // formulas; the export layer applies that. Suppressed under Hide ATS data
     // (no cost/price columns survive that mode).
     buyerWorksheet: hideATSData ? false : buyerWorksheet,
+    // Permission gate — margin columns never reach a workbook the caller
+    // isn't granted to export (covers both Download and View preview paths).
+    hideMargins: !canExport,
   });
 
   // Custom-range validity is only meaningful when both Hide ATS data
@@ -472,10 +486,12 @@ export const ExportOptionsModal: React.FC<Props> = ({ open, onClose, onConfirm, 
                     </div>
                   )}
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94A3B8", cursor: "pointer" }}>
-                  <input type="checkbox" checked={showCustomerMargin} onChange={e => setShowCustMrgn(e.target.checked)} />
-                  Show margin column for trailing / SPLY
-                </label>
+                {canView && (
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#94A3B8", cursor: "pointer" }}>
+                    <input type="checkbox" checked={showCustomerMargin} onChange={e => setShowCustMrgn(e.target.checked)} />
+                    Show margin column for trailing / SPLY
+                  </label>
+                )}
               </div>
             )}
           </div>
