@@ -76,7 +76,7 @@ export function arBucketFor(days) {
 }
 
 export function parseDetailQuery(params) {
-  const out = { mode: "current", bucket: null, customer_id: null };
+  const out = { mode: "current", bucket: null, customer_id: null, ar_account_id: null };
 
   const bucket = (params.get("bucket") || "").trim();
   if (!AR_BUCKETS.includes(bucket)) {
@@ -95,6 +95,12 @@ export function parseDetailQuery(params) {
   if (customerId) {
     if (!UUID_RE.test(customerId)) return { error: "customer_id must be a UUID" };
     out.customer_id = customerId;
+  }
+
+  const arAccount = (params.get("ar_account") || "").trim();
+  if (arAccount && arAccount !== "all") {
+    if (!UUID_RE.test(arAccount)) return { error: "ar_account must be a UUID or 'all'" };
+    out.ar_account_id = arAccount;
   }
 
   return { data: out };
@@ -138,6 +144,7 @@ export default async function handler(req, res) {
         .order("invoice_number", { ascending: true })
         .range(off, off + PAGE - 1);
       if (v.data.customer_id) q = q.eq("customer_id", v.data.customer_id);
+      if (v.data.ar_account_id) q = q.eq("ar_account_id", v.data.ar_account_id);
       if (v.data.mode === "as_of") q = q.lte("posting_date", v.data.as_of);
       q = applyBrandScope(q, req);
       const { data, error } = await q;

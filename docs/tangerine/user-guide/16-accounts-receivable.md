@@ -361,10 +361,24 @@ Each row's "Total Open" matches the sum across all six buckets. The footer row t
 > entry (**JE**). Deep link: `?m=ar_aging&bucket=<key>&party=<customer id>`. See the
 > [Accounting chapter's drill-through section](03-accounting.md#drill-through-phase-2--agings-segment-pl-bank-recon-2026-07-09).
 
+### AR-account filter + the House / Factored / Credit-card split (2026-07-15)
+
+The AR control account is **split** into three GL accounts, and the headline aging total sums all of them:
+
+| Account | What it is |
+|---|---|
+| **1108 House** | Ordinary wholesale + Macy's receivables the company collects itself. Macy's (MMG) is **house**, not factored. |
+| **1107 Factored** | Invoices sold to the factor (Rosenthal). This is **Rosenthal's** exposure — the factor advanced cash against it — not the company's own collectable AR. It is by far the largest slice. |
+| **1105 Credit-card** | Card-settled AR (none currently open). |
+
+The panel now has an **AR account** selector and a **summary strip** of clickable cards (House / Factored / Credit-card, each with its open $ and invoice count). Pick an account — or click a card — and the buckets, totals, drill-through and export all recompute for just that account. "All AR accounts" restores the combined view. This is why the combined number looks large: **factored (Rosenthal's) dwarfs the collectable house AR.** Split it to read each correctly.
+
+> **Why the combined total was overstated.** Beyond the factored/house split, ~$0.74M of **house** AR is a reconciliation artifact: **Shopify D2C** ecom orders were backfilled from sales history as *open* invoices, but D2C is **card-paid at checkout** — the payment was never applied, so they age forever. They are flagged **D2C** in the grid, summarized in an amber **Shopify D2C (likely unreconciled)** card, and hidden by the **Exclude Shopify D2C** toggle. Removing factored + Shopify D2C leaves the true **house-wholesale** AR (of which Macy's is the largest piece). These invoices are *not* auto-cleared because no per-invoice payment record exists to match deterministically; an operator can reconcile them with `scripts/backfills/shopify_d2c_ar_reconcile.sql` (creates the AR receipt + application dated to the invoice date, posts nothing to the GL, idempotent). Pre-cutoff (before 2024-09-01) open AR is $0 — the migrated AR detail starts at the cutoff.
+
 ### Modes
 
-- **Default mode** (no `as_of` parameter): reads the `v_ar_aging` view which uses `CURRENT_DATE`. Fast — view is computed live by the DB.
-- **As-of mode** (pick a date in the past): calls the `ar_aging_as_of(p_entity_id, p_as_of_date)` RPC. Useful for retroactive close-of-period reports. Slightly slower than the view because the RPC re-aggregates.
+- **Default mode** (no `as_of` parameter): reads the `v_ar_aging` view which uses `CURRENT_DATE`. Fast — view is computed live by the DB. The view carries `ar_account_id`; the handler `.eq()`-filters it when an account is selected, and `v_ar_open_by_account` feeds the summary strip / dropdown.
+- **As-of mode** (pick a date in the past): calls the `ar_aging_as_of(p_entity_id, p_as_of_date, p_brand_id, p_ar_account_id)` RPC (the last two are optional filters, NULL = all). Useful for retroactive close-of-period reports. Slightly slower than the view because the RPC re-aggregates.
 
 The mode badge in the header ("mode: current" / "mode: as_of") shows which path is active.
 

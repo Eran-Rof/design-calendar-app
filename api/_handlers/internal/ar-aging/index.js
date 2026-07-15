@@ -49,6 +49,58 @@ export function isUuid(v) {
   return typeof v === "string" && UUID_RE.test(v);
 }
 
+// Open AR per control account (1105 CC / 1107 factor / 1108 house / …) — drives
+// the panel's account selector + the House/Factored/CC summary strip. Always
+// the FULL split, independent of the row-level filters, so the CEO sees the
+// whole picture regardless of what's selected.
+async function loadAccountSummary(admin, entityId) {
+  const { data, error } = await admin
+    .from("v_ar_open_by_account")
+    .select("ar_account_id, ar_account_code, ar_account_name, open_count, open_cents")
+    .eq("entity_id", entityId);
+  if (error) return { accounts: [], error };
+  const accounts = (data || [])
+    .map((r) => ({
+      ar_account_id: r.ar_account_id,
+      code: r.ar_account_code,
+      name: r.ar_account_name,
+      open_count: Number(r.open_count || 0),
+      open_cents: Number(r.open_cents || 0),
+    }))
+    .sort((a, b) => b.open_cents - a.open_cents);
+  return { accounts };
+}
+
+// Shopify D2C is a known AR-overstatement artifact: ecom orders backfilled from
+// sales history as open AR invoices whose card payment was never applied
+// (no per-invoice receipt record exists to auto-clear — see the backfill script).
+// They're deterministically the "Shopify …" pseudo-customers; surface the
+// magnitude + ids so the panel can flag rows and offer an exclude toggle.
+async function loadShopifyD2C(admin, entityId) {
+  const { data: custs, error: cErr } = await admin
+    .from("customers")
+    .select("id, name, code")
+    .ilike("name", "Shopify %");
+  if (cErr) return { customer_ids: [], open_cents: 0, open_count: 0 };
+  const ids = (custs || []).map((c) => c.id);
+  if (ids.length === 0) return { customer_ids: [], open_cents: 0, open_count: 0 };
+  // Sum open across those customers via the summary already exposed per bucket.
+  // (Small set — page-safe: two customers, a few thousand invoices aggregated.)
+  const { data: rows, error: rErr } = await admin
+    .from("v_ar_aging")
+    .select("customer_id, outstanding_cents, invoice_count")
+    .eq("entity_id", entityId)
+    .in("customer_id", ids);
+  if (rErr) return { customer_ids: ids, open_cents: 0, open_count: 0 };
+  let openCents = 0;
+  let openCount = 0;
+  for (const r of rows || []) {
+    openCents += Number(r.outstanding_cents || 0);
+    openCount += Number(r.invoice_count || 0);
+  }
+  return { customer_ids: ids, open_cents: openCents, open_count: openCount };
+}
+
 export function isISODate(v) {
   if (typeof v !== "string" || !ISO_DATE_RE.test(v)) return false;
   const d = new Date(v + "T00:00:00Z");
@@ -56,7 +108,7 @@ export function isISODate(v) {
 }
 
 export function parseListQuery(params) {
-  const out = { mode: "current", customer_id: null, limit: 500 };
+  const out = { mode: "current", customer_id: null, ar_account_id: null, limit: 500 };
 
   const asOf = (params.get("as_of") || "").trim();
   if (asOf) {
@@ -73,6 +125,16 @@ export function parseListQuery(params) {
       return { error: "customer_id must be a UUID" };
     }
     out.customer_id = customerId;
+  }
+
+  // AR control-account filter — a gl_accounts UUID (1105 CC / 1107 factor /
+  // 1108 house / any AR account). Absent or "all" = every account.
+  const arAccount = (params.get("ar_account") || "").trim();
+  if (arAccount && arAccount !== "all") {
+    if (!isUuid(arAccount)) {
+      return { error: "ar_account must be a UUID or 'all'" };
+    }
+    out.ar_account_id = arAccount;
   }
 
   const limitRaw = (params.get("limit") || "").trim();
@@ -109,10 +171,12 @@ export default async function handler(req, res) {
     let rows;
     if (v.data.mode === "as_of") {
       // P15 C3b — brand filtered server-side via p_brand_id (null = all brands).
+      // AR-account split via p_ar_account_id (null = all AR control accounts).
       const { data, error } = await admin.rpc("ar_aging_as_of", {
         p_entity_id: entityId,
         p_as_of_date: v.data.as_of,
         p_brand_id: activeBrandId(req),
+        p_ar_account_id: v.data.ar_account_id,
       });
       if (error) return res.status(500).json({ error: error.message });
       rows = data || [];
@@ -125,6 +189,7 @@ export default async function handler(req, res) {
         .select("*")
         .eq("entity_id", entityId);
       if (v.data.customer_id) q = q.eq("customer_id", v.data.customer_id);
+      if (v.data.ar_account_id) q = q.eq("ar_account_id", v.data.ar_account_id);
       // P15 C3b — gated brand filter; then collapse the brand-split view rows
       // back to one row per (customer, bucket) (no-op shape change for "All").
       q = applyBrandScope(q, req);
@@ -169,9 +234,15 @@ export default async function handler(req, res) {
       rows.sort((a, b) => (totals.get(b.customer_id) || 0) - (totals.get(a.customer_id) || 0));
     }
 
+    const { accounts } = await loadAccountSummary(admin, entityId);
+    const shopify = await loadShopifyD2C(admin, entityId);
+
     return res.status(200).json({
       mode: v.data.mode,
       as_of: v.data.as_of || null,
+      ar_account_id: v.data.ar_account_id,
+      accounts,
+      shopify_d2c: shopify,
       rows,
     });
   } catch (e) {

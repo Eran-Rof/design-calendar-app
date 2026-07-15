@@ -18,12 +18,16 @@
 // neither API shape ever returned — every money cell rendered "—". It now
 // pivots the view's long rows / the RPC's wide rows like InternalAPAging.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
 import AgingDrillModal, { type AgingDrillTarget } from "./components/AgingDrillModal";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
+import {
+  pivotViewRows, rpcRowsToPivot, sumBuckets, filterAgingRows, accountShortLabel,
+  type ApiRow, type PivotRow, type AccountSummary,
+} from "./arAgingHelpers";
 
 // v2: bucket columns now match the SQL (91-120 and 120+ split; old key set
 // had them lumped and never rendered) — bump so stale prefs reset.
@@ -48,33 +52,6 @@ const BUCKETS = [
   { key: "91-120",  label: "91-120 days", col: "b91_120" },
   { key: "120+",    label: "120+ days",   col: "b120plus" },
 ] as const;
-
-type ApiRow = {
-  entity_id?: string;
-  customer_id: string;
-  customer_name?: string | null;
-  customer_code?: string | null;
-  // view ("current") mode — long shape:
-  age_bucket?: string;
-  outstanding_cents?: number | string;
-  invoice_count?: number | string;
-  // RPC ("as_of") mode — wide shape:
-  current_cents?: number | string;
-  bucket_1_30_cents?: number | string;
-  bucket_31_60_cents?: number | string;
-  bucket_61_90_cents?: number | string;
-  bucket_91_120_cents?: number | string;
-  bucket_120_plus_cents?: number | string;
-  total_outstanding_cents?: number | string;
-};
-
-type PivotRow = {
-  customer_id: string;
-  customer_name: string | null;
-  customer_code: string | null;
-  current: number; b1_30: number; b31_60: number; b61_90: number;
-  b91_120: number; b120plus: number; total: number;
-};
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -127,51 +104,6 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-// View-mode rows arrive one per (customer, bucket) — pivot to one row per customer.
-function pivotViewRows(rows: ApiRow[]): PivotRow[] {
-  const map = new Map<string, PivotRow>();
-  for (const r of rows) {
-    const id = r.customer_id;
-    if (!map.has(id)) {
-      map.set(id, {
-        customer_id: id,
-        customer_name: r.customer_name ?? null,
-        customer_code: r.customer_code ?? null,
-        current: 0, b1_30: 0, b31_60: 0, b61_90: 0, b91_120: 0, b120plus: 0, total: 0,
-      });
-    }
-    const acc = map.get(id)!;
-    const out = Number(r.outstanding_cents || 0);
-    acc.total += out;
-    switch (r.age_bucket) {
-      case "current": acc.current += out;  break;
-      case "1-30":    acc.b1_30 += out;    break;
-      case "31-60":   acc.b31_60 += out;   break;
-      case "61-90":   acc.b61_90 += out;   break;
-      case "91-120":  acc.b91_120 += out;  break;
-      case "120+":    acc.b120plus += out; break;
-      default: break;
-    }
-  }
-  return Array.from(map.values());
-}
-
-// RPC-mode rows are already pivoted — rename to the local shape.
-function rpcRowsToPivot(rows: ApiRow[]): PivotRow[] {
-  return rows.map((r) => ({
-    customer_id: r.customer_id,
-    customer_name: r.customer_name ?? null,
-    customer_code: r.customer_code ?? null,
-    current:  Number(r.current_cents || 0),
-    b1_30:    Number(r.bucket_1_30_cents || 0),
-    b31_60:   Number(r.bucket_31_60_cents || 0),
-    b61_90:   Number(r.bucket_61_90_cents || 0),
-    b91_120:  Number(r.bucket_91_120_cents || 0),
-    b120plus: Number(r.bucket_120_plus_cents || 0),
-    total:    Number(r.total_outstanding_cents || 0),
-  }));
-}
-
 // Keep the URL shareable while a drill is open (replaceState — no history spam).
 function syncDrillUrl(t: AgingDrillTarget | null): void {
   const url = new URL(window.location.href);
@@ -190,6 +122,11 @@ export default function InternalARAging() {
   const [asOf, setAsOf] = useState<string>(() => readDrillParam("as_of") || todayISO());
   const [customerFilter, setCustomerFilter] = useState<string>("");
   const [mode, setMode] = useState<string>("current");
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [arAccount, setArAccount] = useState<string>(() => readDrillParam("ar_account") || "all");
+  const [shopifyIds, setShopifyIds] = useState<string[]>([]);
+  const [shopifyOpen, setShopifyOpen] = useState<{ open_cents: number; open_count: number }>({ open_cents: 0, open_count: 0 });
+  const [excludeShopify, setExcludeShopify] = useState<boolean>(false);
   const [drill, setDrillState] = useState<AgingDrillTarget | null>(null);
   // One-shot deep link: ?bucket=<key>[&party=<customer_id>] opens the drill.
   const [pendingDeepLink, setPendingDeepLink] = useState<{ bucket: string; party: string } | null>(() => {
@@ -199,7 +136,7 @@ export default function InternalARAging() {
   });
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
 
-  useEffect(() => { consumeDrillParams(["bucket", "party", "as_of"]); }, []);
+  useEffect(() => { consumeDrillParams(["bucket", "party", "as_of", "ar_account"]); }, []);
 
   function setDrill(t: AgingDrillTarget | null) {
     setDrillState(t);
@@ -214,12 +151,17 @@ export default function InternalARAging() {
       // Use as-of mode whenever the user has changed the date away from today.
       // Default-today still uses the cheaper v_ar_aging view.
       if (asOf && asOf !== todayISO()) params.set("as_of", asOf);
+      if (arAccount && arAccount !== "all") params.set("ar_account", arAccount);
       const r = await fetch(`/api/internal/ar-aging?${params.toString()}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const data = await r.json();
       setMode(data.mode || "current");
       const rows = (data.rows || []) as ApiRow[];
       setPivot(data.mode === "as_of" ? rpcRowsToPivot(rows) : pivotViewRows(rows));
+      setAccounts((data.accounts || []) as AccountSummary[]);
+      const sd = data.shopify_d2c || {};
+      setShopifyIds((sd.customer_ids || []) as string[]);
+      setShopifyOpen({ open_cents: Number(sd.open_cents || 0), open_count: Number(sd.open_count || 0) });
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -227,7 +169,9 @@ export default function InternalARAging() {
     }
   }
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Reload on mount and whenever the AR-account filter changes (the date filter
+  // reloads via the Refresh button, matching the existing behavior).
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [arAccount]);
 
   // Deep link fires once the grid has loaded (so party labels resolve).
   useEffect(() => {
@@ -244,32 +188,21 @@ export default function InternalARAging() {
       asOf: asOf !== todayISO() ? asOf : null,
       partyId: party || null,
       partyLabel: row ? (row.customer_name || row.customer_code) : null,
+      arAccountId: arAccount !== "all" ? arAccount : null,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingDeepLink, loading]);
 
-  const filtered = customerFilter.trim()
-    ? pivot.filter((r) =>
-        (r.customer_name || "").toLowerCase().includes(customerFilter.trim().toLowerCase()) ||
-        (r.customer_code || "").toLowerCase().includes(customerFilter.trim().toLowerCase()),
-      )
-    : pivot;
+  const shopifyIdSet = useMemo(() => new Set(shopifyIds), [shopifyIds]);
+  const filtered = filterAgingRows(pivot, {
+    customerText: customerFilter,
+    excludeIds: excludeShopify ? shopifyIdSet : undefined,
+  });
 
-  const totals = filtered.reduce(
-    (acc, r) => {
-      acc.current += r.current;
-      acc.b1_30 += r.b1_30;
-      acc.b31_60 += r.b31_60;
-      acc.b61_90 += r.b61_90;
-      acc.b91_120 += r.b91_120;
-      acc.b120plus += r.b120plus;
-      acc.total += r.total;
-      return acc;
-    },
-    { current: 0, b1_30: 0, b31_60: 0, b61_90: 0, b91_120: 0, b120plus: 0, total: 0 },
-  );
+  const totals = sumBuckets(filtered);
 
   const drillAsOf = asOf !== todayISO() ? asOf : null;
+  const drillArAccount = arAccount !== "all" ? arAccount : null;
 
   function openDrill(bucketKey: string, bucketLabel: string, row: PivotRow | null) {
     setDrill({
@@ -279,6 +212,7 @@ export default function InternalARAging() {
       asOf: drillAsOf,
       partyId: row ? row.customer_id : null,
       partyLabel: row ? (row.customer_name || row.customer_code) : null,
+      arAccountId: drillArAccount,
     });
   }
 
@@ -304,6 +238,22 @@ export default function InternalARAging() {
             style={{ ...inputStyle, width: 160 }}
           />
         </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
+          AR account:
+          <select
+            value={arAccount}
+            onChange={(e) => setArAccount(e.target.value)}
+            style={{ ...inputStyle, width: 220 }}
+            title="Split the aging by AR control account (House 1108 / Factored 1107 / Credit-card 1105)"
+          >
+            <option value="all">All AR accounts</option>
+            {accounts.map((a) => (
+              <option key={a.ar_account_id || "unmapped"} value={a.ar_account_id || "all"}>
+                {accountShortLabel(a.code, a.name)}
+              </option>
+            ))}
+          </select>
+        </label>
         <input
           type="text"
           placeholder="Filter customer name or code…"
@@ -311,6 +261,13 @@ export default function InternalARAging() {
           onChange={(e) => setCustomerFilter(e.target.value)}
           style={{ ...inputStyle, maxWidth: 320 }}
         />
+        {shopifyIds.length > 0 && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, whiteSpace: "nowrap" }}
+                 title="Shopify D2C ecom invoices are card-paid but their receipt was never applied — an unreconciled artifact, not real AR. Hide them for a clean house-wholesale view.">
+            <input type="checkbox" checked={excludeShopify} onChange={(e) => setExcludeShopify(e.target.checked)} />
+            Exclude Shopify D2C
+          </label>
+        )}
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <ExportButton
           rows={(() => {
@@ -343,6 +300,54 @@ export default function InternalARAging() {
         />
       </div>
 
+      {/* Per-account summary strip — the full House / Factored / CC split so the
+          CEO sees at a glance that factored (Rosenthal's exposure) dwarfs the
+          collectable house AR. Clicking a card filters the grid to that account. */}
+      {accounts.length > 0 && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          {accounts.map((a) => {
+            const active = arAccount === (a.ar_account_id || "");
+            return (
+              <button
+                key={a.ar_account_id || "unmapped"}
+                onClick={() => setArAccount(active ? "all" : (a.ar_account_id || "all"))}
+                style={{
+                  flex: "1 1 180px", textAlign: "left", cursor: "pointer",
+                  background: active ? "#0b1220" : C.card,
+                  border: `1px solid ${active ? C.primary : C.cardBdr}`,
+                  borderRadius: 10, padding: "10px 14px", color: C.text,
+                }}
+                title={`Show only ${accountShortLabel(a.code, a.name)} AR`}
+              >
+                <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  {accountShortLabel(a.code, a.name)}
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{fmtCents(a.open_cents)}</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>{a.open_count.toLocaleString()} open invoices</div>
+              </button>
+            );
+          })}
+          {shopifyOpen.open_cents > 0 && (
+            <button
+              onClick={() => setExcludeShopify((v) => !v)}
+              style={{
+                flex: "1 1 180px", textAlign: "left", cursor: "pointer",
+                background: excludeShopify ? "#0b1220" : C.card,
+                border: `1px solid ${excludeShopify ? C.warn : C.cardBdr}`,
+                borderRadius: 10, padding: "10px 14px", color: C.text,
+              }}
+              title="Shopify D2C card-paid ecom invoices with no applied receipt — an unreconciled artifact inside house AR. Click to hide/show."
+            >
+              <div style={{ fontSize: 11, color: C.warn, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Shopify D2C {excludeShopify ? "(hidden)" : "(likely unreconciled)"}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: C.warn }}>{fmtCents(shopifyOpen.open_cents)}</div>
+              <div style={{ fontSize: 11, color: C.textMuted }}>{shopifyOpen.open_count.toLocaleString()} open invoices · click to {excludeShopify ? "show" : "exclude"}</div>
+            </button>
+          )}
+        </div>
+      )}
+
       {err && (
         <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
           Error: {err}
@@ -373,6 +378,14 @@ export default function InternalARAging() {
                     {r.customer_code && r.customer_name && (
                       <span style={{ color: C.textMuted, marginLeft: 6, fontSize: 11 }}>
                         ({r.customer_code})
+                      </span>
+                    )}
+                    {shopifyIdSet.has(r.customer_id) && (
+                      <span
+                        style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: C.warn, border: `1px solid ${C.warn}`, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}
+                        title="Shopify D2C — card-paid ecom, receipt not yet applied (likely unreconciled)"
+                      >
+                        D2C
                       </span>
                     )}
                   </td>
