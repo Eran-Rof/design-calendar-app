@@ -287,8 +287,10 @@ function headerStr(v) {
 }
 
 // Sum the debit side of validated lines, in integer cents (BigInt). Used to
-// drive the approval-rule amount matcher.
-function sumDebitCents(lines) {
+// drive the approval-rule amount matcher. Exported so the assistant draft-JE
+// action (api/_lib/assistant/packs/je_actions.js) computes the SAME approval
+// amount as this handler — one code path, no drift (P28-4-3).
+export function sumDebitCents(lines) {
   let total = 0n;
   for (const l of lines || []) {
     const c = toCents(l.debit, "debit");
