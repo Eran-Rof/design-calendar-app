@@ -569,7 +569,10 @@ on days it costs anything. A quiet day fills 0.
 
 ### Grain, buckets & filters
 
-- **Group by** — Style · Style + Color · SKU (size) · Category · Warehouse · Vendor.
+- **Group by** — Style · **Style + Color** · **Style + Color + Size** · Category · Warehouse · Vendor.
+  For **Style + Color** the grid shows two separate **Style** and **Color** columns; for
+  **Style + Color + Size**, three separate **Style / Color / Size** columns (each individually
+  hideable). Other groupings keep a single grain column.
 - **Buckets** — six fixed age buckets: `0-30 / 31-60 / 61-90 / 91-180 / 181-365 / 366+`.
 - **Filters** — Category, Vendor, Brand, Warehouse, Gender, **Min age** (only layers ≥ N
   days), single **Bucket**, **Slow ≥** (no sale in ≥ N days, incl. never-sold), **Min $** /
@@ -593,7 +596,30 @@ cut-off) and annual carrying cost, with a per-bucket distribution strip.
 
 **Full-row click → FIFO layer drill:** every layer that makes up the grain, each
 with its own received date, age, source, warehouse, on-hand, unit cost and value —
-the evidence behind the aggregate. Universal **Export** button on the toolbar.
+the evidence behind the aggregate.
+
+### Columns, subtotals & export (#1812)
+
+- **Show / hide columns.** A **Columns** button on the toolbar opens a checklist of
+  every column (identity + measures). Toggle any off to declutter; **Select all** and
+  **Reset to default** are provided. Your choice is saved **per user** (server-side
+  `user_preferences`), so it survives reloads and follows you across devices — the same
+  primitive used on AR Aging and the master grids.
+- **Subtotals.** For **Style + Color** and **Style + Color + Size** a **Subtotals**
+  checkbox (default **on**) folds subtotal rows into the grid:
+  - *Style + Color* → a **"STYLE — subtotal"** row after each style's colors.
+  - *Style + Color + Size* → a **"COLOR — subtotal"** after each style+color's sizes,
+    then a stronger **"STYLE — subtotal"** after all of that style's colors.
+  Subtotal rows are visually distinct (darker band, semibold) and are **not clickable**
+  — only detail rows keep the full-row → FIFO drill. Subtotal math mirrors the panel:
+  quantities/values/buckets/carry-$ **sum**, average age is **qty-weighted**, oldest age
+  and last-received/last-sold are the **max**, days-since-sale is the **most-recent**
+  (min), and carry %, carry $/unit and weeks-of-supply are **recomputed** from the summed
+  totals. The checkbox is hidden for the other groupings (where subtotals don't apply).
+- **Export mirrors the grid.** The **Export** button emits exactly what you see: the
+  **split Style/Color/Size** columns for those groupings, **only the columns you've left
+  visible**, and — when Subtotals is on — the subtotal rows, with a leading **Row type**
+  column marking each row `detail`, `subtotal`, or `style subtotal`.
 
 ### API & internals
 
@@ -601,7 +627,10 @@ the evidence behind the aggregate. Universal **Export** button on the toolbar.
 lists), `…/layers` (per-grain FIFO drill) over `inventory_aging_report()` +
 `inventory_aging_kpis()` (migration `20261090000000`). Pure bucket/carrying-cost/
 velocity math lives in `src/lib/inventoryAging.ts` (unit-tested, incl. cents↔dollars
-parity with the ATS `calcAgedCosts` constants).
+parity with the ATS `calcAgedCosts` constants). The client-side subtotal interleaving
+(group-aware sort + aggregation) is a pure helper in `src/lib/agingSubtotals.ts`
+(`buildAgingDisplayList`), also unit-tested; column visibility uses the shared
+`useTablePrefs` primitive (table key `tanda.inv_aging`).
 
 ## 11.5 Roadmap
 

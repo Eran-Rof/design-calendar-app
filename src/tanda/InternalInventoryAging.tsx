@@ -23,6 +23,8 @@ import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { useSeqGuard } from "./hooks/useSeqGuard";
 import { bucketLabels, DEFAULT_BUCKET_DAYS } from "../lib/inventoryAging";
+import { useTablePrefs, TablePrefsButton, type ColumnDef } from "./components/TablePrefs";
+import { buildAgingDisplayList, type AgingRow } from "../lib/agingSubtotals";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -39,21 +41,9 @@ const btnSecondary: React.CSSProperties = { background: C.card, color: C.text, b
 const btnGhost: React.CSSProperties = { background: "transparent", color: C.textSub, border: `1px solid ${C.cardBdr}`, padding: "4px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer" };
 
 type Opt = { id: string; name: string };
-type Row = {
-  grain_key: string; grain_label: string;
-  style_code: string | null; color: string | null; size: string | null; gender: string | null;
-  category_name: string | null; brand_name: string | null; vendor_name: string | null; location_name: string | null;
-  on_hand_qty: number; cost_value_cents: number; avg_unit_cost_cents: number;
-  wavg_age_days: number; oldest_age_days: number; last_received: string | null;
-  b1_qty: number; b1_value_cents: number; b2_qty: number; b2_value_cents: number;
-  b3_qty: number; b3_value_cents: number; b4_qty: number; b4_value_cents: number;
-  b5_qty: number; b5_value_cents: number; b6_qty: number; b6_value_cents: number;
-  int_annual_cents: number; sto_annual_cents: number;
-  carry_pct: number; carry_per_unit_cents: number;
-  last_sold: string | null; days_since_last_sale: number | null;
-  units_sold_90: number | null; weeks_of_supply: number | null;
-  uncosted_qty: number;
-};
+// Row shape is defined once in the pure helper (src/lib/agingSubtotals) so the
+// grid renders detail rows and synthesized subtotal rows through one path.
+type Row = AgingRow;
 type Kpis = {
   total_qty: number; total_value_cents: number; wavg_age_days: number; oldest_age_days: number;
   distinct_skus: number; distinct_styles: number;
@@ -72,11 +62,14 @@ type Layer = {
 const GROUPS: { key: string; label: string }[] = [
   { key: "style", label: "Style" },
   { key: "style_color", label: "Style + Color" },
-  { key: "sku", label: "SKU (size)" },
+  { key: "sku", label: "Style + Color + Size" },
   { key: "category", label: "Category" },
   { key: "warehouse", label: "Warehouse" },
   { key: "vendor", label: "Vendor" },
 ];
+
+// Per-user column-visibility namespace for the Inventory Aging grid.
+const TABLE_KEY = "tanda.inv_aging";
 
 const n = (v: number | string | null | undefined) => {
   const x = typeof v === "string" ? Number(v) : v ?? 0;
@@ -141,6 +134,7 @@ export default function InternalInventoryAging() {
   const [minQty, setMinQty] = useState("");
   const [includeZero, setIncludeZero] = useState(false);
   const [search, setSearch] = useState("");
+  const [subtotals, setSubtotals] = useState(true); // per-style/-color subtotal rows (style_color & sku only)
 
   // ── data ──────────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<Row[]>([]);
@@ -236,65 +230,131 @@ export default function InternalInventoryAging() {
         .some((v) => (v || "").toLowerCase().includes(q)));
   }, [rows, search]);
 
-  const { sorted, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
-    persistKey: "tangerine:inv-aging:sort",
-    accessors: {
-      on_hand_qty: (r) => n(r.on_hand_qty), cost_value_cents: (r) => n(r.cost_value_cents),
-      wavg_age_days: (r) => n(r.wavg_age_days), oldest_age_days: (r) => n(r.oldest_age_days),
-      carry_pct: (r) => n(r.carry_pct), carry_annual: (r) => n(r.int_annual_cents) + n(r.sto_annual_cents),
-      days_since_last_sale: (r) => (r.days_since_last_sale == null ? -1 : n(r.days_since_last_sale)),
-      weeks_of_supply: (r) => (r.weeks_of_supply == null ? Number.MAX_SAFE_INTEGER : n(r.weeks_of_supply)),
-      b6_value_cents: (r) => n(r.b6_value_cents),
-    },
-  });
+  const grainLabel = GROUPS.find((g) => g.key === groupBy)?.label || "Style";
+  const subtotalsApplicable = groupBy === "style_color" || groupBy === "sku";
 
-  const bucketCell = (r: Row, i: number) => {
+  // Sort state only — the group-aware ordering + subtotal interleaving lives in
+  // the pure helper (agingSubtotals) so a sort never tears a group apart.
+  const { sortKey, sortDir, onHeaderClick } = useSort(filtered, { persistKey: "tangerine:inv-aging:sort" });
+
+  // ── column visibility (house TablePrefs primitive) ────────────────────────
+  // Identity columns split per grouping: Style/Color(/Size) for style_color &
+  // sku, a single grain column otherwise. All individually hideable.
+  const identityColumns: ColumnDef[] = useMemo(() => {
+    if (groupBy === "sku") return [{ key: "style", label: "Style" }, { key: "color", label: "Color" }, { key: "size", label: "Size" }];
+    if (groupBy === "style_color") return [{ key: "style", label: "Style" }, { key: "color", label: "Color" }];
+    return [{ key: "grain", label: grainLabel }];
+  }, [groupBy, grainLabel]);
+  const measureColumns: ColumnDef[] = useMemo(() => [
+    { key: "on_hand_qty", label: "On-hand" },
+    { key: "cost_value_cents", label: "Value" },
+    { key: "wavg_age_days", label: "Wavg age" },
+    { key: "oldest_age_days", label: "Oldest" },
+    { key: "last_received", label: "Last recv" },
+    { key: "b1", label: `${labels[0]} $` }, { key: "b2", label: `${labels[1]} $` }, { key: "b3", label: `${labels[2]} $` },
+    { key: "b4", label: `${labels[3]} $` }, { key: "b5", label: `${labels[4]} $` }, { key: "b6", label: `${labels[5]} $` },
+    { key: "carry_pct", label: "Carry %/yr" },
+    { key: "carry_annual", label: "Carry $/yr" },
+    { key: "days_since_last_sale", label: "Days since sale" },
+    { key: "weeks_of_supply", label: "Wks supply" },
+  ], [labels]);
+  const allColumns = useMemo(() => [...identityColumns, ...measureColumns], [identityColumns, measureColumns]);
+  const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, allColumns);
+  const vis = useCallback((k: string) => visibleColumns.has(k), [visibleColumns]);
+
+  const subtotalsOn = subtotalsApplicable && subtotals;
+  const display = useMemo(
+    () => buildAgingDisplayList(filtered, { groupBy, sortKey, sortDir, subtotalsOn }),
+    [filtered, groupBy, sortKey, sortDir, subtotalsOn],
+  );
+  const showKind = subtotalsOn;
+
+  const uncostedBadge = (r: Row) =>
+    n(r.uncosted_qty) > 0 ? (
+      <span title={`${fmtInt(r.uncosted_qty)} units have no cost on file (excluded from value)`}
+            style={{ marginLeft: 8, padding: "1px 6px", borderRadius: 10, fontSize: 10, fontWeight: 600, color: "#0b1220", background: C.warn }}>
+        {n(r.on_hand_qty) > 0 && n(r.uncosted_qty) >= n(r.on_hand_qty) ? "uncosted" : `${fmtInt(r.uncosted_qty)} uncosted`}
+      </span>
+    ) : null;
+
+  const bucketCell = (r: Row, i: number, strong = false) => {
     const qty = n([r.b1_qty, r.b2_qty, r.b3_qty, r.b4_qty, r.b5_qty, r.b6_qty][i]);
     const val = n([r.b1_value_cents, r.b2_value_cents, r.b3_value_cents, r.b4_value_cents, r.b5_value_cents, r.b6_value_cents][i]);
-    if (qty === 0 && val === 0) return <td key={i} style={{ ...tdR, color: C.textMuted }}>—</td>;
+    const hidden = !vis(`b${i + 1}`);
+    const bold: React.CSSProperties = strong ? { fontWeight: 600 } : {};
+    if (qty === 0 && val === 0) return <td key={i} style={{ ...tdR, ...bold, color: C.textMuted }} hidden={hidden}>—</td>;
     const stale = i >= 4; // 181-365 & 365+
     return (
-      <td key={i} style={{ ...tdR, color: stale && val > 0 ? C.warn : C.text }} title={`${fmtInt(qty)} units`}>
+      <td key={i} style={{ ...tdR, ...bold, color: stale && val > 0 ? C.warn : C.text }} hidden={hidden} title={`${fmtInt(qty)} units`}>
         {fmtUsd0(val)}
       </td>
     );
   };
 
-  const exportRows = useMemo(() => sorted.map((r) => ({
-    grain: r.grain_label, style: r.style_code, color: r.color, size: r.size,
-    category: r.category_name, brand: r.brand_name, vendor: r.vendor_name, warehouse: r.location_name,
-    on_hand_qty: n(r.on_hand_qty), cost_value_cents: n(r.cost_value_cents), avg_unit_cost_cents: n(r.avg_unit_cost_cents),
-    wavg_age_days: Math.round(n(r.wavg_age_days)), oldest_age_days: n(r.oldest_age_days), last_received: r.last_received,
-    b1_value_cents: n(r.b1_value_cents), b2_value_cents: n(r.b2_value_cents), b3_value_cents: n(r.b3_value_cents),
-    b4_value_cents: n(r.b4_value_cents), b5_value_cents: n(r.b5_value_cents), b6_value_cents: n(r.b6_value_cents),
-    carry_pct: n(r.carry_pct), carry_annual_cents: n(r.int_annual_cents) + n(r.sto_annual_cents),
-    last_sold: r.last_sold, days_since_last_sale: r.days_since_last_sale, units_sold_90: r.units_sold_90,
-    weeks_of_supply: r.weeks_of_supply, uncosted_qty: n(r.uncosted_qty),
-  })), [sorted]);
+  // Measure cells — one path for detail and subtotal rows (subtotals semibold).
+  const measureCells = (r: Row, strong = false) => {
+    const bold: React.CSSProperties = strong ? { fontWeight: 600 } : {};
+    return (
+      <>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("on_hand_qty")}>{fmtInt(r.on_hand_qty)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("cost_value_cents")}>{fmtUsd0(r.cost_value_cents)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("wavg_age_days")}>{fmtDays(r.wavg_age_days)}</td>
+        <td style={{ ...tdR, ...bold, color: n(r.oldest_age_days) > bucketDays[4] ? C.warn : C.text }} hidden={!vis("oldest_age_days")}>{fmtDays(r.oldest_age_days)}</td>
+        <td style={{ ...td, ...bold, color: C.textSub }} hidden={!vis("last_received")}>{r.last_received ? fmtDateDisplay(r.last_received) : "—"}</td>
+        {[0, 1, 2, 3, 4, 5].map((i) => bucketCell(r, i, strong))}
+        <td style={{ ...tdR, ...bold }} hidden={!vis("carry_pct")}>{fmtPct(r.carry_pct)}</td>
+        <td style={{ ...tdR, ...bold, color: C.purple }} hidden={!vis("carry_annual")}>{fmtUsd0(n(r.int_annual_cents) + n(r.sto_annual_cents))}</td>
+        <td style={{ ...tdR, ...bold, color: r.days_since_last_sale == null ? C.danger : n(r.days_since_last_sale) > bucketDays[4] ? C.warn : C.text }} hidden={!vis("days_since_last_sale")}>
+          {r.days_since_last_sale == null ? "never" : fmtDays(r.days_since_last_sale)}
+        </td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("weeks_of_supply")}>{fmtWos(r.weeks_of_supply)}</td>
+      </>
+    );
+  };
 
-  const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => [
-    { key: "grain", header: "Grain" },
-    { key: "style", header: "Style" }, { key: "color", header: "Color" }, { key: "size", header: "Size" },
-    { key: "category", header: "Category" }, { key: "vendor", header: "Vendor" }, { key: "warehouse", header: "Warehouse" },
-    { key: "on_hand_qty", header: "On-hand" },
-    { key: "cost_value_cents", header: "Value $", format: "currency_cents" },
-    { key: "avg_unit_cost_cents", header: "Avg cost", format: "currency_cents" },
-    { key: "wavg_age_days", header: "Wavg age (d)" }, { key: "oldest_age_days", header: "Oldest (d)" },
-    { key: "last_received", header: "Last received" },
-    { key: "b1_value_cents", header: `${labels[0]} $`, format: "currency_cents" },
-    { key: "b2_value_cents", header: `${labels[1]} $`, format: "currency_cents" },
-    { key: "b3_value_cents", header: `${labels[2]} $`, format: "currency_cents" },
-    { key: "b4_value_cents", header: `${labels[3]} $`, format: "currency_cents" },
-    { key: "b5_value_cents", header: `${labels[4]} $`, format: "currency_cents" },
-    { key: "b6_value_cents", header: `${labels[5]} $`, format: "currency_cents" },
-    { key: "carry_pct", header: "Carry %/yr" },
-    { key: "carry_annual_cents", header: "Carry $/yr", format: "currency_cents" },
-    { key: "last_sold", header: "Last sold" }, { key: "days_since_last_sale", header: "Days since sale" },
-    { key: "units_sold_90", header: "Units sold 90d" }, { key: "weeks_of_supply", header: "Weeks of supply" },
-    { key: "uncosted_qty", header: "Uncosted units" },
-  ], [labels]);
+  const exportRows = useMemo(() => display.map((it) => {
+    const r = it.row;
+    return {
+      kind: it.kind === "detail" ? "detail" : it.kind === "style_subtotal" ? "style subtotal" : "subtotal",
+      grain: r.grain_label, style: r.style_code, color: r.color, size: r.size,
+      on_hand_qty: n(r.on_hand_qty), cost_value_cents: n(r.cost_value_cents),
+      wavg_age_days: Math.round(n(r.wavg_age_days)), oldest_age_days: n(r.oldest_age_days), last_received: r.last_received,
+      b1_value_cents: n(r.b1_value_cents), b2_value_cents: n(r.b2_value_cents), b3_value_cents: n(r.b3_value_cents),
+      b4_value_cents: n(r.b4_value_cents), b5_value_cents: n(r.b5_value_cents), b6_value_cents: n(r.b6_value_cents),
+      carry_pct: n(r.carry_pct) * 100, carry_annual_cents: n(r.int_annual_cents) + n(r.sto_annual_cents),
+      days_since_last_sale: r.days_since_last_sale, weeks_of_supply: r.weeks_of_supply,
+    } as Record<string, unknown>;
+  }), [display]);
 
-  const grainLabel = GROUPS.find((g) => g.key === groupBy)?.label || "Style";
+  // Export mirrors the grid: kind column (when subtotals on), the split identity
+  // columns for the active grouping, and ONLY the currently-visible columns.
+  const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => {
+    const cols: ExportColumn<Record<string, unknown>>[] = [];
+    if (showKind) cols.push({ key: "kind", header: "Row type" });
+    for (const c of identityColumns) {
+      if (!vis(c.key)) continue;
+      cols.push({ key: c.key, header: c.label });
+    }
+    const M: Array<{ vis: string; key: string; header: string; format?: ExportColumn["format"]; digits?: number }> = [
+      { vis: "on_hand_qty", key: "on_hand_qty", header: "On-hand" },
+      { vis: "cost_value_cents", key: "cost_value_cents", header: "Value $", format: "currency_cents" },
+      { vis: "wavg_age_days", key: "wavg_age_days", header: "Wavg age (d)" },
+      { vis: "oldest_age_days", key: "oldest_age_days", header: "Oldest (d)" },
+      { vis: "last_received", key: "last_received", header: "Last received", format: "date" },
+      { vis: "b1", key: "b1_value_cents", header: `${labels[0]} $`, format: "currency_cents" },
+      { vis: "b2", key: "b2_value_cents", header: `${labels[1]} $`, format: "currency_cents" },
+      { vis: "b3", key: "b3_value_cents", header: `${labels[2]} $`, format: "currency_cents" },
+      { vis: "b4", key: "b4_value_cents", header: `${labels[3]} $`, format: "currency_cents" },
+      { vis: "b5", key: "b5_value_cents", header: `${labels[4]} $`, format: "currency_cents" },
+      { vis: "b6", key: "b6_value_cents", header: `${labels[5]} $`, format: "currency_cents" },
+      { vis: "carry_pct", key: "carry_pct", header: "Carry %/yr", format: "percent" },
+      { vis: "carry_annual", key: "carry_annual_cents", header: "Carry $/yr", format: "currency_cents" },
+      { vis: "days_since_last_sale", key: "days_since_last_sale", header: "Days since sale" },
+      { vis: "weeks_of_supply", key: "weeks_of_supply", header: "Wks supply", format: "number", digits: 1 },
+    ];
+    for (const m of M) if (vis(m.vis)) cols.push({ key: m.key, header: m.header, format: m.format, digits: m.digits });
+    return cols;
+  }, [showKind, identityColumns, labels, vis]);
 
   return (
     <div style={{ padding: 20, color: C.text, background: C.bg, minHeight: "100%" }}>
@@ -437,7 +497,16 @@ export default function InternalInventoryAging() {
           <span style={{ color: C.textMuted, fontSize: 12 }}>· aged as of today ({fmtDateDisplay(asOf)})</span>
         )}
         <div style={{ flex: 1 }} />
+        {subtotalsApplicable && (
+          <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}
+                 title="Fold per-style (and per-color) subtotal rows into the grid">
+            <input type="checkbox" checked={subtotals} onChange={(e) => setSubtotals(e.target.checked)} />
+            Subtotals
+          </label>
+        )}
         <ExportButton rows={exportRows} filename={`inventory-aging-${groupBy}-${asOf}`} sheetName="Inventory Aging" columns={exportColumns} />
+        <TablePrefsButton tableKey={TABLE_KEY} columns={allColumns} visibleColumns={visibleColumns}
+                          onToggle={toggleColumn} onReset={resetToDefault} onSetAll={setAllVisible} />
       </div>
 
       {err && <div style={{ color: C.danger, fontSize: 13, marginBottom: 10 }}>Error: {err}</div>}
@@ -446,55 +515,87 @@ export default function InternalInventoryAging() {
         <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 1400 }}>
           <thead>
             <tr>
-              <SortableTh label={grainLabel} sortKey="grain_label" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
-              <SortableTh label="On-hand" sortKey="on_hand_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Value" sortKey="cost_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Wavg age" sortKey="wavg_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Oldest" sortKey="oldest_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <th style={th}>Last recv</th>
+              {groupBy === "sku" || groupBy === "style_color" ? (
+                <>
+                  <SortableTh label="Style" sortKey="style_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!vis("style")} />
+                  <SortableTh label="Color" sortKey="color" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!vis("color")} />
+                  {groupBy === "sku" && (
+                    <SortableTh label="Size" sortKey="size" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!vis("size")} />
+                  )}
+                </>
+              ) : (
+                <SortableTh label={grainLabel} sortKey="grain_label" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!vis("grain")} />
+              )}
+              <SortableTh label="On-hand" sortKey="on_hand_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("on_hand_qty")} />
+              <SortableTh label="Value" sortKey="cost_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("cost_value_cents")} />
+              <SortableTh label="Wavg age" sortKey="wavg_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("wavg_age_days")} />
+              <SortableTh label="Oldest" sortKey="oldest_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("oldest_age_days")} />
+              <th style={th} hidden={!vis("last_received")}>Last recv</th>
               {labels.map((lab, i) => (
                 i === 5
-                  ? <SortableTh key={i} label={`${lab}`} sortKey="b6_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-                  : <th key={i} style={thR}>{lab}</th>
+                  ? <SortableTh key={i} label={`${lab}`} sortKey="b6_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("b6")} />
+                  : <th key={i} style={thR} hidden={!vis(`b${i + 1}`)}>{lab}</th>
               ))}
-              <SortableTh label="Carry %/yr" sortKey="carry_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Carry $/yr" sortKey="carry_annual" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Days since sale" sortKey="days_since_last_sale" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
-              <SortableTh label="Wks supply" sortKey="weeks_of_supply" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} />
+              <SortableTh label="Carry %/yr" sortKey="carry_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("carry_pct")} />
+              <SortableTh label="Carry $/yr" sortKey="carry_annual" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("carry_annual")} />
+              <SortableTh label="Days since sale" sortKey="days_since_last_sale" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("days_since_last_sale")} />
+              <SortableTh label="Wks supply" sortKey="weeks_of_supply" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("weeks_of_supply")} />
             </tr>
           </thead>
           <tbody>
-            {sorted.map((r) => (
-              <tr key={r.grain_key} onClick={() => void openDrill(r)} style={{ cursor: "pointer" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "#172033")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                <td style={{ ...td, color: C.primary, fontWeight: 600 }}>
-                  {r.grain_label}
-                  {groupBy === "style_color" || groupBy === "sku"
-                    ? <span style={{ color: C.textMuted, fontWeight: 400 }}>{r.size ? ` · ${r.size}` : ""}</span> : null}
-                  {n(r.uncosted_qty) > 0 && (
-                    <span title={`${fmtInt(r.uncosted_qty)} units have no cost on file (excluded from value)`}
-                          style={{ marginLeft: 8, padding: "1px 6px", borderRadius: 10, fontSize: 10, fontWeight: 600, color: "#0b1220", background: C.warn }}>
-                      {n(r.on_hand_qty) > 0 && n(r.uncosted_qty) >= n(r.on_hand_qty) ? "uncosted" : `${fmtInt(r.uncosted_qty)} uncosted`}
-                    </span>
-                  )}
-                </td>
-                <td style={tdR}>{fmtInt(r.on_hand_qty)}</td>
-                <td style={tdR}>{fmtUsd0(r.cost_value_cents)}</td>
-                <td style={tdR}>{fmtDays(r.wavg_age_days)}</td>
-                <td style={{ ...tdR, color: n(r.oldest_age_days) > bucketDays[4] ? C.warn : C.text }}>{fmtDays(r.oldest_age_days)}</td>
-                <td style={{ ...td, color: C.textSub }}>{r.last_received ? fmtDateDisplay(r.last_received) : "—"}</td>
-                {[0, 1, 2, 3, 4, 5].map((i) => bucketCell(r, i))}
-                <td style={tdR}>{fmtPct(r.carry_pct)}</td>
-                <td style={{ ...tdR, color: C.purple }}>{fmtUsd0(n(r.int_annual_cents) + n(r.sto_annual_cents))}</td>
-                <td style={{ ...tdR, color: r.days_since_last_sale == null ? C.danger : n(r.days_since_last_sale) > bucketDays[4] ? C.warn : C.text }}>
-                  {r.days_since_last_sale == null ? "never" : fmtDays(r.days_since_last_sale)}
-                </td>
-                <td style={tdR}>{fmtWos(r.weeks_of_supply)}</td>
-              </tr>
-            ))}
-            {!loading && sorted.length === 0 && (
-              <tr><td colSpan={16} style={{ ...td, textAlign: "center", color: C.textMuted, padding: 24 }}>No inventory matches these filters.</td></tr>
+            {display.map((it) => {
+              const r = it.row;
+              if (it.kind === "detail") {
+                const split = groupBy === "sku" || groupBy === "style_color";
+                return (
+                  <tr key={it.reactKey} onClick={() => void openDrill(r)} style={{ cursor: "pointer" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#172033")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                    {split ? (
+                      <>
+                        <td style={{ ...td, color: C.primary, fontWeight: 600 }} hidden={!vis("style")}>{r.style_code || "—"}{uncostedBadge(r)}</td>
+                        <td style={td} hidden={!vis("color")}>{r.color || "—"}</td>
+                        {groupBy === "sku" && <td style={{ ...td, color: C.textSub }} hidden={!vis("size")}>{r.size || "—"}</td>}
+                      </>
+                    ) : (
+                      <td style={{ ...td, color: C.primary, fontWeight: 600 }} hidden={!vis("grain")}>{r.grain_label}{uncostedBadge(r)}</td>
+                    )}
+                    {measureCells(r)}
+                  </tr>
+                );
+              }
+              // subtotal / style_subtotal — visually distinct, NOT clickable.
+              const bg = it.kind === "style_subtotal" ? "#1b2740" : "#131c30";
+              const identity =
+                groupBy === "sku"
+                  ? (it.kind === "style_subtotal" ? (
+                      <>
+                        <td style={{ ...td, fontWeight: 700 }} hidden={!vis("style")}>{it.label}</td>
+                        <td style={td} hidden={!vis("color")} />
+                        <td style={td} hidden={!vis("size")} />
+                      </>
+                    ) : (
+                      <>
+                        <td style={{ ...td, color: C.textMuted }} hidden={!vis("style")}>{r.style_code || ""}</td>
+                        <td style={{ ...td, fontWeight: 600 }} hidden={!vis("color")}>{it.label}</td>
+                        <td style={td} hidden={!vis("size")} />
+                      </>
+                    ))
+                  : (
+                    <>
+                      <td style={{ ...td, fontWeight: 700 }} hidden={!vis("style")}>{it.label}</td>
+                      <td style={td} hidden={!vis("color")} />
+                    </>
+                  );
+              return (
+                <tr key={it.reactKey} style={{ background: bg }}>
+                  {identity}
+                  {measureCells(r, true)}
+                </tr>
+              );
+            })}
+            {!loading && display.length === 0 && (
+              <tr><td colSpan={allColumns.length} style={{ ...td, textAlign: "center", color: C.textMuted, padding: 24 }}>No inventory matches these filters.</td></tr>
             )}
           </tbody>
         </table>
