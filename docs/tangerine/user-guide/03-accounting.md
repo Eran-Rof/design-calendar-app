@@ -408,6 +408,60 @@ Operators should make a habit of running the IS over the about-to-close FY one f
 
 Both books are kept in parallel — every accrual JE has a sibling cash JE (or vice versa) — so flipping the toggle is instant and always available.
 
+### Budget columns on the statement
+
+Tick **Compare budget** to add two columns — **Budget** and **Variance** — to the Total column of the Income Statement (they sit alongside the existing **Compare prior year** columns; both can be on at once). To keep the grid readable, budget/variance attach to the **Total column only**, never to each monthly column. Pick which named budget the columns read with the **Scenario** box next to the toggle (see Budgeting below).
+
+- **Variance** shows Amount − Budget with a percent, coloured by **favourability**: green when the account beat plan (more revenue, or less cost), red when it missed. The colouring is sign-aware — over-spending an expense reads red even though the number is positive.
+- Both columns flow into the Excel and PDF export exactly as shown.
+
+---
+
+## 🎯 Budgeting & variance
+
+**Where:** Tangerine → 💼 Accounting → 🎯 **Budgets**.
+
+Enter a budget once and the whole app measures actuals against it: the Budgets panel itself, plus the **Compare budget** columns on the Income Statement. Budget is **planning data only — it never posts to the General Ledger.**
+
+### Scenarios
+
+Every budget belongs to a named **scenario** (e.g. `default`, `stretch`, `board`). Several scenarios can coexist for the same fiscal year — switch with the Scenario picker, or type a name and **+ Add** to start a new one. The Income Statement's Scenario box reads the same names.
+
+### Entering a budget
+
+Switch to the **Budget entry** tab for a by-account grid (P&L accounts only):
+
+- **Full-year** (default): type one number per account. For monthly reports it is spread evenly across the twelve months (so a full-year budget of $120,000 reports as $10,000/month; the even split can differ from the annual figure by a cent or two on odd amounts).
+- **Monthly cells**: tick the box to reveal Jan–Dec columns and budget a specific month. Enter **either** a full-year figure **or** monthly figures for an account — not both.
+
+Type a value and tab out; it saves immediately. The **Actual** column beside the inputs shows the posted GL for context.
+
+### Seed from actuals (fast draft)
+
+**Seed from actuals…** drafts an entire budget from a prior year's posted actuals × a growth factor — the quickest way to get a first budget in place:
+
+1. Pick the **source year** (e.g. last year) and a **growth %** (5 = +5 %, −3 = −3 %).
+2. Choose **Full-year** or **Monthly** grain.
+3. Seed. Existing cells for the matching accounts/periods are overwritten. Nothing posts to the GL.
+
+### Import (paste)
+
+**Import (paste)…** takes CSV or tab-separated lines — `account_code, amount[, period]` — where period is optional (0 or blank = full-year; 1–12 = a month). Unknown codes are reported and skipped.
+
+### Variance dashboard
+
+The **Variance dashboard** tab summarises budget vs actual:
+
+- **Tiles** for Net Sales, Gross Profit, Operating Expenses and Net Income, each showing actual, budget and a favourable/unfavourable variance.
+- **Budget vs actual by band** — the same P&L bands the Income Statement uses.
+- **Biggest unfavourable variances** — the accounts furthest off plan in the wrong direction.
+
+**Favourable vs unfavourable** is sign-aware: for **revenue**, coming in *above* budget is favourable; for **expenses** (and returns/discounts), coming in *below* budget is favourable. The dashboard, the statement columns and the underlying `budget_vs_actual` data function all apply this same rule.
+
+### Basis
+
+Actuals in the Budgets panel follow the **ACCRUAL/CASH** basis toggle, matching the Income Statement, so a budget compares against the same book you report on.
+
 ---
 
 ## Segment P&L (P26)

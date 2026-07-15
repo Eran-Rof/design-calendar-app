@@ -461,6 +461,7 @@ export default [
   ["/api/internal/fixed-assets/:id"                          , "./internal/fixed-assets/[id].js"],
   ["/api/internal/fixed-assets"                              , "./internal/fixed-assets/index.js"],
   ["/api/internal/budgets"                                   , "./internal/budgets/index.js"],
+  ["/api/internal/budget-range"                              , "./internal/budget-range/index.js"],
   ["/api/internal/form-1099"                                 , "./internal/form-1099/index.js"],
   ["/api/internal/drop-ship"                                 , "./internal/drop-ship/index.js"],
   ["/api/internal/sales-returns/:id"                         , "./internal/sales-returns/[id].js"],

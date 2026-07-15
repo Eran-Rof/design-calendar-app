@@ -48,6 +48,8 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   // panel gates on finance_misc (matches the server's "factor" segment map).
   factor_recon: "finance_misc",
   income_statement: "analytics",
+  // Budgets / budget-vs-actual — planning + read-only variance analytics.
+  budgets: "analytics",
   balance_sheet: "analytics",
   cash_flow: "analytics",
   gl_detail: "analytics",
