@@ -3,11 +3,22 @@
 // Tangerine FP&A — pure budget-vs-actual math (no I/O, fully unit-tested).
 //
 // The variance/favorability rules here MUST match the SQL RPC budget_vs_actual
-// (mig 20261030000000) so the panel, the statement Budget column and the DB all
-// agree. Everything is in TRUE integer cents; account "actuals" are the same
-// signed convention the Income Statement uses (revenue = CR−DR, contra_revenue =
-// DR−CR, expense = DR−CR), i.e. each account type reads as a POSITIVE magnitude
-// in its natural direction (revenue positive income, expense positive cost).
+// (mig 20261030000000, fixed 20261070000000) so the panel, the statement Budget
+// column and the DB all agree. Everything is in TRUE integer cents; account
+// "actuals" are the same signed convention the Income Statement uses (revenue =
+// CR−DR, contra_revenue = DR−CR, expense = DR−CR), i.e. each account type reads
+// as a POSITIVE magnitude in its natural direction (revenue positive income,
+// expense positive cost).
+//
+// IMPORTANT — the "actuals" fed to the seed are OPERATING activity only: the SQL
+// RPC excludes year-end CLOSING entries (any JE that posts to an equity /
+// retained-earnings account), because a closing entry debits revenue and credits
+// expenses to nil, which over a full closed year would net a revenue account's
+// CR−DR to ≈ 0. Excluding them restores each P&L account's natural-direction
+// magnitude — that is the fix for "seed populated some expenses but no revenue"
+// (mig 20261070000000). seedRowsFromActuals therefore NEVER drops or sign-filters
+// a row: every income-statement account provided must produce exactly one budget
+// row, so revenue can never silently disappear.
 
 /** GL account types that appear on the P&L. */
 export type PnlAccountType = "revenue" | "contra_revenue" | "expense";
@@ -85,7 +96,14 @@ export type SeededBudgetRow = { gl_account_id: string; period_number: number; am
  * Draft budget rows from a set of prior-year actuals × growth. The reference
  * implementation for the seed_budget_from_actuals RPC (annual grain): one
  * full-year (period 0) row per account, prior-year actual × (1 + growth%).
- * Skips rows without an account id.
+ *
+ * Skips ONLY rows without an account id. It deliberately does NOT sign-filter or
+ * drop any row: every income-statement account (revenue, contra_revenue, COGS,
+ * expense) whose actual is provided gets exactly one budget row, so revenue —
+ * whose natural magnitude is a positive CREDIT — can never be silently dropped
+ * (the PR #1779 regression, root-caused to closing entries; see mig
+ * 20261070000000 and the module header). Zero and negative actuals are preserved
+ * verbatim so budget ≈ actual reconciles at 0% growth.
  */
 export function seedRowsFromActuals(actuals: ActualSeedInput[], growthPct: number): SeededBudgetRow[] {
   return actuals

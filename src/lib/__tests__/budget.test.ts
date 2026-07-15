@@ -105,4 +105,45 @@ describe("seedRowsFromActuals", () => {
     const rows = seedRowsFromActuals([{ gl_account_id: "", amount_cents: 5 }], 0);
     expect(rows.length).toBe(0);
   });
+
+  // ── Regression for PR #1779 bug (mig 20261070000000): the seed populated
+  // "some expense fields and NONE of the revenue fields". Root cause was in the
+  // SQL actuals (year-end closing entries netted revenue to ≈ 0); the pure helper
+  // must, at minimum, NEVER drop or sign-filter a revenue account so a revenue
+  // actual always yields a budget row.
+  it("seeds a revenue account with its natural (large positive credit) magnitude", () => {
+    const rows = seedRowsFromActuals(
+      [{ gl_account_id: "rev-4005", amount_cents: 2_050_376_665 }], // $20,503,766.65
+      0,
+    );
+    expect(rows).toEqual([
+      { gl_account_id: "rev-4005", period_number: 0, amount_cents: 2_050_376_665 },
+    ]);
+  });
+
+  it("keeps EVERY income-statement account — revenue is not dropped alongside expenses", () => {
+    const rows = seedRowsFromActuals(
+      [
+        { gl_account_id: "rev-4005", amount_cents: 2_050_376_665 }, // revenue
+        { gl_account_id: "rev-4006", amount_cents: 391_815_294 },   // revenue
+        { gl_account_id: "cogs-5010", amount_cents: 1_628_504_384 },// expense
+        { gl_account_id: "contra-4230", amount_cents: 10_000 },     // contra_revenue
+      ],
+      0,
+    );
+    // All four survive (the bug wrote expenses but no revenue).
+    expect(rows.length).toBe(4);
+    expect(rows.map((r) => r.gl_account_id)).toEqual([
+      "rev-4005", "rev-4006", "cogs-5010", "contra-4230",
+    ]);
+    // Revenue rows specifically must be present and carry their positive magnitude.
+    const revenue = rows.filter((r) => r.gl_account_id.startsWith("rev-"));
+    expect(revenue.length).toBe(2);
+    expect(revenue.every((r) => r.amount_cents > 0)).toBe(true);
+  });
+
+  it("preserves a zero actual (so budget ≈ actual reconciles at 0% growth)", () => {
+    const rows = seedRowsFromActuals([{ gl_account_id: "rev-idle", amount_cents: 0 }], 0);
+    expect(rows).toEqual([{ gl_account_id: "rev-idle", period_number: 0, amount_cents: 0 }]);
+  });
 });
