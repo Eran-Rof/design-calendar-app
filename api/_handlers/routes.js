@@ -356,6 +356,9 @@ import r_internal_inventory_accuracy_summary from "./internal/inventory-accuracy
 import r_internal_inventory_adjustments_id from "./internal/inventory-adjustments/[id].js";
 import r_internal_inventory_adjustments_index from "./internal/inventory-adjustments/index.js";
 import r_internal_inventory_adjustments_post from "./internal/inventory-adjustments/post.js";
+import r_internal_inventory_aging_filters from "./internal/inventory-aging/filters.js";
+import r_internal_inventory_aging_layers from "./internal/inventory-aging/layers.js";
+import r_internal_inventory_aging_report from "./internal/inventory-aging/report.js";
 import r_internal_inventory_cycle_counts_id from "./internal/inventory-cycle-counts/[id].js";
 import r_internal_inventory_cycle_counts_finalize from "./internal/inventory-cycle-counts/finalize.js";
 import r_internal_inventory_cycle_counts_index from "./internal/inventory-cycle-counts/index.js";
@@ -1024,6 +1027,7 @@ export const ROUTES = [
   { pattern: "/api/internal/analytics/early-payment", handler: r_internal_analytics_early_payment },
   { pattern: "/api/internal/analytics/health-scores", handler: r_internal_analytics_health_scores },
   { pattern: "/api/internal/ar-collections/promises", handler: r_internal_ar_collections_promises },
+  { pattern: "/api/internal/inventory-aging/filters", handler: r_internal_inventory_aging_filters },
   { pattern: "/api/internal/month-end-close/periods", handler: r_internal_month_end_close_periods },
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: r_internal_planning_buy_plan_to_po },
   { pattern: "/api/internal/prepack-matrices/needed", handler: r_internal_prepack_matrices_needed },
@@ -1035,6 +1039,8 @@ export const ROUTES = [
   { pattern: "/api/internal/ar-collections/summary", handler: r_internal_ar_collections_summary },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
   { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
+  { pattern: "/api/internal/inventory-aging/layers", handler: r_internal_inventory_aging_layers },
+  { pattern: "/api/internal/inventory-aging/report", handler: r_internal_inventory_aging_report },
   { pattern: "/api/internal/month-end-close/reopen", handler: r_internal_month_end_close_reopen },
   { pattern: "/api/internal/price-lists/style-cost", handler: r_internal_price_lists_style_cost },
   { pattern: "/api/internal/xoro-mirror/summary-je", handler: r_internal_xoro_mirror_summary_je },

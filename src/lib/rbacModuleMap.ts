@@ -69,6 +69,8 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   inventory_adjustments: "inventory",
   // Read-only on-hand accuracy monitor → analytics (read/export report class).
   inventory_accuracy: "analytics",
+  // Read-only aged-inventory report → analytics (read/export report class).
+  inventory_aging: "analytics",
   cycle_counts: "inventory",
   scanner_sessions: "inventory",
   // Approvals / workflows

@@ -496,6 +496,61 @@ table, the `v_inv_perpetual_onhand` view (+ `inv_perpetual_onhand_asof(ts)`), th
 view, and the `inv_perpetual_readiness_summary()` RPC. Pure sum/drift/readiness
 helpers live in `src/lib/perpetualInventory.ts` (unit-tested).
 
+## 11.4c Inventory Aging report (read-only)
+
+**Menu:** `📦 Inventory → ⏳ Inventory Aging`. Route `?m=inventory_aging`.
+
+A best-in-class aged-inventory report — the same carrying-cost economics as the
+ATS aged-inventory report, but **richer**: it ages **true FIFO layers**
+(`inventory_layers.received_at`), not one "last received date" per style, so each
+layer's on-hand lands in the age bucket for *its own* age. Everything is
+read-only; nothing here mutates stock or the GL.
+
+### The aged date (as-of)
+
+The report's spine is the **Aged date** picker at the top (with presets: Today,
+Month-end, Quarter-end, Year-end, −30/−90/−180 days). It ages every layer to that
+date — a layer received on 03/01 shows as 30 days old at an aged date of 03/31 and
+120 days old at 06/30.
+
+> **As-of caveat (intentional):** `inventory_layers.remaining_qty` is the *current*
+> on-hand — historical layer consumption is not reconstructable from that table. So
+> an older aged date re-computes **ages** from that date's perspective against
+> **today's** on-hand; it is not a full point-in-time inventory restatement. This
+> matches the ATS report's on-hand semantics while adding true per-layer ages.
+
+### Grain, buckets & filters
+
+- **Group by** — Style · Style + Color · SKU (size) · Category · Warehouse · Vendor.
+- **Buckets** — six age buckets from five configurable day cut-offs (default
+  `30,60,90,180,365` → `0-30 / 31-60 / 61-90 / 91-180 / 181-365 / 366+`).
+- **Filters** — Category, Vendor, Brand, Warehouse, Gender, Style code, Color, Size,
+  **Min age** (only layers ≥ N days), single **Bucket**, **Slow ≥** (no sale in ≥ N
+  days, incl. never-sold), **Min $** / **Min qty** (group thresholds), **Include zero
+  on-hand**, plus a client-side result search.
+
+### What each row shows
+
+On-hand qty, value at cost, average unit cost, **weighted-average age**, oldest age,
+last received, **$ per age bucket** (units in the cell tooltip; 181-365 & 366+
+highlighted amber), **carrying cost** (interest 9%/yr + storage $20/pallet-month at
+864 pcs/pallet — identical constants to ATS), and **velocity** (days since last sale,
+weeks of supply from the trailing-90-day sell-through). The KPI header totals
+on-hand value, weighted age, distinct SKUs/styles, **dead stock** (value past the top
+cut-off) and annual carrying cost, with a per-bucket distribution strip.
+
+**Full-row click → FIFO layer drill:** every layer that makes up the grain, each
+with its own received date, age, source, warehouse, on-hand, unit cost and value —
+the evidence behind the aggregate. Universal **Export** button on the toolbar.
+
+### API & internals
+
+`/api/internal/inventory-aging/report` (grain aggregate + KPIs), `…/filters` (option
+lists), `…/layers` (per-grain FIFO drill) over `inventory_aging_report()` +
+`inventory_aging_kpis()` (migration `20261090000000`). Pure bucket/carrying-cost/
+velocity math lives in `src/lib/inventoryAging.ts` (unit-tested, incl. cents↔dollars
+parity with the ATS `calcAgedCosts` constants).
+
 ## 11.5 Roadmap
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.
