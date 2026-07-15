@@ -52,6 +52,7 @@ import r_cron_fx_rate_sync from "./cron/fx-rate-sync.js";
 import r_cron_health_scores_monthly from "./cron/health-scores-monthly.js";
 import r_cron_insights_digest_daily from "./cron/insights-digest-daily.js";
 import r_cron_insights_weekly from "./cron/insights-weekly.js";
+import r_cron_inventory_cost_backfill from "./cron/inventory-cost-backfill.js";
 import r_cron_inventory_onhand_check from "./cron/inventory-onhand-check.js";
 import r_cron_ip_freshness_refresh from "./cron/ip-freshness-refresh.js";
 import r_cron_ip_integration_health from "./cron/ip-integration-health.js";
@@ -1300,6 +1301,7 @@ export const ROUTES = [
   { pattern: "/api/cron/workspace-tasks-due-soon", handler: r_cron_workspace_tasks_due_soon },
   { pattern: "/api/internal/employee-departments", handler: r_internal_employee_departments_index },
   { pattern: "/api/cron/early-payment-analytics", handler: r_cron_early_payment_analytics },
+  { pattern: "/api/cron/inventory-cost-backfill", handler: r_cron_inventory_cost_backfill },
   { pattern: "/api/internal/inventory-transfers", handler: r_internal_inventory_transfers_index },
   { pattern: "/api/internal/workflow-executions", handler: r_internal_workflow_executions_index },
   { pattern: "/api/cron/crm-tasks-due-tomorrow", handler: r_cron_crm_tasks_due_tomorrow },

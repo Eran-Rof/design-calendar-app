@@ -556,8 +556,16 @@ GL / on-hand / layer impact, idempotent, never overwriting a real cost:
   ~19 items with no costed sibling stay flagged). *Staged in `scripts/backfills/`,
   applied on review.*
 
-After Tier 1, entity uncosted units fell 455,726 → 154,491 and on-hand value rose
-$4.25M → $6.00M. A residual of items with no cost anywhere stays honestly flagged.
+After Tier 1 + Tier 2, entity uncosted units fell 455,726 → ~951 (99.8% costed) and
+on-hand value rose $4.25M → $6.99M. A residual of items with no cost anywhere stays
+honestly flagged.
+
+**Nightly refresh (#1805).** A daily cron (`/api/cron/inventory-cost-backfill`,
+09:00 UTC) re-runs the same two-tier logic via the idempotent
+`inventory_cost_backfill()` RPC, so **newly-received stock is auto-costed** and
+doesn't slowly re-accumulate as Uncosted. It fills only currently-uncosted items,
+never overwrites a real cost, and drops one `app_errors` breadcrumb (daily digest)
+on days it costs anything. A quiet day fills 0.
 
 ### Grain, buckets & filters
 

@@ -44,6 +44,7 @@
     { "path": "/api/cron/xoro-feed-health-alert", "schedule": "0 13 * * *" },
     { "path": "/api/cron/app-errors-digest", "schedule": "5 13 * * *" },
     { "path": "/api/cron/ar-receipts-reconcile", "schedule": "0 5 * * *" },
+    { "path": "/api/cron/inventory-cost-backfill", "schedule": "0 9 * * *" },
     { "path": "/api/cron/insights-weekly", "schedule": "0 6 * * 1" },
     { "path": "/api/cron/compliance-automation", "schedule": "0 13 * * *" },
     { "path": "/api/cron/benchmark-compute", "schedule": "0 7 1 * *" },
