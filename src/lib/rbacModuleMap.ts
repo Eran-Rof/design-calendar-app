@@ -37,6 +37,7 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   ar_invoices: "ar_invoices",
   ar_receipts: "ar_receipts",
   ar_aging: "ar_invoices",
+  ar_collections: "ar_invoices",
   ar_backfill: "ar_invoices",
   ap_aging: "ap_invoices",
   bank_reconciliation: "bank_recon",
