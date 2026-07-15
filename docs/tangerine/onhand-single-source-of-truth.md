@@ -37,7 +37,7 @@ Today there are **two independently-captured on-hand feeds** that will never agr
         tangerine_size_onhand  (size grain, per warehouse) ── truth
                         │   roll-up writer (new)
                         ▼
-        ip_inventory_snapshot  (source='xoro_rest', per warehouse)
+        ip_inventory_snapshot  (source='tangerine', per warehouse)
              ╱                              ╲
    Wholesale planning                 Ecom planning
    on-hand = ROF Main +               on-hand = ROF-ECOM +
@@ -62,25 +62,25 @@ On-hand is stored **per warehouse** in `ip_inventory_snapshot` (its unique key a
 ## 3. Data flow & tables
 
 - **`tangerine_size_onhand`** stays the raw Xoro-REST landing table (size grain, per warehouse). Unchanged.
-- **Roll-up writer (new)** runs right after the pull: for the latest `snapshot_date`, aggregate `tangerine_size_onhand` → `ip_inventory_snapshot` at planning grain, **preserving `warehouse_code`**, under `source='xoro_rest'`.
+- **Roll-up writer (new)** runs right after the pull: for the latest `snapshot_date`, aggregate `tangerine_size_onhand` → `ip_inventory_snapshot` at planning grain, **preserving `warehouse_code`**, under `source='tangerine'` (the reader already isolates 'tangerine' via source!=tangerine, so this stays additive; a NEW source value would be swept into the default reader and double-count).
   - Grain: planning's wholesale forecast is color grain today; ecom is SKU/week. The roll-up writes **color grain per warehouse** for wholesale (sum sizes within color) and keeps SKU grain for ecom as needed. (Open Q 6.1 — confirm the exact grain per channel during build.)
   - Idempotent upsert on `(sku_id, warehouse_code, snapshot_date, source)`.
-- **`ip_inventory_snapshot`** gains a canonical `source='xoro_rest'` alongside the legacy `manual` (ATS) rows, so the change is **additive** until cutover.
+- **`ip_inventory_snapshot`** gains a canonical `source='tangerine'` alongside the legacy `manual` (ATS) rows, so the change is **additive** until cutover.
 
 ---
 
 ## 4. Reader changes
 
-- `wholesalePlanningRepository.listInventorySnapshots(...)` and the ecom equivalent become **channel/warehouse-aware**: read `source='xoro_rest'`, filter to the channel's warehouse set, sum per SKU.
-- The "Tangerine ERP" vs "Xoro/ATS mirror" supply-source toggle collapses to a single source (both read `xoro_rest`). The toggle can stay as a no-op/label during transition, then be removed.
+- `wholesalePlanningRepository.listInventorySnapshots(...)` and the ecom equivalent become **channel/warehouse-aware**: read `source='tangerine'`, filter to the channel's warehouse set, sum per SKU.
+- The "Tangerine ERP" vs "Xoro/ATS mirror" supply-source toggle collapses to a single source (both read `tangerine`). The toggle can stay as a no-op/label during transition, then be removed.
 - Inventory Matrix / ATS-by-size already read `tangerine_size_onhand` directly — unchanged (they stay size-grain).
 
 ---
 
 ## 5. Rollout (staged; each verifiable)
 
-1. **PR1 — roll-up writer + backfill (additive, non-destructive).** Build the `tangerine_size_onhand → ip_inventory_snapshot (source='xoro_rest', per warehouse)` transform; backfill the latest date. Verify planning-grain on-hand from `xoro_rest` **ties to `tangerine_size_onhand` to the unit**. No reader change yet — nothing user-visible.
-2. **PR2 — channel/warehouse-aware reader + flip.** Point planning's on-hand reader at `source='xoro_rest'` with the wholesale/ecom warehouse sets. Now both planning sources are identical.
+1. **PR1 — roll-up writer + backfill (additive, non-destructive).** Build the `tangerine_size_onhand → ip_inventory_snapshot (source='tangerine', per warehouse)` transform; backfill the latest date. Verify planning-grain on-hand from `tangerine` **ties to `tangerine_size_onhand` to the unit**. No reader change yet — nothing user-visible.
+2. **PR2 — channel/warehouse-aware reader + flip.** Point planning's on-hand reader at `source='tangerine'` with the wholesale/ecom warehouse sets. Now both planning sources are identical.
 3. **PR3 — deprecate the ATS Excel on-hand path** for planning (the ATS app keeps its Excel for its own screens). Stop writing `source='manual'` for planning; retire the supply-source toggle.
 4. **PR4 — daily-cadence hardening.** Ensure the Xoro by-size pull + roll-up run **daily** (today `tangerine_size_onhand`'s latest is month-end Jul 1; the nightly `RofXoroDailyFetch` fix from 2026-07-15 helps). Add a freshness check to the 07:30 monitor.
 
