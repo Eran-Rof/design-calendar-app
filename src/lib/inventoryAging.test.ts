@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   bucketLabels, bucketIndex, ageDays, distributeLayers, carryingCost,
   weeksOfSupply, daysSinceLastSale, DEFAULT_BUCKET_DAYS, BUCKET_COUNT,
+  effectiveReceivedDate, effectiveUnitCostCents, MIRRORED_SOURCE_KIND,
   type AgingLayer,
 } from "./inventoryAging";
 import { calcAgedCosts } from "../ats/agedInvenMath";
@@ -117,5 +118,38 @@ describe("weeksOfSupply / daysSinceLastSale", () => {
   it("days since last sale honors as-of, null when never sold", () => {
     expect(daysSinceLastSale("2024-01-01", "2024-01-31")).toBe(30);
     expect(daysSinceLastSale(null, "2024-01-31")).toBeNull();
+  });
+});
+
+describe("effectiveReceivedDate — ATS last-received for mirrored only", () => {
+  it("mirrored layer prefers ATS date, then receipts history, then layer date", () => {
+    expect(effectiveReceivedDate(MIRRORED_SOURCE_KIND, "2026-04-01", "2026-02-10", "2026-05-31")).toBe("2026-04-01");
+    expect(effectiveReceivedDate(MIRRORED_SOURCE_KIND, null, "2026-02-10", "2026-05-31")).toBe("2026-02-10");
+    expect(effectiveReceivedDate(MIRRORED_SOURCE_KIND, null, null, "2026-05-31")).toBe("2026-05-31");
+    expect(effectiveReceivedDate(MIRRORED_SOURCE_KIND, "", "", "2026-05-31")).toBe("2026-05-31");
+  });
+  it("NON-mirrored (Tangerine-received) layers keep their own received date", () => {
+    expect(effectiveReceivedDate("ap_receipt", "2026-04-01", "2026-02-10", "2026-05-31")).toBe("2026-05-31");
+    expect(effectiveReceivedDate("transfer_in", "2020-01-01", null, "2026-05-18")).toBe("2026-05-18");
+  });
+  it("normalizes to YYYY-MM-DD", () => {
+    expect(effectiveReceivedDate(MIRRORED_SOURCE_KIND, "2026-04-01T12:00:00Z", null, "2026-05-31")).toBe("2026-04-01");
+  });
+});
+
+describe("effectiveUnitCostCents — COALESCE ladder", () => {
+  it("prefers the layer cost when non-zero", () => {
+    expect(effectiveUnitCostCents(571, 5.9, 6.0)).toEqual({ unitCostCents: 571, isUncosted: false });
+  });
+  it("falls to avg cost (dollars→cents) when layer is 0", () => {
+    expect(effectiveUnitCostCents(0, 5.9, 6.0)).toEqual({ unitCostCents: 590, isUncosted: false });
+  });
+  it("falls to item unit cost when layer and avg are 0/absent", () => {
+    expect(effectiveUnitCostCents(0, 0, 5.74)).toEqual({ unitCostCents: 574, isUncosted: false });
+    expect(effectiveUnitCostCents(null, null, 5.74)).toEqual({ unitCostCents: 574, isUncosted: false });
+  });
+  it("flags uncosted when nothing has a cost", () => {
+    expect(effectiveUnitCostCents(0, 0, 0)).toEqual({ unitCostCents: 0, isUncosted: true });
+    expect(effectiveUnitCostCents(null, null, null)).toEqual({ unitCostCents: 0, isUncosted: true });
   });
 });
