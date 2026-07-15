@@ -129,15 +129,11 @@ export default function InternalInventoryAging() {
   // ── filter state ──────────────────────────────────────────────────────────
   const [asOf, setAsOf] = useState<string>(todayISO());
   const [groupBy, setGroupBy] = useState<string>("style");
-  const [bucketsRaw, setBucketsRaw] = useState<string>(DEFAULT_BUCKET_DAYS.join(","));
   const [categoryId, setCategoryId] = useState("");
   const [brandId, setBrandId] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [gender, setGender] = useState("");
-  const [styleCode, setStyleCode] = useState("");
-  const [color, setColor] = useState("");
-  const [size, setSize] = useState("");
   const [minAge, setMinAge] = useState("");
   const [bucket, setBucket] = useState("");        // "" | 1..6
   const [slowDays, setSlowDays] = useState("");
@@ -182,15 +178,11 @@ export default function InternalInventoryAging() {
       const p = new URLSearchParams();
       if (asOf && asOf !== todayISO()) p.set("as_of", asOf);
       p.set("group_by", groupBy);
-      if (bucketsRaw.trim() && bucketsRaw.trim() !== DEFAULT_BUCKET_DAYS.join(",")) p.set("buckets", bucketsRaw.trim());
       if (categoryId) p.set("category_id", categoryId);
       if (brandId) p.set("brand_id", brandId);
       if (vendorId) p.set("vendor_id", vendorId);
       if (locationId) p.set("location_id", locationId);
       if (gender) p.set("gender", gender);
-      if (styleCode.trim()) p.set("style_code", styleCode.trim());
-      if (color.trim()) p.set("color", color.trim());
-      if (size.trim()) p.set("size", size.trim());
       if (minAge.trim()) p.set("min_age_days", String(parseInt(minAge, 10) || 0));
       if (bucket) p.set("bucket", bucket);
       if (slowDays.trim()) p.set("slow_days", String(parseInt(slowDays, 10) || 0));
@@ -211,7 +203,7 @@ export default function InternalInventoryAging() {
     } finally {
       if (seqGuard.isCurrent(seq)) setLoading(false);
     }
-  }, [asOf, groupBy, bucketsRaw, categoryId, brandId, vendorId, locationId, gender, styleCode, color, size, minAge, bucket, slowDays, minValue, minQty, includeZero, seqGuard]);
+  }, [asOf, groupBy, categoryId, brandId, vendorId, locationId, gender, minAge, bucket, slowDays, minValue, minQty, includeZero, seqGuard]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -396,9 +388,6 @@ export default function InternalInventoryAging() {
           <option value="">All genders</option>
           {opts.genders.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        <input type="text" placeholder="Style code" value={styleCode} onChange={(e) => setStyleCode(e.target.value)} style={{ ...inputStyle, width: 120 }} />
-        <input type="text" placeholder="Color" value={color} onChange={(e) => setColor(e.target.value)} style={{ ...inputStyle, width: 100 }} />
-        <input type="text" placeholder="Size" value={size} onChange={(e) => setSize(e.target.value)} style={{ ...inputStyle, width: 80 }} />
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
@@ -425,10 +414,6 @@ export default function InternalInventoryAging() {
           Min qty
           <input type="number" min={0} value={minQty} onChange={(e) => setMinQty(e.target.value)} style={{ ...inputStyle, width: 80 }} />
         </label>
-        <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }} title="Bucket cut-offs: 5 ascending day thresholds (comma-separated)">
-          Buckets
-          <input type="text" value={bucketsRaw} onChange={(e) => setBucketsRaw(e.target.value)} style={{ ...inputStyle, width: 140 }} placeholder="30,60,90,180,365" />
-        </label>
         <label style={{ fontSize: 12, color: C.textSub, display: "flex", alignItems: "center", gap: 6 }}>
           <input type="checkbox" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
           Include zero on-hand
@@ -438,7 +423,19 @@ export default function InternalInventoryAging() {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
         <input type="text" placeholder="Search results…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ ...inputStyle, width: 240 }} />
-        <span style={{ color: C.textMuted, fontSize: 12 }}>{loading ? "Loading…" : `${filtered.length.toLocaleString()} rows · aged ${fmtDateDisplay(asOf)}`}</span>
+        <span style={{ color: C.textMuted, fontSize: 12 }}>{loading ? "Loading…" : `${filtered.length.toLocaleString()} rows`}</span>
+        {asOf !== todayISO() ? (
+          <span title="Age buckets are measured from the aged date, not today. Stock received within 30 days of the aged date lands in 0-30, even if that is more than 30 days before today."
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#0b1220", background: C.warn, borderRadius: 12, padding: "3px 10px" }}>
+            Aged as of {fmtDateDisplay(asOf)} — not today
+            <button onClick={() => setAsOf(todayISO())}
+                    style={{ background: "#0b1220", color: C.warn, border: "none", borderRadius: 8, padding: "1px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+              Use today
+            </button>
+          </span>
+        ) : (
+          <span style={{ color: C.textMuted, fontSize: 12 }}>· aged as of today ({fmtDateDisplay(asOf)})</span>
+        )}
         <div style={{ flex: 1 }} />
         <ExportButton rows={exportRows} filename={`inventory-aging-${groupBy}-${asOf}`} sheetName="Inventory Aging" columns={exportColumns} />
       </div>
