@@ -33,6 +33,7 @@ import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import LineMatrixBody, { type LineMatrixBodyHandle, type SeedSection, type FlatLine } from "./LineMatrixBody";
 import { readDrillParam } from "./scorecardDrill";
+import { computeDueDate } from "./arDueDate";
 
 // Universal column-visibility registry for this panel (operator ask #1).
 const AR_INVOICES_TABLE_KEY = "tangerine:arinvoices:columns";
@@ -40,8 +41,12 @@ const AR_INVOICE_COLUMNS: ColumnDef[] = [
   { key: "invoice_number", label: "Invoice #" },
   { key: "invoice_date",   label: "Date" },
   { key: "customer",       label: "Customer" },
+  { key: "payment_terms",  label: "Payment Terms" },
+  { key: "due_date",       label: "Due Date" },
   { key: "total",          label: "Total" },
+  { key: "credit",         label: "Credit Applied" },
   { key: "paid",           label: "Paid" },
+  { key: "payment_date",   label: "Payment Date" },
   { key: "balance",        label: "Balance" },
   { key: "status",         label: "Status" },
 ];
@@ -96,6 +101,10 @@ type ARInvoice = {
   source?: string | null;
   sales_order_id?: string | null;
   so_number?: string | null;  // resolved server-side for the delete/void warning
+  // Grid enrichment (server-derived; see enrichInvoiceRows in the list handler).
+  payment_terms_code?: string | null;   // payment_terms.code for payment_terms_id
+  payment_date?: string | null;         // newest non-void receipt applied
+  credit_applied_cents?: string | null; // Σ posted credit-memos reversing this invoice
   created_at: string;
 };
 
@@ -116,7 +125,7 @@ type ARInvoiceLine = {
 
 type ARInvoiceFull = ARInvoice & { lines: ARInvoiceLine[] };
 
-type Customer = { id: string; name: string; customer_code?: string };
+type Customer = { id: string; name: string; customer_code?: string; payment_terms_id?: string | null };
 type Account = {
   id: string;
   code: string;
@@ -289,8 +298,12 @@ export default function InternalARInvoices() {
     persistKey: "tangerine:arinvoices:sort",
     accessors: {
       customer: (inv) => customerMap[inv.customer_id]?.name || inv.customer_id,
+      payment_terms: (inv) => inv.payment_terms_code || "",
+      due_date: (inv) => inv.due_date || "",
       total: (inv) => Number(inv.total_amount_cents || "0"),
+      credit: (inv) => Number(inv.credit_applied_cents || "0"),
       paid: (inv) => Number(inv.paid_amount_cents || "0"),
+      payment_date: (inv) => inv.payment_date || "",
       balance: (inv) => Number(BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")),
       invoice_date: (inv) => inv.invoice_date,
       invoice_number: (inv) => inv.invoice_number,
@@ -413,9 +426,9 @@ export default function InternalARInvoices() {
         <DynamicSearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search invoice #"
+          placeholder="Search anything — #, customer, SKU, amount…"
           ariaLabel="Search AR invoices"
-          wrapperStyle={{ maxWidth: 220 }}
+          wrapperStyle={{ maxWidth: 300 }}
         />
         <input
           type="date" placeholder="From" value={fromDate}
@@ -461,31 +474,37 @@ export default function InternalARInvoices() {
             invoice_number: inv.invoice_number,
             invoice_date: inv.invoice_date,
             posting_date: inv.posting_date,
+            payment_terms: inv.payment_terms_code || "",
             due_date: inv.due_date,
             customer: customerMap[inv.customer_id]?.name || inv.customer_id,
             invoice_kind: inv.invoice_kind,
             gl_status: inv.gl_status,
             source: inv.source || "manual",
             total_amount_cents: inv.total_amount_cents,
+            credit_applied_cents: inv.credit_applied_cents || "0",
             paid_amount_cents: inv.paid_amount_cents,
+            payment_date: inv.payment_date,
             balance_cents: (BigInt(inv.total_amount_cents || "0") - BigInt(inv.paid_amount_cents || "0")).toString(),
             description: inv.description,
           })) as unknown as Array<Record<string, unknown>>}
           filename="ar-invoices"
           sheetName="AR Invoices"
           columns={[
-            { key: "invoice_number",     header: "Invoice #" },
-            { key: "invoice_date",       header: "Invoice Date", format: "date" },
-            { key: "posting_date",       header: "Posting Date", format: "date" },
-            { key: "due_date",           header: "Due Date",     format: "date" },
-            { key: "customer",           header: "Customer" },
-            { key: "invoice_kind",       header: "Type" },
-            { key: "gl_status",          header: "Status" },
-            { key: "source",             header: "Source" },
-            { key: "total_amount_cents", header: "Total",   format: "currency_cents" },
-            { key: "paid_amount_cents",  header: "Paid",    format: "currency_cents" },
-            { key: "balance_cents",      header: "Balance", format: "currency_cents" },
-            { key: "description",        header: "Description" },
+            { key: "invoice_number",       header: "Invoice #" },
+            { key: "invoice_date",         header: "Invoice Date", format: "date" },
+            { key: "posting_date",         header: "Posting Date", format: "date" },
+            { key: "payment_terms",        header: "Payment Terms" },
+            { key: "due_date",             header: "Due Date",     format: "date" },
+            { key: "customer",             header: "Customer" },
+            { key: "invoice_kind",         header: "Type" },
+            { key: "gl_status",            header: "Status" },
+            { key: "source",               header: "Source" },
+            { key: "total_amount_cents",   header: "Total",         format: "currency_cents" },
+            { key: "credit_applied_cents", header: "Credit Applied", format: "currency_cents" },
+            { key: "paid_amount_cents",    header: "Paid",          format: "currency_cents" },
+            { key: "payment_date",         header: "Payment Date",  format: "date" },
+            { key: "balance_cents",        header: "Balance",       format: "currency_cents" },
+            { key: "description",          header: "Description" },
           ] as ExportColumn<Record<string, unknown>>[]}
         />
       </div>
@@ -510,8 +529,12 @@ export default function InternalARInvoices() {
                 <SortableTh label="Invoice #" sortKey="invoice_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={{ ...th, width: 130 }} hidden={!isVisible("invoice_number")} />
                 <SortableTh label="Date" sortKey="invoice_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("invoice_date")} />
                 <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("customer")} />
+                <SortableTh label="Payment Terms" sortKey="payment_terms" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("payment_terms")} />
+                <SortableTh label="Due Date" sortKey="due_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("due_date")} />
                 <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
+                <SortableTh label="Credit Applied" sortKey="credit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("credit")} />
                 <SortableTh label="Paid" sortKey="paid" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("paid")} />
+                <SortableTh label="Payment Date" sortKey="payment_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("payment_date")} />
                 <SortableTh label="Balance" sortKey="balance" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} hidden={!isVisible("balance")} />
                 <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("status")} />
                 <th style={{ ...th, width: 260, textAlign: "right" }}>Actions</th>
@@ -549,6 +572,8 @@ export default function InternalARInvoices() {
                     </td>
                     <td style={td} hidden={!isVisible("invoice_date")}>{fmtDateDisplay(inv.invoice_date)}</td>
                     <td style={td} hidden={!isVisible("customer")}>{customerMap[inv.customer_id]?.name || "—"}</td>
+                    <td style={td} hidden={!isVisible("payment_terms")}>{inv.payment_terms_code || "—"}</td>
+                    <td style={td} hidden={!isVisible("due_date")}>{inv.due_date ? fmtDateDisplay(inv.due_date) : "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
                       hidden={!isVisible("total")}
@@ -556,11 +581,19 @@ export default function InternalARInvoices() {
                       {fmtCents(inv.total_amount_cents)}
                     </td>
                     <td
+                      style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: Number(inv.credit_applied_cents || "0") > 0 ? C.success : C.textMuted }}
+                      hidden={!isVisible("credit")}
+                      title="Posted credit memos that reverse this invoice"
+                    >
+                      {Number(inv.credit_applied_cents || "0") > 0 ? `-${fmtCents(inv.credit_applied_cents)}` : "—"}
+                    </td>
+                    <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right" }}
                       hidden={!isVisible("paid")}
                     >
                       {fmtCents(inv.paid_amount_cents)}
                     </td>
+                    <td style={td} hidden={!isVisible("payment_date")}>{inv.payment_date ? fmtDateDisplay(inv.payment_date) : "—"}</td>
                     <td
                       style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", textAlign: "right", color: balanceCents > 0n ? C.warn : C.textMuted }}
                       hidden={!isVisible("balance")}
@@ -858,6 +891,10 @@ function ARInvoiceModal({
   const [kind, setKind] = useState(invoice?.invoice_kind || "customer_invoice");
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoice_date || new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState(invoice?.due_date || "");
+  // Tracks whether the operator hand-edited the due date. When true, the terms/
+  // invoice-date auto-calc stops overwriting it. An existing invoice that already
+  // carries a due date is treated as manually set so we never clobber it on edit.
+  const [dueDateEdited, setDueDateEdited] = useState<boolean>(!!invoice?.due_date);
   const [paymentTermsId, setPaymentTermsId] = useState(invoice?.payment_terms_id || "");
   const [description, setDescription] = useState(invoice?.description || "");
   const [arAccountId, setArAccountId] = useState(invoice?.ar_account_id || "");
@@ -908,11 +945,17 @@ function ARInvoiceModal({
       .then((arr: ShipToLocation[]) => {
         if (Array.isArray(arr)) {
           setShipToLocations(arr);
-          // Auto-select the default location when creating a new invoice and no
-          // location is set yet; don't override an existing selection on edit.
-          if (isNew && !shipToLocationId) {
-            const def = arr.find((l) => l.is_default);
-            if (def) setShipToLocationId(def.id);
+          // Auto-populate the ship-to when creating a new invoice and none is set:
+          // prefer the customer's default, else the first (list is already ordered
+          // active-first, default-first, name). Warn when the customer has more
+          // than one so the operator confirms the right destination. Don't touch
+          // an existing selection on edit.
+          if (isNew && !shipToLocationId && arr.length > 0) {
+            const pick = arr.find((l) => l.is_default) || arr[0];
+            setShipToLocationId(pick.id);
+            if (arr.length > 1) {
+              notify(`This customer has ${arr.length} ship-to addresses — "${pick.code ? `${pick.code} — ${pick.name}` : pick.name}" was auto-selected. Change it if this shipment goes elsewhere.`, "info");
+            }
           }
         }
       })
@@ -990,27 +1033,60 @@ function ARInvoiceModal({
     return () => { cancelled = true; };
   }, [rawLines, items]);
 
-  // Auto-compute due_date if payment_terms_id is set and operator hasn't typed
-  // a date themselves. Uses compute_due_date RPC; falls back silently on error.
+  // Auto-compute due_date from payment terms + invoice date. Recomputes whenever
+  // the terms OR the invoice date change, but never overwrites a due date the
+  // operator hand-edited (dueDateEdited). payment_terms carries `due_days`
+  // (NOT net_days — the earlier field name was a no-op bug). Falls back silently
+  // on error, leaving the field editable.
   useEffect(() => {
     if (!paymentTermsId || !invoiceDate) return;
-    if (dueDate) return; // honor manual edit
+    if (dueDateEdited) return; // honor a manual edit
     let cancelled = false;
     fetch(`/api/internal/payment-terms/${paymentTermsId}`)
       .then((r) => r.json())
-      .then((pt: { net_days?: number }) => {
-        if (cancelled || !pt?.net_days) return;
-        const d = new Date(invoiceDate + "T00:00:00Z");
-        d.setUTCDate(d.getUTCDate() + pt.net_days);
-        setDueDate(d.toISOString().slice(0, 10));
+      .then((pt: { due_days?: number }) => {
+        if (cancelled || pt?.due_days == null) return;
+        const next = computeDueDate(invoiceDate, pt.due_days);
+        if (next) setDueDate(next);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [paymentTermsId, invoiceDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paymentTermsId, invoiceDate, dueDateEdited]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit() {
-    setSubmitting(true);
     setErr(null);
+
+    // Draft guard 1 — a customer is required to post AR. Warn through the shared
+    // surface rather than silently disabling the save button.
+    if (!customerId) { notify("Select a customer before saving this invoice.", "error"); return; }
+
+    // Draft guard 2 — zero-priced lines. Warn (don't hard-block) so an omitted
+    // sales price isn't saved by accident; mirrors the SO editor's missing-price
+    // guard. Reads getDocumentData() (pure, no SKU resolution / side effects).
+    {
+      const doc = bodyRef.current?.getDocumentData();
+      const zeroPriced = new Set<string>();
+      if (doc) {
+        for (const st of doc.styles) {
+          for (const row of st.rows) {
+            const rowQty = Object.values(row.qtyBySize).reduce((a, b) => a + (b || 0), 0);
+            if (rowQty > 0 && !(row.unitDollars > 0)) zeroPriced.add(`${st.style}${row.color ? ` — ${row.color}` : ""}`);
+          }
+        }
+        for (const f of doc.flats) {
+          if ((f.qty || 0) > 0 && !((f.unitDollars || 0) > 0)) zeroPriced.add(f.label || "(line)");
+        }
+      }
+      if (zeroPriced.size > 0) {
+        const ok = await confirmDialog(
+          "One or more lines have no sales price ($0). Save anyway, or cancel to add a price first.",
+          { title: "Missing sales price", confirmText: "Save anyway", cancelText: "Add price", confirmColor: "#F59E0B", icon: "!", listItems: [...zeroPriced] },
+        );
+        if (!ok) return;
+      }
+    }
+
+    setSubmitting(true);
     try {
       // Resolve the matrix grids + flat lines, then map the body's generic
       // shape onto the AR line payload (same shape the handler already expects:
@@ -1080,7 +1156,9 @@ function ARInvoiceModal({
 
   // Header validity only; line validity is enforced by the body's resolve()
   // (it skips empty/invalid rows) and the "add at least one line" guard in submit.
-  const formValid = !!customerId && !!invoiceDate;
+  // The customer is intentionally NOT gated here — submit() warns (via the shared
+  // surface) when it is missing rather than silently disabling the save button.
+  const formValid = !!invoiceDate;
 
   return (
     <div onClick={onClose} style={{
@@ -1118,7 +1196,15 @@ function ARInvoiceModal({
                     "+ Add …" typeahead row to create it on the fly. */}
                 <SearchableSelect
                   value={customerId || null}
-                  onChange={(v) => { setCustomerId(v); setShipToLocationId(""); }}
+                  onChange={(v) => {
+                    setCustomerId(v);
+                    setShipToLocationId("");
+                    // Auto-populate payment terms from the customer master; the
+                    // due-date effect then recomputes (dueDateEdited reset so the
+                    // fresh customer's terms drive the date).
+                    const c = customers.find((x) => x.id === v);
+                    if (c?.payment_terms_id) { setPaymentTermsId(c.payment_terms_id); setDueDateEdited(false); }
+                  }}
                   // Show the clean customer name (matches the costing app's
                   // customer source), not the source-prefixed import code
                   // (EXCEL:/ATS:/XORO:). Still searchable by code via haystack.
@@ -1189,7 +1275,9 @@ function ARInvoiceModal({
                 />
               </Field>
               <Field label="Due date">
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!editable} style={inputStyle} />
+                <input type="date" value={dueDate}
+                  onChange={(e) => { setDueDate(e.target.value); setDueDateEdited(true); }}
+                  disabled={!editable} style={inputStyle} />
               </Field>
               <Field label="AR account (override)">
                 <SearchableSelect
