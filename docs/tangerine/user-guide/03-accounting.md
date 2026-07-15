@@ -1142,3 +1142,81 @@ ledger cannot, it does **not** tie by cash application alone. The daily
 subledger tie-out therefore reports the AP residual as a **waived, non-alerting**
 line (`ap_noncash_gl_relief_residual`) that still carries its live difference
 into the digest — so a *growing* gap stays visible — pending accountant review.
+
+## Sales Tax & VAT — liability by jurisdiction and filing support (M19, 2026-07-14)
+
+Ring of Fire sells wholesale + DTC ecommerce into the **US and Europe**, so it
+carries live **sales-tax** (US) and **VAT** (EU/UK/Nordic) liability. The
+**Sales Tax & VAT** panel (*Accounting → Sales Tax & VAT*, `?m=sales_tax`) tracks
+what tax has been collected and owed per jurisdiction and produces filing-ready
+liability reports **straight from the GL**.
+
+> **What this module is — and is not.** Tax rates are **not** computed here. Tax
+> was already calculated, collected and posted **upstream in Xoro** (the system
+> of record); Tangerine's GL is a faithful 1:1 mirror. This panel **reads** the
+> per-jurisdiction tax-payable accounts that already carry the balances and
+> **posts nothing** to the GL. Rate calculation is a separate concern handled in
+> the sales channel / Xoro (and the P10 tax-rules engine under *Tax*).
+
+### How liability is read from the GL
+
+Each jurisdiction is bound to one GL tax-payable account. On that account:
+
+- **Collected** = **credits** (tax charged to customers).
+- **Remitted** = **debits** (payments made to the tax authority).
+- **Net owed** (liability) = collected − remitted — the running credit balance.
+
+All tax activity is on the **accrual** books. The jurisdiction → account map:
+
+| Code | Jurisdiction | GL account | Filing frequency |
+| ---- | ------------ | ---------- | ---------------- |
+| US   | US Sales Tax (national roll-up) | 2314 US Tax Payable | Monthly |
+| NY   | New York Sales Tax | 2302 New York Tax Payable | Quarterly |
+| STX  | Sales Tax (general / unassigned US) | 2300 Sales Tax Payable | Monthly |
+| EU   | EU VAT (OSS) | 2306 EU Tax Payable | Quarterly |
+| GB   | UK VAT | 2308 GBR Tax Payable | Quarterly |
+| DK   | Denmark VAT | 2304 DNK Tax Payable | Quarterly |
+| IT   | Italy VAT | 2310 ITA Tax Payable | Quarterly |
+| SE   | Sweden VAT | 2312 SWE Tax Payable | Quarterly |
+| STXS | Sales Tax clearing (nets to zero) | 2301 Sales Tax (Posted to Sales) | — |
+
+The **2301** account is a clearing/contra account whose activity nets to zero;
+it is shown muted and **excluded from the headline liability**. Jurisdiction of
+sale is not reliably carried on the invoice (ship-to is only a location id /
+channel), so the **tax accounts themselves are the authoritative liability
+source** — country flags are shown as short text tokens (US, GB, EU, …), never
+emoji.
+
+### Liability tab
+
+Summary cards show total **collected**, total **remitted**, **net owed** across
+all jurisdictions, and the **largest unremitted** balance. The table lists one
+row per jurisdiction with collected / remitted / net owed and last-activity date.
+**Click any jurisdiction** to drill into the exact GL lines on its tax-payable
+account (the posted credits and debits that make up the balance), with an xlsx
+**Export**.
+
+### Filing worklist tab
+
+For each jurisdiction the worklist builds the filing periods (aligned to the
+jurisdiction's **frequency**), sums the tax the GL booked in each period, and
+computes a **due date** (period end + the jurisdiction's statutory grace window)
+and a status:
+
+- **upcoming** — the period has not closed yet.
+- **due** — the period closed and the deadline has not passed.
+- **overdue** — past the deadline with no recorded filing.
+- **filed / paid** — a filing has been recorded for that period.
+
+Overdue items sort to the top. Use **Record filing** on a due/overdue row to log
+a submission with the period and amounts pre-filled.
+
+### Filings tab & recording a filing
+
+The **Filings** tab lists everything recorded (draft → filed → paid). **+ Record
+filing** opens a form: choose the jurisdiction, set the period (or click *Use
+current period* to fill it from the frequency), enter **collected** and
+**remitted** amounts (net due is computed), pick a **status**, and add a
+confirmation **reference** / notes. Recording a filing is **bookkeeping only** —
+it does **not** post a GL remittance, because Xoro/bank already books the payment
+that the mirror reflects as a debit to the payable account.

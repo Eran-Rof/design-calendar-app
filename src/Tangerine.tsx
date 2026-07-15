@@ -69,6 +69,7 @@ import InternalEdiSettings       from "./tanda/InternalEdiSettings";
 import InternalReportsHub        from "./tanda/InternalReportsHub";
 import InternalToday             from "./tanda/InternalToday";
 import InternalFixedAssets       from "./tanda/InternalFixedAssets";
+import InternalSalesTax           from "./tanda/InternalSalesTax";
 import InternalBudgets           from "./tanda/InternalBudgets";
 import InternalForm1099          from "./tanda/InternalForm1099";
 import InternalPurchaseOrders     from "./tanda/InternalPurchaseOrders";
@@ -694,6 +695,7 @@ export default function Tangerine() {
         {activeModule === "today" && <InternalToday />}
         {activeModule === "reports_hub" && <InternalReportsHub />}
         {activeModule === "fixed_assets" && <InternalFixedAssets />}
+        {activeModule === "sales_tax" && <InternalSalesTax />}
         {activeModule === "budgets" && <InternalBudgets />}
         {activeModule === "form_1099" && <InternalForm1099 />}
         {activeModule === "purchase_orders"   && <InternalPurchaseOrders />}
