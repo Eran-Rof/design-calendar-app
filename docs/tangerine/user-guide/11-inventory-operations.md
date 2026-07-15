@@ -434,6 +434,68 @@ Backed by migration `20260997000000` — the `v_inventory_onhand_reconcile` view
 `inventory_onhand_accuracy_summary()` RPC, and the `inventory_onhand_accuracy_snapshot`
 trend table.
 
+## 11.4b Perpetual inventory ledger — SHADOW / pre-cutover
+
+**Menu:** `📦 Inventory → 🎯 Inventory Accuracy → Perpetual ledger (shadow)` tab.
+
+> **This is a PARALLEL, pre-cutover build — it is NOT the live on-hand and it
+> changes nothing.** The Inventory Matrix, the FIFO layers, the on-hand feeds and
+> the (disabled) nightly syncs are all untouched. The perpetual ledger runs
+> *alongside* the current system so that, at the Xoro cutover, it can become the
+> authoritative by-size on-hand having already been proven out.
+
+**What it is.** A true perpetual on-hand computed the accounting way: an
+**append-only event ledger** (`inv_ledger_movements`) of signed by-(SKU × location ×
+size) movements — `opening`, `receipt`, `sale`, `transfer_in/out`, `adjustment`,
+`return` — where the on-hand is simply **Σ qty_delta**. History is immutable (a
+database trigger blocks any UPDATE/DELETE/TRUNCATE), so every unit is explained by
+a movement you can drill into.
+
+**How it is seeded.** The ledger starts from a trustworthy **opening baseline** =
+the Xoro REST by-size truth (`tangerine_size_onhand`, source `xoro_rest`) at its
+latest snapshot date. On top of the baseline it ingests the deterministic
+movements Tangerine can prove exactly — post-baseline **receipts**
+(`ip_receipts_history`), **transfers**, **adjustments**, and FIFO **sale**
+depletion (`inventory_consumption`). Where a source row has no size, the movement
+is recorded at the grain available and **flagged** (`size?`) — the ledger never
+fabricates a size split.
+
+**The readiness meter.** The Perpetual tab scores how close the perpetual tracks
+the truth: **readiness % = share of REST-covered SKUs whose perpetual is within
+0.5 unit of the REST truth.** Today it reads ~100% *by construction* (the opening
+was seeded from truth). Its value is **forward-looking**: as real movement is
+captured, the perpetual should keep matching truth on its own. Any growing drift
+is a precise measure of movement the ledger is *not yet* capturing.
+
+**What's gated on cutover.** The one deterministic feed that is **empty today is
+live sale depletion** — because Xoro still owns orders and the nightly sync is
+disabled, no sale events flow into Tangerine to deplete the perpetual. So right
+now the ledger = opening baseline + a trickle of receipts. **Event-sourced live
+sale depletion is the cutover deliverable**; until then this tab proves the
+architecture, locks in a by-size opening baseline, and quantifies readiness — it
+does not yet drive divergence to zero on its own.
+
+**Reading the tab.** Scorecard tiles show readiness %, perpetual vs REST-truth vs
+live-layers totals, drift (units + $ at cost), ledger movement counts
+(opening vs incremental), and by-size coverage %. The grid lists each SKU's
+perpetual / live-layers / REST quantities with signed **drift vs truth**; a
+full-row click opens the SKU's **movement history** — the opening seed and every
+incremental movement that builds its perpetual on-hand. Filter to **Drift only**
+to see just the SKUs not tracking truth. `ExportButton` exports the grid.
+
+### Perpetual API + automation
+
+| Method | Path | Behavior |
+|---|---|---|
+| `GET` | `/api/internal/inventory-accuracy/perpetual` | Readiness summary + per-SKU perpetual-vs-truth-vs-layers rows (`drift_only=1`, `limit=`). Read-only. |
+| `GET` | `/api/internal/inventory-accuracy/perpetual-movements?item_id=` | One SKU: reconciliation row + its full append-only movement history. |
+
+Backed by migration `20261080000000` — the append-only `inv_ledger_movements`
+table, the `v_inv_perpetual_onhand` view (+ `inv_perpetual_onhand_asof(ts)`), the
+`inv_ledger_backfill()` seeding function, the `v_inv_perpetual_reconcile` readiness
+view, and the `inv_perpetual_readiness_summary()` RPC. Pure sum/drift/readiness
+helpers live in `src/lib/perpetualInventory.ts` (unit-tested).
+
 ## 11.5 Roadmap
 
 - **P3-6 — Cycle Counts:** add `🧮 Cycle Counts` panel. Variances roll up to adjustments.

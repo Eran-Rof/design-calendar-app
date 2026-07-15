@@ -350,6 +350,8 @@ import r_internal_insights_id from "./internal/insights/[id].js";
 import r_internal_insights_index from "./internal/insights/index.js";
 import r_internal_insights_summary from "./internal/insights/summary.js";
 import r_internal_inventory_accuracy_detail from "./internal/inventory-accuracy/detail.js";
+import r_internal_inventory_accuracy_perpetual_movements from "./internal/inventory-accuracy/perpetual-movements.js";
+import r_internal_inventory_accuracy_perpetual from "./internal/inventory-accuracy/perpetual.js";
 import r_internal_inventory_accuracy_summary from "./internal/inventory-accuracy/summary.js";
 import r_internal_inventory_adjustments_id from "./internal/inventory-adjustments/[id].js";
 import r_internal_inventory_adjustments_index from "./internal/inventory-adjustments/index.js";
@@ -972,6 +974,7 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/tasks/:id", handler: r_internal_crm_tasks_id },
   { pattern: "/api/internal/tax/rules/:id", handler: r_internal_tax_rules_id },
   { pattern: "/api/vendor/rfqs/:id/quotes", handler: r_vendor_rfqs_id_quotes_index },
+  { pattern: "/api/internal/inventory-accuracy/perpetual-movements", handler: r_internal_inventory_accuracy_perpetual_movements },
   { pattern: "/api/internal/procurement/vendor-invoice-drafts", handler: r_internal_procurement_vendor_invoice_drafts_index },
   { pattern: "/api/internal/style-master/auto-assign-scales", handler: r_internal_style_master_auto_assign_scales },
   { pattern: "/api/internal/analytics/sustainability-trend", handler: r_internal_analytics_sustainability_trend },
@@ -985,6 +988,7 @@ export const ROUTES = [
   { pattern: "/api/internal/tpl-providers/test-connection", handler: r_internal_tpl_providers_test_connection },
   { pattern: "/api/internal/chargebacks/dilution-summary", handler: r_internal_chargebacks_dilution_summary },
   { pattern: "/api/internal/compliance/automation-report", handler: r_internal_compliance_automation_report },
+  { pattern: "/api/internal/inventory-accuracy/perpetual", handler: r_internal_inventory_accuracy_perpetual },
   { pattern: "/api/internal/planning/promote-style-color", handler: r_internal_planning_promote_style_color },
   { pattern: "/api/internal/procurement/bookkeeper-queue", handler: r_internal_procurement_bookkeeper_queue_index },
   { pattern: "/api/internal/purchase-orders/data-quality", handler: r_internal_purchase_orders_data_quality },
