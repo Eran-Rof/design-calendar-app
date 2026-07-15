@@ -65,6 +65,7 @@ export type ModuleKey =
   | "budgets"
   | "form_1099"
   | "ar_aging"
+  | "ar_collections"
   | "ar_backfill"
   | "trial_balance"
   | "income_statement"
@@ -302,6 +303,8 @@ export const MODULES: ModuleDef[] = [
   { key: "form_1099",         label: "1099 Worksheet",     emoji: "🧾", group: "Accounting" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
+  // AR Collections — worklist, promise-to-pay pipeline, activity log over open AR.
+  { key: "ar_collections",    label: "Collections",       emoji: "📞", group: "Customers – Accts Rec" },
   // P4-8: Historical backfill — one-shot operator tool.
   { key: "ar_backfill",       label: "AR Backfill",       emoji: "🗄️", group: "Customers – Accts Rec" },
   // P5-2: Trial Balance — foundation report for all the other financial statements.

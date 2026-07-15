@@ -81,6 +81,7 @@ import InternalThreeWayMatch      from "./tanda/InternalThreeWayMatch";
 import InternalProcurementRecon   from "./tanda/InternalProcurementRecon";
 import InternalARReceipts         from "./tanda/InternalARReceipts";
 import InternalARAging            from "./tanda/InternalARAging";
+import InternalCollections        from "./tanda/InternalCollections";
 // P7-7 — M9-subset operational reports under the new 📊 Reports group.
 import InternalAPAging            from "./tanda/InternalAPAging";
 import InternalSalesByRep         from "./tanda/InternalSalesByRep";
@@ -704,6 +705,7 @@ export default function Tangerine() {
         {activeModule === "three_way_match"   && <InternalThreeWayMatch />}
         {activeModule === "procurement_recon" && <InternalProcurementRecon />}
         {activeModule === "ar_aging"          && <InternalARAging />}
+        {activeModule === "ar_collections"    && <InternalCollections />}
         {activeModule === "ar_backfill"       && <InternalARBackfill />}
         {activeModule === "trial_balance"     && <InternalTrialBalance />}
         {activeModule === "income_statement"  && <InternalIncomeStatement />}

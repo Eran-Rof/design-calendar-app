@@ -121,6 +121,10 @@ import r_internal_ar_aging_detail from "./internal/ar-aging/detail.js";
 import r_internal_ar_aging_index from "./internal/ar-aging/index.js";
 import r_internal_ar_backfill_run from "./internal/ar-backfill/run.js";
 import r_internal_ar_backfill_status from "./internal/ar-backfill/status.js";
+import r_internal_ar_collections_activities from "./internal/ar-collections/activities.js";
+import r_internal_ar_collections_index from "./internal/ar-collections/index.js";
+import r_internal_ar_collections_promises from "./internal/ar-collections/promises.js";
+import r_internal_ar_collections_summary from "./internal/ar-collections/summary.js";
 import r_internal_ar_invoices_id from "./internal/ar-invoices/[id].js";
 import r_internal_ar_invoices_index from "./internal/ar-invoices/index.js";
 import r_internal_ar_invoices_post from "./internal/ar-invoices/post.js";
@@ -982,6 +986,7 @@ export const ROUTES = [
   { pattern: "/api/internal/three-way-match/tolerances", handler: r_internal_three_way_match_tolerances },
   { pattern: "/api/internal/xoro-mirror/backfill-range", handler: r_internal_xoro_mirror_backfill_range },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },
+  { pattern: "/api/internal/ar-collections/activities", handler: r_internal_ar_collections_activities },
   { pattern: "/api/internal/compliance/document-types", handler: r_internal_compliance_document_types },
   { pattern: "/api/internal/discount-offers/analytics", handler: r_internal_discount_offers_analytics },
   { pattern: "/api/internal/inventory-accuracy/detail", handler: r_internal_inventory_accuracy_detail },
@@ -997,6 +1002,7 @@ export const ROUTES = [
   { pattern: "/api/xoro/writeback/create-buy-request", handler: r_xoro_writeback_create_buy_request },
   { pattern: "/api/internal/analytics/early-payment", handler: r_internal_analytics_early_payment },
   { pattern: "/api/internal/analytics/health-scores", handler: r_internal_analytics_health_scores },
+  { pattern: "/api/internal/ar-collections/promises", handler: r_internal_ar_collections_promises },
   { pattern: "/api/internal/month-end-close/periods", handler: r_internal_month_end_close_periods },
   { pattern: "/api/internal/planning/buy-plan-to-po", handler: r_internal_planning_buy_plan_to_po },
   { pattern: "/api/internal/prepack-matrices/needed", handler: r_internal_prepack_matrices_needed },
@@ -1005,6 +1011,7 @@ export const ROUTES = [
   { pattern: "/api/internal/style-master/dim-values", handler: r_internal_style_master_dim_values },
   { pattern: "/api/internal/three-way-match/matches", handler: r_internal_three_way_match_matches },
   { pattern: "/api/internal/three-way-match/resolve", handler: r_internal_three_way_match_resolve },
+  { pattern: "/api/internal/ar-collections/summary", handler: r_internal_ar_collections_summary },
   { pattern: "/api/internal/compliance/audit-trail", handler: r_internal_compliance_audit_trail },
   { pattern: "/api/internal/costing/awarded-quotes", handler: r_internal_costing_awarded_quotes },
   { pattern: "/api/internal/month-end-close/reopen", handler: r_internal_month_end_close_reopen },
@@ -1322,6 +1329,7 @@ export const ROUTES = [
   { pattern: "/api/cron/scorecards-monthly", handler: r_cron_scorecards_monthly },
   { pattern: "/api/cron/tpl-inventory-pull", handler: r_cron_tpl_inventory_pull },
   { pattern: "/api/internal/approval-rules", handler: r_internal_approval_rules_index },
+  { pattern: "/api/internal/ar-collections", handler: r_internal_ar_collections_index },
   { pattern: "/api/internal/b2b-price-list", handler: r_internal_b2b_price_list_index },
   { pattern: "/api/internal/part-inventory", handler: r_internal_part_inventory_index },
   { pattern: "/api/internal/part-purchases", handler: r_internal_part_purchases_index },

@@ -628,3 +628,43 @@ Each sub-table has its own **Export** button.
 ### API + RBAC
 
 `GET /api/internal/chargebacks` (worklist, filters + pagination), `PATCH /api/internal/chargebacks/:id` (disposition / owner / reason / manual link), `GET /api/internal/chargebacks/dilution-summary`. The `chargebacks` route segment maps to the **finance_misc** RBAC module (same class as Factor): GETs are read-gated, the PATCH is write-gated. Migration `20260988000000_chargeback_management.sql`; auto-match + reason normalization are idempotent SQL in the same migration; token-extraction and dilution aggregation are the pure, unit-tested functions in `api/_lib/chargebackMatch.js`.
+
+## Collections — worklist, promises, activity log (2026-07-14)
+
+The **Collections** panel (`/tangerine` → Customers → Accts Rec → 📞 Collections) turns the read-only AR Aging report into a *managed* process: who owes, how overdue, what you last did about it, and what they promised. It writes an **operator log only** — logging a note or a promise **never posts to the GL and never touches the invoice**.
+
+**What is "collectible" here.** The worklist is built from `v_ar_collections_worklist` — one row per **open** invoice (`open = total − paid`, excluding drafts and reversals). AR history starts **2024-09-01**, so every row is real post-cutoff AR. A **factored** invoice (AR account `1107`, or a customer flagged `is_factored`) is **Rosenthal's to collect** — it is surfaced with a purple **Factored · Rosenthal** badge and is **excluded by default** (the "Exclude factored" checkbox). Everything else is house / credit-card AR that **you** collect.
+
+### KPI header
+
+Five tiles: **Overdue (ours)** open $ + account/invoice counts, **Open promises** $, **Broken promises** $, **Current DSO** (latest month from `v_dso_dpo_monthly`), and **Factored (Rosenthal)** open $ (surfaced but not yours to dun). Computed server-side by the `ar_collections_kpi()` RPC — one round trip, no 16k-row fetch.
+
+### Worklist (per-account)
+
+The grid is the **account roll-up** (`v_ar_collections_customer_rollup`) — one row per customer with open-invoice count, open balance, 61+-days-past-due exposure, max days past due, promise/next-action flags and the last-activity date. Sort by **amount** or **days past due**; filter by status, age bucket, promise state, or name/code search. **Full-row click** opens the account's **collections drawer**. Customer names render as blue links.
+
+### Collections drawer
+
+- **Aging summary** — the account's open balance split across the six buckets (current / 1-30 / 31-60 / 61-90 / 91-120 / 120+).
+- **Log activity** — pick a type (note, call, email, **promise to pay**, dispute, escalate, payment expected), optionally scope it to one invoice (default = account-level), and enter a **mandatory outcome**. A promise-to-pay additionally requires an **amount** and a **date**.
+- **Activity timeline** — every logged activity, newest first, colour-keyed by type. Promises show "Promised $X by MM/DD/YYYY".
+- **Open invoices** — the invoices behind the balance: number (blue), dates, days past due, bucket, open $ and derived status.
+
+**Derived status** (per invoice): the most recent dispute → `disputed`; most recent escalation → `escalated`; an open (future-dated) promise → `promised`; otherwise by age (`current` / `overdue` / `in_collections`). An operator can override the status per customer in `ar_collection_status`.
+
+### Promises view
+
+The **promise-to-pay pipeline**, grouped **Broken** (date has passed — follow up now), **Due today**, and **Upcoming**. Only the **latest** promise per invoice/customer counts, so a new promise supersedes an old broken one. Customer names drill back into the account drawer.
+
+### Exports
+
+Every table (worklist, promises, drawer invoices) carries the universal **Export** button (xlsx).
+
+### API + schema
+
+- `GET /api/internal/ar-collections?group=customer` (roll-up) or `?group=invoice&customer=<id>` (a customer's open invoices, **chunked fetch-all** so a large account is never silently truncated at PostgREST's 1000-row cap). Filters: `exclude_factored`, `bucket`, `status`, `owner`, `has_promise`, `q`.
+- `GET/POST /api/internal/ar-collections/activities` — the timeline and the write. `outcome` is mandatory; `promise_to_pay` requires `promise_amount_cents` + `promise_date`.
+- `GET /api/internal/ar-collections/summary` — the KPI RPC.
+- `GET /api/internal/ar-collections/promises` — the pipeline (`is_latest` filtered by default).
+
+Migration `20261020000000_ar_collections.sql`: tables `ar_collection_activities` + `ar_collection_status`, views `v_ar_collections_worklist` / `_promises` / `_customer_rollup`, and the `ar_collections_kpi()` function. RBAC gates on the **ar_invoices** module (same as the other AR panels). Pure aging / promise / KPI helpers are unit-tested in `src/lib/collections.ts`.
