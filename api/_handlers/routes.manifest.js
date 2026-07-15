@@ -204,6 +204,7 @@ export default [
   ["/api/xoro/inventory-snapshot"                            , "./xoro/inventory-snapshot.js"],
   ["/api/cron/anomalies-nightly"                             , "./cron/anomalies-nightly.js"],
   ["/api/cron/benchmark-compute"                             , "./cron/benchmark-compute.js"],
+  ["/api/internal/data-freshness"                            , "./internal/data-freshness.js"],
   ["/api/internal/virtual-cards"                             , "./internal/virtual-cards/index.js"],
   ["/api/planning/sync-onhand-xoro"                          , "./planning/sync-onhand-xoro.js"],
   ["/api/planning/sync-open-pos"                             , "./planning/sync-open-pos.js"],

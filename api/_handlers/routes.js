@@ -262,6 +262,7 @@ import r_internal_customer_locations_index from "./internal/customer-locations/i
 import r_internal_customer_master_id from "./internal/customer-master/[id].js";
 import r_internal_customer_master_index from "./internal/customer-master/index.js";
 import r_internal_customer_scorecard_index from "./internal/customer-scorecard/index.js";
+import r_internal_data_freshness from "./internal/data-freshness.js";
 import r_internal_date_presets_id from "./internal/date-presets/[id].js";
 import r_internal_date_presets_index from "./internal/date-presets/index.js";
 import r_internal_design_trend_brief_list from "./internal/design/trend-brief/list.js";
@@ -1353,6 +1354,7 @@ export const ROUTES = [
   { pattern: "/api/internal/approval-rules", handler: r_internal_approval_rules_index },
   { pattern: "/api/internal/ar-collections", handler: r_internal_ar_collections_index },
   { pattern: "/api/internal/b2b-price-list", handler: r_internal_b2b_price_list_index },
+  { pattern: "/api/internal/data-freshness", handler: r_internal_data_freshness },
   { pattern: "/api/internal/part-inventory", handler: r_internal_part_inventory_index },
   { pattern: "/api/internal/part-purchases", handler: r_internal_part_purchases_index },
   { pattern: "/api/internal/sustainability", handler: r_internal_sustainability_index },

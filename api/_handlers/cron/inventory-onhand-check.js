@@ -23,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { captureError } from "../../_lib/errorCapture.js";
+import { fetchFeedFreshness } from "../../_lib/dataFreshness.js";
 
 export const config = { maxDuration: 60 };
 
@@ -50,8 +51,30 @@ export default async function handler(req, res) {
   if (!SB_URL || !KEY) return res.status(500).json({ error: "Supabase admin not configured" });
   const admin = createClient(SB_URL, KEY, { auth: { persistSession: false } });
 
-  const out = { ok: true, alerted: false };
+  const out = { ok: true, alerted: false, freshness_alerted: false };
   try {
+    // Data-freshness gate: alert (once) if ANY key feed's newest row is older
+    // than its threshold — a feed can freeze silently (e.g. a reader still
+    // pointing at an orphaned table) while the mirror status stays green.
+    try {
+      const fresh = await fetchFeedFreshness(admin);
+      out.freshness = fresh;
+      if (fresh.any_stale) {
+        const stale = fresh.feeds.filter((f) => f.stale);
+        await captureError({
+          source: "cron",
+          route: "/api/cron/inventory-onhand-check",
+          message: `data-freshness: ${stale.length} feed(s) STALE — ` +
+            stale.map((f) => `${f.label} (${f.latest ?? "no rows"}${f.age_hours != null ? `, ${f.age_hours}h` : ""} > ${f.max_age_hours}h)`).join("; "),
+          context: { kind: "data-freshness", stale: stale.map((f) => f.key), freshness: fresh },
+        });
+        out.freshness_alerted = true;
+      }
+    } catch (fe) {
+      // Non-fatal — freshness is a supplementary gate; don't sink the accuracy run.
+      out.freshness_error = fe?.message || String(fe);
+    }
+
     // Compute the summary AND persist today's trend row in one cheap call.
     const { data, error } = await admin.rpc("inventory_onhand_accuracy_snapshot_write");
     if (error) throw new Error(`accuracy summary rpc failed: ${error.message}`);
