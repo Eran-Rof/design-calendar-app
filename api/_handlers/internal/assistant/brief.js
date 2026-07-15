@@ -16,7 +16,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { modelForApp } from "../../../_lib/ai/constants.js";
+import { MODEL } from "../../../_lib/ai/constants.js";
 import { assertWithinBudget, BudgetExceededError, estimateClaudeCost, logAICall } from "../../../_lib/ai/budget.js";
 import { buildTodayForUser, resolveDisplayName, aggregateForModel } from "../../../_lib/assistant/context.js";
 import { readAuthUserId } from "./today.js";
@@ -26,14 +26,19 @@ export const config = { maxDuration: 45 };
 const BRIEF_MAX_TOKENS = 500;
 const HANDLER = "assistant/brief";
 
-// A cached brief is refreshed once it is older than this many minutes even if
-// the to-do SET hasn't changed — so its counts and its "some data is partial"
-// caveat don't sit stale all day (a brief written at 2:45 must not still show
-// morning numbers at 5 PM). Set-change / process-flip / partial-flip still
-// trigger an IMMEDIATE regen (see briefNeedsRefresh); this is the slow-drift
-// backstop. Env-overridable; keep it comfortably above a page-load cadence so
-// it doesn't regen on every refresh.
-const BRIEF_STALE_MINUTES = Number(process.env.ASSISTANT_BRIEF_STALE_MIN) || 60;
+// The brief is effectively REAL-TIME: it regenerates on essentially every page
+// load. This tiny window is only a debounce so a rapid double-refresh (or the
+// page + a manual reload a few seconds apart) doesn't fire two model calls for
+// the same state — nothing the operator can act on changes inside it. Feasible
+// because the brief runs on the fast model (BRIEF_MODEL, Haiku ~1s) rather than
+// Opus, and loads asynchronously so the live cards still render instantly.
+// Set-change / process-flip / partial-flip ALSO trigger an immediate regen.
+const BRIEF_FRESH_SECONDS = Number(process.env.ASSISTANT_BRIEF_FRESH_SEC) || 45;
+
+// The brief is a short summarization of an already-computed aggregate — it does
+// not need Opus. A fast, cheap model lets it regenerate on every load (real-time)
+// without adding latency to the page or meaningful cost. Env-overridable.
+const BRIEF_MODEL = process.env.ASSISTANT_BRIEF_MODEL || MODEL;
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -156,26 +161,26 @@ export function computeBriefProgress(cached, live) {
  *   - the `partial` flag flipped (data was incomplete when written and is now
  *     complete, or vice-versa): the "counts may be incomplete" caveat is now
  *     wrong → regenerate; OR
- *   - the brief is older than `staleMinutes`: counts drift through the day, so
- *     refresh even a still-accurate-set brief so it doesn't show morning numbers
- *     all afternoon.
+ *   - the brief is older than `freshSeconds`: the brief is real-time, so any
+ *     load past the small debounce window regenerates to pick up count drift
+ *     (e.g. 173 overdue POs → 170) even when the to-do SET is unchanged.
  * Best-effort caller wraps this; on any doubt it returns false (serve cached).
  *
  * @param {object} cachedSource  the cached brief's source_json aggregate
  * @param {object} live          the current aggregateForModel(payload)
  * @param {string|Date} createdAt the cached brief's created_at
- * @param {number} staleMinutes  age threshold
+ * @param {number} freshSeconds  debounce window in seconds
  * @param {Date} now             injectable clock (tests)
  */
-export function briefNeedsRefresh(cachedSource, live, createdAt, staleMinutes, now = new Date()) {
+export function briefNeedsRefresh(cachedSource, live, createdAt, freshSeconds, now = new Date()) {
   if (aggregatesDiverged(cachedSource, live)) return true;
   const cPartial = Boolean(cachedSource && cachedSource.partial);
   const lPartial = Boolean(live && live.partial);
   if (cPartial !== lPartial) return true;
   const t = createdAt ? new Date(createdAt).getTime() : NaN;
   if (Number.isFinite(t)) {
-    const ageMin = (now.getTime() - t) / 60000;
-    if (ageMin >= staleMinutes) return true;
+    const ageSec = (now.getTime() - t) / 1000;
+    if (ageSec >= freshSeconds) return true;
   }
   return false;
 }
@@ -269,7 +274,7 @@ export default async function handler(req, res) {
       // to the cached brief so the staleness check can never break the endpoint.
       let stale = false;
       try {
-        stale = briefNeedsRefresh(hit.source_json, currentAggregate, hit.created_at, BRIEF_STALE_MINUTES);
+        stale = briefNeedsRefresh(hit.source_json, currentAggregate, hit.created_at, BRIEF_FRESH_SECONDS);
       } catch {
         stale = false;
       }
@@ -301,7 +306,7 @@ export default async function handler(req, res) {
 
   const aggregate = currentAggregate;
   const name = await resolveDisplayName(admin, authUserId);
-  const model = modelForApp("tangerine");
+  const model = BRIEF_MODEL;
 
   let body = "";
   let cost = 0;
