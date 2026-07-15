@@ -167,6 +167,17 @@ The top of the panel has six filters:
 
 Void invoices render at 50% opacity. The **Balance** column shows `total_amount_cents − paid_amount_cents` colored amber when > 0.
 
+## Row expander — inline line detail (the ▸ carrot)
+
+Each invoice row has a **▸ carrot** in a leading column — the same expander the **Purchase Orders** grid uses. Click it to open an inline **line-detail** panel under the row without leaving the list (clicking the carrot toggles the detail; clicking anywhere else on the row still opens the edit modal as before). Click **▾** to collapse.
+
+The detail lazy-loads the invoice's lines (`GET /api/internal/ar-invoices/:id`) and resolves each inventory line back to its **style / color / size** via `GET /api/internal/items?ids=` (including now-inactive SKUs). It then renders exactly like the PO expander:
+
+- **Per-style size matrix.** Any inventory line that resolves to a sized apparel item (style + size, positive qty, a unit price) is grouped into a per-style **color × size grid**, with a **Qty**, **Unit $** (qty-weighted average), and **Ext $** column, plus a per-style total row. Size columns use the shared canonical ordering, and the first size column collapses the empty leading/trailing columns the same way as the SO/PO grids and Inventory Matrix — the first visible size header turns **green** and is clickable to toggle (`⋯` marks hidden columns). This is backed by the shared `computeSizeCollapse` helper, so it collapses identically to every other size surface.
+- **Other lines.** Amount-only charges (freight, fees), non-apparel SKUs, or SKUs that can't be resolved to a size fall back to a flat **Description / Qty / Unit $ / Ext $** list below the matrices, with a total.
+
+The grouping logic lives in the pure, unit-tested helper `src/tanda/arInvoiceLineDetail.ts` (`buildArLineDetail`); the read-only expander reuses the existing invoice-detail endpoint, so no new API was added.
+
 ## Supporting documents
 
 The edit modal embeds `<DocumentAttachmentList contextTable="ar_invoices" kinds={["customer_invoice_pdf","approval_correspondence","other"]} />` so accountants can attach the PDF copy of the invoice that goes out to the customer plus any approval correspondence.
