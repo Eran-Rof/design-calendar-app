@@ -90,4 +90,17 @@ describe("parseListQuery", () => {
     expect(v.data.customer_id).toBe("550e8400-e29b-41d4-a716-446655440000");
     expect(v.data.limit).toBe(100);
   });
+
+  it("defaults ar_account_id to null (all accounts)", () => {
+    expect(parseListQuery(P({})).data.ar_account_id).toBeNull();
+    expect(parseListQuery(P({ ar_account: "all" })).data.ar_account_id).toBeNull();
+  });
+  it("accepts a valid ar_account UUID", () => {
+    const v = parseListQuery(P({ ar_account: "560b5e8b-8ff4-442c-b0e0-a6676790d7f1" }));
+    expect(v.error).toBeUndefined();
+    expect(v.data.ar_account_id).toBe("560b5e8b-8ff4-442c-b0e0-a6676790d7f1");
+  });
+  it("rejects a non-UUID ar_account", () => {
+    expect(parseListQuery(P({ ar_account: "1108" })).error).toMatch(/ar_account/);
+  });
 });

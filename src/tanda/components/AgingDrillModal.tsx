@@ -27,6 +27,7 @@ export type AgingDrillTarget = {
   asOf: string | null;            // null = current mode (today)
   partyId: string | null;         // null = whole column
   partyLabel: string | null;      // customer/vendor display name
+  arAccountId?: string | null;    // AR only — narrow the drill to one AR control account
 };
 
 type DetailRow = {
@@ -105,6 +106,7 @@ export default function AgingDrillModal({
         params.set("bucket", target.bucket);
         if (target.asOf) params.set("as_of", target.asOf);
         if (target.partyId) params.set(isAr ? "customer_id" : "vendor_id", target.partyId);
+        if (isAr && target.arAccountId) params.set("ar_account", target.arAccountId);
         const r = await fetch(`/api/internal/${isAr ? "ar" : "ap"}-aging/detail?${params.toString()}`);
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
         const data = await r.json();
@@ -120,7 +122,7 @@ export default function AgingDrillModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [target.kind, target.bucket, target.asOf, target.partyId, isAr]);
+  }, [target.kind, target.bucket, target.asOf, target.partyId, target.arAccountId, isAr]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
