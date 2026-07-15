@@ -52,13 +52,34 @@ When you Confirm, the entry posts through the **exact same path** as posting a m
 
 This is the same maker-checker control the manual JE screen uses — the assistant simply prepares the entry; nothing about who may post or approve is relaxed.
 
-## 47.5 What stays gated
+## 47.5 Draft an AP payment
 
-- **Money still double-gates.** When a later draft action moves money (a journal entry, a payment), your Confirm is only the first gate — it still goes through the normal approval rules, and a **different** person approves it. The assistant can never approve, because it holds no user identity.
+Ask something like *"pay bill BILL-4471"* or *"pay the open balance on invoice BILL-4471 by wire."*
+
+- The assistant looks up the **specific AP bill by its invoice number**, checks that it exists and is **posted with a balance still owing**, and proposes paying it. It shows a Confirm card such as *"Pay invoice Acme Textiles #BILL-4471 — $1,200.00 via ACH on 07/14/2026. This is below the $5,000 approval threshold, so confirming pays it immediately."*
+- By default it pays the **full open balance**; you can name a smaller amount, and it will never propose paying **more** than is owed.
+- **It never invents a bill.** If the invoice number isn't found, is already **fully paid**, isn't posted yet, or has nothing left owing, the assistant drafts **nothing** and tells you why — it will not propose paying a settled or nonexistent invoice.
+
+When you Confirm, the payment runs through the **exact same path** as paying a bill by hand:
+
+- **Below the approval threshold** (currently **$5,000**), it pays immediately, recorded as paid by **you**.
+- **At or above the threshold**, it is **held for approval** — no money moves. It becomes a pending approval that a **different** authorized person must approve before the payment posts. The assistant is the *maker*; because the payment is created as **you**, you cannot approve your own draft. A second, independent person always approves money.
+
+## 47.6 Open a case
+
+Ask something like *"open a case: Nordstrom short-shipped PO 4471"* or *"log a high-severity case about the credit-memo dispute for Acme."*
+
+- The assistant proposes a **customer-service case** — a subject, an optional longer note, a severity, and optional links to a customer, invoice, order, or return. It shows a Confirm card such as *"Open a normal case for Nordstrom: 'short-shipped PO 4471' (status open). Confirming creates it in the cases queue."*
+- **A case needs a real subject.** With no subject there is nothing to confirm.
+- No money moves, so a case needs only your single Confirm. When you Confirm, it is created in the cases queue exactly as if you had opened it on the Cases panel, authored by **you**, with its own case number.
+
+## 47.7 What stays gated
+
+- **Money still double-gates.** When a draft action moves money (a journal entry or an AP payment), your Confirm is only the first gate — it still goes through the normal approval rules, and a **different** person approves it at or above the threshold. The assistant can never approve, because it holds no user identity.
 - **Your access rights still apply.** A draft action's write is checked against your permissions on the target module at the moment you Confirm — exactly as if you had done it by hand in the panel.
 - **Confirmations are single-use and short-lived.** Each Confirm card is good for one click within five minutes; a stale or reused card is rejected.
 
-## 47.6 Notes
+## 47.8 Notes
 
 - The assistant only ever *drafts*; every write in this program is an explicit human **Confirm** click. There is no autonomous or scheduled write, ever.
 - Draft actions are unavailable until the confirmation secret is configured on the server. Until then, previews and drafts still work — only the Confirm step is inert.

@@ -47,8 +47,10 @@ import casesInbox from "./packs/cases_inbox.js";
 import chargebackActions from "./packs/chargeback_actions.js";
 import emailDrafts from "./packs/email_drafts.js";
 import jeActions from "./packs/je_actions.js";
+import apPaymentActions from "./packs/ap_payment_actions.js";
+import caseActions from "./packs/case_actions.js";
 
-export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting, chargebackActions, emailDrafts, jeActions];
+export const PACKS = [po, soAllocations, planning, masterData, manufacturing, casesInbox, accounting, chargebackActions, emailDrafts, jeActions, apPaymentActions, caseActions];
 
 const SEVERITIES = new Set(["action", "warn", "error", "info"]);
 const ACTION_MODES = new Set(["read", "draft", "write_confirm"]);
