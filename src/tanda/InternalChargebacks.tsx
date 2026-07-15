@@ -24,7 +24,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { drillToModule } from "./scorecardDrill";
+import { drillToModule, readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { promptDialog, notify } from "../shared/ui/warn";
 
 const C = {
@@ -319,10 +319,12 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<CBRow | null>(null);
 
-  const [fDisposition, setFDisposition] = useState("");
+  // Seed disposition/month from a one-shot drill (e.g. the Month-End Close
+  // "Chargebacks reviewed → Review" link seeds cb_disposition=open & cb_month).
+  const [fDisposition, setFDisposition] = useState(() => readDrillParam("cb_disposition"));
   const [fCustomer, setFCustomer] = useState("");
   const [fReason, setFReason] = useState("");
-  const [fMonth, setFMonth] = useState("");
+  const [fMonth, setFMonth] = useState(() => readDrillParam("cb_month"));
   const [fMatched, setFMatched] = useState("");
   const [fType, setFType] = useState("");
   const [q, setQ] = useState("");
@@ -359,7 +361,7 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, q]);
 
   useEffect(() => { void load(1); }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(1); consumeDrillParams(["cb_disposition", "cb_month"]); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function patchRow(id: string, patch: Record<string, unknown>) {
     setSaving(true);

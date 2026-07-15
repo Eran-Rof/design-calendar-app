@@ -1056,6 +1056,8 @@ The strip across the top shows the **last 12 periods** with their status at a gl
 
 Checks can be re-run any number of times; each run overwrites the automated verdicts (manual sign-offs are never touched).
 
+**Every automated check also links you straight to what's wrong.** Just like the manual items, each auto check now carries a short **review summary** for the month and a blue **Review** link that opens the underlying item(s) — for **blockers *and* advisories/waived items**, not only failures, so you can always inspect a number before you accept or fix it. Two are pre-filtered drills: **No draft JEs → Review** opens **Journal Entries** with drafts already shown (`?include_drafts=true`), and **8007 Uncategorized → Review** opens **GL Detail** on account 8007 for the exact period. The rest open the relevant panel and let the summary carry the figure — **GL balanced** → Journal Entries, **AR subledger tie** → AR Aging, **AP subledger tie** → AP Aging, **Bank / CC reconciled** → Bank Reconciliation, **Factor tie** → Factor (Rosenthal), **Revenue posted** → Income Statement. A passing check keeps its link (subtle) so you can still spot-check it; a blocker's or advisory's link is emphasised.
+
 ### Reading the close checks — statuses and closing with a documented exception
 
 Not every non-green result is a problem you must fix. Each card carries one of four **statuses**, and only one of them blocks the close:
@@ -1079,6 +1081,8 @@ Not every non-green result is a problem you must fix. Each card carries one of f
 ### Manual sign-offs
 
 Six judgment items ship per period: **Bank statements reviewed · Factor statement received & reconciled · Chargebacks reviewed · Payroll booked · Depreciation booked · Close sign-off (controller)**. Signing off requires a **note** describing what was reviewed; the panel records **who and when** and shows it on the row. A sign-off can be reverted (with a reason) while the period is still open — every change lands in the T11 audit ledger.
+
+**Each manual item tells you what to review — and links you straight to it.** Instead of a blind "what was reviewed?" prompt, every manual item now shows a short **review context** for the month (for example *"3 open chargebacks to review for 05/2026"*, *"2 payroll JEs posted in 05/2026"*, *"No factor statement imported for 05/2026 yet"*) and a blue **Review** link that opens the panel behind it — Chargeback Management (pre-filtered to the month's *open* chargebacks), Bank Reconciliation, Factor (Rosenthal), Journal Entries or Fixed Assets — so you can actually look before you sign. The figures are scoped to the month you're closing. The controller sign-off has no single link: it rolls up whether anything is still outstanding (*"Resolve 2 outstanding items first…"* or *"…ready to certify the close"*). When you click **Sign off**, the same review context is repeated in the prompt so you're always attesting to a concrete number.
 
 ### Closing (and reopening) the period
 
