@@ -164,8 +164,12 @@ describe("allActionNames / actionByName", () => {
     expect(actionByName("fx_write_action", fxPacks)).toBe(writeAction);
     expect(actionByName("nope", fxPacks)).toBeNull();
   });
-  it("real registry ships NO action yet (P28-4-1 is plumbing only)", () => {
-    expect(allActionNames()).toEqual([]);
+  it("real registry ships the P28-4-2 actions", () => {
+    const names = allActionNames();
+    expect(names).toContain("draft_chargeback_match");
+    expect(names).toContain("draft_vendor_email");
+    expect(names).toContain("draft_customer_email");
+    expect(new Set(names).size).toBe(names.length); // globally unique
   });
 });
 
