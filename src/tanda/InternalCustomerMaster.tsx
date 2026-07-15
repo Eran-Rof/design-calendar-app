@@ -43,6 +43,7 @@ import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
@@ -218,7 +219,7 @@ export default function InternalCustomerMaster() {
   // Wave 5 — search-as-you-type. Synchronous `q` binds to the input so
   // typing feels instant; `qDebounced` drives the fetch (200 ms cadence,
   // matching the COA panel and the T6 GlobalSearchPalette).
-  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch(useSearchSeed(), 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
   const [addOpen, setAddOpen] = useState(false);

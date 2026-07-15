@@ -342,6 +342,7 @@ import r_internal_gl_periods_close from "./internal/gl-periods/close.js";
 import r_internal_gl_periods_index from "./internal/gl-periods/index.js";
 import r_internal_gl_periods_preflight from "./internal/gl-periods/preflight.js";
 import r_internal_gl_periods_reopen from "./internal/gl-periods/reopen.js";
+import r_internal_global_search_index from "./internal/global-search/index.js";
 import r_internal_hts_codes_id from "./internal/hts-codes/[id].js";
 import r_internal_hts_codes_index from "./internal/hts-codes/index.js";
 import r_internal_hts_backfill from "./internal/hts/backfill.js";
@@ -1384,6 +1385,7 @@ export const ROUTES = [
   { pattern: "/api/internal/balance-sheet", handler: r_internal_balance_sheet_index },
   { pattern: "/api/internal/bank-accounts", handler: r_internal_bank_accounts_index },
   { pattern: "/api/internal/client-errors", handler: r_internal_client_errors },
+  { pattern: "/api/internal/global-search", handler: r_internal_global_search_index },
   { pattern: "/api/internal/notifications", handler: r_internal_notifications_index },
   { pattern: "/api/internal/payment-terms", handler: r_internal_payment_terms_index },
   { pattern: "/api/internal/sales-returns", handler: r_internal_sales_returns_index },

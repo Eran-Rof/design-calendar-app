@@ -632,6 +632,7 @@ export default [
   ["/api/internal/pim/style-colors"                          , "./internal/pim/style-colors/index.js"],
   ["/api/internal/xoro-mirror/ap"                            , "./internal/xoro-mirror/ap.js"],
   ["/api/internal/search"                                    , "./internal/search/index.js"],
+  ["/api/internal/global-search"                             , "./internal/global-search/index.js"],
   ["/api/internal/users/me/preferences/favorites"            , "./internal/users/me/preferences/favorites.js"],
   ["/api/internal/users/me/preferences/home-route"           , "./internal/users/me/preferences/home-route.js"],
   ["/api/internal/users/me/preferences/table-visibility"     , "./internal/users/me/preferences/table-visibility.js"],

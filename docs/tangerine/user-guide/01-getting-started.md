@@ -90,6 +90,22 @@ Tangerine has its own **independent top nav** with **section dropdowns** across 
 
 Immediately to the **right of Favorites** (before the section dropdowns) is a **🔍 Find a panel** type-ahead box — start typing a panel name and the closest matches appear; <kbd>↑</kbd>/<kbd>↓</kbd> move, <kbd>Enter</kbd> opens the top hit, <kbd>Esc</kbd> clears. It matches on **panel names** (so "master" shows Style/Vendor/Customer Master, not every panel that happens to live in the *Master Data* group); if nothing matches a panel name, it falls back to matching a **group name** so you can still jump by section.
 
+### Universal search — the always-visible search bar (2026-07-15)
+
+At the **far left of the top bar**, right beside the navigation drawer, is an **always-visible universal search box** (placeholder *"Search everything…"*). Where **Find a panel** jumps to *screens*, universal search finds **records anywhere in the database** — type any term and it searches, in parallel, across:
+
+**Customers · Vendors · Styles · Items/SKUs · Sales Orders · Purchase Orders (both the native Tangerine POs and the Xoro-mirrored POs) · AR Invoices · AP Bills · Journal Entries · Parts · Services · Build Orders · Fabric Codes · Employees.**
+
+How it works:
+
+- Matching is **substring, case-insensitive** — you can type a fragment of a code, name, number, or memo (e.g. `ross`, `JE-2026`, `CTN`, `PO-40`) and don't need the whole value.
+- Results appear in a **dark dropdown grouped by entity** with a count beside each group heading. Each row shows the record's **code in blue** (e.g. `CUST-01042`, `JE-2026-00318`, `PART-00077`) followed by its name/description; the part of the text that matched your term is highlighted.
+- **Keyboard:** <kbd>↓</kbd>/<kbd>↑</kbd> move the highlight across all groups, <kbd>Enter</kbd> opens the highlighted record, <kbd>Esc</kbd> closes the dropdown. You can also click any row. The **✕** clears the box.
+- **Clicking a result takes you straight to that record** — it opens the record's module with the search box pre-filled to that code, so you land on the row (Xoro-mirrored POs open in the PO WIP app on their milestones view). No new tab, no lost session.
+- It starts searching once you've typed **2+ characters** and waits a moment after you stop typing, so it stays snappy.
+
+> This is separate from the **⌘K / Ctrl-K** search palette (a centered modal). Both search your data; the top-bar bar is always on screen, the palette is a power-user shortcut. Use whichever you reach for.
+
 > **Nav now fits any screen (2026-06-05):** with Treasury, ESG and Procurement added, the top nav had grown wide. It's now **responsive** — the section-dropdown row flexes, tightening its spacing and (on narrower screens) **wrapping to a second line** so every group button stays reachable without a horizontal page scrollbar at common widths (1280–1920). **Favorites, 🔍 Find a panel, 🧩 Apps, and your avatar/name stay fixed and always visible**; the Find-a-panel box also moved to sit right after Favorites (see above).
 
 > **Nav layout changed 2026-05-27 night:** the original flat row of 22 module buttons got too crowded after P4 shipped (the Accounting group alone grew to 9 modules). Modules are now grouped under: 📚 Master Data · 💼 Accounting · 📦 Inventory · ✅ Approvals · 🔔 Notifications · 👥 HR · ⚙️ Operations. The active module's parent group is highlighted, so you always know where you are. Click outside or press <kbd>Esc</kbd> to close a dropdown without selecting.
