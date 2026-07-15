@@ -236,4 +236,15 @@ Once the mirror carries the true status, `import-xoro-orders.mjs --sos-native` m
 
 ---
 
+## 22.15 "Mirror failed" that wasn't — two false-failure bugs (2026-07-15)
+
+The **Shadow Mirror Status** panel showed a red `Error: No route for /api/internal/xoro-mirror-runs` with every domain reading *"No successful run yet,"* and the **Today** page greeted with *"mirror failed"* — while the accounting mirror was in fact **healthy** (all four domains — AR, AP, Inventory, Summary JE — ran and marked `complete` at the 01:30 UTC nightly). Two independent display bugs, neither a real mirror failure:
+
+1. **Missing read route.** The status panel fetches `GET /api/internal/xoro-mirror-runs`, but that endpoint was referenced by the T10-7 panel and **never actually shipped** — no handler, no route. The dispatcher returned 404, so the panel couldn't load any runs. Fixed by adding the handler (returns recent `xoro_mirror_runs` rows) and its route.
+2. **Wrong status string on Today.** The Today accounting card checked the run status against `"success"`, but the mirror writes `complete` (its statuses are `complete` / `running` / `failed` / `skipped_no_change` / `skipped_stale_xoro` — never `success`). So every *successful* run was mislabeled an error and surfaced as "mirror failed." Fixed to read the real statuses.
+
+Both are pure display fixes — no change to the mirror pipeline, which was working the whole time. If you ever see a mirror "failed," check the **run's actual `status`** (Shadow Mirror panel row detail) before assuming the pipeline broke; a green nightly can still be mis-shown by a reader bug.
+
+---
+
 Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops), chapter 27 (Sales Orders). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.

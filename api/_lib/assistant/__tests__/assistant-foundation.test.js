@@ -224,8 +224,8 @@ describe("real packs run against canned counts", () => {
   };
   const ROWS = {
     xoro_mirror_runs: [
-      { domain: "ar", status: "success", mirror_date: "2026-07-13", completed_at: "x" },
-      { domain: "ap", status: "error", errors: "boom", completed_at: "y" },
+      { domain: "ar", status: "complete", mirror_date: "2026-07-13", completed_at: "x" },
+      { domain: "ap", status: "failed", errors: ["boom"], completed_at: "y" },
     ],
     ip_planning_runs: [{ id: "r1", name: "July run", status: "complete", created_at: "z" }],
     ai_insights: [],

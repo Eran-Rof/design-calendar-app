@@ -139,14 +139,25 @@ const mirrorRuns = {
       .order("started_at", { ascending: false })
       .limit(16);
     if (error) throw new Error(error.message);
-    return reduceLatestByDomain(data).map((r) => ({
-      key: `accounting.mirror.${r.domain}`,
-      label: `Xoro mirror — ${r.domain}`,
-      state: r.status === "success" ? "ok" : r.status === "running" ? "running" : "error",
-      detail: r.status === "success" ? `Mirrored ${r.mirror_date}` : String(r.errors || r.status || ""),
-      last_run_at: r.completed_at,
-      panel: "shadow_mirror",
-    }));
+    return reduceLatestByDomain(data).map((r) => {
+      // xoro_mirror_runs.status is 'complete' | 'running' | 'failed' |
+      // 'skipped_no_change' | 'skipped_stale_xoro' (it NEVER writes 'success').
+      // The old check `status === "success"` therefore mislabeled every
+      // successful nightly run as an error → a bogus "mirror failed" on Today
+      // even though all four domains completed. Treat a completed/skipped-no-op
+      // run as ok, running as running, and only genuine failures / stale-skips
+      // as error.
+      const ok = r.status === "complete" || r.status === "success" || r.status === "skipped_no_change";
+      const errText = Array.isArray(r.errors) ? (r.errors.length ? JSON.stringify(r.errors) : "") : String(r.errors || "");
+      return {
+        key: `accounting.mirror.${r.domain}`,
+        label: `Xoro mirror — ${r.domain}`,
+        state: ok ? "ok" : r.status === "running" ? "running" : "error",
+        detail: ok ? `Mirrored ${r.mirror_date}` : (errText || r.status || ""),
+        last_run_at: r.completed_at,
+        panel: "shadow_mirror",
+      };
+    });
   },
 };
 

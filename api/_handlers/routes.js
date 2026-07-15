@@ -636,6 +636,7 @@ import r_internal_workspaces_id_pins_index from "./internal/workspaces/[id]/pins
 import r_internal_workspaces_id_tasks_task_id from "./internal/workspaces/[id]/tasks/[task_id].js";
 import r_internal_workspaces_id_tasks_index from "./internal/workspaces/[id]/tasks/index.js";
 import r_internal_workspaces_index from "./internal/workspaces/index.js";
+import r_internal_xoro_mirror_runs from "./internal/xoro-mirror-runs.js";
 import r_internal_xoro_mirror_ap from "./internal/xoro-mirror/ap.js";
 import r_internal_xoro_mirror_ar from "./internal/xoro-mirror/ar.js";
 import r_internal_xoro_mirror_backfill_job from "./internal/xoro-mirror/backfill-job.js";
@@ -1328,6 +1329,7 @@ export const ROUTES = [
   { pattern: "/api/internal/price-promotions", handler: r_internal_price_promotions_index },
   { pattern: "/api/internal/transfer-reasons", handler: r_internal_transfer_reasons_index },
   { pattern: "/api/internal/vendor-scorecard", handler: r_internal_vendor_scorecard_index },
+  { pattern: "/api/internal/xoro-mirror-runs", handler: r_internal_xoro_mirror_runs },
   { pattern: "/api/vendor/ai-extract-invoice", handler: r_vendor_ai_extract_invoice },
   { pattern: "/api/vendor/payment-preference", handler: r_vendor_payment_preference_index },
   { pattern: "/api/cron/bank-auto-post-fees", handler: r_cron_bank_auto_post_fees },
