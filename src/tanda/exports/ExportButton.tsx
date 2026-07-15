@@ -22,6 +22,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTableExport, todayStamp, type ExportColumn } from "./useTableExport";
+import TotalsButton from "./TotalsButton";
 
 type Props<T extends Record<string, unknown>> = {
   rows: T[];
@@ -45,6 +46,14 @@ type Props<T extends Record<string, unknown>> = {
    * used for the count label and the enabled/disabled state.
    */
   fetchRows?: () => Promise<T[]>;
+  /**
+   * Opt OUT of the adjacent universal "Totals" button. By default every export
+   * control also renders a <TotalsButton> (same rows/columns) so the operator
+   * can total any numeric column. Pass `noTotals` on panels that already show
+   * their own totals/subtotal footer (statement-shaped reports, matrix grids)
+   * to avoid a redundant control.
+   */
+  noTotals?: boolean;
 };
 
 const defaultBtn: React.CSSProperties = {
@@ -86,7 +95,7 @@ const menuItemStyle: React.CSSProperties = {
 };
 
 export default function ExportButton<T extends Record<string, unknown>>(props: Props<T>) {
-  const { rows, columns, filename, sheetName, buttonStyle, label, totalsRow, fetchRows } = props;
+  const { rows, columns, filename, sheetName, buttonStyle, label, totalsRow, fetchRows, noTotals } = props;
   const stampedFilename = `${filename}-${todayStamp()}`;
   const { exportNow } = useTableExport({ rows, columns, filename: stampedFilename, sheetName, format: "xlsx", totalsRow });
 
@@ -133,7 +142,9 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
   const rowSuffix = busy ? "" : rows && rows.length > 0 ? ` (${rows.length})` : "";
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      {!noTotals && <TotalsButton rows={rows} columns={columns} buttonStyle={buttonStyle} />}
+      <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
         onClick={() => !disabled && !busy && setOpen((v) => !v)}
@@ -177,6 +188,7 @@ export default function ExportButton<T extends Record<string, unknown>>(props: P
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </span>
   );
 }

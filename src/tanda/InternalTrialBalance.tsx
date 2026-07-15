@@ -230,6 +230,7 @@ export default function InternalTrialBalance() {
           {loading ? "Loading…" : "Refresh"}
         </button>
         <ExportButton
+          noTotals
           // #23 Export totals — append a GRAND TOTAL row mirroring the on-screen
           // tfoot (Debits / Credits / Net) so the spreadsheet ties out.
           rows={[

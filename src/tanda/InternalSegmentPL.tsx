@@ -356,7 +356,7 @@ export default function InternalSegmentPL() {
           <input type="checkbox" checked={byGender} onChange={(e) => setByGender(e.target.checked)} />
           Break out net sales by gender
         </label>
-        <ExportButton rows={exportRows} filename={`segment-pl-${from}-to-${to}`} sheetName="Segment P&L" columns={exportColumns} />
+        <ExportButton rows={exportRows} filename={`segment-pl-${from}-to-${to}`} sheetName="Segment P&L" columns={exportColumns} noTotals />
       </div>
 
       {/* Column manager — drag a chip to reorder. */}

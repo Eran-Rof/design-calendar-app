@@ -71,9 +71,27 @@ Two companion sweeps landed alongside wave 3:
 - **Select-on-focus search boxes.** Clicking (or tabbing) into a panel's free-text **search/filter** box now **selects its current contents**, so you can just start typing to replace the previous search instead of clearing it first.
 - **Cascading filters.** On the cross-vendor **Shipments** view, the **Vendor** and **Status** dropdowns (plus the search box) now narrow each other — each dropdown only offers values that still have matching shipments under the other active filters (your current selection always stays available so you can clear it).
 
+## Totals button — total any column with numbers
+
+> **2026-07-15:** every export control now sits beside a **Totals** button.
+
+Next to the **Export** button on any list / report panel you'll now see a **Totals ▾** button. Click it to open a compact strip that **sums every numeric column** in the table:
+
+- **Money columns** (stored as cents) total to a proper **$X.XX** figure.
+- **Quantity / count columns** total with thousands separators.
+- **Percentage columns are not summed** — averaging a percent is misleading, so they're left blank (a small "Percentages are not summed" note appears when the table has any).
+- **Text and date columns** stay blank in the totals row.
+
+It's **WYSIWYG**, exactly like Export: it totals only the rows currently visible under your active filter, search, and sort. Click **Totals** again (or press Escape / click away) to close the strip. The toggle is **per-table** — opening totals on one panel doesn't affect another.
+
+The button **hides itself** on tables that have no numeric columns (master-data / text-only grids), and is intentionally **omitted** on statement-shaped reports that already carry their own subtotal/total rows — **Balance Sheet, Trial Balance, Cash Flow, Income Statement, Segment P&L** — where re-summing the amount column would double-count the built-in subtotals. Matrix and transaction-list grids keep it, since their rows sum cleanly.
+
 ## Code map
 
-- `src/tanda/exports/ExportButton.tsx` — the drop-in button + dropdown.
+- `src/tanda/exports/ExportButton.tsx` — the drop-in export button + dropdown; also renders the adjacent `<TotalsButton>` (opt out with the `noTotals` prop).
+- `src/tanda/exports/TotalsButton.tsx` — the universal Totals toggle + totals strip (same `rows`/`columns` props as ExportButton).
+- `src/tanda/exports/tableTotals.ts` — pure totals logic (`computeColumnTotals`, `formatIsSummable`, `inferredNumeric`) — money summed as cents, percent columns skipped.
+- `src/tanda/exports/__tests__/tableTotals.test.ts` — 16 unit tests: cents summing, null-skip, percent-skip, inferred-numeric detection.
 - `src/tanda/exports/useTableExport.ts` — pure helpers (`buildAoA`, `formatCell`, `toCsv`, `inferColumns`, `todayStamp`) + the imperative `useTableExport({rows, columns, filename, format})` hook.
 - `src/tanda/exports/__tests__/useTableExport.test.ts` — 13 unit tests covering cell coercion, CSV quoting, header inference.
 - `src/tanda/hooks/useSort.ts` — the click-to-sort primitive (tri-state, null-safe, localStorage-persisted) + pure `sortRows`/`baseCompare` helpers.
