@@ -61,23 +61,40 @@ const addInto = (target: number[], idx: number, v: number | null | undefined): v
   if (idx >= 0) target[idx] += v ?? 0;
 };
 
-/** Drop color rows with NO buy planned this year — i.e. the TY/Buyer total is
- *  zero. This is a buy-planning report, so a color you aren't buying is an empty
- *  row even if it had last-year sales (those show as a full negative Δ when the
- *  toggle is off). Styles left with no colors, and customers left with no
- *  styles, drop too. Totals are unchanged (removed rows contributed 0 to the
- *  Buyer side). Pure — the report's "hide zero rows" toggle applies it to the
- *  view AND its PDF/Excel exports so a download matches what's on screen. */
+/** Top-level "hide zero rows": drop a color only when it is empty EVERYWHERE —
+ *  no last-year sales AND no buy planned (lyTotal === 0 && tyTotal === 0). A
+ *  color with data in either block is kept so it can still appear in the block
+ *  it belongs to; the per-block trim below removes it from the OTHER block.
+ *  Styles left with no colors, and customers left with no styles, drop too.
+ *  Totals are unchanged (removed rows contributed 0 to both sides). Pure — the
+ *  view AND its PDF/Excel exports apply it so a download matches the screen. */
 export function filterOutZeroReportRows(report: BuyerVsLyReport): BuyerVsLyReport {
   const customers = report.customers
     .map((cust) => {
       const styles = cust.styles
-        .map((sty) => ({ ...sty, colors: sty.colors.filter((c) => c.tyTotal !== 0) }))
+        .map((sty) => ({ ...sty, colors: sty.colors.filter((c) => c.lyTotal !== 0 || c.tyTotal !== 0) }))
         .filter((sty) => sty.colors.length > 0);
       return { ...cust, styles };
     })
     .filter((cust) => cust.styles.length > 0);
   return { periods: report.periods, customers };
+}
+
+/** Per-block "hide zero rows": each rendered table shows only the colors that
+ *  are non-zero for THAT block — the Last Year table hides colors with no LY
+ *  sales, the Buyer table hides colors with no buy, and the Comparison table
+ *  hides colors zero in both. Returns the customer's styles with each style's
+ *  colors filtered (empty styles dropped). Block totals are unaffected because
+ *  every removed color contributed 0 to that block's metric. Used by the modal
+ *  and both exports so all three stay consistent. */
+export function filterStylesForBlock(cust: ReportCustomer, block: "ly" | "ty" | "comp"): ReportStyle[] {
+  const keep = (c: ReportColorRow): boolean =>
+    block === "ly" ? c.lyTotal !== 0
+    : block === "ty" ? c.tyTotal !== 0
+    : (c.lyTotal !== 0 || c.tyTotal !== 0);
+  return cust.styles
+    .map((sty) => ({ ...sty, colors: sty.colors.filter(keep) }))
+    .filter((sty) => sty.colors.length > 0);
 }
 
 /** Comparison helpers shared by the view + exports. */

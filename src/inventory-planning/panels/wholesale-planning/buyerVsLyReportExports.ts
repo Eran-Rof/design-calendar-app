@@ -4,7 +4,7 @@
 
 import { exportPdf, type PdfColumn, type PdfSection } from "../../../shared/pdfExport";
 import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, XLP, NUMFMT, type AoaCell } from "../../../shared/excelLogo";
-import { reportComp, reportPct, type BuyerVsLyReport, type ReportCustomer } from "./buildBuyerVsLyReport";
+import { reportComp, reportPct, filterStylesForBlock, type BuyerVsLyReport, type ReportCustomer } from "./buildBuyerVsLyReport";
 
 function fileStem(runName: string): string {
   return `buyer-vs-ly-${(runName || "run").replace(/[^\w.-]+/g, "_")}`;
@@ -15,8 +15,9 @@ const bz = (n: number): number | string => (n === 0 ? "" : n);
 
 // ── PDF ────────────────────────────────────────────────────────────────────
 
-export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): void {
+export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string; hideZero?: boolean }): void {
   const { periods } = report;
+  const hz = !!opts.hideZero;
   const sections: PdfSection[] = [];
 
   const qtyCols = (labelKey: "lyLabel" | "tyLabel"): PdfColumn[] => [
@@ -31,13 +32,13 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: str
     sections.push({
       heading: `${cust.customer} — SP/LY (Last Year)`,
       columns: qtyCols("lyLabel"),
-      rows: [...qtyRows(cust, "ly", codes), totalRow(cust, "ly", codes)],
+      rows: [...qtyRows(cust, "ly", codes, hz), totalRow(cust, "ly", codes)],
     });
     // TY/Buyer block
     sections.push({
       heading: `${cust.customer} — TY / Buyer (This Year)`,
       columns: qtyCols("tyLabel"),
-      rows: [...qtyRows(cust, "ty", codes), totalRow(cust, "ty", codes)],
+      rows: [...qtyRows(cust, "ty", codes, hz), totalRow(cust, "ty", codes)],
     });
     // Comparison block (Δ + %)
     const compCols: PdfColumn[] = [
@@ -52,7 +53,7 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: str
     sections.push({
       heading: `${cust.customer} — Comparison (TY − LY)`,
       columns: compCols,
-      rows: compRows(cust, periods.map((p) => p.period_code)),
+      rows: compRows(cust, periods.map((p) => p.period_code), hz),
     });
   }
 
@@ -65,9 +66,9 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: str
   });
 }
 
-function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[]): Record<string, unknown>[] {
+function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[], hideZero = false): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
-  for (const sty of cust.styles) {
+  for (const sty of (hideZero ? filterStylesForBlock(cust, block) : cust.styles)) {
     for (const c of sty.colors) {
       const arr = block === "ly" ? c.ly : c.ty;
       const tot = block === "ly" ? c.lyTotal : c.tyTotal;
@@ -86,7 +87,7 @@ function totalRow(cust: ReportCustomer, block: "ly" | "ty", codes: string[]): Re
   return o;
 }
 
-function compRows(cust: ReportCustomer, codes: string[]): Record<string, unknown>[] {
+function compRows(cust: ReportCustomer, codes: string[], hideZero = false): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   const push = (label: string, tyArr: number[], lyArr: number[], tyTot: number, lyTot: number) => {
     const o: Record<string, unknown> = { label };
@@ -100,7 +101,7 @@ function compRows(cust: ReportCustomer, codes: string[]): Record<string, unknown
     o.total_p = tp === 0 ? "" : tp;
     out.push(o);
   };
-  for (const sty of cust.styles) {
+  for (const sty of (hideZero ? filterStylesForBlock(cust, "comp") : cust.styles)) {
     for (const c of sty.colors) push(`${c.style} · ${c.color}`, c.ty, c.ly, c.tyTotal, c.lyTotal);
   }
   push("TOTAL", cust.tyTotals, cust.lyTotals, cust.tyTotal, cust.lyTotal);
@@ -132,8 +133,9 @@ const S_CUST: Sty = { font: { bold: true, sz: 13, color: { rgb: XLP.HEADER_FILL 
 const qtyCell = (v: number, s: Sty): AoaCell => (v === 0 ? { v: "", s } : { v, s, z: NUMFMT.QTY });
 const pctCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_MUTED } : { v: frac, s: S_MUTED, z: NUMFMT.PCT });
 
-export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string }): Promise<void> {
+export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string; hideZero?: boolean }): Promise<void> {
   const { periods } = report;
+  const hz = !!opts.hideZero;
   const nP = periods.length;
   const maxCols = Math.max(nP + 3, nP * 2 + 4); // comparison block is widest
   const aoa: AoaCell[][] = [];
@@ -149,7 +151,7 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
       heading(title, S_SUBHEAD);
       aoa.push([{ v: "Style", s: S_HEADER("left") }, { v: "Color", s: S_HEADER("left") },
         ...periods.map((p) => ({ v: label(p), s: S_HEADER("right") })), { v: "Total", s: S_HEADER("right") }]);
-      for (const sty of cust.styles) {
+      for (const sty of (hz ? filterStylesForBlock(cust, pick) : cust.styles)) {
         for (const c of sty.colors) {
           const arr = pick === "ly" ? c.ly : c.ty;
           aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
@@ -172,7 +174,7 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
     const dCell = (ty: number, ly: number): AoaCell => { const d = reportComp(ty, ly); return d === 0 ? { v: "", s: S_BODY("right") } : { v: d, s: d < 0 ? S_NEG : S_BODY("right"), z: NUMFMT.QTY }; };
     const dTotCell = (d: number): AoaCell => (d === 0 ? { v: "", s: S_TOTAL("right") } : { v: d, s: S_TOTAL("right"), z: NUMFMT.QTY });
     const pTotCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_TOTAL("right") } : { v: frac, s: S_TOTAL("right"), z: NUMFMT.PCT });
-    for (const sty of cust.styles) {
+    for (const sty of (hz ? filterStylesForBlock(cust, "comp") : cust.styles)) {
       for (const c of sty.colors) {
         aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
           ...periods.flatMap((_p, i) => [dCell(c.ty[i], c.ly[i]), pctCell(reportPct(c.ty[i], c.ly[i]))]),
