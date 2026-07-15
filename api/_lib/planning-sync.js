@@ -1187,8 +1187,17 @@ export async function syncReceiptsFromTandaPos(admin) {
 //
 // item_id → sku_id is identity (both the ip_item_master id). PPK stays native
 // grain (the grid expands at display). snapshot_date = today (the layers are
-// "current"; latest-per-SKU picks it up). Only source='tangerine' rows are
-// touched; source='manual' (ATS) is left intact — the reader flip is elsewhere.
+// "current"; latest-per-SKU picks it up). It writes BOTH ip_inventory_snapshot
+// (source='tangerine', the planning reader) AND tangerine_size_onhand
+// (source='xoro_rest', the Inventory Matrix / external API reader) so neither
+// goes stale. source='manual' (ATS) rows are left intact.
+
+// The 3 real inventory warehouses (from inventory_locations). "Psycho Tuna Ecom"
+// is a sales-posting construct with no stock and is excluded.
+const REAL_WAREHOUSES = new Set(["Main Warehouse", "Psycho Tuna", "ROF Ecom"]);
+// Single-tenant: the ROF entity that owns tangerine_size_onhand rows.
+const ROF_ENTITY_ID = "404b8a6b-0d2d-44d2-8539-9064ff0fafee";
+
 export async function rollUpXoroOnHandToSnapshot(admin) {
   const today = new Date().toISOString().slice(0, 10);
   const result = { snapshot_date: today, rows_read: 0, upserted: 0, warehouses: [], errors: [] };
@@ -1221,24 +1230,40 @@ export async function rollUpXoroOnHandToSnapshot(admin) {
     if (data.length < PAGE) break;
   }
 
-  // 3. Upsert ip_inventory_snapshot (source='tangerine', warehouse_code=location name).
+  // 3. Build per (item, REAL-warehouse) on-hand. Only the 3 real inventory
+  //    warehouses count — "Psycho Tuna Ecom" is a sales-posting construct with
+  //    no stock (netted-zero layers), and null/unknown locations are dropped.
   const whSet = new Set();
-  const rows = [];
+  const snapRows = []; // ip_inventory_snapshot (planning reader)
+  const tsoRows = [];  // tangerine_size_onhand (Inventory Matrix / external inventory API)
   for (const [key, qty] of agg) {
     const sep = key.lastIndexOf("|");
     const itemId = key.slice(0, sep);
     const locId = key.slice(sep + 1);
-    const wh = locName.get(locId) ?? locId ?? "Unknown";
+    const wh = locName.get(locId);
+    if (!wh || !REAL_WAREHOUSES.has(wh)) continue;
     whSet.add(wh);
-    rows.push({ sku_id: itemId, warehouse_code: wh, snapshot_date: today, qty_on_hand: qty, source: "tangerine" });
+    snapRows.push({ sku_id: itemId, warehouse_code: wh, snapshot_date: today, qty_on_hand: qty, source: "tangerine" });
+    tsoRows.push({ entity_id: ROF_ENTITY_ID, item_id: itemId, warehouse_code: wh, snapshot_date: today, qty_on_hand: qty, source: "xoro_rest" });
   }
-  for (let i = 0; i < rows.length; i += 500) {
-    const chunk = rows.slice(i, i + 500);
+  // Planning source.
+  for (let i = 0; i < snapRows.length; i += 500) {
+    const chunk = snapRows.slice(i, i + 500);
     const { error } = await admin
       .from("ip_inventory_snapshot")
       .upsert(chunk, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
-    if (error) result.errors.push(error.message);
+    if (error) result.errors.push(`snapshot: ${error.message}`);
     else result.upserted += chunk.length;
+  }
+  // Also refresh tangerine_size_onhand from the SAME source, so the readers that
+  // still consume it (Inventory Matrix, ats-by-size, external inventory API) are
+  // fresh instead of pointing at a frozen table — no handler changes needed.
+  for (let i = 0; i < tsoRows.length; i += 500) {
+    const chunk = tsoRows.slice(i, i + 500);
+    const { error } = await admin
+      .from("tangerine_size_onhand")
+      .upsert(chunk, { onConflict: "entity_id,item_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
+    if (error) result.errors.push(`tso: ${error.message}`);
   }
   result.warehouses = Array.from(whSet).sort();
   return result;

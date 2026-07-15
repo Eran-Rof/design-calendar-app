@@ -549,8 +549,9 @@ describe("syncReceiptsFromTandaPos — happy path", () => {
 });
 
 describe("rollUpXoroOnHandToSnapshot — sum inventory_layers per (item, warehouse)", () => {
-  it("sums remaining_qty across layers per (item, location), maps location→warehouse name, writes source=tangerine", async () => {
-    const upserts = [];
+  it("sums layers per (item, real warehouse), excludes the phantom Psycho Tuna Ecom, writes BOTH tables", async () => {
+    const snapUpserts = [];
+    const tsoUpserts = [];
     const today = new Date().toISOString().slice(0, 10);
     const admin = makeAdmin({
       inventory_locations: {
@@ -559,6 +560,7 @@ describe("rollUpXoroOnHandToSnapshot — sum inventory_layers per (item, warehou
             { id: "loc-main", name: "Main Warehouse" },
             { id: "loc-pt", name: "Psycho Tuna" },
             { id: "loc-ecom", name: "ROF Ecom" },
+            { id: "loc-ptecom", name: "Psycho Tuna Ecom" }, // phantom — must be excluded
           ], error: null };
         },
       },
@@ -566,33 +568,40 @@ describe("rollUpXoroOnHandToSnapshot — sum inventory_layers per (item, warehou
         async select(state) {
           if (state.range && state.range[0] === 0) {
             return { data: [
-              // sku-1 @ Main: two layers sum to 120
               { item_id: "sku-1", location_id: "loc-main", remaining_qty: 100 },
-              { item_id: "sku-1", location_id: "loc-main", remaining_qty: 20 },
+              { item_id: "sku-1", location_id: "loc-main", remaining_qty: 20 }, // → Main 120
               { item_id: "sku-1", location_id: "loc-pt", remaining_qty: 40 },
-              // sku-2 @ ecom: nets to 0 (one layer depleted)
               { item_id: "sku-2", location_id: "loc-ecom", remaining_qty: 5 },
-              { item_id: "sku-2", location_id: "loc-ecom", remaining_qty: -5 },
+              { item_id: "sku-2", location_id: "loc-ecom", remaining_qty: -5 }, // → ROF Ecom 0
+              { item_id: "sku-3", location_id: "loc-ptecom", remaining_qty: 99 }, // phantom → dropped
             ], error: null };
           }
           return { data: [], error: null };
         },
       },
       ip_inventory_snapshot: {
-        async upsert(state) { upserts.push(...state.upsertRows); return { data: null, error: null }; },
+        async upsert(state) { snapUpserts.push(...state.upsertRows); return { data: null, error: null }; },
+      },
+      tangerine_size_onhand: {
+        async upsert(state) { tsoUpserts.push(...state.upsertRows); return { data: null, error: null }; },
       },
     });
 
     const r = await rollUpXoroOnHandToSnapshot(admin);
     expect(r.error).toBeUndefined();
     expect(r.snapshot_date).toBe(today);
-    expect(r.rows_read).toBe(5);
+    expect(r.rows_read).toBe(6);
+    // Only the 3 real warehouses; phantom Psycho Tuna Ecom dropped.
     expect(r.warehouses).toEqual(["Main Warehouse", "Psycho Tuna", "ROF Ecom"]);
-    // Three (item, warehouse) rows; layers summed; location→name mapped.
-    expect(upserts.every((u) => u.source === "tangerine" && u.snapshot_date === today)).toBe(true);
-    expect(upserts.find((u) => u.sku_id === "sku-1" && u.warehouse_code === "Main Warehouse")).toMatchObject({ qty_on_hand: 120 });
-    expect(upserts.find((u) => u.sku_id === "sku-1" && u.warehouse_code === "Psycho Tuna")).toMatchObject({ qty_on_hand: 40 });
-    expect(upserts.find((u) => u.sku_id === "sku-2" && u.warehouse_code === "ROF Ecom")).toMatchObject({ qty_on_hand: 0 });
+    expect(snapUpserts.find((u) => u.warehouse_code === "Psycho Tuna Ecom")).toBeUndefined();
+    expect(snapUpserts.find((u) => u.sku_id === "sku-3")).toBeUndefined();
+    // Planning table (source='tangerine').
+    expect(snapUpserts.find((u) => u.sku_id === "sku-1" && u.warehouse_code === "Main Warehouse")).toMatchObject({ qty_on_hand: 120, source: "tangerine" });
+    expect(snapUpserts.find((u) => u.sku_id === "sku-2" && u.warehouse_code === "ROF Ecom")).toMatchObject({ qty_on_hand: 0 });
+    // Matrix table (tangerine_size_onhand, source='xoro_rest', item_id + entity_id) — same 3 rows.
+    expect(tsoUpserts).toHaveLength(3);
+    expect(tsoUpserts.every((u) => u.source === "xoro_rest" && u.entity_id && u.item_id)).toBe(true);
+    expect(tsoUpserts.find((u) => u.item_id === "sku-1" && u.warehouse_code === "Psycho Tuna")).toMatchObject({ qty_on_hand: 40 });
   });
 
   it("errors when inventory_locations can't be read", async () => {
