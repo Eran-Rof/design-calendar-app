@@ -51,12 +51,13 @@ From the **AR Invoices** panel, click **+ New invoice**.
 
 | Field | Required? | Notes |
 |---|---|---|
-| Customer | yes | Sourced from M36 Customer Master. Type an unknown name → a **"+ Add customer '<name>'"** typeahead row opens the Add-customer popup pre-filled, creates it on the fly, selects it here, and sends a complete-the-info reminder (item 8). UUID paste fallback is offered. |
+| Customer | yes | Sourced from M36 Customer Master. Type an unknown name → a **"+ Add customer '<name>'"** typeahead row opens the Add-customer popup pre-filled, creates it on the fly, selects it here, and sends a complete-the-info reminder (item 8). UUID paste fallback is offered. **On selection the customer's Payment terms and Ship-to are auto-populated** (see below). Saving without a customer raises a warning. |
+| Ship-to location | optional | Auto-populated on customer selection: the customer's **default** location (else the first). When the customer has **more than one** ship-to address, a toast warns you which was auto-selected so you can change it. Sourced from `customer_locations`. |
 | Invoice number | optional | Auto-generated as `AR-YYYY-NNNNN` if blank. Must be unique per entity. |
 | Kind | yes | `customer_invoice` / `customer_credit_memo` |
 | Invoice date | yes | The date the GL JE will land on (must be inside an open period at post time). `posting_date` is kept in lockstep with this field. |
-| Payment terms | optional | If set, **Due date** is auto-computed from `payment_terms.net_days`. Manual edit overrides. |
-| Due date | optional | Defaults to invoice date if blank. |
+| Payment terms | optional | Auto-populated from the customer master (`customers.payment_terms_id`) on customer selection; still editable. When set, **Due date** is auto-computed as invoice date + `payment_terms.due_days`, and **recomputed** whenever the terms or invoice date change — unless you have hand-edited the Due date, which is never silently overwritten. |
+| Due date | optional | Auto-derived from Payment terms (above). Editing it marks it manual, freezing the auto-recompute. |
 | AR account override | optional | Defaults to `entities.default_ar_account_id` (code `1200`). Per-customer override via `customers.default_ar_account_id`. |
 | Revenue account (default) | optional | Defaults to `entities.default_revenue_account_id` (code `4000`). Per-line override available. |
 | COGS account | optional | Defaults to `entities.default_cogs_account_id` (code `5000`). Required only when an inventory line is present. |
@@ -74,6 +75,8 @@ Each line must resolve to a positive `line_total_cents`. There are two paths:
 **Inventory contract:** if a line carries `inventory_item_id` (uuid into `ip_item_master`), it **must** use the quantity + unit price path. The unit price is the **selling price** (not the cost) — the COGS amount is derived at post time from the FIFO layer consumption (see next section). A line without `inventory_item_id` is treated as a service / non-inventory line and never generates a COGS entry.
 
 The trigger `ar_invoice_lines_maintain_total` rebuilds `ar_invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
+
+**Missing-price warning:** on save, if any line carries a quantity but **no sales price ($0 unit price)**, a warn-and-confirm dialog lists the affected styles/lines ("Save anyway" / "Add price"). This mirrors the Sales Order editor's missing-price guard — a soft warning, not a hard block, since $0 is occasionally intended (e.g. a free replacement).
 
 ### The line body is the size matrix (shared with Sales Orders)
 
@@ -156,16 +159,26 @@ Voiding is **always** reversible to a clean GL — the audit trail keeps both th
 
 ## Filter row
 
-The top of the panel has six filters:
+The top of the panel has these filters:
 
 - **Status** — single-select on `gl_status`.
 - **Customer** — single-select on the customer dropdown.
-- **From / To** — `invoice_date` range.
+- **Source** — single-select on the row `source` (manual vs mirrored).
+- **From / To** — `invoice_date` range (with date presets).
 - **Limit** — 50 / 100 / 200 / 500.
 - **Include void** — checkbox (default off).
-- **Search** — `invoice_number` ilike.
+- **Search** — **searches everything**, server-side: invoice number, customer name/code, line **SKU / style / description**, status, and the invoice **amount** (e.g. `1234.56`). Matching is a broad case-insensitive lookup that pre-resolves customer and line matches into id lists so the grid stays a single indexed query.
 
-Void invoices render at 50% opacity. The **Balance** column shows `total_amount_cents − paid_amount_cents` colored amber when > 0.
+### Grid columns
+
+Beyond Invoice # / Date / Customer / Total / Paid / Balance / Status, the grid carries (toggle via the column-prefs button, all included in the export):
+
+- **Payment Terms** — the `payment_terms.code` for the invoice's terms.
+- **Due Date** — `due_date` (MM/DD/YYYY).
+- **Credit Applied** — the summed total of posted **credit memos** that reverse this invoice (`ar_invoices.reverses_invoice_id` link), shown as a negative green amount. Blank when none. (The operator's original ask called this "Vendor Credit"; in this AR context the real data is customer credit memos, so the column is labelled **Credit Applied**.)
+- **Payment Date** — the date of the most recent **non-void** receipt applied to the invoice (`MAX(ar_receipts.receipt_date)` via `ar_receipt_applications`).
+
+Void invoices render at 50% opacity. The **Balance** column shows `total_amount_cents − paid_amount_cents` colored amber when > 0 — this is the invoice balance the operator asked for; note it does **not** net out Credit Applied (credit memos are separate documents with their own balance).
 
 ## Row expander — inline line detail (the ▸ carrot)
 

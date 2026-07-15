@@ -5,7 +5,8 @@
 //          ?customer_id=<uuid>
 //          ?from=<YYYY-MM-DD>  / ?to=<YYYY-MM-DD>   (invoice_date window)
 //          ?include_void=true  (default false; void hidden)
-//          ?q=<search>         (invoice_number ilike)
+//          ?q=<search>         (broad: invoice_number / customer name+code /
+//                               line SKU+style+description / status / amount)
 //          ?sales_order_id=<uuid>  (invoices generated from that SO; M10-C link)
 //          ?limit=N (default 100, max 500)
 // POST — create a draft AR invoice. Body:
@@ -86,6 +87,123 @@ async function nextInvoiceNumber(admin, entityId, year) {
   return `${prefix}${String(next).padStart(5, "0")}`;
 }
 
+/**
+ * Turns a free-text search into a PostgREST `.or(...)` expression that spans
+ * invoice_number, the invoice + line descriptions, gl_status, the invoice
+ * amount, plus any customers (name/code) and lines (SKU/style) that match.
+ * Pre-resolves customer and line matches into id lists so the main query stays
+ * a single indexed lookup. `esc` has structural chars (`,()`) already stripped.
+ */
+async function resolveSearchScope(admin, entityId, esc, rawQ) {
+  const parts = [
+    `invoice_number.ilike.%${esc}%`,
+    `description.ilike.%${esc}%`,
+    `gl_status.ilike.%${esc}%`,
+  ];
+  const amountCents = parseAmountToCents(rawQ);
+  if (amountCents != null) parts.push(`total_amount_cents.eq.${amountCents}`);
+
+  // Customers by name / code / customer_code.
+  try {
+    const { data: custs } = await admin
+      .from("customers")
+      .select("id")
+      .eq("entity_id", entityId)
+      .or(`name.ilike.%${esc}%,code.ilike.%${esc}%,customer_code.ilike.%${esc}%`)
+      .limit(200);
+    const ids = (custs || []).map((c) => c.id);
+    if (ids.length) parts.push(`customer_id.in.(${ids.join(",")})`);
+  } catch { /* ignore — customer scope is optional */ }
+
+  // Lines: SKU/style match (via ip_item_master) OR line description match.
+  try {
+    const { data: its } = await admin
+      .from("ip_item_master")
+      .select("id")
+      .or(`sku_code.ilike.%${esc}%,style_code.ilike.%${esc}%`)
+      .limit(500);
+    const itemIds = (its || []).map((i) => i.id);
+    let lineQ = admin.from("ar_invoice_lines").select("ar_invoice_id").limit(1000);
+    lineQ = itemIds.length
+      ? lineQ.or(`inventory_item_id.in.(${itemIds.join(",")}),description.ilike.%${esc}%`)
+      : lineQ.ilike("description", `%${esc}%`);
+    const { data: lns } = await lineQ;
+    const invIds = [...new Set((lns || []).map((l) => l.ar_invoice_id).filter(Boolean))];
+    if (invIds.length) parts.push(`id.in.(${invIds.join(",")})`);
+  } catch { /* ignore — line scope is optional */ }
+
+  return parts.join(",");
+}
+
+/** "$1,234.56" / "1234.56" / "1234" → integer-cents string, or null. */
+function parseAmountToCents(s) {
+  const t = String(s).trim().replace(/[$,]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const [whole, frac = ""] = t.split(".");
+  const cents = BigInt(whole) * 100n + BigInt((frac + "00").slice(0, 2));
+  return cents.toString();
+}
+
+const CREDIT_POSTED_STATUSES = new Set([
+  "sent", "partial_paid", "paid", "posted", "posted_historical",
+]);
+
+/**
+ * Attaches derived grid columns to each invoice row (mutates in place):
+ *   payment_terms_code   — payment_terms.code for the row's payment_terms_id
+ *   payment_date         — MAX(receipt_date) of non-void receipts applied
+ *   credit_applied_cents — Σ total of posted credit-memos that reverse this
+ *                          invoice (ar_invoices.reverses_invoice_id link)
+ * Every lookup is best-effort; a failure leaves that column null/"0".
+ */
+async function enrichInvoiceRows(admin, rows) {
+  if (!rows.length) return;
+  const invIds = rows.map((r) => r.id);
+
+  // Payment-terms code.
+  try {
+    const termIds = [...new Set(rows.map((r) => r.payment_terms_id).filter(Boolean))];
+    const codeById = new Map();
+    if (termIds.length) {
+      const { data: terms } = await admin.from("payment_terms").select("id, code").in("id", termIds);
+      for (const t of terms || []) codeById.set(t.id, t.code);
+    }
+    for (const r of rows) r.payment_terms_code = r.payment_terms_id ? (codeById.get(r.payment_terms_id) || null) : null;
+  } catch { for (const r of rows) r.payment_terms_code = r.payment_terms_code ?? null; }
+
+  // Last-receipt (payment) date — newest non-void receipt applied to the invoice.
+  try {
+    const { data: apps } = await admin
+      .from("ar_receipt_applications")
+      .select("ar_invoice_id, ar_receipts!inner(receipt_date, is_void)")
+      .in("ar_invoice_id", invIds);
+    const lastByInv = new Map();
+    for (const a of apps || []) {
+      const rc = a.ar_receipts;
+      if (!rc || rc.is_void) continue;
+      const cur = lastByInv.get(a.ar_invoice_id);
+      if (!cur || rc.receipt_date > cur) lastByInv.set(a.ar_invoice_id, rc.receipt_date);
+    }
+    for (const r of rows) r.payment_date = lastByInv.get(r.id) || null;
+  } catch { for (const r of rows) r.payment_date = r.payment_date ?? null; }
+
+  // Applied customer credits — posted credit-memos that reverse this invoice.
+  try {
+    const { data: credits } = await admin
+      .from("ar_invoices")
+      .select("reverses_invoice_id, total_amount_cents, gl_status")
+      .in("reverses_invoice_id", invIds)
+      .eq("invoice_kind", "customer_credit_memo");
+    const byInv = new Map();
+    for (const c of credits || []) {
+      if (!CREDIT_POSTED_STATUSES.has(c.gl_status)) continue;
+      const prev = byInv.get(c.reverses_invoice_id) || 0n;
+      byInv.set(c.reverses_invoice_id, prev + BigInt(c.total_amount_cents || "0"));
+    }
+    for (const r of rows) { const v = byInv.get(r.id); r.credit_applied_cents = v != null ? v.toString() : "0"; }
+  } catch { for (const r of rows) r.credit_applied_cents = r.credit_applied_cents ?? "0"; }
+}
+
 export default async function handler(req, res) {
   corsHeaders(res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -130,7 +248,16 @@ export default async function handler(req, res) {
     if (salesOrderId) query = query.eq("sales_order_id", salesOrderId);
     if (from)       query = query.gte("invoice_date", from);
     if (to)         query = query.lte("invoice_date", to);
-    if (q)          query = query.ilike("invoice_number", `%${q}%`);
+    // Broad search — matches invoice #, customer name/code, line SKU/style/
+    // description, status and amount (see resolveSearchScope). Falls back to a
+    // plain invoice_number ilike if the pre-resolution turns up nothing usable.
+    if (q) {
+      const esc = q.replace(/[,()]/g, " ").trim();
+      if (esc) {
+        const orExpr = await resolveSearchScope(admin, entityId, esc, q);
+        query = query.or(orExpr);
+      }
+    }
     if (parsed.data.source) query = query.eq("source", parsed.data.source);
 
     const { data, error } = await query;
@@ -144,6 +271,10 @@ export default async function handler(req, res) {
       const numById = new Map((sos || []).map((s) => [s.id, s.so_number]));
       for (const r of rows) r.so_number = r.sales_order_id ? (numById.get(r.sales_order_id) || null) : null;
     }
+    // Enrich grid columns: payment-terms code, last-receipt (payment) date, and
+    // applied customer-credit total. Each block is best-effort — a failure never
+    // 500s the list, it just leaves the column blank.
+    await enrichInvoiceRows(admin, rows);
     return res.status(200).json(rows);
   }
 
