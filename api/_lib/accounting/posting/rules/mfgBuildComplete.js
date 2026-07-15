@@ -75,6 +75,10 @@ export function mfgBuildComplete(event) {
       qty: Number(o.qty),
       unit_cost_cents: unitCostCents,
       source_kind: "manufacture",
+      // Link the finished-goods layer back to the build (FK-less column) so a
+      // reverse-complete can find + deplete exactly these layers. notes carries
+      // the same handle for legacy layers created before this linkage existed.
+      source_adjustment_id: d.build_order_id,
       location_id: d.location_id || null,
       received_at: d.posting_date,
       notes: layerNote,
@@ -91,6 +95,7 @@ export function mfgBuildComplete(event) {
         qty,
         unit_cost_cents: unitCostCents,
         source_kind: "manufacture",
+        source_adjustment_id: d.build_order_id, // build handle for reverse-complete
         location_id: d.location_id || null,
         received_at: d.posting_date,
         notes: layerNote,

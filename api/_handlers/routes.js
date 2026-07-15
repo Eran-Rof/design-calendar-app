@@ -175,6 +175,7 @@ import r_internal_build_orders_conversion_po from "./internal/build-orders/conve
 import r_internal_build_orders_index from "./internal/build-orders/index.js";
 import r_internal_build_orders_issue from "./internal/build-orders/issue.js";
 import r_internal_build_orders_release from "./internal/build-orders/release.js";
+import r_internal_build_orders_reopen from "./internal/build-orders/reopen.js";
 import r_internal_build_orders_service from "./internal/build-orders/service.js";
 import r_internal_bulk_process from "./internal/bulk/process.js";
 import r_internal_buyer_scope_master_id from "./internal/buyer-scope-master/[id].js";
@@ -910,6 +911,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/discount-offers/:id/accept", handler: r_vendor_discount_offers_id_accept },
   { pattern: "/api/vendor/discount-offers/:id/reject", handler: r_vendor_discount_offers_id_reject },
   { pattern: "/api/internal/build-orders/:id/cancel", handler: r_internal_build_orders_cancel },
+  { pattern: "/api/internal/build-orders/:id/reopen", handler: r_internal_build_orders_reopen },
   { pattern: "/api/internal/edi/:vendor_id/messages", handler: r_internal_edi_vendor_id_messages },
   { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },

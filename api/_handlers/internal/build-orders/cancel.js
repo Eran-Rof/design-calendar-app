@@ -12,18 +12,23 @@
 //          reversal only restores the asset DOLLARS; these put the UNITS back).
 //       4. Zero the build's WIP (accumulated_cost_cents), unstamp components,
 //          and flip to 'cancelled'.
-//   • completed         → blocked (WIP already moved to finished goods; needs a
-//                          separate reverse-complete path).
+//   • completed         → FULL UNWIND (delete a completed build): first REVERSE
+//          THE COMPLETION (WIP ← finished goods; deplete the finished-goods FIFO
+//          layer[s]) so the build is back to 'issued', then run the issued
+//          reversal above, then flip to 'cancelled'. Blocked (409) if any
+//          finished units were already sold/consumed downstream.
 //
-// Reversing GL requires a T11 reason (D3): 'reason' is REQUIRED for an issued
-// build (postings to reverse) and optional for draft/released.
+// Reversing GL requires a T11 reason (D3): 'reason' is REQUIRED whenever there
+// are postings to reverse (issued or completed) and optional for draft/released.
 //
 // Body: { reason?, actor_user_id? }.
 
 import { UUID_RE, corsHeaders, client, resolveDefaultEntityId } from "./_shared.js";
-import { reverseJeWithAudit } from "../../../_lib/accounting/reverseJeWithAudit.js";
-import { restoreBuildStyleConsumption, restoreBuildPartConsumption } from "../../../_lib/inventory/restoreBuildConsumption.js";
 import { extractActorFromRequest, requireReason } from "../../../_lib/audit/withAuditContext.js";
+import {
+  gatherIssueJeIds, reverseJes, restoreIssuedConsumption, zeroIssuedBuildComponents,
+  reverseCompletedBuild, ReversalError,
+} from "./_reversal.js";
 
 export const config = { maxDuration: 30 };
 
@@ -46,13 +51,9 @@ export default async function handler(req, res) {
   const entity = await resolveDefaultEntityId(admin);
   if (!entity) return res.status(500).json({ error: "Default entity (ROF) not found" });
 
-  const { data: build } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
+  let { data: build } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
   if (!build) return res.status(404).json({ error: "Build order not found" });
-
   if (build.status === "cancelled") return res.status(409).json({ error: "Build is already cancelled" });
-  if (build.status === "completed") {
-    return res.status(409).json({ error: "Cannot cancel a completed build — its WIP already moved to finished goods. Reverse the completion first." });
-  }
 
   // ── Draft / released: nothing posted → just cancel. ──────────────────────────
   if (build.status === "draft" || build.status === "released") {
@@ -60,10 +61,10 @@ export default async function handler(req, res) {
     if (reason) patch.notes = build.notes ? `${build.notes}\n[cancelled] ${reason}` : `[cancelled] ${reason}`;
     const { data: updated, error } = await admin.from("mfg_build_orders").update(patch).eq("id", id).eq("status", build.status).select().single();
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ ...updated, reversed_je_ids: [], restored_style_qty: 0, restored_part_qty: 0 });
+    return res.status(200).json({ ...updated, reversed_je_ids: [], restored_style_qty: 0, restored_part_qty: 0, depleted_qty: 0 });
   }
 
-  // ── Issued: full reversal. Requires a T11 reason (GL will be reversed). ───────
+  // ── Issued or completed: full reversal. Requires a T11 reason. ───────────────
   const reasonGate = requireReason("REVERSE", reason);
   if (reasonGate) return res.status(reasonGate.status).json({ error: reasonGate.error });
 
@@ -71,54 +72,46 @@ export default async function handler(req, res) {
   const correlation_id = req.headers?.["x-request-id"] || req.headers?.["x-correlation-id"] || null;
   const auditCtx = { reason, actor, source: "manual", correlation_id, created_by_user_id: actorUserId || actor?.auth_id || null };
 
-  // Gather every posted JE this build owns: the issue entries (source_id = build)
-  // and each capitalized-service entry (source_id = the service component id).
-  // Both bases (ACCRUAL + CASH) are separate rows and each is reversed.
-  const { data: svcComps } = await admin
-    .from("mfg_build_components").select("id").eq("build_order_id", id).eq("component_kind", "service");
-  const svcCompIds = (svcComps || []).map((c) => c.id);
-
-  const issueJeQ = admin.from("journal_entries").select("id")
-    .eq("source_table", "mfg_build_issue").eq("source_id", id).eq("status", "posted");
-  const svcJeQ = svcCompIds.length
-    ? admin.from("journal_entries").select("id").eq("source_table", "mfg_build_service").in("source_id", svcCompIds).eq("status", "posted")
-    : Promise.resolve({ data: [] });
-  // Capitalize-mode: a CMT accrual (DR WIP / CR 2160) may have posted at receipt
-  // before completion failed, leaving the build 'issued'. Reverse it too.
-  const cmtJeQ = admin.from("journal_entries").select("id")
-    .eq("source_table", "mfg_cmt_accrual").eq("source_id", id).eq("status", "posted");
-  const [{ data: issueJes }, { data: svcJes }, { data: cmtJes }] = await Promise.all([issueJeQ, svcJeQ, cmtJeQ]);
-  const jeIds = [...(issueJes || []), ...(svcJes || []), ...(cmtJes || [])].map((r) => r.id);
-
   const reversedJeIds = [];
-  try {
-    for (const jeId of jeIds) {
-      const newId = await reverseJeWithAudit(admin, jeId, auditCtx);
-      if (newId) reversedJeIds.push(newId);
+  let depletedQty = 0;
+
+  // ── Completed: reverse the completion FIRST (WIP ← finished goods), which puts
+  //    the build back to 'issued', then fall through to the issued reversal. ───
+  if (build.status === "completed") {
+    let rc;
+    try {
+      rc = await reverseCompletedBuild(admin, entity.id, build, auditCtx);
+    } catch (e) {
+      if (e instanceof ReversalError) return res.status(e.status).json({ error: e.message });
+      return res.status(500).json({ error: `Completion reversal failed: ${e instanceof Error ? e.message : String(e)}. The build is unchanged — retry.` });
     }
-  } catch (e) {
-    // A reversal failed mid-way. Leave the build 'issued' (not flipped) so the
-    // operator can retry — the reverse helper is idempotent (already-reversed
-    // JEs return null) and the restores below have not run yet.
-    return res.status(500).json({ error: `GL reversal failed: ${e instanceof Error ? e.message : String(e)}. No inventory was restored; the build is unchanged — retry.` });
+    reversedJeIds.push(...rc.reversed_je_ids);
+    depletedQty = rc.depleted_qty;
+    // Move to 'issued' so the rest of the unwind (and its optimistic status
+    // guard) operates on a consistent state.
+    await admin.from("mfg_build_orders")
+      .update({ status: "issued", completed_qty: 0, complete_je_id: null, finished_unit_cost_cents: null, updated_at: new Date().toISOString() })
+      .eq("id", id).eq("status", "completed");
+    const { data: refetched } = await admin.from("mfg_build_orders").select("*").eq("id", id).maybeSingle();
+    if (refetched) build = refetched;
   }
 
-  // Put the physical units back (parts + styles). Best-effort per the accepted
-  // "FIFO may lag GL" tradeoff; each is idempotent.
-  let style = { restored_qty: 0, rows_reversed: 0 };
-  let part = { restored_qty: 0, rows_reversed: 0 };
-  try { style = await restoreBuildStyleConsumption(admin, id, actorUserId); }
-  catch (e) { console.warn("[build-cancel] style restore failed:", e instanceof Error ? e.message : String(e)); }
-  try { part = await restoreBuildPartConsumption(admin, id, actorUserId); }
-  catch (e) { console.warn("[build-cancel] part restore failed:", e instanceof Error ? e.message : String(e)); }
+  // ── Issued reversal (also the second half of a completed-build unwind). ──────
+  const jeIds = await gatherIssueJeIds(admin, id);
+  try {
+    reversedJeIds.push(...await reverseJes(admin, jeIds, auditCtx));
+  } catch (e) {
+    // A reversal failed mid-way. Leave the build 'issued' (not flipped) so the
+    // operator can retry — reverseJes is idempotent (already-reversed JEs are
+    // skipped) and the restores below have not run yet.
+    return res.status(500).json({ error: `GL reversal failed: ${e instanceof Error ? e.message : String(e)}. No inventory was restored; the build is at 'issued' — retry.` });
+  }
+
+  // Put the physical units back (parts + styles). Best-effort + idempotent.
+  const { style, part } = await restoreIssuedConsumption(admin, id, actorUserId);
 
   // Zero the WIP + unstamp the components, flip to cancelled.
-  await admin.from("mfg_build_components")
-    .update({ qty_consumed: 0, actual_cost_cents: 0 })
-    .eq("build_order_id", id).in("component_kind", ["part", "finished_style"]);
-  await admin.from("mfg_build_components")
-    .update({ service_capitalized: false, actual_cost_cents: 0 })
-    .eq("build_order_id", id).eq("component_kind", "service");
+  await zeroIssuedBuildComponents(admin, id);
 
   const patch = {
     status: "cancelled",
@@ -140,5 +133,6 @@ export default async function handler(req, res) {
     reversed_je_ids: reversedJeIds,
     restored_style_qty: style.restored_qty,
     restored_part_qty: part.restored_qty,
+    depleted_qty: depletedQty,
   });
 }
