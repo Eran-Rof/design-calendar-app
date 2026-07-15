@@ -93,3 +93,23 @@ export function planBuyerShiftBackOneMonth(rows: IpPlanningGridRow[]): BuyerShif
   }
   return ops;
 }
+
+/**
+ * Orchestrator for a multi-customer shift. planBuyerShiftBackOneMonth groups
+ * only by (style, color) and assumes ONE schedule, so two customers that share
+ * a style/color would collide (their same-month rows overwrite in the planner's
+ * period map). Group by customer first, plan each customer independently, then
+ * concatenate — each op keeps its own template.customer_id + existing_tbd_id so
+ * the caller's apply stays customer-correct.
+ */
+export function planBuyerShiftBackForCustomers(rows: IpPlanningGridRow[]): BuyerShiftOp[] {
+  const byCustomer = new Map<string, IpPlanningGridRow[]>();
+  for (const r of rows) {
+    if (r.is_aggregate) continue;
+    const cid = r.customer_id ?? r.customer_name ?? "";
+    let bucket = byCustomer.get(cid);
+    if (!bucket) { bucket = []; byCustomer.set(cid, bucket); }
+    bucket.push(r);
+  }
+  return Array.from(byCustomer.values()).flatMap((custRows) => planBuyerShiftBackOneMonth(custRows));
+}

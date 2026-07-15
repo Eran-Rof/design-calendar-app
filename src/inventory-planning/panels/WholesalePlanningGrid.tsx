@@ -207,9 +207,11 @@ export interface WholesalePlanningGridProps {
   bucketBuys?: Map<string, number>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
   onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
-  // Bulk toolbar action: shift every (Supply Only) row's Buyer qty to the
-  // prior month (Apr → Mar). Confirms + rebuilds inside the workbench.
-  onShiftBuyerBack?: () => void | Promise<void>;
+  // Bulk toolbar action: shift the Buyer qty of the selected customers' TBD
+  // stock-buy rows to the prior month (Apr → Mar). The picker next to the
+  // button chooses which customer(s) to shift; passing their ids. Confirms +
+  // rebuilds inside the workbench.
+  onShiftBuyerBack?: (customerIds: string[]) => void | Promise<void>;
   onUpdateOverride: (forecastId: string, qty: number) => Promise<void>;
   // Direct edit of System forecast qty. Pass null to revert to the
   // computed suggestion. Stamps user + timestamp server-side for the
@@ -563,6 +565,31 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
     for (const r of rows) s.set(r.customer_id, r.customer_name);
     return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows, masterCustomers]);
+
+  // Customers eligible for the "Shift Buyer ◀ 1 mo" action: those that carry
+  // TBD stock-buy rows (the shift moves TBD Buyer quantities). (Supply Only)
+  // is the classic case; planner-added rows for real customers qualify too.
+  const shiftEligibleCustomers = useMemo(() => {
+    const s = new Map<string, string>();
+    for (const r of rows) {
+      if (r.is_tbd && !r.is_aggregate) s.set(r.customer_id, r.customer_name);
+    }
+    return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+  // Which eligible customers the shift applies to. Defaults to ALL eligible so
+  // the button matches the old (Supply Only)-only behavior when that's the only
+  // TBD customer, while letting the planner narrow/expand the set.
+  const [shiftCustomerIds, setShiftCustomerIds] = useState<string[]>([]);
+  const shiftEligibleIdSig = shiftEligibleCustomers.map((c) => c.id).sort().join(",");
+  useEffect(() => {
+    // Seed / prune the selection to the current eligible set. Keeps any still-
+    // valid picks; defaults to all eligible when nothing valid is selected.
+    setShiftCustomerIds((prev) => {
+      const valid = prev.filter((id) => shiftEligibleCustomers.some((c) => c.id === id));
+      return valid.length > 0 ? valid : shiftEligibleCustomers.map((c) => c.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shiftEligibleIdSig]);
 
   // Categories are sourced from the item master GroupName attribute
   // (text, no FK), so the filter operates on the string directly.
@@ -2351,17 +2378,35 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
             fontFamily: "inherit", opacity: copyingBuy ? 0.6 : 1,
           }}
         >{copyingBuy ? "Copying…" : "Copy Final → Buy"}</button>
-        {/* Bulk: shift every (Supply Only) row's Buyer qty back one month. */}
-        {onShiftBuyerBack && (
-          <button
-            type="button"
-            onClick={() => { void onShiftBuyerBack(); }}
-            title="Move every (Supply Only) row's Buyer quantity to the prior month — the whole schedule shifts one month earlier (e.g. April → March). Buy / System / Override are unchanged."
-            style={{
-              background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
-              borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
-            }}
-          >Shift Buyer ◀ 1 mo</button>
+        {/* Bulk: shift the SELECTED customers' TBD Buyer qty back one month.
+            The picker (shown when >1 customer has stock-buy rows) chooses who;
+            defaults to all eligible — so a run with only (Supply Only) rows
+            behaves exactly like before. */}
+        {onShiftBuyerBack && shiftEligibleCustomers.length > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {shiftEligibleCustomers.length > 1 && (
+              <MultiSelectDropdown
+                compact
+                selected={shiftCustomerIds}
+                onChange={setShiftCustomerIds}
+                allLabel="All customers"
+                placeholder="Customers to shift…"
+                options={shiftEligibleCustomers.map((c) => ({ value: c.id, label: c.name }))}
+              />
+            )}
+            <button
+              type="button"
+              disabled={shiftCustomerIds.length === 0}
+              onClick={() => { void onShiftBuyerBack(shiftCustomerIds); }}
+              title={`Move the selected customer(s)' Buyer quantities to the prior month — the whole schedule shifts one month earlier (e.g. April → March). Applies to ${shiftCustomerIds.length} of ${shiftEligibleCustomers.length} customer(s) with stock-buy rows. Buy / System / Override are unchanged.`}
+              style={{
+                background: "transparent", border: `1px solid ${PAL.border}`,
+                color: shiftCustomerIds.length === 0 ? PAL.border : PAL.textDim,
+                borderRadius: 8, padding: "5px 12px", fontSize: 12,
+                cursor: shiftCustomerIds.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit",
+              }}
+            >Shift Buyer ◀ 1 mo</button>
+          </span>
         )}
         {/* Buyer vs Last Year report — on-screen pivot + PDF/Excel export. */}
         <button

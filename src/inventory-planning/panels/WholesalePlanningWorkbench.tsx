@@ -25,7 +25,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { promoteStyleColor } from "../services/promoteStyleColorService";
 import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { planBuyerShiftBackOneMonth } from "./wholesale-planning/shiftBuyerBackOneMonth";
+import { planBuyerShiftBackForCustomers } from "./wholesale-planning/shiftBuyerBackOneMonth";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
@@ -1998,23 +1998,36 @@ export default function WholesalePlanningWorkbench() {
   // so the whole schedule slides one month earlier. The last month empties; the
   // earliest month's qty creates the month before it. planBuyerShiftBackOneMonth
   // computes the minimal set of writes from the CURRENT grid state.
-  async function shiftSupplyOnlyBuyerBack() {
+  async function shiftBuyerBack(customerIds: string[]) {
     const run = selectedRun;
     if (!run) return;
-    const supplyRows = rows.filter((r) => r.is_tbd && !r.is_aggregate && r.customer_name === "(Supply Only)");
-    const ops = planBuyerShiftBackOneMonth(supplyRows);
-    if (ops.length === 0) {
-      setToast({ text: "No (Supply Only) Buyer quantities to shift.", kind: "info" });
+    // Rows in scope: TBD stock-buy rows for the selected customers. Empty
+    // selection falls back to (Supply Only) by name (legacy behavior).
+    const idSet = new Set(customerIds);
+    const scopedRows = rows.filter((r) => r.is_tbd && !r.is_aggregate && (
+      idSet.size > 0 ? idSet.has(r.customer_id) : r.customer_name === "(Supply Only)"
+    ));
+    if (scopedRows.length === 0) {
+      setToast({ text: "No Buyer quantities to shift for the selected customer(s).", kind: "info" });
       return;
     }
+    // Plan PER customer (see planBuyerShiftBackForCustomers) so two customers
+    // sharing a style/color don't collide in the (style,color)-keyed planner.
+    const ops = planBuyerShiftBackForCustomers(scopedRows);
+    if (ops.length === 0) {
+      setToast({ text: "Nothing to shift — the selected customer(s) have no Buyer quantities.", kind: "info" });
+      return;
+    }
+    const custNames = Array.from(new Set(scopedRows.map((r) => r.customer_name)));
+    const custLabel = custNames.length === 1 ? custNames[0] : `${custNames.length} customers`;
     const landings = ops.filter((o) => o.new_buyer > 0).length;
     const ok = await askConfirm(
       "Shift Buyer back one month?",
-      `Moves every (Supply Only) Buyer quantity to the prior month — e.g. April → March. ${ops.length} row${ops.length === 1 ? "" : "s"} change (${landings} landing month${landings === 1 ? "" : "s"}); the last month empties and the earliest month's qty creates the month before it. Buy, System and Override are unchanged.`,
+      `Moves every Buyer quantity for ${custLabel} to the prior month — e.g. April → March. ${ops.length} row${ops.length === 1 ? "" : "s"} change (${landings} landing month${landings === 1 ? "" : "s"}); the last month empties and the earliest month's qty creates the month before it. Buy, System and Override are unchanged.`,
       "Shift back one month",
     );
     if (!ok) return;
-    const ovrByTbd = new Map(supplyRows.filter((r) => r.tbd_id).map((r) => [r.tbd_id!, r.override_qty ?? 0]));
+    const ovrByTbd = new Map(scopedRows.filter((r) => r.tbd_id).map((r) => [r.tbd_id!, r.override_qty ?? 0]));
     try {
       // System is always 0 on (Supply Only) TBD rows, so Final = Buyer + Override.
       await Promise.all(ops.map((op) => {
@@ -2037,7 +2050,7 @@ export default function WholesalePlanningWorkbench() {
           final_forecast_qty: final,
         });
       }));
-      setToast({ text: `Shifted Buyer back one month — ${ops.length} row${ops.length === 1 ? "" : "s"} updated.`, kind: "success" });
+      setToast({ text: `Shifted Buyer back one month for ${custLabel} — ${ops.length} row${ops.length === 1 ? "" : "s"} updated.`, kind: "success" });
     } catch (e) {
       setToast({ text: `Shift failed — ${e instanceof Error ? e.message : String(e)}`, kind: "error" });
     }
@@ -2468,7 +2481,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateBucketBuy={saveBucketBuy}
               onUpdateUnitCost={saveUnitCost}
               onUpdateBuyerRequest={saveBuyerRequest}
-              onShiftBuyerBack={shiftSupplyOnlyBuyerBack}
+              onShiftBuyerBack={shiftBuyerBack}
               onUpdateOverride={saveOverrideQty}
               onUpdateSystemOverride={saveSystemOverride}
               onUpdateTbdColor={saveTbdColor}
