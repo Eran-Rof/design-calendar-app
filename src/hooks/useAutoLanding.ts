@@ -91,11 +91,14 @@ function isRootLikePath(pathname: string, search: string): boolean {
   const isShellRoot = ROOT_SHELL_PREFIXES.includes(normalized);
   if (!isShellRoot) return false;
 
-  // If the operator is at /tanda?view=… they're deep-linked into a panel;
-  // do NOT redirect on top of that. Same for any shell.
+  // If the operator is at /tanda?view=… OR /tangerine?m=… they're deep-linked
+  // into a panel; do NOT redirect on top of that. The Tangerine shell drives
+  // its active module from `?m=` (not `?view=`), so an `m=` param is just as
+  // much an explicit deep link as `view=` is on the legacy shells.
   try {
     const params = new URLSearchParams(search);
     if (params.has("view") && (params.get("view") ?? "") !== "") return false;
+    if (params.has("m") && (params.get("m") ?? "") !== "") return false;
   } catch {
     // Malformed query — treat as bare shell.
   }
@@ -223,13 +226,17 @@ export function useAutoLanding(opts: UseAutoLandingOptions = {}): UseAutoLanding
       return;
     }
 
-    // 7) Don't redirect to the same route we're already on. Compare both
-    //    pathname AND view= query so /tanda?view=ar_invoices doesn't loop
-    //    back to itself.
+    // 7) Don't redirect to the same route we're already on. Compare pathname
+    //    AND both route params — `view=` (legacy TandA shell) and `m=` (the
+    //    Tangerine shell's module param). Comparing only `view=` treated a
+    //    bare `/tangerine` as identical to `/tangerine?m=today`, so a Today
+    //    (or any `m=`) home_route never fired from the bare shell.
     try {
       const target = new URL(entry.route, "http://x.local");
+      const locParams = new URLSearchParams(location.search);
       const same = target.pathname === location.pathname
-        && (target.searchParams.get("view") ?? "") === (new URLSearchParams(location.search).get("view") ?? "");
+        && (target.searchParams.get("view") ?? "") === (locParams.get("view") ?? "")
+        && (target.searchParams.get("m") ?? "") === (locParams.get("m") ?? "");
       if (same) {
         decidedRef.current = true;
         try { storage?.setItem(SENTINEL_KEY, "1"); } catch { /* swallow */ }
