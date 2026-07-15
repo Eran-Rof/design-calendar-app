@@ -566,6 +566,38 @@ Beginning Cash    $X
 
 `X + Y = Z` always holds (within $0.01) given the footing guarantee above. If a yellow **"Reconciliation gap — investigate"** row ever appears, it means a genuinely out-of-balance JE was posted historically (extremely rare — the JE-post trigger guards against this) — not a classification gap, which surfaces as the Unclassified line instead.
 
+## Multi-entity Consolidation
+
+Tangerine → 💼 Accounting → 🏛️ **Consolidation** opens consolidated financials across the entities in a **consolidation group**.
+
+### The group
+
+Tangerine hosts three entities: **ROF** (Ring of Fire — the live operating company), **SAG** (Syndicated Apparel Group) and **SANDBOX** (a negative test bed that is never consolidated). The seeded group **"ROF Consolidated"** rolls up ROF + SAG. Consolidation is a pure **reporting layer** over each entity's GL (every entity GL is a faithful Xoro mirror) — it never posts plug or heuristic journal entries.
+
+> **SAG status.** SAG is **dormant** today — it has no posted GL activity. While it stays dormant the consolidated statements equal ROF standalone, and a banner says so. The framework is correct for N entities and activates automatically the moment SAG posts its side of an intercompany balance.
+
+### By-entity view
+
+Pick a statement — **Trial Balance**, **Income Statement** or **Balance Sheet** — a basis (Accrual/Cash) and a date range (or as-of date for the Balance Sheet, with the usual date presets). Each row shows one column per member entity, plus:
+
+```
+Account | ROF | SAG | Eliminations | Consolidated
+```
+
+**Consolidated = Σ entity columns + Eliminations.** Click any row to see each entity's contribution, then click **GL detail** on a contribution to drill into that entity's ledger for the same window. Everything exports via the standard export button.
+
+The Trial Balance shows a **Balancing proof** footer — the consolidated column always nets to **$0.00** (debits = credits), because each entity's own trial balance ties and every elimination is a balanced debit/credit pair.
+
+### Intercompany eliminations
+
+The **Eliminations** button opens the intercompany rule config for the group. Rules are **reporting adjustments (account pairs), never GL postings**. Each rule names a debit leg and a credit leg (an entity + account) and an amount method:
+
+- **matched_min** (default) — eliminate the *matched* intercompany balance, i.e. `LEAST(|debit leg|, |credit leg|)`. A rule stays **$0 until both entities have booked their side**, which is exactly why a dormant SAG produces no eliminations yet.
+- **debit_leg** / **credit_leg** — drive the amount off one leg's balance.
+- **fixed** — a fixed dollar amount.
+
+The seed ships four intercompany rules for the real ROF↔SAG relationships found in the chart of accounts (loan receivable/payable, inventory transferred from ROF, payroll recharged to SAG). Their SAG-side legs are left empty until SAG books its counterpart account — point them at SAG's real account, via the rule config, once it goes live. You can also add, toggle (Active/Off) or delete rules from this panel; deleting a rule only removes a reporting adjustment, never a GL entry.
+
 ## Going further
 
 - **Concepts** (dual-basis, control accounts, subledgers, audit immutability): [04-concepts.md](04-concepts.md)

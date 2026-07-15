@@ -51,6 +51,7 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   // Budgets / budget-vs-actual — planning + read-only variance analytics.
   budgets: "analytics",
   balance_sheet: "analytics",
+  consolidation: "analytics",
   cash_flow: "analytics",
   gl_detail: "analytics",
   sales_by_rep: "analytics",

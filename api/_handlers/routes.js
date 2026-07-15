@@ -205,6 +205,11 @@ import r_internal_compliance_automation_rules_id from "./internal/compliance/aut
 import r_internal_compliance_automation_rules_index from "./internal/compliance/automation-rules/index.js";
 import r_internal_compliance_document_types from "./internal/compliance/document-types.js";
 import r_internal_compliance_index from "./internal/compliance/index.js";
+import r_internal_consolidation_balance_sheet from "./internal/consolidation/balance-sheet.js";
+import r_internal_consolidation_eliminations from "./internal/consolidation/eliminations.js";
+import r_internal_consolidation_groups from "./internal/consolidation/groups.js";
+import r_internal_consolidation_income_statement from "./internal/consolidation/income-statement.js";
+import r_internal_consolidation_trial_balance from "./internal/consolidation/trial-balance.js";
 import r_internal_contracts_id_index from "./internal/contracts/[id]/index.js";
 import r_internal_contracts_id_versions from "./internal/contracts/[id]/versions.js";
 import r_internal_contracts_index from "./internal/contracts/index.js";
@@ -963,6 +968,7 @@ export const ROUTES = [
   { pattern: "/api/internal/procurement/vendor-invoice-drafts", handler: r_internal_procurement_vendor_invoice_drafts_index },
   { pattern: "/api/internal/style-master/auto-assign-scales", handler: r_internal_style_master_auto_assign_scales },
   { pattern: "/api/internal/analytics/sustainability-trend", handler: r_internal_analytics_sustainability_trend },
+  { pattern: "/api/internal/consolidation/income-statement", handler: r_internal_consolidation_income_statement },
   { pattern: "/api/internal/fixed-assets/generate-schedule", handler: r_internal_fixed_assets_generate_schedule },
   { pattern: "/api/internal/fixed-assets/post-depreciation", handler: r_internal_fixed_assets_post_depreciation },
   { pattern: "/api/internal/planning/sync-tangerine-supply", handler: r_internal_planning_sync_tangerine_supply },
@@ -977,10 +983,13 @@ export const ROUTES = [
   { pattern: "/api/internal/purchase-orders/data-quality", handler: r_internal_purchase_orders_data_quality },
   { pattern: "/api/internal/sales-orders/allocate-by-lot", handler: r_internal_sales_orders_allocate_by_lot },
   { pattern: "/api/internal/compliance/automation-rules", handler: r_internal_compliance_automation_rules_index },
+  { pattern: "/api/internal/consolidation/balance-sheet", handler: r_internal_consolidation_balance_sheet },
+  { pattern: "/api/internal/consolidation/trial-balance", handler: r_internal_consolidation_trial_balance },
   { pattern: "/api/internal/procurement/broker-invoices", handler: r_internal_procurement_broker_invoices_index },
   { pattern: "/api/internal/procurement/customs-entries", handler: r_internal_procurement_customs_entries_index },
   { pattern: "/api/internal/sales-orders/match-customer", handler: r_internal_sales_orders_match_customer },
   { pattern: "/api/internal/sales-orders/placeholder-po", handler: r_internal_sales_orders_placeholder_po },
+  { pattern: "/api/internal/consolidation/eliminations", handler: r_internal_consolidation_eliminations },
   { pattern: "/api/internal/inventory-accuracy/summary", handler: r_internal_inventory_accuracy_summary },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
   { pattern: "/api/internal/month-end-close/run-checks", handler: r_internal_month_end_close_run_checks },
@@ -1032,6 +1041,7 @@ export const ROUTES = [
   { pattern: "/api/internal/xoro-mirror/inventory", handler: r_internal_xoro_mirror_inventory },
   { pattern: "/api/internal/analytics/categories", handler: r_internal_analytics_categories },
   { pattern: "/api/internal/commissions/accruals", handler: r_internal_commissions_accruals },
+  { pattern: "/api/internal/consolidation/groups", handler: r_internal_consolidation_groups },
   { pattern: "/api/internal/fba/mirror-inventory", handler: r_internal_fba_mirror_inventory },
   { pattern: "/api/internal/fba/sync-settlements", handler: r_internal_fba_sync_settlements },
   { pattern: "/api/internal/procurement/receipts", handler: r_internal_procurement_receipts_index },

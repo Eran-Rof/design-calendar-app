@@ -71,6 +71,7 @@ export type ModuleKey =
   | "income_statement"
   | "segment_pl"
   | "balance_sheet"
+  | "consolidation"
   | "cash_flow"
   | "year_end_close"
   | "bank_reconciliation"
@@ -315,6 +316,8 @@ export const MODULES: ModuleDef[] = [
   { key: "segment_pl",        label: "Segment P&L",       emoji: "📈", group: "Accounting" },
   // P5-4: Balance Sheet (assets / liabilities / equity as-of).
   { key: "balance_sheet",     label: "Balance Sheet",     emoji: "📋", group: "Accounting" },
+  // Multi-entity consolidation — Σ member entities − intercompany eliminations.
+  { key: "consolidation",     label: "Consolidation",     emoji: "🏛️", group: "Accounting" },
   // P5-5: Cash Flow Statement (indirect method).
   { key: "cash_flow",         label: "Cash Flow",         emoji: "💧", group: "Accounting" },
   // P5-6: Year-End Close — one-shot operator tool, terminal flip on all 12 periods of the FY.
