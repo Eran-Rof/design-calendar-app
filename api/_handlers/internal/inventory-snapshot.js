@@ -439,11 +439,61 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── PPK base-price inheritance ────────────────────────────────────────────
+    // A prepack (…PPK) is just N eaches of the SAME garment, so its per-each
+    // wholesale value = the BASE style's qty-weighted SO price — a clean, deep
+    // signal — NOT the PPK's own pack-grain SO lines, which are sparse and depend
+    // on a correct pack count (a mislabeled "PPK24" that's really a 16-pack halves
+    // the per-each and drags the inventory-column Avg Sale ~$5 vs the real ~$7).
+    // We resolve the base price per (base style_code, colour) even when the base
+    // style isn't in this page, and override each PPK bucket's sale_price_cents
+    // (the basis colPriceCents uses for On Hand / ATS / On PO / Purchased / In
+    // Trnst). Base per-each grain is explode-invariant (base is never PPK).
+    const rows = [...buckets.values()].map(finalizeRow);
+    const baseCodeOf = (code) => String(code || "").replace(/ppk.*$/i, "").trim().toUpperCase();
+    const colorNorm = (c) => String(c ?? "").toLowerCase().trim();
+    const ppkRows = rows.filter((r) => isPpkStyle(r.style_code));
+    if (ppkRows.length) {
+      const baseCodes = [...new Set(ppkRows.map((r) => baseCodeOf(r.style_code)).filter(Boolean))];
+      const basePrice = new Map(); // `${BASECODE}|${colorNorm}` → per-each cents
+      if (baseCodes.length) {
+        let bq = admin.from("style_master").select("id, style_code").in("style_code", baseCodes);
+        if (eid) bq = bq.eq("entity_id", eid);
+        const { data: baseStyles } = await bq;
+        const baseCodeById = new Map((baseStyles || []).map((s) => [s.id, String(s.style_code || "").toUpperCase()]));
+        const baseStyleIds = [...baseCodeById.keys()];
+        if (baseStyleIds.length) {
+          const baseItems = await fetchChunked(baseStyleIds, (ids) =>
+            admin.from("ip_item_master").select("id, style_id, color").in("style_id", ids));
+          const baseInfo = new Map(baseItems.map((i) => [i.id, { code: baseCodeById.get(i.style_id), color: i.color }]));
+          const baseItemIds = baseItems.map((i) => i.id);
+          const baseSol = baseItemIds.length
+            ? await fetchChunked(baseItemIds, (ids) =>
+                admin.from("sales_order_lines").select("inventory_item_id, qty_ordered, unit_price_cents").in("inventory_item_id", ids))
+            : [];
+          const acc = new Map(); // key → { q, val }
+          for (const l of baseSol) {
+            const info = baseInfo.get(l.inventory_item_id); if (!info || !info.code) continue;
+            const q = Number(l.qty_ordered) || 0, px = Number(l.unit_price_cents) || 0;
+            if (q > 0 && px > 0) {
+              const k = `${info.code}|${colorNorm(info.color)}`;
+              const e = acc.get(k) || { q: 0, val: 0 }; e.q += q; e.val += q * px; acc.set(k, e);
+            }
+          }
+          for (const [k, e] of acc) if (e.q > 0) basePrice.set(k, Math.round(e.val / e.q));
+        }
+      }
+      for (const r of ppkRows) {
+        const bp = basePrice.get(`${baseCodeOf(r.style_code)}|${colorNorm(r.color)}`);
+        if (bp != null) r.sale_price_cents = bp; // inherit base; else keep own (fallback)
+      }
+    }
+
     // Lots present on these styles' on-hand, sorted; the NO_LOT bucket last. Full
     // set (filter-independent) so the UI lot dropdown keeps every choice.
     const lots = [...lotsSeen].filter((l) => l !== NO_LOT).sort((a, b) => a.localeCompare(b));
     if (lotsSeen.has(NO_LOT)) lots.push(NO_LOT);
-    return res.status(200).json({ rows: [...buckets.values()].map(finalizeRow), entity_id: eid, lots });
+    return res.status(200).json({ rows, entity_id: eid, lots });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
