@@ -349,9 +349,9 @@ describe("useAutoLanding", () => {
 
   it("does not redirect to the same route the operator is already on", async () => {
     // home_route resolves to /tangerine?m=journal_entries; operator is already
-    // there. /tangerine is a root-shell prefix (no view= param) so step 3 lets
-    // it through — the step-7 same-route guard is what catches it: matching
-    // pathname + no view= on either side → bail without navigating.
+    // there. `?m=journal_entries` is an explicit Tangerine deep link, so
+    // isRootLikePath treats it as non-root and step 3 bails — and even if it
+    // didn't, the step-7 guard now compares `m=` too. Either way: no navigate.
     stubPreferencesFetch("tanda/accounting/journal-entries");
     const navigate = vi.fn();
     const { storage } = makeStorage();
@@ -361,6 +361,48 @@ describe("useAutoLanding", () => {
         navigate={navigate}
         storage={storage}
         location={{ pathname: "/tangerine", search: "?m=journal_entries" }}
+      />
+    );
+
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("redirects from the BARE Tangerine shell to an m= home route (Today)", async () => {
+    // Regression: opening the app at the bare `/tangerine` shell (same pathname
+    // as the Today route, differing only by the `m=` param) must still fire the
+    // redirect. The old step-7 guard compared only `view=`, so it wrongly saw
+    // `/tangerine` == `/tangerine?m=today` and never landed on Today.
+    stubPreferencesFetch("tanda/today");
+    const navigate = vi.fn();
+    const { storage } = makeStorage();
+
+    render(
+      <Harness
+        navigate={navigate}
+        storage={storage}
+        location={{ pathname: "/tangerine", search: "" }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("target").textContent).toBe("/tangerine?m=today");
+    });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/tangerine?m=today"));
+  });
+
+  it("does NOT override an explicit m= deep link (e.g. /tangerine?m=ar_invoices)", async () => {
+    // Deep-link protection extended to the Tangerine `m=` param: a user who
+    // opened a specific panel must not be yanked to their Today home route.
+    stubPreferencesFetch("tanda/today");
+    const navigate = vi.fn();
+    const { storage } = makeStorage();
+
+    render(
+      <Harness
+        navigate={navigate}
+        storage={storage}
+        location={{ pathname: "/tangerine", search: "?m=ar_invoices" }}
       />
     );
 
