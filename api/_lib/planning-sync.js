@@ -183,11 +183,19 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   // per-chunk date would fragment the snapshot. `lastReceiptDate` is stored ISO
   // (YYYY-MM-DD) by the ATS parser; guard on that shape. Falls back to today
   // only if no row carries a parseable receipt date.
+  //
+  // ⚠️ CLAMP AT TODAY: a "Last Receipt Date" in the future is a future INCOMING
+  // PO/receipt, not a real receipt of on-hand you already have. Without the
+  // clamp, one future-dated line pushed the whole snapshot's as-of date months
+  // ahead (e.g. 2026-12-06), and since planning reads the LATEST snapshot per
+  // SKU, that future-dated snapshot won and skewed on-hand. Never date an
+  // on-hand snapshot past today.
   {
+    const today = new Date().toISOString().slice(0, 10);
     let maxReceipt = "";
     for (const s of allSkus) {
       const d = typeof s?.lastReceiptDate === "string" ? s.lastReceiptDate.trim() : "";
-      if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d > maxReceipt) maxReceipt = d;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today && d > maxReceipt) maxReceipt = d;
     }
     if (maxReceipt) result.snapshot_date = maxReceipt;
   }
