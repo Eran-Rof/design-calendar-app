@@ -42,4 +42,16 @@ describe("computeSizeCollapse", () => {
     expect(collapsed.hiddenLeading).toBe(1);
     expect(collapsed.hiddenTrailing).toBe(0);
   });
+
+  it("hides BOTH leading and trailing empties around the stocked range (mid zeros kept)", () => {
+    // Qty on S and L only → leading XS + trailing XL both hidden, mid M kept.
+    // This is the common PO / Inventory-matrix case the green header collapses.
+    const model = computeSizeCollapse(sizes, { S: 4, L: 6 }, { enabled: true, collapsed: true });
+    expect(model.hasQty).toBe(true);
+    expect(model.canToggle).toBe(true);
+    expect(model.collapsedActive).toBe(true);
+    expect(model.visibleSizes).toEqual(["S", "M", "L"]); // XS + XL dropped, mid M kept
+    expect(model.hiddenLeading).toBe(1);
+    expect(model.hiddenTrailing).toBe(1);
+  });
 });

@@ -358,6 +358,8 @@ Each color row now shows a **44 × 44 px thumbnail** in the first column ("Img")
 
 **Pick a brand but leave the Style picker empty.** Instead of the "Pick a style…" prompt, the panel loads matrices for up to **50 of the brand's styles in parallel** and renders them stacked, each with a header bar showing the style code and name. The active Warehouse and Hide-Zero-Rows filters apply to all sub-matrices. Styles that return no SKUs (or whose every row is zero under the active filters) are omitted. This view gives the operator a quick brand-wide on-hand snapshot without clicking through styles one by one.
 
+> **Green empty-column collapse per block (#1810, 2026-07-15).** Each per-style block in the brand view now carries the **same green first-size-column collapse** as the single-style matrix and the SO/PO grids (shared `computeSizeCollapse`): the first size column with stock turns green and is clickable to hide the all-zero leading/trailing size columns (mid-range zeros stay), with a `⋯` marker; click again to expand. **Every block owns its own collapsed state** — collapsing one style's grid leaves the others untouched. The global **Hide sizes** toggle (drops all size columns) still applies across every block, and **exports keep the full size set**. *Before this the collapse/green was single-style only.*
+
 ### By-size on-hand cutover status
 
 This is the financially-material part. **By default the Inventory Matrix is COLOR-grain**, because planning (ATS) deliberately collapses Xoro REST on-hand to color grain in `scripts/rest_to_ats_inventory.py` + `api/_lib/planning-sync.js` (writing `ip_inventory_snapshot` at color grain). Per-size on-hand needs a size-grain source.

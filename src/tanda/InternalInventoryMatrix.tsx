@@ -1406,6 +1406,12 @@ export default function InternalInventoryMatrix() {
   // once any size column has stock, the first VISIBLE size header turns green +
   // clickable and hides the all-zero leading/trailing size columns.
   const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // Same collapse, but per-STYLE-BLOCK for the multi-style (brand-level) view —
+  // each block owns its own collapsed flag (keyed by style id) so one style's
+  // green-header click doesn't collapse every other block. Same SO behavior.
+  const [blockCollapsed, setBlockCollapsed] = useState<Set<string>>(new Set());
+  const toggleBlockCollapsed = (id: string) =>
+    setBlockCollapsed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   // Snapshot column show/hide — lifted up from SnapshotView so the control can
   // live in the filter header row (next to Warehouse). Persisted per browser.
   const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
@@ -2721,8 +2727,15 @@ export default function InternalInventoryMatrix() {
               const bColSpan = bShowSecondary ? 3 : 2; // Image + Color [+ Rise/Inseam]
               const bColTotals: Record<string, number> = {};
               for (const sz of bSizeOrder) bColTotals[sz] = bRows.reduce((s, r) => s + (r.sizes[sz] || 0), 0);
-              // Honor the global "Hide sizes" toggle — drop all size columns.
-              const bRenderSizes = hideSizes ? [] : bSizeOrder;
+              // Empty-size-column collapse for this block — the SAME model the
+              // SO/PO grid + single-style matrix use (computeSizeCollapse). Once
+              // any size column has stock the first VISIBLE size header turns
+              // green + is clickable to hide the all-zero leading/trailing size
+              // columns. Collapsed state is owned per style id (blockCollapsed).
+              const bCollapse = computeSizeCollapse(bSizeOrder, bColTotals, { enabled: true, collapsed: blockCollapsed.has(bStyle.id) });
+              // Honor the global "Hide sizes" toggle — drop all size columns;
+              // else draw the (possibly collapsed) visible size range.
+              const bRenderSizes = hideSizes ? [] : bCollapse.visibleSizes;
               const bGrandQty = bRows.reduce((s, r) => s + r.totalQty, 0);
               const bGrandCost = bRows.reduce((s, r) => s + r.totalCostCents, 0);
               return (
@@ -2735,9 +2748,28 @@ export default function InternalInventoryMatrix() {
                           <th style={{ ...thBase, textAlign: "center", width: 52 }}>Img</th>
                           <th style={{ ...thBase, textAlign: "left" }}>Color</th>
                           {bShowSecondary && <th style={{ ...thBase, textAlign: "left" }}>{bByInseam ? "Inseam" : "Rise"}</th>}
-                          {bRenderSizes.map((sz) => (
-                            <th key={sz} style={{ ...thBase, textAlign: "center", minWidth: 52 }}>{sz}</th>
-                          ))}
+                          {bRenderSizes.map((sz, i) => {
+                            const isFirst = i === 0;
+                            const isLast = i === bRenderSizes.length - 1;
+                            const green = bCollapse.hasQty && isFirst;
+                            const clickable = isFirst && bCollapse.canToggle;
+                            return (
+                              <th
+                                key={sz}
+                                onClick={clickable ? () => toggleBlockCollapsed(bStyle.id) : undefined}
+                                title={clickable
+                                  ? (bCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with stock")
+                                  : undefined}
+                                style={{
+                                  ...thBase, textAlign: "center", minWidth: 52,
+                                  ...(green ? { color: C.green } : {}),
+                                  ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
+                                }}
+                              >
+                                {bCollapse.collapsedActive && isFirst && bCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{bCollapse.collapsedActive && isLast && bCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                              </th>
+                            );
+                          })}
                           <th style={{ ...thBase, textAlign: "center" }}>Total</th>
                           <th style={{ ...thBase, textAlign: "right" }}>Avg Cost</th>
                           <th style={{ ...thBase, textAlign: "right" }}>Total Cost</th>

@@ -24,6 +24,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
+import { computeSizeCollapse } from "../shared/matrix";
 import { canonSizeLabel, compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 
@@ -789,6 +790,11 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   // lines — Issued (ordered), Received, and Open (remaining to ship) — instead of
   // the single qty-view line. Only offered when the PO has receipts.
   const [showBreakdown, setShowBreakdown] = useState(false);
+  // Empty-size-column collapse, per style block (keyed by style code) — the same
+  // green-first-header behavior as the SO/PO grids + Inventory Matrix.
+  const [collapsedStyles, setCollapsedStyles] = useState<Set<string>>(new Set());
+  const toggleCollapsedStyle = (style: string) =>
+    setCollapsedStyles((prev) => { const n = new Set(prev); n.has(style) ? n.delete(style) : n.add(style); return n; });
   useEffect(() => {
     let cancel = false;
     setLines(null); setErr(null);
@@ -910,6 +916,13 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
       </div>
       {[...byStyle.entries()].map(([style, s]) => {
         const sizes = [...s.sizes].sort(compareSizes);
+        // Per-size totals (issued qty) drive the green collapse; a column with
+        // any ordered qty is kept, only empty leading/trailing columns collapse.
+        const colTotals: Record<string, number> = {};
+        for (const sz of sizes) colTotals[sz] = 0;
+        for (const cm of s.colors.values()) for (const [sz, cell] of cm) colTotals[sz] += cell.ordered;
+        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: collapsedStyles.has(style) });
+        const vSizes = sizeCollapse.visibleSizes;
         return (
           <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
@@ -920,7 +933,24 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead><tr>
                   <th style={miniTh}>Color</th>
-                  {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sz}</th>)}
+                  {vSizes.map((sz, i) => {
+                    const isFirst = i === 0;
+                    const isLast = i === vSizes.length - 1;
+                    const green = sizeCollapse.hasQty && isFirst;
+                    const clickable = isFirst && sizeCollapse.canToggle;
+                    return (
+                      <th
+                        key={sz}
+                        onClick={clickable ? () => toggleCollapsedStyle(style) : undefined}
+                        title={clickable
+                          ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with quantities")
+                          : undefined}
+                        style={{ ...miniTh, textAlign: "center", ...(green ? { color: C.success } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
+                      >
+                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                      </th>
+                    );
+                  })}
                   <th style={{ ...miniTh, textAlign: "center" }}>{hasPpk ? (explode ? "Units" : "Packs") : "Qty"}</th>
                   <th style={{ ...miniTh, textAlign: "right" }}>{hasPpk ? (explode ? "Per-each $" : "PO unit $") : "Unit $"}</th>
                   <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
@@ -947,7 +977,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
                               {firstMetric && <span>{color}</span>}
                               {m.label && <span style={{ marginLeft: firstMetric ? 8 : 0, fontSize: 10, color: m.cellColor, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>{m.label}</span>}
                             </td>
-                            {sizes.map((sz) => {
+                            {vSizes.map((sz) => {
                               const cell = cm.get(sz);
                               const v = cell ? m.q(cell) * mult(style, sz) : null;
                               return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: v ? m.cellColor : C.cardBdr }}>{cell && v != null ? v.toLocaleString() : "—"}</td>;
@@ -967,7 +997,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
                     for (const cm of s.colors.values()) for (const [sz, cell] of cm) { tQty += m.q(cell) * mult(style, sz); tExt += m.ext(cell); }
                     return (
                       <tr key={m.key} style={{ borderTop: mi === 0 ? `2px solid ${C.cardBdr}` : "none" }}>
-                        <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={sizes.length + 1}>{m.label ? `${m.label} total` : "Style total"}</td>
+                        <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={vSizes.length + 1}>{m.label ? `${m.label} total` : "Style total"}</td>
                         <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.totalColor, fontWeight: 800 }}>{tQty.toLocaleString()}</td>
                         <td style={{ ...td, borderBottom: "none" }} />
                         <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(tExt))}</td>
