@@ -761,6 +761,15 @@ export async function ingestItemMasterExcel(
       result.skipped_no_sku++;
       continue;
     }
+    // Set once the variant SKU is known: true when the rolled-up (style+color)
+    // key differs from the physical variant SKU because a size axis was
+    // stripped — i.e. this rolled-up row is a multi-size AGGREGATE and must NOT
+    // carry any single size. Without this the rolled-up row inherits the FIRST
+    // variant's size (e.g. RYB086930-BLACK gets size "28" from waist-28), and
+    // every downstream consumer that reads the rolled-up sku_id — the AR mirror
+    // especially — lumps ALL sizes' qty into that one stray size cell. Prepacks
+    // are excluded: their rolled-up row legitimately stores "PPKn" as size.
+    let rollupIsMultiSizeAggregate = false;
     {
       // Build the variant SKU.
       //
@@ -788,6 +797,7 @@ export async function ingestItemMasterExcel(
         const sizePart = explicitSize ? `-${explicitSize}` : "";
         variantSku = sizePart ? canon(sku + sizePart) : sku;
       }
+      rollupIsMultiSizeAggregate = !isPrepack && variantSku !== sku;
       // Surface non-prepack variant rows that have a Color set
       // but no Size — those are real apparel variants where size
       // is the missing axis. Skip rows without Color either, since
@@ -894,7 +904,10 @@ export async function ingestItemMasterExcel(
       sku_code: sku,
       style_code: style || null,
       color: color || null,
-      size: explicitSize,
+      // A multi-size rolled-up (style+color) aggregate carries NO size — the
+      // per-size data lives on the variant rows above. Keep the explicit size
+      // only for base/one-size SKUs (variantSku === sku) and prepacks (PPKn).
+      size: rollupIsMultiSizeAggregate ? null : explicitSize,
       uom: "each",
       active: true,
     };

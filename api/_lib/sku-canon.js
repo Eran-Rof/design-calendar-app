@@ -22,6 +22,38 @@ export function canonSku(raw) {
   return (raw ?? "").toString().trim().toUpperCase().replace(/\s+/g, "");
 }
 
+// Trailing SIZE-token vocabulary for parseSizeSuffix. DELIBERATELY richer than
+// SIZE_SUFFIX_RE (which canonStyleColor uses to roll up): it also recognises the
+// spelled-out apparel sizes (SMALL/MEDIUM/LARGE) and toddler month sizes
+// (12MO/18MO) that appear in real sku_codes but which SIZE_SUFFIX_RE never
+// stripped. We keep it SEPARATE from SIZE_SUFFIX_RE on purpose — widening the
+// rollup regex would change how the whole planning system aggregates SKUs
+// (item-master fragmentation / merges), a broad + risky change. parseSizeSuffix
+// only READS a size for stub population; it must not alter rollup grain. The
+// backfill (scripts/backfills/ar-mirror-size-resolution.mjs) mirrors this exact
+// vocabulary in SQL so go-forward + historical agree. Alternatives are safe to
+// order any way because the trailing `$` forces a full-suffix match.
+const SIZE_TOKEN_RE =
+  /-(XXXS|XXS|XSM|XS|SMALL|SML|SM|S|MEDIUM|MED|MD|M|LARGE|LRG|LG|L|XXXL|XXL|XL|[0-9]*X+LG?|OSFA|OS|O\/S|[0-9]+MO|[0-9]{1,3}|PPK[\s_-]*\d+)$/;
+
+// Parse the trailing SIZE token off a canonical sku_code, if present.
+// Returns the uppercased size (e.g. "LARGE", "12MO", "30", "SML", "PPK24")
+// or null when the sku_code carries no size suffix (a style+color rollup).
+//
+// This is (a superset of) the inverse of canonStyleColor: canonStyleColor
+// STRIPS the token; parseSizeSuffix RETURNS it. Used so stub-creating sync
+// handlers can populate ip_item_master.size when the SKU embeds a size —
+// otherwise every size-bearing stub lands with size=NULL and the AR / RMA
+// color x size matrices can't place it (it falls to the non-matrix "other
+// lines" bucket). See project memory project_xoro_unresolved_line_backfill +
+// the AR-mirror size-resolution fix.
+export function parseSizeSuffix(raw) {
+  const s = canonSku(raw);
+  if (!s) return null;
+  const m = s.match(SIZE_TOKEN_RE);
+  return m ? m[1] : null;
+}
+
 // Roll a raw Xoro/ATS SKU up to style+color grain (drop trailing size).
 // Examples:
 //   "RYB059430-ISLAND BREEZE LT WASH-30" → "RYB059430-ISLANDBREEZELTWASH"
@@ -75,6 +107,17 @@ export function buildItemRow(canonicalSku, overrides = {}) {
     // new-row path; the merchandiser flips is_apparel back to true via the
     // admin UI once dims are backfilled.
     row.is_apparel = false;
+    // Populate `size` when the sku_code embeds a trailing size token (e.g.
+    // "...-LARGE", "...-12MO", "...-30"). Without this the stub lands with
+    // size=NULL and downstream color x size matrices (AR/RMA invoices) can't
+    // place the line — it falls into the non-matrix "other lines" bucket even
+    // though the size is right there in the code. Only sets it when a token is
+    // actually present, so style+color rollup stubs (canonStyleColor input)
+    // stay size-less. is_apparel remains false so apparel_dims_required (which
+    // only fires when is_apparel=true) can't reject the row for missing
+    // inseam/length/fit.
+    const parsedSize = parseSizeSuffix(canonicalSku);
+    if (parsedSize) row.size = parsedSize;
   } else {
     row.color = overrides.colorDisplay ?? color;
     if (overrides.unit_cost != null) row.unit_cost = overrides.unit_cost;

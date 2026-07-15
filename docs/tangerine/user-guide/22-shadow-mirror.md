@@ -247,4 +247,22 @@ Both are pure display fixes — no change to the mirror pipeline, which was work
 
 ---
 
+## 22.16 AR invoice size matrices — "all qty lumped into one size" / non-matrix lines (2026-07-15)
+
+**Symptom:** opening a mirrored AR invoice, the color × size matrix showed **all** of a style/color's units piled into **one** size column (e.g. everything under waist 28), or the line dropped to the **"other lines"** (non-matrix) list instead of forming a grid.
+
+**Root cause (grain mismatch, not a mirror failure):** the AR mirror (`api/_lib/xoro-mirror/ar.js`) resolves each AR line's item straight from `ip_sales_history_wholesale.sku_id`. That table is the **planning** sales feed, kept at **style + color grain** — the Excel sales upload deliberately strips the size suffix and sums every size of a style/color into one row. So the AR line inherits a style+color item, and the matrix has no real per-size split. Two flavors:
+- **Lumped into one size** — the style+color master row happened to carry a *stray* single size (the item-master Excel upload wrote the rolled-up row with the first variant's size, e.g. `RYB086930-BLACK` → size 28), so the matrix dumps every unit into that one cell.
+- **Non-matrix** — the style+color row has no size at all, so the expander can't grid it and lists it under "other lines."
+
+This is a **different pipeline** from the SO/PO order importer that was fixed earlier (#1455/#1456) — which is why it kept coming back for AR.
+
+**What was fixed:**
+1. **Go-forward:** the item-master Excel upload no longer stamps a stray size on a multi-size rolled-up (style+color) row — the per-size data stays on the variant rows. New stub items also fill in `size` when the SKU code itself ends in a real size token (`…-LARGE`, `…-12MO`, `…-30`).
+2. **Backfill (`scripts/backfills/ar-mirror-size-resolution.mjs`, dry-run by default):** populated the true `size` on size-grain master rows whose size was blank — turning those AR lines into real matrix cells. It never edits invoice lines, so invoice dollar totals are untouched.
+
+**Still needs a decision (operator-gated):** the bulk of historical AR lines are genuine style+color aggregates — the per-size breakdown was discarded at upload and can't be reconstructed from what's stored. Real per-size matrices for those require feeding the mirror a **size-grain** sales source (the Xoro export already contains Size — the planning upload just strips it). Changing that touches the planning grain and is left for a deliberate follow-up. Run the backfill's `--null-stray-sizes` (with sign-off) if you prefer those lines to read as an honest style+color aggregate rather than a single wrong size.
+
+---
+
 Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops), chapter 27 (Sales Orders). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.
