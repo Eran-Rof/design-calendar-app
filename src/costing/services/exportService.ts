@@ -118,15 +118,29 @@ export const COSTING_EXPORT_COLUMNS = [
   { key: "total_sales",    header: "TOTAL SALES" },
 ] as const;
 
+// Column schema for <ExportButton>, gated by margin-export rights. Pass
+// includeMargins=false (from useCanSeeMargins().canExport) to strip the two
+// margin columns (MARGIN %, LY MARGIN %) so a caller without `margins:export`
+// gets a file with no margin data. Defaults to TRUE for backward-compat — the
+// exported COSTING_EXPORT_COLUMNS const remains the full, un-gated set.
+const MARGIN_EXPORT_KEYS = new Set(["margin_pct", "ly_margin_pct"]);
+export function costingExportColumns(includeMargins = true) {
+  return includeMargins
+    ? COSTING_EXPORT_COLUMNS
+    : COSTING_EXPORT_COLUMNS.filter((c) => !MARGIN_EXPORT_KEYS.has(c.key));
+}
+
 // Footer totals for the grid (sum qty, weighted margin, sum cost, sum sales).
-export function computeExportTotals(rows: CostingExportRow[]) {
+// includeMargins=false zeroes the weighted-margin footer so it never lands in a
+// no-margin export; default TRUE preserves prior behavior.
+export function computeExportTotals(rows: CostingExportRow[], includeMargins = true) {
   let totalQty = 0, totalCost = 0, totalSales = 0;
   for (const r of rows) {
     if (typeof r.target_qty === "number") totalQty += r.target_qty;
     if (typeof r.total_cost === "number") totalCost += r.total_cost;
     if (typeof r.total_sales === "number") totalSales += r.total_sales;
   }
-  const weightedMargin = totalSales > 0 ? ((totalSales - totalCost) / totalSales) * 100 : 0;
+  const weightedMargin = includeMargins && totalSales > 0 ? ((totalSales - totalCost) / totalSales) * 100 : 0;
   return {
     totalQty,
     totalCost: Math.round(totalCost * 100) / 100,

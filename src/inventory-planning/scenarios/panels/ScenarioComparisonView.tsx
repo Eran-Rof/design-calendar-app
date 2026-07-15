@@ -8,6 +8,7 @@ import { useTablePrefs, TablePrefsButton, type ColumnDef } from "../../../tanda/
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import { useSort } from "../../../tanda/hooks/useSort";
 import SortableTh from "../../../tanda/components/SortableTh";
+import { useCanSeeMargins } from "../../../hooks/useCanSeeMargins";
 
 const TABLE_KEY = "ip.scenario_comparison";
 const ALL_COLUMNS: ColumnDef[] = [
@@ -44,6 +45,14 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
   const [filterCategory, setFilterCategory] = useState("all");
   const [onlyChanged, setOnlyChanged] = useState(true);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
+  // Margin visibility gate. When the caller may not see margins, the "Δ margin $"
+  // column + KPI tile are absent — dropped from the picker, header, and cells. Fails open.
+  const { canView: canViewMargin } = useCanSeeMargins();
+  const marginColumns = useMemo(
+    () => (canViewMargin ? ALL_COLUMNS : ALL_COLUMNS.filter((c) => c.key !== "delta_margin")),
+    [canViewMargin],
+  );
 
   const categories = useMemo(() => {
     const m = new Map<string, string>();
@@ -103,11 +112,13 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
         <StatCell label="Δ demand" value={signed(totals.demand_delta_sum)} accent={totals.demand_delta_sum > 0 ? PAL.accent : totals.demand_delta_sum < 0 ? PAL.yellow : PAL.textMuted} />
         <StatCell label="Δ supply" value={signed(totals.supply_delta_sum)} accent={totals.supply_delta_sum > 0 ? PAL.green : totals.supply_delta_sum < 0 ? PAL.red : PAL.textMuted} />
         <StatCell label="Δ buy" value={signed(totals.buy_delta_sum)} accent={totals.buy_delta_sum > 0 ? PAL.accent : totals.buy_delta_sum < 0 ? PAL.green : PAL.textMuted} />
-        <StatCell
-          label="Δ margin $"
-          value={signedDollars(totals.margin_dollars_delta_sum)}
-          accent={totals.margin_dollars_delta_sum > 0 ? PAL.green : totals.margin_dollars_delta_sum < 0 ? PAL.red : PAL.textMuted}
-        />
+        {canViewMargin && (
+          <StatCell
+            label="Δ margin $"
+            value={signedDollars(totals.margin_dollars_delta_sum)}
+            accent={totals.margin_dollars_delta_sum > 0 ? PAL.green : totals.margin_dollars_delta_sum < 0 ? PAL.red : PAL.textMuted}
+          />
+        )}
         <StatCell label="Δ shortage" value={signed(totals.shortage_delta_sum)} accent={totals.shortage_delta_sum > 0 ? PAL.red : totals.shortage_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Δ excess" value={signed(totals.excess_delta_sum)} accent={totals.excess_delta_sum > 0 ? PAL.yellow : totals.excess_delta_sum < 0 ? PAL.green : PAL.textMuted} />
         <StatCell label="Service risk ±"
@@ -138,7 +149,7 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
         <div style={{ marginLeft: "auto" }}>
           <TablePrefsButton
             tableKey={TABLE_KEY}
-            columns={ALL_COLUMNS}
+            columns={marginColumns}
             visibleColumns={visibleColumns}
             onToggle={toggleColumn}
             onReset={resetToDefault}
@@ -167,7 +178,7 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
               <SortableTh label="Base buy" sortKey="base_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Planner-typed planned_buy_qty (base)" hidden={!visibleColumns.has("base_buy")} />
               <SortableTh label="Scn buy" sortKey="scn_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Planner-typed planned_buy_qty (scenario)" hidden={!visibleColumns.has("scn_buy")} />
               <SortableTh label="Δ buy" sortKey="delta_buy" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Scenario buy − Base buy" hidden={!visibleColumns.has("delta_buy")} />
-              <SortableTh label="Δ margin $" sortKey="delta_margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Estimated gross margin $ impact = Δ demand × (unit_cost × margin% / (1 − margin%)). Null when no usable margin data for this (sku, period)." hidden={!visibleColumns.has("delta_margin")} />
+              <SortableTh label="Δ margin $" sortKey="delta_margin" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} cellStyle={{ textAlign: "right" }} title="Estimated gross margin $ impact = Δ demand × (unit_cost × margin% / (1 − margin%)). Null when no usable margin data for this (sku, period)." hidden={!canViewMargin || !visibleColumns.has("delta_margin")} />
               <SortableTh label="Base rec" sortKey="base_rec" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("base_rec")} />
               <SortableTh label="Scn rec" sortKey="scn_rec" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} hidden={!visibleColumns.has("scn_rec")} />
               <SortableTh label="Risk" sortKey="risk" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} title="Service risk flag from the top recommendation" hidden={!visibleColumns.has("risk")} />
@@ -214,7 +225,7 @@ export default function ScenarioComparisonView({ rows, totals, loading }: Scenar
                           : PAL.textMuted,
                     fontWeight: 700,
                   }}
-                  hidden={!visibleColumns.has("delta_margin")}
+                  hidden={!canViewMargin || !visibleColumns.has("delta_margin")}
                   title={r.margin_per_unit_estimate == null
                     ? "No margin data for this (sku, period) — estimate skipped"
                     : `~$${r.margin_per_unit_estimate.toFixed(2)} per unit × ${signed(r.demand_delta)} units`}

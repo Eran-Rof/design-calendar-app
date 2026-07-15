@@ -28,6 +28,7 @@ import { computeSizeCollapse } from "../shared/matrix";
 import { compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import { groupPoLines, openQty, poHasReceipts, poFullyReceived, type PoBreakdownCell, type PoBreakdownLine } from "./lib/poLineBreakdown";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 // EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
 // scope so the grid-level toggle and the row expanders read/write one value.
@@ -59,6 +60,9 @@ const PO_COLUMNS: ColumnDef[] = [
 ];
 // colSpan for full-width rows = every column + the leading expander cell.
 const PO_COL_TOTAL = PO_COLUMNS.length + 1;
+// Margin-gated columns/export keys (permission: `margins`). Drives grid +
+// column-picker visibility and the CSV/Excel export.
+const PO_MARGIN_KEYS = new Set(["margin_pct", "margin_amt"]);
 // Per-column sort persistence (mirrors useTablePrefs key scheme).
 const PO_SORT_KEY = "tangerine:purchaseorders:sort";
 
@@ -220,8 +224,16 @@ export default function InternalPurchaseOrders() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  // Margin visibility/export gate (permission-driven; fails open until enforced).
+  const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
+  // Drop margin columns from the grid + column-picker when the caller can't view
+  // them (keeps PO_COLUMNS intact; filters only at the use site).
+  const poColumns = useMemo(
+    () => (canViewMargins ? PO_COLUMNS : PO_COLUMNS.filter((c) => !PO_MARGIN_KEYS.has(c.key))),
+    [canViewMargins],
+  );
   // Wave 5 — universal column show/hide.
-  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(PO_TABLE_KEY, PO_COLUMNS);
+  const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(PO_TABLE_KEY, poColumns);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
   // Totals strip scope: sum only the currently-filtered rows, or the whole
   // loaded dataset (ignores the client-side date window). Server search/status/
@@ -416,7 +428,7 @@ export default function InternalPurchaseOrders() {
     });
     return body;
   }, [sortedRows, vendorName, totals, totalsScope]);
-  const exportColumns: ExportColumn<Record<string, unknown>>[] = [
+  const allExportColumns: ExportColumn<Record<string, unknown>>[] = [
     { key: "po_number", header: "PO #" },
     { key: "vendor", header: "Vendor" },
     { key: "order_date", header: "Order Date" },
@@ -431,6 +443,7 @@ export default function InternalPurchaseOrders() {
     { key: "total", header: "Total", format: "number" },
     { key: "remaining_ship", header: "Remaining to Ship", format: "number" },
   ];
+  const exportColumns = allExportColumns.filter((c) => canExportMargins || !PO_MARGIN_KEYS.has(c.key as string));
 
   return (
     <div style={{ color: C.text }}>
@@ -490,7 +503,7 @@ export default function InternalPurchaseOrders() {
         <button style={btnSecondary} onClick={() => { void load(); void loadDq(); }}>Refresh</button>
         <TablePrefsButton
           tableKey={PO_TABLE_KEY}
-          columns={PO_COLUMNS}
+          columns={poColumns}
           visibleColumns={visibleColumns}
           onToggle={toggleColumn}
           onReset={resetToDefault}

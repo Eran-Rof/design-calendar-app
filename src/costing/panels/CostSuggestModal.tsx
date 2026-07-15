@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { suggestLineCosts, type CostSuggestion } from "../services/costingApi";
 import type { CostingLine } from "../types";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 
 const C = {
   overlay: "rgba(2,6,23,0.66)",
@@ -45,6 +46,8 @@ export default function CostSuggestModal({ line, onApply, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState(false);
   const ctrl = useRef<AbortController | null>(null);
+  // Gross-margin row is hidden when the caller lacks margin-view rights.
+  const { canView: canViewMargins } = useCanSeeMargins();
 
   useEffect(() => {
     ctrl.current = new AbortController();
@@ -155,13 +158,15 @@ export default function CostSuggestModal({ line, onApply, onClose }: Props) {
                     canApply={typeof data.suggested_sell_target === "number"}
                     onApply={() => applyOne({ sell_target: data.suggested_sell_target })}
                   />
-                  <Row
-                    label="Gross margin"
-                    current={pct(typeof line.margin_pct === "number" ? line.margin_pct : null)}
-                    suggested={pct(data.suggested_margin_pct)}
-                    canApply={false}
-                    hint="derived"
-                  />
+                  {canViewMargins && (
+                    <Row
+                      label="Gross margin"
+                      current={pct(typeof line.margin_pct === "number" ? line.margin_pct : null)}
+                      suggested={pct(data.suggested_margin_pct)}
+                      canApply={false}
+                      hint="derived"
+                    />
+                  )}
                 </tbody>
               </table>
 

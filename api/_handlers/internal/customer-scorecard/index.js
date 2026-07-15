@@ -51,6 +51,7 @@
 //  • net_profit_cents   = margin_cents − commission_cents − dilution_cents (window).
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveMarginAccess } from "../../../_lib/rbac/marginAccess.js";
 
 export const config = { maxDuration: 30 };
 
@@ -403,6 +404,17 @@ export default async function handler(req, res) {
       journalEntries = jes || [];
     }
 
+    // Margin visibility gate (P14 `margins` capability). Strip margin fields
+    // from every period + the metrics summary for callers without the grant.
+    // net_profit_cents stays (a distinct metric the UI does not gate as margin).
+    // Fail-open until RBAC_MODE=enforce, so a no-op today.
+    const { canView: canViewMargins } = await resolveMarginAccess(req);
+    if (!canViewMargins) {
+      for (const p of Object.values(periods)) {
+        if (p && typeof p === "object") { delete p.margin_cents; delete p.margin_pct; }
+      }
+    }
+
     // Optional brand filter note: brand filter applies to SO/by_brand; AR lines
     // (gender, periods) have no brand column so are unaffected by brand_id.
     return res.status(200).json({
@@ -429,7 +441,7 @@ export default async function handler(req, res) {
         gross_sales_cents: grossSalesCents,
         dilution_cents: dilutionCents,
         dilution_pct: grossSalesCents !== 0 ? dilutionCents / grossSalesCents : null,
-        margin_cents: marginCents,
+        margin_cents: canViewMargins ? marginCents : undefined,
         net_profit_cents: netProfitCents,
         net_profit_basis: "This-Year window: margin − commission − dilution",
       },

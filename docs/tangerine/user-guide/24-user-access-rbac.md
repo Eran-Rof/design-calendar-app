@@ -33,6 +33,20 @@ Tangerine RBAC controls **who can do what, per module, per action** — laid on 
 
 ---
 
+## Capabilities (cross-cutting grants) — Margin Visibility
+
+Most modules map to a screen. A **capability** is a cross-cutting grant that gates a *kind of data* wherever it appears, rather than one screen. Capabilities show up in the User Access grid under the **Data Visibility** group and are toggled exactly like any other cell (per-user override) — plus they carry a role default.
+
+- **`margins`** — **Margin Visibility.** Gates every margin % and margin $ (gross-margin) figure across the whole app: the Sales Orders / Purchase Orders / Drop-Ship / Inventory Matrix grids, the Costing & RFQ compare screens, the Wholesale Planning grid, Segment P&L, the Customer Scorecard, the ATS availability KPI + Excel/Sales-Comps exports, and the planning sales-performance report. Two actions:
+  - **read** — may *see* margin columns / KPIs. Without it, the margin columns are **simply absent** (no lock icon, no blanked placeholder) — the rest of the grid is unchanged.
+  - **export** — may *export* margin data (CSV/Excel). A user with **read** but not **export** sees margins on screen but their exports come out with the margin columns dropped.
+
+  **Default grants:** **admin** and **accountant** roles get **read + export**; **viewer** does **not** (margin is hidden for viewers by design). Grant it to anyone else, or revoke it from an individual, in the User Access grid. Enforcement follows the same `RBAC_MODE` rule as everything else — margins stay visible for everyone until enforcement is on, and the server also strips margin fields from the Sales Orders, Purchase Orders, and Customer Scorecard API responses for non-granted callers as defence-in-depth.
+
+  > Note: margin **input** fields that drive a *price* (e.g. the Price List "Margin %" input, a SKU's target-margin, the ATS "Sls Prc @ Mrgn %" implied-price column) are pricing controls, not profitability read-outs, so they are **not** hidden by this capability.
+
+---
+
 ## How everyone got a role (the backfill)
 
 When P14-1 shipped, every existing member was mapped to a seed role so **day-1 access was identical to before**:

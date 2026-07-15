@@ -48,6 +48,7 @@ import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { BuyerVsLyReportModal } from "./wholesale-planning/BuyerVsLyReportModal";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
 import { usePersistedHiddenColumns } from "./wholesale-planning/hooks/usePersistedHiddenColumns";
+import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
 import { useAggregateExpansion } from "./wholesale-planning/hooks/useAggregateExpansion";
 import { useDynamicColWidths } from "./wholesale-planning/hooks/useDynamicColWidths";
 import { bucketKeyFor, type BucketKeyFilters } from "./bucketBuyKey";
@@ -657,6 +658,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
   const { hiddenColumns, toggleColumn, resetColumns } = usePersistedHiddenColumns();
   const colHide = (key: string): React.CSSProperties | undefined =>
     hiddenColumns.has(key) ? { display: "none" } : undefined;
+
+  // Margin visibility gate. When the caller may not see margins, the "Margin %"
+  // column is treated as permanently hidden — absent from header, body cells,
+  // and the column picker — via an effective hidden-column set. Fails open.
+  const { canView: canViewMargin } = useCanSeeMargins();
+  const effectiveHiddenColumns = useMemo(
+    () => (canViewMargin ? hiddenColumns : new Set<string>([...hiddenColumns, "margin"])),
+    [hiddenColumns, canViewMargin],
+  );
+  const marginToggleColumns = useMemo(
+    () => (canViewMargin ? TOGGLEABLE_COLUMNS : TOGGLEABLE_COLUMNS.filter((c) => c.key !== "margin")),
+    [canViewMargin],
+  );
 
   // Freeze-offsets measurement removed alongside the freeze feature
   // (see comment near explodePpk above). This block measured <th>
@@ -2295,7 +2309,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
           setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
         }}>Clear</button>
         <ColumnsButton
-          columns={TOGGLEABLE_COLUMNS}
+          columns={marginToggleColumns}
           hidden={hiddenColumns}
           onToggle={toggleColumn}
           onReset={resetColumns}
@@ -2864,7 +2878,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
               <Th widths={dynamicColWidths} label="Class"       k="class"       sortStack={sortStack} onSort={toggleSort} title="ABC volume rank × XYZ demand variability" hidden={hiddenColumns.has("class")} />
               <Th widths={dynamicColWidths} label={`Hist T${trailingWindow}`} k="histT3" sortStack={sortStack} onSort={toggleSort} numeric total={ct("histT3")} title={`Trailing ${trailingWindow} months through this row's same period last year — change the window in the T3/T6/T9/T12 selector above the grid`} hidden={hiddenColumns.has("histT3")} />
               <Th widths={dynamicColWidths} label="SP/LY"       k="histLY"      sortStack={sortStack} onSort={toggleSort} title="Same Period Last Year" numeric total={ct("histLY")} hidden={hiddenColumns.has("histLY")} />
-              <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortStack={sortStack} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={hiddenColumns.has("margin")} />
+              <Th widths={dynamicColWidths} label="Margin %"    k="margin"      sortStack={sortStack} onSort={toggleSort} title="Weighted-avg gross margin over trailing 3 months. Green ≥ 30%, red < 0%." numeric hidden={effectiveHiddenColumns.has("margin")} />
               <Th widths={dynamicColWidths} label="System"      k="system"      sortStack={sortStack} onSort={toggleSort} numeric total={ct("system")} hidden={hiddenColumns.has("system")} />
               <Th widths={dynamicColWidths} label="Buyer"       k="buyer"       sortStack={sortStack} onSort={toggleSort} numeric total={ct("buyer")} hidden={hiddenColumns.has("buyer")} />
               <Th widths={dynamicColWidths} label="Override"    k="override"    sortStack={sortStack} onSort={toggleSort} numeric total={ct("override")} hidden={hiddenColumns.has("override")} />
@@ -2916,7 +2930,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
                   masterDescriptionsLower={masterDescriptionsLower}
                   customers={customers}
                   newCustomerIds={newCustomerIds}
-                  hiddenColumns={hiddenColumns}
+                  hiddenColumns={effectiveHiddenColumns}
                   onSelectRow={onSelectRow}
                   toggleAggExpanded={toggleAggExpanded}
                   setColorEditBlocked={setColorEditBlocked}

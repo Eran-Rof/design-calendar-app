@@ -14,6 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope, activeBrandId } from "../../../_lib/brandContext.js";
 import { resolvePricesForCustomer } from "../../../_lib/pricing/engine.js";
 import { resolvePerUnitCost } from "../../../_lib/sales-grain.js";
+import { resolveMarginAccess } from "../../../_lib/rbac/marginAccess.js";
 
 export const config = { maxDuration: 20 };
 
@@ -547,6 +548,12 @@ export default async function handler(req, res) {
     if (q && statuses.length > 1) { const set = new Set(statuses); headers = headers.filter((h) => set.has(h.status)); }
     const enriched = await enrichPricing(admin, headers, styleScope);
     await enrichInTransit(admin, enriched);
+    // Margin visibility gate (P14 `margins` capability) — strip margin fields
+    // for callers without the grant. Fail-open until RBAC_MODE=enforce.
+    const { canView: canViewMargins } = await resolveMarginAccess(req);
+    if (!canViewMargins) {
+      for (const r of enriched) { delete r.margin_cents; delete r.margin_pct; }
+    }
     return res.status(200).json(enriched);
   }
 

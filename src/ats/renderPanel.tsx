@@ -26,6 +26,7 @@ import type { ATSState } from "./state/atsTypes";
 import type { ATSRow, ExcelData, ATSPoEvent, ATSSoEvent, UploadWarning } from "./types";
 import { GlobalSearchPaletteAuto } from "../components/GlobalSearchPalette";
 import { StyleGalleryHost } from "../shared/ui/StyleImageGallery";
+import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 import type { NormChange } from "./normalize";
 
 // Functional-updater-aware setter, matches the shape produced by ATS.tsx's `mk()`
@@ -180,6 +181,10 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
   generalMarginPct, setGeneralMarginPct,
   collapseLevel, setCollapseLevel, expandedGroups, expandedGroupSet, toggleExpandGroup,
   unreadNotifs, showingNotifications, onToggleNotifications, notificationsView, masterReady } = ctx;
+
+  // Margin visibility gate (P14 RBAC `margins:read`). Fails open until
+  // enforcement is live. Drives the Margin KPI card in StatsRow.
+  const { canView: canViewMargin } = useCanSeeMargins();
 
   // ── Reciprocal filter cascade for the grid toolbar (#9) ────────────────
   // Each toolbar dropdown's options reflect the rows that pass EVERY OTHER
@@ -522,6 +527,7 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
             totalSoQty={totalSoQty} totalSoValue={totalSoValue}
             totalPoQty={totalPoQty} totalPoValue={totalPoValue}
             marginDollars={marginDollars} marginPct={marginPct}
+            canViewMargin={canViewMargin}
             activeSort={activeSort} setActiveSort={setActiveSort}
           />
         )}

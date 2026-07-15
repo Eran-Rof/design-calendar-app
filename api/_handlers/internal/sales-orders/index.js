@@ -13,6 +13,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { applyBrandScope, applyChannelScope, activeBrandId, activeChannelId } from "../../../_lib/brandContext.js";
+import { resolveMarginAccess } from "../../../_lib/rbac/marginAccess.js";
 
 export const config = { maxDuration: 20 };
 
@@ -360,6 +361,18 @@ export default async function handler(req, res) {
         h.total_qty_exploded = m.total_qty_exploded;  // item 30 — PPK packs → units
       }
     } catch { /* leave metrics absent on failure */ }
+
+    // Margin visibility gate (P14 `margins` capability). Defence-in-depth for
+    // the UI column hiding: a non-granted caller never receives margin numbers.
+    // Fail-open until RBAC_MODE=enforce, so a no-op today.
+    const { canView: canViewMargins } = await resolveMarginAccess(req);
+    if (!canViewMargins) {
+      for (const h of headers) {
+        delete h.margin_cents;
+        delete h.margin_pct;
+        delete h.total_margin_cents;
+      }
+    }
 
     return res.status(200).json(headers);
   }
