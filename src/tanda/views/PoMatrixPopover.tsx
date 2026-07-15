@@ -4,9 +4,10 @@
 // without leaving the grid view. Read-only, dismisses on outside
 // click or Escape.
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { itemQty, isLineClosed, normalizeSize, sizeSort, type XoroPO } from "../../utils/tandaTypes";
 import { extractPpk } from "../../shared/prepack";
+import { computeSizeCollapse } from "../../shared/matrix";
 
 export interface PoMatrixPopoverProps {
   po: XoroPO;
@@ -38,6 +39,9 @@ function rowExplodedTotal(sizes: Record<string, number>): number {
 export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): React.ReactElement | null {
   const ref = useRef<HTMLDivElement | null>(null);
   const explodePpk = readExplode();
+  // Empty-size-column collapse — same SO/PO model (green first header, click to
+  // hide the all-zero leading/trailing size columns).
+  const [sizesCollapsed, setSizesCollapsed] = useState(false);
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -88,6 +92,14 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
     row.sizes[p.size] = (row.sizes[p.size] || 0) + p.qty;
   });
 
+  // Green-collapse model: per-size totals across every rendered row so a column
+  // with any visible qty is kept; only empty leading/trailing columns collapse.
+  const colTotals: Record<string, number> = {};
+  for (const sz of sizeOrder) colTotals[sz] = 0;
+  for (const base of bases) for (const row of byBase[base]) for (const sz of sizeOrder) colTotals[sz] += row.sizes[sz] || 0;
+  const sizeCollapse = computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed });
+  const visibleSizes = sizeCollapse.visibleSizes;
+
   const totalPacks = parsed.reduce((s, p) => s + (p.closed ? 0 : (p.qty ?? 0)), 0);
   const totalUnits = parsed.reduce((s, p) => {
     if (p.closed) return s;
@@ -120,9 +132,24 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
             <tr style={{ background: "#0F172A" }}>
               <th style={thStyle}>Base</th>
               <th style={thStyle}>Color</th>
-              {sizeOrder.map((sz) => (
-                <th key={sz} style={{ ...thStyle, textAlign: "center", minWidth: 44 }}>{sz}</th>
-              ))}
+              {visibleSizes.map((sz, i) => {
+                const isFirst = i === 0;
+                const isLast = i === visibleSizes.length - 1;
+                const green = sizeCollapse.hasQty && isFirst;
+                const clickable = isFirst && sizeCollapse.canToggle;
+                return (
+                  <th
+                    key={sz}
+                    onClick={clickable ? () => setSizesCollapsed((c) => !c) : undefined}
+                    title={clickable
+                      ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with quantities")
+                      : undefined}
+                    style={{ ...thStyle, textAlign: "center", minWidth: 44, ...(green ? { color: "#10B981" } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
+                  >
+                    {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                  </th>
+                );
+              })}
               <th style={{ ...thStyle, textAlign: "center" }}>Total</th>
             </tr>
           </thead>
@@ -136,7 +163,7 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
                 <tr key={`${base}-${row.color}-${ri}-${row.closed ? "c" : "o"}`} style={{ borderBottom: "1px solid #1E293B" }}>
                   <td style={{ ...tdStyle, color: "#60A5FA", fontFamily: "monospace", fontWeight: 700, ...dim }}>{base}</td>
                   <td style={{ ...tdStyle, color: "#D1D5DB", ...dim }}>{row.color || "—"}</td>
-                  {sizeOrder.map((sz) => (
+                  {visibleSizes.map((sz) => (
                     <td key={sz} style={{ ...tdStyle, textAlign: "center", color: row.sizes[sz] ? "#E5E7EB" : "#334155", fontFamily: "monospace", ...dim }}>
                       {row.sizes[sz] || "—"}
                     </td>
@@ -156,7 +183,7 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
           <tfoot>
             <tr style={{ borderTop: "2px solid #334155", background: "#0F172A" }}>
               <td colSpan={2} style={{ ...tdStyle, color: "#9CA3AF", fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-              {sizeOrder.map((sz) => {
+              {visibleSizes.map((sz) => {
                 const colTotal = parsed.filter((p) => p.size === sz && !p.closed).reduce((s, p) => s + (p.qty ?? 0), 0);
                 return <td key={sz} style={{ ...tdStyle, textAlign: "center", color: "#F59E0B", fontWeight: 700, fontFamily: "monospace" }}>{colTotal || "—"}</td>;
               })}

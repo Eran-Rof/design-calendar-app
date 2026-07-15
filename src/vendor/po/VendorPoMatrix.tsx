@@ -6,15 +6,26 @@
 // "Total cost" = pack total × unit price. Prepack rows surface their pack token
 // (e.g. PPK24) as its own size column.
 
+import { useState } from "react";
 import { TH } from "../theme";
 import { fmtMoney, fmtMoney2 } from "../utils";
 import { buildPoMatrix } from "../../shared/poMatrix";
+import { computeSizeCollapse } from "../../shared/matrix";
 
 const AMBER = "#F59E0B"; // total-qty highlight, matches the Tanda matrix
 const GREEN = "#34D399"; // cost highlight
+const COLLAPSE_GREEN = "#10B981"; // green first-size header (matches the SO grid)
 
 export default function VendorPoMatrix({ items }: { items: any[] }) {
   const { bases, byBase, sizeOrder, parsed } = buildPoMatrix(items);
+  // Empty-size-column collapse — same SO/PO model: first size header with qty
+  // turns green + is clickable to hide the all-zero leading/trailing columns.
+  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  const colTotals: Record<string, number> = {};
+  for (const sz of sizeOrder) colTotals[sz] = 0;
+  for (const base of bases) for (const row of byBase[base]) for (const sz of sizeOrder) colTotals[sz] += row.sizes[sz] || 0;
+  const sizeCollapse = computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed });
+  const visibleSizes = sizeCollapse.visibleSizes;
 
   if (bases.length === 0) {
     return (
@@ -39,9 +50,24 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
             <th style={{ ...th, textAlign: "left" }}>Base Part</th>
             <th style={{ ...th, textAlign: "left" }}>Description</th>
             <th style={{ ...th, textAlign: "left" }}>Color</th>
-            {sizeOrder.map((sz) => (
-              <th key={sz} style={{ ...th, textAlign: "center", minWidth: 56 }}>{sz}</th>
-            ))}
+            {visibleSizes.map((sz, i) => {
+              const isFirst = i === 0;
+              const isLast = i === visibleSizes.length - 1;
+              const green = sizeCollapse.hasQty && isFirst;
+              const clickable = isFirst && sizeCollapse.canToggle;
+              return (
+                <th
+                  key={sz}
+                  onClick={clickable ? () => setSizesCollapsed((c) => !c) : undefined}
+                  title={clickable
+                    ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with quantities")
+                    : undefined}
+                  style={{ ...th, textAlign: "center", minWidth: 56, ...(green ? { color: COLLAPSE_GREEN } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
+                >
+                  {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                </th>
+              );
+            })}
             <th style={{ ...th, textAlign: "center" }}>Total</th>
             <th style={{ ...th, textAlign: "right" }}>Avg Cost</th>
             <th style={{ ...th, textAlign: "right" }}>Total Cost</th>
@@ -64,7 +90,7 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
                     <span style={dim}>{row.color || "—"}</span>
                     {row.closed && <span style={{ marginLeft: 8, padding: "2px 6px", borderRadius: 4, background: "#7F1D1D", color: "#FCA5A5", fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>CLOSED</span>}
                   </td>
-                  {sizeOrder.map((sz) => (
+                  {visibleSizes.map((sz) => (
                     <td key={sz} style={{ ...td, textAlign: "center", fontFamily: "monospace", color: row.sizes[sz] ? TH.text : TH.border, ...dim }}>
                       {row.sizes[sz] ? row.sizes[sz].toLocaleString() : "—"}
                     </td>
@@ -80,7 +106,7 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
         <tfoot>
           <tr style={{ borderTop: `2px solid ${TH.border}`, background: TH.surfaceHi }}>
             <td colSpan={3} style={{ padding: "12px 14px", color: TH.textSub, fontWeight: 700, textAlign: "right" }}>Grand Total</td>
-            {sizeOrder.map((sz) => {
+            {visibleSizes.map((sz) => {
               const colTotal = parsed.filter((p) => p.size === sz && !p.closed).reduce((s, p) => s + p.qty, 0);
               return <td key={sz} style={{ padding: "12px 14px", textAlign: "center", color: AMBER, fontWeight: 700, fontFamily: "monospace" }}>{colTotal ? colTotal.toLocaleString() : "—"}</td>;
             })}
