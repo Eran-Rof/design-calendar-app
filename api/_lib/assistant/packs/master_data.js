@@ -3,9 +3,13 @@
 // Data-quality debt that silently degrades everything downstream (matrix
 // grids, PPK downloads, planning grains). Both providers ride views that
 // already power their fixing tools:
-//   v_style_scale_candidates — styles with sized variants + no size scale
-//                              (fixed in ONE CLICK by Style Master's
-//                              🎯 Auto-assign, #934/#936)
+//   v_style_scale_needed     — styles that still need a size scale (no scale,
+//                              >=1 non-PPK sized variant, not flagged
+//                              size_scale_not_required). Fixed in ONE CLICK by
+//                              Style Master's 🎯 Auto-assign (#934/#936), or
+//                              accepted as-is via the exemption flag.
+//                              (v_style_scale_candidates returns ALL styles for
+//                              the auto-assign tool — do NOT count it raw.)
 //   v_prepack_ppk_needed     — PPK styles still missing a prepack matrix
 //                              (Prepack Matrices panel lists + prefills)
 
@@ -19,8 +23,11 @@ const scalesMissing = {
   key: "master.scales_missing",
   module_key: "style_master",
   async run(admin) {
+    // v_style_scale_needed = no scale + >=1 non-PPK sized variant + NOT
+    // size_scale_not_required. (v_style_scale_candidates returns ALL styles —
+    // it feeds the auto-assign tool — so counting it raw reported every style.)
     const n = await headCount(
-      admin.from("v_style_scale_candidates").select("id", { count: "exact", head: true }),
+      admin.from("v_style_scale_needed").select("id", { count: "exact", head: true }),
     );
     if (n === 0) return [];
     return [{

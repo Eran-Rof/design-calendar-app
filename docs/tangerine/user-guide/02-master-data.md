@@ -81,6 +81,8 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 
 **Auto-assign scales from sales history.** A **🎯 From sales history** button (on the Style Master toolbar) backfills the size scale for any **unscaled** style by reading the sizes the style has **actually sold** (from sales orders and AR invoices), most-sold first, and matching them to a scale. It only fills styles with no scale yet — it never overwrites a scale you've set — so it's safe to run any time.
 
+**"Styles missing a size scale" — and accepting the leftovers.** The **Today** page shows a *"Styles missing a size scale"* tile that counts styles which have real sized variants but no scale yet (the true backlog — it excludes one-size/no-variant styles). Some **old, discontinued-in-spirit** styles are fine without a scale; to take those off the list without inventing a fake scale, mark them **size-scale-not-required** (`attributes.size_scale_not_required`). Exempted styles drop off the tile and the auto-assign preview leaves them alone. This is how the July-2026 cleanup cleared the last ~436 legacy styles: the ones that needed a scale were assigned one; the rest were accepted as-is.
+
 ### Prepack matrix (PPK styles only)
 
 For a **prepack style** — one whose Style Number contains **PPK** (e.g. `RYB059430PPK`) — a **Prepack matrix** row appears just below **Size Scale** in the edit modal. It opens the **exact same entry window** used by the Prepack Matrices master (📦 Inventory → Prepack Matrices), so you can define the pack's per-size garment composition without leaving Style Master.
