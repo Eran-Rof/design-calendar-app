@@ -61,22 +61,126 @@ export function processStatesDiverged(cachedProcesses, liveProcesses) {
   return false;
 }
 
-/** Pure — exported for tests. The entire model input for a brief. */
-export function buildBriefPrompt(aggregate, name, day) {
+function keySet(items) {
+  const s = new Set();
+  for (const it of Array.isArray(items) ? items : []) if (it && it.key) s.add(it.key);
+  return s;
+}
+
+/**
+ * Pure — exported for tests. Has a CACHED brief gone stale in ANY way that
+ * would make it recommend an item the operator already handled, or miss a new
+ * one? Builds on processStatesDiverged. Returns true when:
+ *   - a to-do KEY present in cached is gone from live (operator cleared it), or
+ *     a to-do key present in live is absent from cached (a new flag appeared);
+ *   - the same, for suggestion keys;
+ *   - any process STATE flipped (delegates to processStatesDiverged).
+ * DELIBERATELY ignores pure count/detail drift on a SURVIVING to-do key — the
+ * live cards already show the current number, so a count ticking 4→2 must NOT
+ * force a regeneration on every page load. Only the SET of keys changing (a
+ * to-do/suggestion appearing or disappearing) or a process state flip is stale.
+ */
+export function aggregatesDiverged(cached, live) {
+  const c = cached && typeof cached === "object" ? cached : {};
+  const l = live && typeof live === "object" ? live : {};
+  const cTodos = keySet(c.todos);
+  const lTodos = keySet(l.todos);
+  for (const k of cTodos) if (!lTodos.has(k)) return true;
+  for (const k of lTodos) if (!cTodos.has(k)) return true;
+  const cSug = keySet(c.suggestions);
+  const lSug = keySet(l.suggestions);
+  for (const k of cSug) if (!lSug.has(k)) return true;
+  for (const k of lSug) if (!cSug.has(k)) return true;
+  if (processStatesDiverged(c.processes, l.processes)) return true;
+  return false;
+}
+
+/**
+ * Pure — exported for tests. The progress the operator made between the brief
+ * the assistant last wrote (`cached`) and the live aggregate (`live`), matched
+ * by to-do `key`:
+ *   - completed: to-dos in cached but ABSENT from live — fully cleared, the
+ *     "nice work" items the brief may name back.
+ *   - appeared:  to-dos in live but absent from cached — new since last brief.
+ *   - reduced:   to-do key in both where live.count < cached.count — partial
+ *     progress (optional to surface).
+ * Tolerant of missing/empty arrays.
+ */
+export function computeBriefProgress(cached, live) {
+  const c = cached && typeof cached === "object" ? cached : {};
+  const l = live && typeof live === "object" ? live : {};
+  const cTodos = Array.isArray(c.todos) ? c.todos : [];
+  const lTodos = Array.isArray(l.todos) ? l.todos : [];
+  const cMap = new Map();
+  for (const t of cTodos) if (t && t.key) cMap.set(t.key, t);
+  const lMap = new Map();
+  for (const t of lTodos) if (t && t.key) lMap.set(t.key, t);
+
+  const completed = [];
+  for (const [k, t] of cMap) {
+    if (!lMap.has(k)) completed.push({ key: k, title: t.title ?? null, count: t.count ?? null });
+  }
+  const appeared = [];
+  for (const [k, t] of lMap) {
+    if (!cMap.has(k)) {
+      appeared.push({ key: k, title: t.title ?? null, count: t.count ?? null, severity: t.severity ?? null });
+    }
+  }
+  const reduced = [];
+  for (const [k, lt] of lMap) {
+    const ct = cMap.get(k);
+    if (!ct) continue;
+    const from = typeof ct.count === "number" ? ct.count : null;
+    const to = typeof lt.count === "number" ? lt.count : null;
+    if (from != null && to != null && to < from) {
+      reduced.push({ key: k, title: lt.title ?? ct.title ?? null, from, to });
+    }
+  }
+  return { completed, appeared, reduced };
+}
+
+/**
+ * Pure — exported for tests. The entire model input for a brief. When
+ * `progress.completed` is non-empty the brief opens with a brief, genuine
+ * acknowledgment of what the operator cleared and closes by inviting the next
+ * task — a live, progress-aware companion rather than a static morning dump.
+ * The no-fabrication rule still holds: only items in the current aggregate (or
+ * named in the progress delta) may be cited.
+ */
+export function buildBriefPrompt(aggregate, name, day, progress = null) {
   const who = name ? ` ${name}` : "";
-  return [
+  const completed = progress && Array.isArray(progress.completed) ? progress.completed : [];
+  const lines = [
     `You are the daily operations assistant for a Ring of Fire operator${who ? ` named${who}` : ""}. Date: ${day}.`,
-    "Below is TODAY'S aggregate — the only facts you may cite. Write a morning brief:",
+    "Below is the CURRENT aggregate — the only facts you may cite. Write a warm, current brief:",
     "- 2 to 4 sentences, plain prose, no markdown headers/tables/emojis.",
-    "- Lead with the single most urgent thing (severity action > warn > info, higher counts first).",
+  ];
+  if (completed.length > 0) {
+    lines.push(
+      "- The operator has made progress since the last brief. The PROGRESS block below lists what they just cleared.",
+      "- OPEN with one short, genuine acknowledgment naming what was cleared (e.g. 'You cleared the 4 vendor replies I flagged — nice.'). Vary the phrasing; be encouraging, not saccharine.",
+      "- THEN cover the current state, mentioning ONLY items still in the aggregate (anything they cleared is already gone from it).",
+      "- END with a short inviting line like 'What do you want to work on next?'.",
+    );
+  } else {
+    lines.push(
+      "- This is the first read of the day (no prior progress). Greet normally; a gentle forward-looking close is fine but do not force a 'what next?' if it reads oddly.",
+    );
+  }
+  lines.push(
+    "- Lead the state with the single most urgent thing (severity action > warn > info, higher counts first).",
     "- Mention at most 4 items total; group the rest as 'and N more'. Use exact counts from the data.",
     "- If a process state is 'error', mention it. If 'partial' is true, add that some counts may be incomplete.",
     "- If there is genuinely nothing waiting, say the queue is clear in one friendly sentence.",
-    "- NEVER invent an item, count, or trend that is not in the JSON below.",
+    "- NEVER invent an item, count, or trend that is not in the AGGREGATE or PROGRESS blocks below. Only name completed items that appear in PROGRESS.completed.",
     "",
     "AGGREGATE:",
     JSON.stringify(aggregate),
-  ].join("\n");
+  );
+  if (completed.length > 0) {
+    lines.push("", "PROGRESS:", JSON.stringify({ completed }));
+  }
+  return lines.join("\n");
 }
 
 export default async function handler(req, res) {
@@ -101,6 +205,12 @@ export default async function handler(req, res) {
 
   // Cache hit — one model run per user per day.
   const { day, payload } = await buildTodayForUser(admin, { authUserId, entityHint });
+  // Compute the live model-facing aggregate ONCE — it is both the staleness
+  // comparison target and (on regeneration) the new source_json snapshot.
+  const currentAggregate = aggregateForModel(payload);
+  // Progress the operator made since the assistant last wrote a brief; drives a
+  // warm, progress-aware regeneration. Populated only on a stale cache hit.
+  let progress = null;
   if (!refresh) {
     const { data: hit } = await admin
       .from("assistant_briefs")
@@ -109,20 +219,28 @@ export default async function handler(req, res) {
       .eq("brief_date", day)
       .maybeSingle();
     if (hit?.body) {
-      // Stale-brief guard: the brief snapshots process STATES at generation
-      // time; if a process has since flipped state (e.g. a Xoro mirror went
-      // error→ok after a mid-day fix) the cached prose contradicts the live
-      // cards below it. Regenerate in that case instead of serving the stale
-      // brief. Best-effort — any failure here falls back to the cached brief
-      // so the staleness check can never break the endpoint.
+      // Stale-brief guard: the brief snapshots the whole aggregate (to-dos,
+      // suggestions, process states) at generation time. If the operator has
+      // cleared a to-do the assistant flagged this morning, a new flag has
+      // appeared, or a process flipped state, the cached prose now recommends
+      // things that are done or contradicts the live cards. Regenerate in that
+      // case; otherwise serve cached. Best-effort — any failure here falls back
+      // to the cached brief so the staleness check can never break the endpoint.
       let stale = false;
       try {
-        stale = processStatesDiverged(hit.source_json?.processes, payload.processes);
+        stale = aggregatesDiverged(hit.source_json, currentAggregate);
       } catch {
         stale = false;
       }
       if (!stale) {
         return res.status(200).json({ body: hit.body, brief_date: day, cached: true, model: hit.model });
+      }
+      // Stale → regenerate. Capture what changed vs the last brief so the new
+      // prose can acknowledge it. Best-effort — never let the diff break us.
+      try {
+        progress = computeBriefProgress(hit.source_json, currentAggregate);
+      } catch {
+        progress = null;
       }
       // else: fall through to the regeneration path (same as ?refresh=1).
     }
@@ -140,7 +258,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ body: null, reason: err.message });
   }
 
-  const aggregate = aggregateForModel(payload);
+  const aggregate = currentAggregate;
   const name = await resolveDisplayName(admin, authUserId);
   const model = modelForApp("tangerine");
 
@@ -151,7 +269,7 @@ export default async function handler(req, res) {
     const resp = await anthropic.messages.create({
       model,
       max_tokens: BRIEF_MAX_TOKENS,
-      messages: [{ role: "user", content: buildBriefPrompt(aggregate, name, day) }],
+      messages: [{ role: "user", content: buildBriefPrompt(aggregate, name, day, progress) }],
     });
     cost = estimateClaudeCost(resp);
     body = (resp.content || [])
