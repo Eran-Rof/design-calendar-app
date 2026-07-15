@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap, extractReceiptLines, syncReceiptsFromTandaPos } from "../planning-sync.js";
+import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap, extractReceiptLines, syncReceiptsFromTandaPos, rollUpXoroOnHandToSnapshot } from "../planning-sync.js";
 
 // Minimal Supabase admin stub. Each test wires up only the table
 // methods it actually needs; the rest fall through to a generic empty
@@ -545,5 +545,49 @@ describe("syncReceiptsFromTandaPos — happy path", () => {
       source: "tanda",
       source_line_key: "tanda:PO-2001:STY01-RED",
     });
+  });
+});
+
+describe("rollUpXoroOnHandToSnapshot — re-source Xoro by-size on-hand", () => {
+  it("copies tangerine_size_onhand (latest date) into ip_inventory_snapshot as source=tangerine, per warehouse, keeping zeros", async () => {
+    const upserts = [];
+    const admin = makeAdmin({
+      tangerine_size_onhand: {
+        async maybeSingle() { return { data: { snapshot_date: "2026-07-01" }, error: null }; },
+        async select(state) {
+          if (state.range && state.range[0] === 0) {
+            return { data: [
+              { item_id: "sku-1", warehouse_code: "ROF Main", qty_on_hand: 100 },
+              { item_id: "sku-1", warehouse_code: "Psycho Tuna", qty_on_hand: 40 },
+              { item_id: "sku-2", warehouse_code: "ROF - ECOM", qty_on_hand: 0 }, // zero carried through
+            ], error: null };
+          }
+          return { data: [], error: null };
+        },
+      },
+      ip_inventory_snapshot: {
+        async upsert(state) { upserts.push(...state.upsertRows); return { data: null, error: null }; },
+      },
+    });
+
+    const r = await rollUpXoroOnHandToSnapshot(admin);
+    expect(r.error).toBeUndefined();
+    expect(r.snapshot_date).toBe("2026-07-01");
+    expect(r.rows_read).toBe(3);
+    expect(r.upserted).toBe(3);
+    expect(r.warehouses).toEqual(["Psycho Tuna", "ROF - ECOM", "ROF Main"]);
+    // item_id → sku_id identity; source tagged; warehouse preserved; zeros kept.
+    expect(upserts).toHaveLength(3);
+    expect(upserts.every((u) => u.source === "tangerine" && u.snapshot_date === "2026-07-01")).toBe(true);
+    expect(upserts.find((u) => u.warehouse_code === "ROF Main")).toMatchObject({ sku_id: "sku-1", qty_on_hand: 100 });
+    expect(upserts.find((u) => u.warehouse_code === "ROF - ECOM")).toMatchObject({ sku_id: "sku-2", qty_on_hand: 0 });
+  });
+
+  it("returns an error when the Xoro by-size feed is empty", async () => {
+    const admin = makeAdmin({
+      tangerine_size_onhand: { async maybeSingle() { return { data: null, error: null }; } },
+    });
+    const r = await rollUpXoroOnHandToSnapshot(admin);
+    expect(r.error).toMatch(/empty/i);
   });
 });
