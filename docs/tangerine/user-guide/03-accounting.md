@@ -444,6 +444,8 @@ Type a value and tab out; it saves immediately. The **Actual** column beside the
 2. Choose **Full-year** or **Monthly** grain.
 3. Seed. Existing cells for the matching accounts/periods are overwritten. Nothing posts to the GL.
 
+Every income-statement account seeds at its **natural magnitude** — revenue as a positive credit total, expenses/returns as positive costs. The seed reads the same operating actuals the variance dashboard does and **excludes year-end closing entries** (the equity/Retained-Earnings roll-up that zeros the P&L). Without that exclusion a fully-closed source year nets each revenue account to ≈ 0, which is why an earlier build seeded some expenses but no revenue — fixed so a 0 %-growth seed reconciles budget ≈ actual (to a cent or two of even-split rounding) for revenue and expense alike.
+
 ### Import (paste)
 
 **Import (paste)…** takes CSV or tab-separated lines — `account_code, amount[, period]` — where period is optional (0 or blank = full-year; 1–12 = a month). Unknown codes are reported and skipped.
