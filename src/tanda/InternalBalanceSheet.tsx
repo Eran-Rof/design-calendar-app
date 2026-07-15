@@ -366,6 +366,7 @@ export default function InternalBalanceSheet() {
         </label>
         <button onClick={() => void load()} style={btnSecondary}>Refresh</button>
         <ExportButton
+          noTotals
           rows={(() => {
             const out: Array<Record<string, unknown>> = [];
             const mk = (section: string, kind: string, account_type: string, code: string, name: string, cur: number, py: number) =>

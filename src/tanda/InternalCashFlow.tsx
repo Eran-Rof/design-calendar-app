@@ -186,6 +186,7 @@ export default function InternalCashFlow() {
           Run
         </button>
         <ExportButton
+          noTotals
           rows={(() => {
             const out: Array<Record<string, unknown>> = [];
             for (const sec of ["operating", "investing", "financing"] as const) {
