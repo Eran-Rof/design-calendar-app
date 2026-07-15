@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import type { ExportColumn } from "./exports/useTableExport";
 // Cross-cutter T11-3 — audit-trail drop-in for the employee detail modal.
 import RowHistory from "./components/RowHistory";
@@ -160,7 +161,7 @@ export default function InternalEmployees() {
   const [rows, setRows] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(useSearchSeed());
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);

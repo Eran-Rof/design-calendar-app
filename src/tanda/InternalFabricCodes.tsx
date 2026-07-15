@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -94,7 +95,7 @@ export default function InternalFabricCodes() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch(useSearchSeed(), 200);
   const { value: country, debouncedValue: countryDebounced, setValue: setCountry } = useDebouncedSearch("", 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);

@@ -66,6 +66,7 @@ import SearchableSelect, { type SearchableSelectOption } from "./components/Sear
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
@@ -241,7 +242,7 @@ export default function InternalStyleMaster() {
   // Polish ask A — search-as-you-type. `q` binds to the input (synchronous);
   // `qDebounced` is what drives the fetch effect. 200 ms matches the cadence
   // used by Customer Master, COA, and the T6 GlobalSearchPalette.
-  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch(useSearchSeed(), 200);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   // "Needs review" filter — shows only styles flagged by an Inventory Planning
   // promotion (attributes.needs_review / source=planning_promoted) so a

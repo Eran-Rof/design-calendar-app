@@ -190,6 +190,7 @@ import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { appConfig } from "./config/env";
 import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
+import TopbarGlobalSearch from "./components/TopbarGlobalSearch";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import { onAskAIRequest, publishScreenContext } from "./ai/askAIBridge";
 import AssistantCoach from "./tanda/AssistantCoach";
@@ -621,6 +622,7 @@ export default function Tangerine() {
         background: "#0b1220", borderBottom: "1px solid rgba(255,255,255,0.08)",
         transition: "left 0.2s ease",
       }}>
+        <TopbarGlobalSearch />
         <EntitySwitcher inline />
         <button
           type="button"

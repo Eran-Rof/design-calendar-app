@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import type { ExportColumn } from "./exports/useTableExport";
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
@@ -75,7 +76,7 @@ export default function InternalPartMaster() {
   const [partTypes, setPartTypes] = useState<PartTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(useSearchSeed());
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);

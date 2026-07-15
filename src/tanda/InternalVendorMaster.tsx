@@ -40,6 +40,7 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
+import { useSearchSeed } from "./hooks/useSearchSeed";
 import SearchableSelect from "./components/SearchableSelect";
 // Chunk E — per-row drill-through scorecard (opened by the 📊 button).
 import VendorScorecard from "./VendorScorecard";
@@ -175,7 +176,7 @@ export default function InternalVendorMaster() {
   const [err, setErr] = useState<string | null>(null);
   // Wave 5 — DynamicSearchInput. Sync `q` binds to the input so typing is
   // instant; `qDebounced` (200ms) is what drives the fetch.
-  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch("", 200);
+  const { value: q, debouncedValue: qDebounced, setValue: setQ } = useDebouncedSearch(useSearchSeed(), 200);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
