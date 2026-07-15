@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildBuyerVsLyReport, filterOutZeroReportRows, reportComp, reportPct } from "../buildBuyerVsLyReport";
+import { buildBuyerVsLyReport, filterOutZeroReportRows, filterStylesForBlock, reportComp, reportPct } from "../buildBuyerVsLyReport";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 function row(over: Partial<IpPlanningGridRow>): IpPlanningGridRow {
@@ -59,21 +59,35 @@ describe("buildBuyerVsLyReport", () => {
     expect(rep.customers[0].styles[0].colors[0].ty).toEqual([100]);
   });
 
-  it("filterOutZeroReportRows drops rows with no Buyer this year (incl. LY-only), and empty styles/customers", () => {
+  it("filterOutZeroReportRows drops only colors empty in BOTH blocks (union), plus empty styles/customers", () => {
     const rep = buildBuyerVsLyReport([
-      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "black", buyer_request_qty: 100 }),
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "buyonly", buyer_request_qty: 100, ly_reference_qty: 0 }),
       row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "lyonly", buyer_request_qty: 0, ly_reference_qty: 500 }),
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "both", buyer_request_qty: 200, ly_reference_qty: 300 }),
       row({ customer_name: "Empty Co", sku_style: "B", sku_color: "zero", buyer_request_qty: 0, ly_reference_qty: 0 }),
     ]);
-    const filtered = filterOutZeroReportRows(rep);
-    // Ross keeps only "black" (has a buy); "lyonly" (LY sales but no buy) is dropped.
-    const ross = filtered.customers.find((c) => c.customer === "Ross Stores")!;
-    expect(ross.styles[0].colors.map((c) => c.color)).toEqual(["black"]);
-    // "Empty Co" had only a no-buy row → customer dropped entirely.
-    expect(filtered.customers.find((c) => c.customer === "Empty Co")).toBeUndefined();
-    // A brand-new color being bought (TY>0, LY=0) is kept.
-    const rep2 = buildBuyerVsLyReport([row({ sku_color: "newbuy", buyer_request_qty: 600, ly_reference_qty: 0 })]);
-    expect(filterOutZeroReportRows(rep2).customers[0].styles[0].colors[0].color).toBe("newbuy");
+    const ross = filterOutZeroReportRows(rep).customers.find((c) => c.customer === "Ross Stores")!;
+    // buyonly + lyonly + both all have data in SOME block → kept; only fully-empty drops.
+    expect(ross.styles[0].colors.map((c) => c.color).sort()).toEqual(["both", "buyonly", "lyonly"]);
+    // "Empty Co" had only a fully-empty row → customer dropped entirely.
+    expect(filterOutZeroReportRows(rep).customers.find((c) => c.customer === "Empty Co")).toBeUndefined();
+  });
+
+  it("filterStylesForBlock hides each block's own zeros", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "buyonly", buyer_request_qty: 100, ly_reference_qty: 0 }),
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "lyonly", buyer_request_qty: 0, ly_reference_qty: 500 }),
+      row({ customer_name: "Ross Stores", sku_style: "A", sku_color: "both", buyer_request_qty: 200, ly_reference_qty: 300 }),
+    ]);
+    const cust = rep.customers[0];
+    const colorsIn = (block: "ly" | "ty" | "comp") =>
+      filterStylesForBlock(cust, block).flatMap((s) => s.colors.map((c) => c.color)).sort();
+    // Last-Year table: only colors that sold last year.
+    expect(colorsIn("ly")).toEqual(["both", "lyonly"]);
+    // Buyer table: only colors being bought.
+    expect(colorsIn("ty")).toEqual(["both", "buyonly"]);
+    // Comparison: anything active in either block.
+    expect(colorsIn("comp")).toEqual(["both", "buyonly", "lyonly"]);
   });
 
   it("comp + pct helpers: new color (no LY) reads +100%", () => {

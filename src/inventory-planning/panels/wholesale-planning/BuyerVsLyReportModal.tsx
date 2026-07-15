@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 import { PAL } from "../../components/styles";
 import type { IpPlanningGridRow } from "../../types/wholesale";
 import {
-  buildBuyerVsLyReport, filterOutZeroReportRows, reportComp, reportPct,
+  buildBuyerVsLyReport, filterOutZeroReportRows, filterStylesForBlock, reportComp, reportPct,
   type ReportCustomer, type ReportPeriod,
 } from "./buildBuyerVsLyReport";
 import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExports";
@@ -40,6 +40,9 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
   const totalTdL: React.CSSProperties = { ...totalTd, textAlign: "left", fontFamily: "inherit" };
 
   function QtyBlock({ cust, periods, block }: { cust: ReportCustomer; periods: ReportPeriod[]; block: "ly" | "ty" }) {
+    // Per-block zero hiding: the Last Year table shows only colors that sold
+    // last year; the Buyer table only colors you're buying.
+    const styles = hideZero ? filterStylesForBlock(cust, block) : cust.styles;
     return (
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
         <thead>
@@ -51,7 +54,7 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
           </tr>
         </thead>
         <tbody>
-          {cust.styles.map((sty) => sty.colors.map((c, ci) => {
+          {styles.map((sty) => sty.colors.map((c, ci) => {
             const arr = block === "ly" ? c.ly : c.ty;
             return (
               <tr key={`${sty.style}|${c.color}`}>
@@ -73,6 +76,7 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
   }
 
   function CompBlock({ cust, periods }: { cust: ReportCustomer; periods: ReportPeriod[] }) {
+    const styles = hideZero ? filterStylesForBlock(cust, "comp") : cust.styles;
     const compCell = (ty: number, ly: number): React.ReactElement => {
       const d = reportComp(ty, ly);
       return <td style={{ ...td, color: d < 0 ? PAL.red : PAL.text, fontWeight: d !== 0 ? 700 : 400 }}>{qfmt(d)}</td>;
@@ -95,7 +99,7 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
           </tr>
         </thead>
         <tbody>
-          {cust.styles.map((sty) => sty.colors.map((c, ci) => (
+          {styles.map((sty) => sty.colors.map((c, ci) => (
             <tr key={`${sty.style}|${c.color}`}>
               <td style={tdL}>{ci === 0 ? sty.style : ""}</td>
               <td style={tdL}>{c.color}</td>
@@ -146,8 +150,8 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
             onClick={() => setHideZero((v) => !v)}
             title="Hide rows where both last year and this year's Buyer are zero across every month"
           >{hideZero ? "Zero rows: hidden" : "Hide zero rows"}</button>
-          <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel }); }}>Download Excel</button>
-          <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel })}>Download PDF</button>
+          <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel, hideZero }); }}>Download Excel</button>
+          <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel, hideZero })}>Download PDF</button>
           <button type="button" style={{ ...btn, borderColor: PAL.border, padding: "6px 10px" }} onClick={onClose} title="Close">✕</button>
         </div>
         {/* Scrollable body */}

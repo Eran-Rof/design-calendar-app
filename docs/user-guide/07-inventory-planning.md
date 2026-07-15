@@ -147,7 +147,7 @@ The **Buyer vs LY Report** button (toolbar) opens a formatted, printable compari
 - **TY / Buyer** — this year's **Buyer** quantities.
 - **Comparison** — the difference (**Δ = TY − LY**) and **%** per month and in total. A brand-new color with no last-year history reads **+100%**.
 
-Toggles at the top of the report: switch between your **current grid filters** and the **full run**, and **Hide zero rows** to drop any color that had nothing last year *and* nothing planned this year (the toggle also applies to whatever you download). Use **Download PDF** for a landscape, Ring-of-Fire-branded sheet, or **Download Excel** for the same Ring-of-Fire-branded workbook every Tangerine report uses (logo, blue headers, blue total rows, red negatives; quantities and percentages come through as real Excel numbers you can re-sort or chart).
+Toggles at the top of the report: switch between your **current grid filters** and the **full run**, and **Hide zero rows**. The report stacks three tables per customer — **SP/LY (Last Year)**, **TY/Buyer (This Year)**, and **Comparison** — so "Hide zero rows" is applied **per table**: the Last Year table hides colors with no last-year sales, the Buyer table hides colors you aren't buying, and Comparison hides colors zero in both. (So a color you're buying that's brand-new won't clutter the Last Year table with a blank row, and vice-versa.) The toggle applies the same way to whatever you download. Use **Download PDF** for a landscape, Ring-of-Fire-branded sheet, or **Download Excel** for the same Ring-of-Fire-branded workbook every Tangerine report uses (logo, blue headers, blue total rows, red negatives; quantities and percentages come through as real Excel numbers you can re-sort or chart).
 
 ### Future demand requests
 
