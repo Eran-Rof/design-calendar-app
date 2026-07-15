@@ -157,9 +157,10 @@ The second tab on the Wholesale screen, **Future demand requests**, is where buy
 
 The Planning run card also lets you:
 
-- **Save build** — capture the current run (forecast rows, your edits, TBD rows, recommendations) as a named **saved build** snapshot. Find it later in the **Saved builds** dropdown; it can be browsed like any run.
-- **Fork & save** — when you're viewing a saved build, "Save" becomes a fork (clone-of-clone) so the original snapshot is preserved.
-- **🗑 Delete run** / **Delete saved** — permanently remove a run or snapshot *entirely* (a run with execution batches can't be deleted until those batches are removed).
+- **Save build** — capture the current run (forecast rows, your edits, TBD rows, recommendations) as a named **saved build**. Find it later in the **Saved builds** dropdown; it can be browsed *and edited* like any run. When you save, you're switched onto the saved build automatically.
+- **A saved build keeps saving itself.** A saved build isn't a frozen file — it's a live planning run. Once you're on it, **every edit and added row writes straight into it; there is no separate "Save" step.** The toolbar shows a green **"✓ Changes save automatically to this build"** note so this is obvious.
+- **Fork** — when you're viewing a saved build, the **Fork** button makes a **separate new copy** (with your current edits) and leaves this build untouched. Use it only to branch off a second version — *not* to "save," since saving already happens automatically.
+- **🗑 Delete run** / **Delete saved** — permanently remove a run or saved build *entirely* (a run with execution batches can't be deleted until those batches are removed).
 
 > To clear a run's build **without** deleting the run, just click **Build forecast** again and choose **Wipe + rebuild** — that path already wipes everything (forecast, recommendations, TBD rows, bucket buys, your edits) and rebuilds. (There's no separate "Clear build" button; the wipe lives on the rebuild flow.)
 
@@ -171,6 +172,43 @@ When you click **Build forecast** on a run that already has a build, you're offe
 > **Build (filtered):** if you've set grid filters, the Build button relabels itself **Build (filtered)** and only rebuilds the matching subset. A filtered build wipes out-of-scope rows within that scope — that is intentional. **Every input filter is honored, and each is multi-value** — Customer, Style, Category, Sub-category, Gender and Period all accept several selections at once, and the filtered build rebuilds exactly that combination (e.g. "these 4 styles for these 2 customers"). So the filtered build always matches what you see in the grid. *(Action / Confidence / Method are build **outputs**, not inputs, so they only narrow the on-screen view — they can't scope a build.)* Tip: to just *work on* a subset without rebuilding, set the filters and the grid shows only those rows — the rest of the build stays intact underneath.
 >
 > **Supply-only rows honor a product filter.** The build adds a synthetic **(Supply Only)** row for any SKU that has incoming inventory (open PO / on-hand) but no demand pair, so you don't miss inbound stock. When your filter is **product-scoped** (style, category/group, sub-category, or gender), those supply-only rows are now restricted to the same product scope — so a "Cargo Shorts" build only shows cargo-shorts inbound, not every style with an open PO. A **customer-only** filter still shows all supply-only rows (they carry no customer). *Note: to clear supply-only rows a prior full build already wrote, use **Wipe + rebuild** — a plain rebuild leaves out-of-scope rows in place.*
+
+## From a finished build to the final buy
+
+Once **Build forecast** has run, the demand is on the grid. Turning that into purchase orders is a short, deliberate path across a few screens. Nothing here is auto-committed to vendors — you approve at each gate.
+
+### 1. Finish the demand and enter the buy (Wholesale grid)
+
+- Get **Final** right on every line: **System** is the app's suggestion; add **Buyer** (requested future demand) and **Override** (your manual adjustment). Final = System + Buyer + Override, floored at 0, and updates live as you type.
+- Fill the **Buy** column — the quantity you actually intend to purchase per line. Shortcut: **Copy Final → Buy** fills Buy from Final across the view, then tweak individual cells. **Unit Cost** drives **Buy $**.
+- All of this **saves as you type** — there is no "save the grid" button.
+
+### 2. Reconcile against supply (Supply screen)
+
+Open **Supply** (`/planning/supply`), pick the run, and click **Run reconciliation**. This nets your demand against the three supply buckets — **on-hand** (ATS), **open POs** (timed by their DDP milestone), and **receipts** — to produce **projected inventory**, **buy recommendations**, and a **shortage / excess** view. The **Reconciliation grid** shows the netted per-SKU picture; **Exceptions** shows where demand can't be fully covered.
+
+### 3. (Optional) Snapshot and combine builds
+
+- **Save build** to snapshot the plan (see *Saving snapshots and rebuilding* above). Handy for a paper trail or to plan several cuts in parallel.
+- The **Reconcile** screen (`/planning/reconcile`) folds the recommendations of **several saved builds** into one buy plan — **one PO per build × vendor**. Use **Pick all / Clear** to choose which builds to include.
+
+### 4. Approve the plan (Scenarios screen)
+
+Approval is the gate Execution reads, and it lives on the **Scenarios** screen. Fork the run into a scenario, **Apply assumptions + recompute** (or **Push planner buys → plan** to carry your grid buys straight in), **Compare** against the base, and when it's right, **Approve**. The approval is recorded on the *scenario*, not the run.
+
+### 5. Execute — create the POs (Execution screen)
+
+Open **Execution** (`/planning/execution`):
+
+1. **+ New batch** from the **approved scenario** (type *buy plan*).
+2. **Approve** the batch.
+3. **Export** it to Excel for a manual/vendor hand-off, **and/or** **🍊 Create Tangerine POs** — this groups the buys **by vendor** and creates **one draft PO each**.
+
+### 6. Issue the POs (PO WIP / Tanda)
+
+The draft POs land in **PO WIP** in Tangerine. There you review quantities and sizes, make final adjustments, and **issue** each PO to its vendor. That issue step — outside Planning — is what actually places the order.
+
+> **Where the "final buy" really is:** the numbers you commit to on the Wholesale grid (**Buy**) flow through reconciliation and approval into the Execution batch, which becomes the **draft POs**. The buy isn't "final" until those POs are issued in PO WIP.
 
 ## The Ecom screen
 
