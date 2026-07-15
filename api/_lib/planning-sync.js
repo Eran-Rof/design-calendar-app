@@ -661,6 +661,12 @@ export async function syncOpenPosFromTandaPos(admin) {
     expected_date_from_milestone: 0,
     errors: [],
   };
+  // Stamp on every upserted row so v_xoro_feed_health's max(last_seen_at)
+  // advances each run (the open-SOs sibling does this too). Without it,
+  // last_seen_at only got its INSERT default and never moved for unchanged
+  // PO lines, so the 'open_pos_planning' feed showed a FALSE 'stale' whenever
+  // the open-PO set held steady >26h even though the nightly ran fine.
+  const syncStartedAt = new Date().toISOString();
 
   // 1. Page through every PO row.
   const allPos = [];
@@ -876,6 +882,7 @@ export async function syncOpenPosFromTandaPos(admin) {
         channel,
         source: "xoro",
         source_line_key: key,
+        last_seen_at: syncStartedAt,
       });
       continue;
     }
