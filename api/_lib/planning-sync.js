@@ -327,6 +327,37 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     else result.inserted += chunk.length;
   }
 
+  // Persist per-SKU ATS "Last Receipt Date" (SIZE grain, keyed by sku_code) so
+  // the Inventory Aging report can age mirrored (xoro_rest_size) layers off the
+  // true last-received date, not the sync snapshot date. `skus` are the raw feed
+  // rows here (before the style-color aggregation above), so s.sku is the
+  // size-grain sku that matches ip_item_master.sku_code. Clamp future dates
+  // (future = incoming PO, not a real receipt of on-hand you already have); keep
+  // the MAX date per sku within the batch.
+  {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+    const byCode = new Map();
+    for (const s of skus) {
+      const code = typeof s?.sku === "string" ? s.sku.trim() : "";
+      const d = typeof s?.lastReceiptDate === "string" ? s.lastReceiptDate.trim() : "";
+      if (!code || !/^\d{4}-\d{2}-\d{2}$/.test(d) || d > todayIso) continue;
+      const prev = byCode.get(code);
+      if (!prev || d > prev) byCode.set(code, d);
+    }
+    const atsRows = Array.from(byCode, ([sku_code, last_receipt_date]) => ({
+      sku_code, last_receipt_date, updated_at: nowIso,
+    }));
+    for (let i = 0; i < atsRows.length; i += 500) {
+      const chunk = atsRows.slice(i, i + 500);
+      const { error } = await admin
+        .from("ats_last_receipt")
+        .upsert(chunk, { onConflict: "sku_code", ignoreDuplicates: false });
+      if (error) result.errors.push(`ats_last_receipt chunk ${i}: ${error.message}`);
+    }
+    result.ats_last_receipt_upserted = (result.ats_last_receipt_upserted || 0) + atsRows.length;
+  }
+
   // Open-SO ingest only on the first chunk so we don't reset progress
   // mid-walk.
   if (start === 0 && Array.isArray(parsed?.sos) && parsed.sos.length > 0) {

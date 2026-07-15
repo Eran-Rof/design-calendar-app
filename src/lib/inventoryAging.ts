@@ -163,3 +163,50 @@ export function daysSinceLastSale(lastSoldISO: string | null | undefined, asOfIS
   if (!lastSoldISO) return null;
   return ageDays(lastSoldISO, asOfISO);
 }
+
+// The Xoro REST by-size snapshot source_kind — the "mirrored" on-hand whose
+// layer received_at is the sync date, not a physical receipt. Only these age
+// off an effective last-received date (matching the SQL CASE).
+export const MIRRORED_SOURCE_KIND = "xoro_rest_size";
+
+// Effective received date used for aging, mirroring the migration's SQL.
+// Mirrored (xoro_rest_size) layers age off the best available LAST-RECEIVED
+// date — ATS feed date, then Tangerine receipt-history date, then the layer's
+// own (snapshot) received date. TRUE Tangerine-received layers keep their own
+// received date untouched. Returns a YYYY-MM-DD string (first non-empty).
+export function effectiveReceivedDate(
+  sourceKind: string | null | undefined,
+  atsLastReceipt: string | null | undefined,
+  receiptsHistoryLast: string | null | undefined,
+  layerReceivedAt: string | null | undefined,
+): string {
+  const clean = (v: string | null | undefined) => (typeof v === "string" && v.trim() ? v.slice(0, 10) : "");
+  const layer = clean(layerReceivedAt);
+  if (sourceKind !== MIRRORED_SOURCE_KIND) return layer;
+  return clean(atsLastReceipt) || clean(receiptsHistoryLast) || layer;
+}
+
+export interface EffectiveCost {
+  unitCostCents: number;
+  isUncosted: boolean;
+}
+
+// Effective unit cost in CENTS, mirroring the SQL COALESCE ladder:
+//   layer unit_cost_cents (non-zero) → avg_cost (dollars→cents, non-zero)
+//   → item unit_cost (dollars→cents, non-zero) → 0 (flagged uncosted).
+export function effectiveUnitCostCents(
+  layerUnitCostCents: number | null | undefined,
+  avgCostDollars: number | null | undefined,
+  itemUnitCostDollars: number | null | undefined,
+): EffectiveCost {
+  const nz = (v: number | null | undefined) => {
+    const x = Number(v);
+    return Number.isFinite(x) && x !== 0 ? x : null;
+  };
+  const cents =
+    nz(layerUnitCostCents) ??
+    (nz(avgCostDollars) != null ? Math.round((avgCostDollars as number) * 100) : null) ??
+    (nz(itemUnitCostDollars) != null ? Math.round((itemUnitCostDollars as number) * 100) : null) ??
+    0;
+  return { unitCostCents: cents, isUncosted: cents === 0 };
+}

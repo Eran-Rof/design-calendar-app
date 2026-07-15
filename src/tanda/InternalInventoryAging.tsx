@@ -52,6 +52,7 @@ type Row = {
   carry_pct: number; carry_per_unit_cents: number;
   last_sold: string | null; days_since_last_sale: number | null;
   units_sold_90: number | null; weeks_of_supply: number | null;
+  uncosted_qty: number;
 };
 type Kpis = {
   total_qty: number; total_value_cents: number; wavg_age_days: number; oldest_age_days: number;
@@ -59,13 +60,13 @@ type Kpis = {
   b1_qty: number; b1_value_cents: number; b2_qty: number; b2_value_cents: number;
   b3_qty: number; b3_value_cents: number; b4_qty: number; b4_value_cents: number;
   b5_qty: number; b5_value_cents: number; b6_qty: number; b6_value_cents: number;
-  dead_qty: number; dead_value_cents: number; carry_annual_cents: number;
+  dead_qty: number; dead_value_cents: number; carry_annual_cents: number; uncosted_qty: number;
 };
 type Layer = {
   id: string; sku_code: string | null; style_code: string | null; color: string | null; size: string | null;
   description: string | null; source_kind: string | null; lot_number: string | null; location_name: string | null;
-  received_at: string | null; age_days: number; remaining_qty: number; original_qty: number;
-  unit_cost_cents: number; value_cents: number;
+  received_at: string | null; eff_received: string | null; age_days: number; remaining_qty: number; original_qty: number;
+  unit_cost_cents: number; eff_unit_cost_cents: number; is_uncosted: boolean; value_cents: number;
 };
 
 const GROUPS: { key: string; label: string }[] = [
@@ -276,7 +277,7 @@ export default function InternalInventoryAging() {
     b4_value_cents: n(r.b4_value_cents), b5_value_cents: n(r.b5_value_cents), b6_value_cents: n(r.b6_value_cents),
     carry_pct: n(r.carry_pct), carry_annual_cents: n(r.int_annual_cents) + n(r.sto_annual_cents),
     last_sold: r.last_sold, days_since_last_sale: r.days_since_last_sale, units_sold_90: r.units_sold_90,
-    weeks_of_supply: r.weeks_of_supply,
+    weeks_of_supply: r.weeks_of_supply, uncosted_qty: n(r.uncosted_qty),
   })), [sorted]);
 
   const exportColumns: ExportColumn<Record<string, unknown>>[] = useMemo(() => [
@@ -298,6 +299,7 @@ export default function InternalInventoryAging() {
     { key: "carry_annual_cents", header: "Carry $/yr", format: "currency_cents" },
     { key: "last_sold", header: "Last sold" }, { key: "days_since_last_sale", header: "Days since sale" },
     { key: "units_sold_90", header: "Units sold 90d" }, { key: "weeks_of_supply", header: "Weeks of supply" },
+    { key: "uncosted_qty", header: "Uncosted units" },
   ], [labels]);
 
   const grainLabel = GROUPS.find((g) => g.key === groupBy)?.label || "Style";
@@ -308,6 +310,12 @@ export default function InternalInventoryAging() {
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Inventory Aging</h2>
         <div style={{ color: C.textMuted, fontSize: 13, marginTop: 2 }}>
           FIFO-layer aged inventory as of a chosen date, with carrying cost and velocity. Read-only.
+        </div>
+        <div style={{ color: C.textSub, fontSize: 12, marginTop: 6, maxWidth: 900, lineHeight: 1.5 }}>
+          Mirrored (Xoro-snapshot) stock ages off its <strong>last received date</strong> (ATS feed, then
+          Tangerine receipt history) — the same basis ATS uses; Tangerine-received layers age off their true
+          receipt date. Cost fills from the layer, then average cost, then item cost; units with no cost on
+          file are counted as <strong>Uncosted</strong> and excluded from $ (quantities are always exact).
         </div>
       </div>
 
@@ -322,6 +330,10 @@ export default function InternalInventoryAging() {
                   sub={`${fmtInt(kpis.dead_qty)} units`} color={n(kpis.dead_value_cents) > 0 ? C.warn : C.success} />
             <Tile label="Carrying cost / yr" value={fmtUsd0(kpis.carry_annual_cents)}
                   sub="interest + storage" color={C.purple} />
+            {n(kpis.uncosted_qty) > 0 && (
+              <Tile label="Uncosted units" value={fmtInt(kpis.uncosted_qty)}
+                    sub="no cost on file — excluded from $" color={C.warn} />
+            )}
           </div>
           {/* bucket distribution strip */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
@@ -463,6 +475,12 @@ export default function InternalInventoryAging() {
                   {r.grain_label}
                   {groupBy === "style_color" || groupBy === "sku"
                     ? <span style={{ color: C.textMuted, fontWeight: 400 }}>{r.size ? ` · ${r.size}` : ""}</span> : null}
+                  {n(r.uncosted_qty) > 0 && (
+                    <span title={`${fmtInt(r.uncosted_qty)} units have no cost on file (excluded from value)`}
+                          style={{ marginLeft: 8, padding: "1px 6px", borderRadius: 10, fontSize: 10, fontWeight: 600, color: "#0b1220", background: C.warn }}>
+                      {n(r.on_hand_qty) > 0 && n(r.uncosted_qty) >= n(r.on_hand_qty) ? "uncosted" : `${fmtInt(r.uncosted_qty)} uncosted`}
+                    </span>
+                  )}
                 </td>
                 <td style={tdR}>{fmtInt(r.on_hand_qty)}</td>
                 <td style={tdR}>{fmtUsd0(r.cost_value_cents)}</td>
@@ -515,7 +533,7 @@ function DrillModal({ row, layers, loading, asOf, grainLabel, bucketDays, onClos
             <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 12 }}>
               <thead>
                 <tr>
-                  <th style={th}>Received</th><th style={thR}>Age</th><th style={th}>SKU</th>
+                  <th style={th}>Last recv</th><th style={thR}>Age</th><th style={th}>SKU</th>
                   <th style={th}>Color</th><th style={th}>Size</th><th style={th}>Source</th><th style={th}>Warehouse</th>
                   <th style={thR}>On-hand</th><th style={thR}>Unit cost</th><th style={thR}>Value</th>
                 </tr>
@@ -523,9 +541,14 @@ function DrillModal({ row, layers, loading, asOf, grainLabel, bucketDays, onClos
               <tbody>
                 {layers.map((l) => {
                   const stale = l.age_days > bucketDays[4];
+                  const mirrored = l.source_kind === "xoro_rest_size";
+                  const effDiffers = l.eff_received && l.received_at && l.eff_received.slice(0, 10) !== l.received_at.slice(0, 10);
                   return (
                     <tr key={l.id}>
-                      <td style={td}>{l.received_at ? fmtDateDisplay(l.received_at) : "—"}</td>
+                      <td style={td} title={effDiffers ? `Snapshot ${fmtDateDisplay(l.received_at || "")} → last received ${fmtDateDisplay(l.eff_received || "")}` : undefined}>
+                        {l.eff_received ? fmtDateDisplay(l.eff_received) : (l.received_at ? fmtDateDisplay(l.received_at) : "—")}
+                        {mirrored ? <span style={{ color: C.textMuted, fontSize: 11 }}> (mirrored)</span> : null}
+                      </td>
                       <td style={{ ...tdR, color: stale ? C.warn : C.text }}>{fmtDays(l.age_days)}</td>
                       <td style={{ ...td, color: C.textSub }}>{l.sku_code || "—"}</td>
                       <td style={td}>{l.color || "—"}</td>
@@ -533,8 +556,10 @@ function DrillModal({ row, layers, loading, asOf, grainLabel, bucketDays, onClos
                       <td style={{ ...td, color: C.textSub }}>{l.source_kind || "—"}</td>
                       <td style={{ ...td, color: C.textSub }}>{l.location_name || "—"}</td>
                       <td style={tdR}>{fmtInt(l.remaining_qty)}</td>
-                      <td style={tdR}>{fmtUsd(l.unit_cost_cents)}</td>
-                      <td style={tdR}>{fmtUsd(l.value_cents)}</td>
+                      <td style={{ ...tdR, color: l.is_uncosted ? C.warn : C.text }}>
+                        {l.is_uncosted ? "no cost" : fmtUsd(l.eff_unit_cost_cents)}
+                      </td>
+                      <td style={tdR}>{l.is_uncosted ? "—" : fmtUsd(l.value_cents)}</td>
                     </tr>
                   );
                 })}

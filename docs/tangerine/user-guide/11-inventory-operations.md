@@ -519,6 +519,33 @@ date — a layer received on 03/01 shows as 30 days old at an aged date of 03/31
 > **today's** on-hand; it is not a full point-in-time inventory restatement. This
 > matches the ATS report's on-hand semantics while adding true per-layer ages.
 
+### Mirrored stock: effective last-received date
+
+Most on-hand pre-cutover is **mirrored** from Xoro's REST by-size feed — a single
+snapshot layer (`source_kind = xoro_rest_size`) dated to the sync, so its raw age is
+meaningless. For **mirrored layers only**, the report ages off an **effective
+last-received date** — the same basis the ATS aging report uses — resolved in order:
+
+1. the **ATS "Last Receipt Date"** from the Xoro feed (persisted per size-SKU in
+   `ats_last_receipt`, populated by the nightly planning ATS sync — full coverage);
+2. Tangerine's own **receipt history** (`ip_receipts_history`, ~9% of items today);
+3. the layer's snapshot date (previous behaviour).
+
+**Tangerine-received layers** (AP receipts, native POs, transfers) keep their **true
+`received_at`** untouched. The FIFO-layer drill shows the effective date with the raw
+snapshot date in the tooltip and a **(mirrored)** tag, so you can always see which
+ages are physical vs. sync-dated.
+
+### Cost & the Uncosted flag
+
+Snapshot layers often carry **$0 cost**. The report fills cost per layer in order:
+**layer cost → average cost (`ip_item_avg_cost`) → item cost** — and whatever still
+has no cost is counted as **Uncosted** (a KPI tile + an amber per-row badge + a column)
+and **excluded from value totals**, so a `$0` reads as *"no cost on file"*, not
+*"worth $0."* **Quantities and ages are always exact regardless of cost**, so
+aging-by-units is fully reliable even where value isn't. (Back-filling the missing
+costs from PO/receipt lines is a separate data pass.)
+
 ### Grain, buckets & filters
 
 - **Group by** — Style · Style + Color · SKU (size) · Category · Warehouse · Vendor.
