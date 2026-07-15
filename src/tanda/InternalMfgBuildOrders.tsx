@@ -691,6 +691,64 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
     finally { setBusy(false); }
   }
 
+  // Reopen a COMPLETED build (reverse the completion). Moves the finished goods
+  // back into WIP — reverses the complete JE(s) and depletes the finished-goods
+  // FIFO layer(s) — so the build returns to 'issued' and the operator can adjust
+  // components / capitalize services / re-complete. This is the accounting-
+  // correct "edit a completed build" path. Reversing GL requires a T11 reason.
+  async function reopenBuild() {
+    if (!(await confirmDialog(
+      `Reopen build ${build?.build_number}? This reverses the completion — the finished goods move back into WIP (reverses the complete journal entries and depletes the finished-goods layers) and the build returns to 'issued' so you can adjust it and re-complete. Blocked if any finished units were already sold.`,
+    ))) return;
+    const reason = await promptDialog(`Reason for reopening build ${build?.build_number} (required — it's recorded on the reversing journal entries)`, { required: true });
+    if (reason === null) return; // operator backed out of the reason prompt
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}/reopen`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const rev = Array.isArray(j.reversed_je_ids) ? j.reversed_je_ids.length : 0;
+      notify(
+        `Build ${build?.build_number} reopened — reversed ${rev} journal entr${rev === 1 ? "y" : "ies"}, depleted ${Number(j.depleted_qty || 0)} finished unit(s) back into WIP.`,
+        "success",
+      );
+      await load(); onChanged();
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
+    finally { setBusy(false); }
+  }
+
+  // Delete a COMPLETED build (full reversal). Runs the whole unwind through the
+  // /cancel endpoint: reverse the completion (WIP ← finished goods, deplete the
+  // finished layers), then reverse the issue + service journal entries and
+  // restore the consumed parts/styles, then flip to cancelled. Blocked if any
+  // finished units were already sold. Reversing GL requires a T11 reason.
+  async function deleteCompletedBuild() {
+    if (!(await confirmDialog(
+      `Delete build ${build?.build_number}? This FULLY reverses it: undoes the completion (finished goods → WIP), reverses the WIP postings (issue + capitalized services), returns the consumed parts/styles to inventory, and cancels the build. This can't be undone. Blocked if any finished units were already sold.`,
+    ))) return;
+    const reason = await promptDialog(`Reason for deleting build ${build?.build_number} (required — it's recorded on the reversing journal entries)`, { required: true });
+    if (reason === null) return; // operator backed out of the reason prompt
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/build-orders/${buildId}/cancel`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const rev = Array.isArray(j.reversed_je_ids) ? j.reversed_je_ids.length : 0;
+      notify(
+        `Build ${build?.build_number} deleted — reversed ${rev} journal entr${rev === 1 ? "y" : "ies"}, depleted ${Number(j.depleted_qty || 0)} finished unit(s), restored ${Number(j.restored_part_qty || 0)} part + ${Number(j.restored_style_qty || 0)} style unit(s).`,
+        "success",
+      );
+      await load(); onChanged();
+    } catch (e: unknown) { const msg = e instanceof Error ? e.message : String(e); setErr(msg); notify(msg, "error"); }
+    finally { setBusy(false); }
+  }
+
   // M11 — auto-create the conversion (outsourced-CMT) PO. Optional per-unit CMT
   // charge; vendor defaults to the BOM's default conversion vendor server-side.
   // The operator chooses the GL mode: capitalize (subcontract — the CMT accrues
@@ -959,6 +1017,22 @@ function BuildDetail({ buildId, onClose, onChanged }: { buildId: string; onClose
           )}
           {(status === "draft" || status === "released" || status === "issued") && (
             <button disabled={busy} onClick={() => void cancelBuild()} style={btnDanger}>Cancel build</button>
+          )}
+          {status === "completed" && (
+            <>
+              <button
+                disabled={busy}
+                title="Reverse the completion: finished goods move back into WIP and the build returns to 'issued' so you can edit and re-complete."
+                onClick={() => void reopenBuild()}
+                style={{ ...btnSecondary, borderColor: C.warn, color: C.warn }}
+              >Reopen (reverse completion)</button>
+              <button
+                disabled={busy}
+                title="Full reversal: undo the completion, reverse the WIP postings, return consumed parts/styles to inventory, and cancel the build."
+                onClick={() => void deleteCompletedBuild()}
+                style={btnDanger}
+              >Delete build (full reversal)</button>
+            </>
           )}
         </div>
       </div>

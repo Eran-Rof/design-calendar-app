@@ -90,9 +90,20 @@ Press **Cancel build** in the build's footer.
 
   Because this reverses the general ledger, a **reason is required** — you're prompted for one and it's recorded on the reversing journal entries (the ledger's audit policy). Each reversing entry is **dated into the same period as the entry it reverses** (its original posting date), so the two net to zero in that period rather than landing in the current one. (If that period is hard-locked, the reversal is rejected with a clear message.) The confirmation message reports how many journal entries were reversed and how many part/style units were returned.
 
-- A **completed** build can't be cancelled (its WIP already moved to finished goods) — that would need a separate reverse-completion step.
-
 A cancelled build can then be **deleted** if you want it off the list (see below). The reversal is **idempotent** — already-reversed entries and already-restored draws are skipped.
+
+### Edit or delete a **completed** build (reverse the completion)
+
+A completed build has moved its WIP into finished-goods inventory, so you can no longer edit its numbers in place — the accounting-correct way to change one is to **reverse the completion, adjust, and re-complete**. A completed build's footer therefore shows two actions:
+
+- **Reopen (reverse completion)** — puts the build back to *issued* so you can add/adjust components, capitalize services, and complete again. Tangerine:
+  1. Reverses the **complete** journal entries (`DR <style inventory> / CR 1205 WIP`, undone → the cost moves **back into WIP**) on both the accrual and cash books.
+  2. **Depletes the finished-goods FIFO layer(s)** the completion created — the units it added to on-hand are removed (a clean layer is deleted; one that already carries reversed sale history is drawn to zero). The build's accumulated WIP cost is left **intact**, so you can re-complete straight away.
+  3. Sets status back to *issued*. Now use the normal *issued* actions to change the build, then **Complete → finished goods** again (re-enter the produced-by-size matrix).
+
+- **Delete build (full reversal)** — the complete unwind: it reverses the completion (as above) **and then** the issue + capitalized-service entries, returns the consumed parts/styles to inventory, zeroes WIP, and sets status *cancelled*. This is the "undo everything this build ever did" button.
+
+Both are **guarded**: if any of the finished units were already **sold or consumed downstream** (a live inventory draw against the finished layer), the reversal is **refused** with a clear message — reverse those sales/consumption first so no cost is stranded. As with cancel, a **reason is required** (it's recorded on every reversing entry), each reversal is **dated into the original entry's period**, and the whole operation is **idempotent** — re-running after a partial failure skips what's already done. The confirmation message reports how many journal entries were reversed and how many finished/part/style units were depleted or restored.
 
 ### Completing by size — the produced color × size matrix
 
@@ -108,7 +119,7 @@ When you create a build you can optionally set **Build for customer** — the cu
 
 It's **idempotent**: a customer has at most one number per base style, so if a mapping already exists it's kept (not overwritten). The build header shows *For &lt;customer&gt; · cust style &lt;number&gt;*, and every number for a customer is listed read-only under **Customer Master → Style numbers**. Leaving the customer blank keeps the build a normal for-stock build.
 
-**Delete a build (item 2).** Each **draft** or **cancelled** build row has a **Del** button. Deleting checks whether a **BOM is attached** (its components are snapshotted on Release): if so, a warning asks you to **continue or cancel** before it removes the build and its components (they cascade). Issued/in-progress/completed builds can't be deleted — cancel them first (and completed builds are immutable for GL integrity).
+**Delete a build (item 2).** Each **draft** or **cancelled** build row has a **Del** button. Deleting checks whether a **BOM is attached** (its components are snapshotted on Release): if so, a warning asks you to **continue or cancel** before it removes the build and its components (they cascade). Issued/in-progress builds can't be deleted from the list — cancel them first. A **completed** build is reversed from its own detail view via **Reopen** or **Delete build (full reversal)** (see "Edit or delete a completed build" above), then the cancelled row can be deleted.
 
 > The printed tee: release pulls the blank tee + the print service into the build; issue draws the blank tee into WIP at FIFO cost; capitalize the printer's charge into WIP; complete creates the printed-tee inventory at *blank cost + print charge*. The PL jean works the same way, additionally consuming the base finished style.
 

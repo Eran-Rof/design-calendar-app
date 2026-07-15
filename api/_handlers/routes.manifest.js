@@ -397,6 +397,7 @@ export default [
   ["/api/internal/build-orders/:id/service"                  , "./internal/build-orders/service.js"],
   ["/api/internal/build-orders/:id/complete"                 , "./internal/build-orders/complete.js"],
   ["/api/internal/build-orders/:id/cancel"                   , "./internal/build-orders/cancel.js"],
+  ["/api/internal/build-orders/:id/reopen"                   , "./internal/build-orders/reopen.js"],
   ["/api/internal/build-orders/:id/conversion-po"            , "./internal/build-orders/conversion-po.js"],
   ["/api/internal/build-orders/:id/cmt-invoice"              , "./internal/build-orders/cmt-invoice.js"],
   ["/api/internal/build-orders/:id"                          , "./internal/build-orders/[id].js"],
