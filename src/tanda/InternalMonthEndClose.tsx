@@ -17,6 +17,7 @@ import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
+import { drillToModule, type DrillModuleKey } from "./scorecardDrill";
 
 type StripRow = {
   month: string; // YYYY-MM
@@ -43,6 +44,16 @@ type ChecklistItem = {
   signed_off_at: string | null;
   note: string | null;
   sort_order: number;
+  // Per-item review context (server-attached; BOTH manual sign-offs and auto
+  // checks): what to review + a count for the period + the panel to open, plus
+  // an optional filtered drill (draft JEs, account 8007). panel=null → no drill.
+  review?: {
+    summary: string;
+    panel: string | null;
+    drill?: Record<string, string>;
+    count?: number;
+    severity?: "info" | "warn" | "critical";
+  };
 };
 
 type Checklist = {
@@ -171,7 +182,7 @@ function detailSummary(item: ChecklistItem): string {
       return item.kind === "manual"
         ? item.status === "signed_off"
           ? `signed off by ${item.signed_off_by_label || "operator"} ${fmtStamp(item.signed_off_at)}`
-          : "awaiting sign-off"
+          : item.review?.summary || "awaiting sign-off"
         : "";
   }
 }
@@ -313,10 +324,13 @@ export default function InternalMonthEndClose() {
   }
 
   async function signOff(item: ChecklistItem, undo: boolean) {
+    // Surface the review context in the prompt so the operator sees exactly what
+    // they are attesting to (e.g. "…— 3 open chargebacks. What did you review?").
+    const ctx = !undo && item.review?.summary ? ` — ${item.review.summary}` : "";
     const note = await promptDialog(
       undo
         ? `Reverting the sign-off on "${item.label}". Why?`
-        : `Signing off "${item.label}" for ${fmtMonth(month)}. What was reviewed?`,
+        : `Signing off "${item.label}" for ${fmtMonth(month)}${ctx}. What did you review?`,
       { title: undo ? "Revert sign-off" : "Sign off", multiline: true, required: true, confirmText: undo ? "Revert" : "Sign off" },
     );
     if (note == null || !note.trim()) return;
@@ -324,6 +338,13 @@ export default function InternalMonthEndClose() {
     if (!ok) { notify(json.error || "Sign-off failed", "error"); return; }
     notify(undo ? "Sign-off reverted" : "Signed off", "success");
     await Promise.all([loadChecklist(month), loadStrip()]);
+  }
+
+  /** Open the panel that lets the operator review a manual item before signing. */
+  function openReview(item: ChecklistItem) {
+    const panel = item.review?.panel;
+    if (!panel) return;
+    drillToModule(panel as DrillModuleKey, item.review?.drill || {});
   }
 
   async function closePeriod() {
@@ -420,6 +441,42 @@ export default function InternalMonthEndClose() {
                 <b style={{ fontWeight: 700 }}>Next: </b>{recommendation}
               </div>
             )}
+            {/* Review link (auto checks) — jump to the underlying item(s) that
+                need review/checking: a blocker's/advisory's/waived item's source
+                (draft JEs filtered, 8007 in GL Detail, the relevant aging /
+                statement). Shown regardless of verdict so the operator can always
+                inspect; a passing check keeps it subtle. Blue, no drill arrow. */}
+            {item.kind === "auto" && item.review?.panel && (
+              <div style={{ marginTop: 5 }}>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); openReview(item); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openReview(item); } }}
+                  style={{ color: C.primary, cursor: "pointer", fontSize: 12, fontWeight: rs === "pass" ? 400 : 600, opacity: rs === "pass" ? 0.75 : 1, textDecoration: "underline" }}
+                  title="Open the underlying item(s) to review"
+                >
+                  Review{typeof item.review.count === "number" ? ` (${item.review.count})` : ""}
+                </span>
+              </div>
+            )}
+            {/* Review link — open the panel that backs this manual item so the
+                operator can actually review before signing. Blue identifier, no
+                drill arrow (house rule). panel=null (controller sign-off) → none. */}
+            {item.kind === "manual" && item.review?.panel && item.status !== "signed_off" && (
+              <div style={{ marginTop: 5 }}>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); openReview(item); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openReview(item); } }}
+                  style={{ color: C.primary, cursor: "pointer", fontSize: 12, fontWeight: 600, textDecoration: "underline" }}
+                  title="Open the panel to review before signing off"
+                >
+                  Review{typeof item.review.count === "number" ? ` (${item.review.count})` : ""}
+                </span>
+              </div>
+            )}
             {item.note && <div style={{ color: C.textSub, fontSize: 12, marginTop: 3, fontStyle: "italic" }}>“{item.note}”</div>}
           </td>
           <td style={{ ...td, whiteSpace: "nowrap" }}><StatusChip item={item} /></td>
@@ -439,7 +496,25 @@ export default function InternalMonthEndClose() {
                 <div style={{ fontSize: 12, color: C.textSub, padding: "4px 0" }}>
                   {item.status === "signed_off"
                     ? `Signed off by ${item.signed_off_by_label || "operator"} on ${fmtStamp(item.signed_off_at)}.`
-                    : "Awaiting operator sign-off. A note describing what was reviewed is required."}
+                    : (
+                      <>
+                        {item.review?.summary ? <div style={{ marginBottom: 4 }}>{item.review.summary}</div> : null}
+                        <div>Awaiting operator sign-off. A note describing what was reviewed is required.</div>
+                        {item.review?.panel && (
+                          <div style={{ marginTop: 4 }}>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); openReview(item); }}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openReview(item); } }}
+                              style={{ color: C.primary, cursor: "pointer", fontWeight: 600, textDecoration: "underline" }}
+                            >
+                              Review{typeof item.review.count === "number" ? ` (${item.review.count})` : ""}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    )}
                 </div>
               ) : (
                 <>

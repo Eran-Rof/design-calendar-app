@@ -64,6 +64,30 @@ import {
 
 export const config = { maxDuration: 60 };
 
+/**
+ * Same-origin / allowlist decision for the AI endpoint (anti-CSRF). Pure +
+ * exported so it can be unit-tested. Returns true when the caller's
+ * Origin/Referer either matches the request's OWN host (true same-origin, so
+ * this works on any domain the app is served from — the custom domain, preview
+ * URLs, localhost — without hardcoding) or is in the explicit allowlist.
+ * Origin comparison is exact (parsed URL origin), which defeats the
+ * subdomain-suffix trick `https://apps.ringoffire.com.attacker.com`.
+ *
+ * @param {{origin?:string, referer?:string, host?:string, allowedOrigins?:string[]}} p
+ */
+export function isAllowedAiOrigin({ origin = "", referer = "", host = "", allowedOrigins = [] } = {}) {
+  const allow = new Set(allowedOrigins);
+  const selfHost = String(host || "").trim();
+  if (selfHost) { allow.add(`https://${selfHost}`); allow.add(`http://${selfHost}`); }
+  let refererOrigin = "";
+  try { if (referer) refererOrigin = new URL(referer).origin; } catch { refererOrigin = ""; }
+  const fromOrigin  = origin        && allow.has(origin);
+  const fromReferer = refererOrigin && allow.has(refererOrigin);
+  return Boolean(fromOrigin || fromReferer);
+}
+
+const DEFAULT_AI_ORIGINS = "https://apps.ringoffire.com,https://design-calendar-app.vercel.app,http://localhost:5173,http://localhost:3000";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -77,18 +101,19 @@ export default async function handler(req, res) {
   if (!ANTHROPIC_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
   if (!SB_URL || !SERVICE_KEY) return res.status(500).json({ error: "Supabase not configured" });
 
-  // Same-origin guard. Parse the referer to its origin so attackers
-  // can't smuggle a matching prefix with a subdomain trick like
-  // `https://design-calendar-app.vercel.app.attacker.com/x`.
-  const origin  = req.headers?.origin  || "";
-  const referer = req.headers?.referer || "";
-  const allowedOrigins = (process.env.ALLOWED_AI_ORIGINS || "https://design-calendar-app.vercel.app,http://localhost:5173,http://localhost:3000")
+  // Same-origin guard (anti-CSRF). The request must come from a page served by
+  // THIS deployment — see isAllowedAiOrigin. Accepts true same-origin (any host
+  // the app runs on, incl. the custom domain apps.ringoffire.com) OR an entry
+  // in ALLOWED_AI_ORIGINS. The previous default listed only the vercel.app
+  // domain, so every Ask AI call from the custom domain was 403'd in prod.
+  const allowedOrigins = (process.env.ALLOWED_AI_ORIGINS || DEFAULT_AI_ORIGINS)
     .split(",").map(s => s.trim()).filter(Boolean);
-  let refererOrigin = "";
-  try { if (referer) refererOrigin = new URL(referer).origin; } catch { refererOrigin = ""; }
-  const fromOrigin  = origin        && allowedOrigins.includes(origin);
-  const fromReferer = refererOrigin && allowedOrigins.includes(refererOrigin);
-  if (!fromOrigin && !fromReferer) {
+  if (!isAllowedAiOrigin({
+    origin:  req.headers?.origin  || "",
+    referer: req.headers?.referer || "",
+    host:    req.headers?.host    || "",
+    allowedOrigins,
+  })) {
     return res.status(403).json({ error: "Request must come from an allowed origin." });
   }
 

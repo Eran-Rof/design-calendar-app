@@ -651,6 +651,7 @@ import r_parse_excel from "./parse-excel.js";
 import r_password_reset_confirm from "./password-reset/confirm.js";
 import r_password_reset_request from "./password-reset/request.js";
 import r_planning_sync_on_hand from "./planning/sync-on-hand.js";
+import r_planning_sync_onhand_xoro from "./planning/sync-onhand-xoro.js";
 import r_planning_sync_open_pos from "./planning/sync-open-pos.js";
 import r_planning_sync_receipts from "./planning/sync-receipts.js";
 import r_sales_backfill_grain from "./sales/backfill-grain.js";
@@ -1330,6 +1331,7 @@ export const ROUTES = [
   { pattern: "/api/internal/transfer-reasons", handler: r_internal_transfer_reasons_index },
   { pattern: "/api/internal/vendor-scorecard", handler: r_internal_vendor_scorecard_index },
   { pattern: "/api/internal/xoro-mirror-runs", handler: r_internal_xoro_mirror_runs },
+  { pattern: "/api/planning/sync-onhand-xoro", handler: r_planning_sync_onhand_xoro },
   { pattern: "/api/vendor/ai-extract-invoice", handler: r_vendor_ai_extract_invoice },
   { pattern: "/api/vendor/payment-preference", handler: r_vendor_payment_preference_index },
   { pattern: "/api/cron/bank-auto-post-fees", handler: r_cron_bank_auto_post_fees },

@@ -205,6 +205,7 @@ export default [
   ["/api/cron/anomalies-nightly"                             , "./cron/anomalies-nightly.js"],
   ["/api/cron/benchmark-compute"                             , "./cron/benchmark-compute.js"],
   ["/api/internal/virtual-cards"                             , "./internal/virtual-cards/index.js"],
+  ["/api/planning/sync-onhand-xoro"                          , "./planning/sync-onhand-xoro.js"],
   ["/api/planning/sync-open-pos"                             , "./planning/sync-open-pos.js"],
   ["/api/planning/sync-receipts"                             , "./planning/sync-receipts.js"],
   ["/api/vendor/change-requests"                             , "./vendor/change-requests.js"],

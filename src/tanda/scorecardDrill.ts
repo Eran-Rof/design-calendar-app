@@ -27,7 +27,17 @@ export type DrillModuleKey =
   | "inventory_adjustments"
   | "commission_accruals"
   | "commission_payouts"
-  | "mfg_build_orders";
+  | "mfg_build_orders"
+  // Month-End Close → per-manual-item "Review" links (close-manual-review-links):
+  | "chargebacks"
+  | "bank_reconciliation"
+  | "factor_recon"
+  | "fixed_assets"
+  // Month-End Close → per-AUTO-check "Review" links (close-auto-review-links):
+  | "ar_aging"
+  | "ap_aging"
+  | "gl_detail"
+  | "income_statement";
 
 /**
  * Navigate to a target list module, seeding one party-filter query param.

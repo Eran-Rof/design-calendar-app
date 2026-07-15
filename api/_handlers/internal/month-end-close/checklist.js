@@ -18,6 +18,7 @@ import {
   resolveSignerLabels,
   checklistComplete,
 } from "../../../_lib/accounting/closeChecklist.js";
+import { buildManualReviewContext, buildAutoReviewContext } from "../../../_lib/accounting/closeReviewContext.js";
 
 export const config = { maxDuration: 15 };
 
@@ -72,6 +73,24 @@ export default async function handler(req, res) {
     let items = [];
     if (cp) {
       items = await resolveSignerLabels(admin, await fetchChecklistItems(admin, cp.id));
+      // Per-item review context: what to review + a count for the period + the
+      // panel to open — for BOTH the manual sign-offs (query a live source) and
+      // the automated checks (derive from each check's stored detail, plus a
+      // filtered drill for draft JEs and 8007). Best-effort — never blocks the
+      // checklist read.
+      try {
+        const autoItems = items.filter((i) => i.kind === "auto");
+        const [manualReview, autoReview] = await Promise.all([
+          buildManualReviewContext(admin, entityId, period, month, items),
+          buildAutoReviewContext(admin, entityId, period, month, autoItems),
+        ]);
+        items = items.map((i) => {
+          const review = i.kind === "manual" ? manualReview[i.item_key] : autoReview[i.item_key];
+          return { ...i, review: review || null };
+        });
+      } catch {
+        /* review context is additive — a failure must not break the checklist */
+      }
     }
 
     return res.status(200).json({
