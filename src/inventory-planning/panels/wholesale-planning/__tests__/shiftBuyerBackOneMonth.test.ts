@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { planBuyerShiftBackOneMonth } from "../shiftBuyerBackOneMonth";
+import { planBuyerShiftBackOneMonth, planBuyerShiftBackForCustomers } from "../shiftBuyerBackOneMonth";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 // Minimal row factory — only the fields the planner reads.
@@ -74,5 +74,35 @@ describe("planBuyerShiftBackOneMonth", () => {
 
   it("returns no ops when nothing has a Buyer qty", () => {
     expect(planBuyerShiftBackOneMonth([row("2027-04", 0), row("2027-05", 0)])).toEqual([]);
+  });
+});
+
+describe("planBuyerShiftBackForCustomers — per-customer independence", () => {
+  // Two customers share the SAME style/color, each with an April qty.
+  const mixed = () => [
+    row("2027-03", 0, { customer_id: "cA", customer_name: "Ross", tbd_id: "a3" }),
+    row("2027-04", 1000, { customer_id: "cA", customer_name: "Ross", tbd_id: "a4" }),
+    row("2027-03", 0, { customer_id: "cB", customer_name: "Burlington", tbd_id: "b3" }),
+    row("2027-04", 500, { customer_id: "cB", customer_name: "Burlington", tbd_id: "b4" }),
+  ];
+
+  it("shifts each customer's schedule onto its OWN prior-month row", () => {
+    const ops = planBuyerShiftBackForCustomers(mixed());
+    const ross = ops.find((o) => o.period_code === "2027-03" && o.template.customer_id === "cA");
+    const burl = ops.find((o) => o.period_code === "2027-03" && o.template.customer_id === "cB");
+    expect(ross?.new_buyer).toBe(1000);
+    expect(ross?.existing_tbd_id).toBe("a3");   // patches Ross's own Mar row
+    expect(burl?.new_buyer).toBe(500);
+    expect(burl?.existing_tbd_id).toBe("b3");   // patches Burlington's own Mar row
+    // Each April clears on its own row.
+    expect(ops.find((o) => o.period_code === "2027-04" && o.template.customer_id === "cA")?.new_buyer).toBe(0);
+    expect(ops.find((o) => o.period_code === "2027-04" && o.template.customer_id === "cB")?.new_buyer).toBe(0);
+  });
+
+  it("contrast: the flat planner collapses the two customers into one Mar op", () => {
+    // Exactly why the workbench groups by customer first — the (style,color)-only
+    // planner can't tell the two customers' same-month rows apart.
+    const marOps = planBuyerShiftBackOneMonth(mixed()).filter((o) => o.period_code === "2027-03");
+    expect(marOps.length).toBe(1);
   });
 });
