@@ -20,7 +20,7 @@ const scalesMissing = {
   module_key: "style_master",
   async run(admin) {
     const n = await headCount(
-      admin.from("v_style_scale_candidates").select("style_id", { count: "exact", head: true }),
+      admin.from("v_style_scale_candidates").select("id", { count: "exact", head: true }),
     );
     if (n === 0) return [];
     return [{
@@ -39,7 +39,7 @@ const ppkMatrixNeeded = {
   module_key: "style_master",
   async run(admin) {
     const n = await headCount(
-      admin.from("v_prepack_ppk_needed").select("style_id", { count: "exact", head: true }),
+      admin.from("v_prepack_ppk_needed").select("ppk_style_code", { count: "exact", head: true }),
     );
     if (n === 0) return [];
     return [{
