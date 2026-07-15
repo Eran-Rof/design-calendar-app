@@ -6,13 +6,14 @@
 
 The page has three sections, each computed live from the real queues (no AI involved in the numbers — if a count is on the Today page, it ties to the panel it links to):
 
-## 46.1 Your assistant (morning brief + chat)
+## 46.1 Your assistant (morning brief + go-to router)
 
 The greeting bar is where the assistant lives:
 
 - **Morning brief** — on your first visit of the day the assistant reads your queues and writes a 2-4 sentence brief ("3 approvals are waiting on you, 12 SO lines ship this week, last night's mirror ran clean"). It can only cite items that are actually on the page — the numbers always tie. One model run per user per day; **↻** next to the brief re-reads and rephrases after you've worked the queue down.
-- **"What do you want to work on?"** — type into the ask box (e.g. *"let's do the approvals"*, *"what's most urgent?"*, *"open the chargebacks for Macy's"*). The Ask AI panel opens with your question; the assistant checks your live queue (`get_today`), answers, and when you pick something it **opens the panel for you** — the screen navigates to the module, optionally with the search box pre-seeded. Items that live in another app (PO WIP, Planning) can't be auto-opened; the assistant tells you where to go instead.
-- The assistant is scoped exactly like the page: it sees your access-filtered queue, minus anything you dismissed today.
+  - **It won't contradict the cards below it.** The brief is cached for the day, but if a process card *flips state* after the brief was written — say a Xoro mirror was in error this morning and is now green — the page notices the mismatch and quietly regenerates the brief so it matches the live cards. (Only a status flip triggers this; counts ticking up or down through the day do not.)
+- **"What do you want to work on?"** — this box is a **router, not a chat**. Type where you want to go — *"month close"*, *"pos flagged here"*, *"chargebacks"*, *"sales orders"* — and press **Go** (or Enter). The app takes you straight there: it matches your words against your **live to-dos** first (so *"pos flagged here"* opens the flagged-PO to-do, not just the generic Purchase Orders panel) and against the full module list, then navigates and shows a brief "Opening …" confirmation. If it isn't sure, it shows a row of **Did you mean:** chips to pick from instead of guessing; if nothing matches it nudges you to name one of your to-dos. For an actual **question** ("what's most urgent?", "how do I use this screen?"), use the floating **✨ Ask AI** button that's on every page — that's the chat surface.
+- The router is scoped exactly like the page: it only routes to to-dos and panels in your access-filtered queue, minus anything you dismissed today.
 
 ## 46.1 Your to-dos
 

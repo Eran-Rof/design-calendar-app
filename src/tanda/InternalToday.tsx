@@ -12,7 +12,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { getCachedAuthUserName } from "../utils/tangerineAuthUser";
 import { usePersonalization } from "../hooks/usePersonalization";
-import { askAI } from "../ai/askAIBridge";
+import { notify } from "../shared/ui/warn";
+import { MODULES } from "../erp/modules";
+import { resolveIntent, type IntentAlternative } from "./todayIntentRouter";
 
 // menuKeys key for this page — setting it as home_route makes Today the
 // operator's auto-landing screen (T4-4 redirect, once per tab session).
@@ -95,6 +97,10 @@ export default function InternalToday() {
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [ask, setAsk] = useState("");
+  // Router alternatives shown as chips when an intent is ambiguous, or a
+  // gentle hint when nothing matched. Cleared on any successful navigation.
+  const [askAlts, setAskAlts] = useState<IntentAlternative[] | null>(null);
+  const [askHint, setAskHint] = useState("");
 
   const loadBrief = useCallback((refresh = false) => {
     setBriefLoading(true);
@@ -106,12 +112,53 @@ export default function InternalToday() {
   }, []);
   useEffect(() => { loadBrief(); }, [loadBrief]);
 
+  // Navigate to a to-do (its owning panel / href) exactly like a row click.
+  const openTodo = useCallback((it: { panel?: string | null; href?: string }) => {
+    if (it.panel) goToPanel(it.panel);
+    else if (it.href) window.location.href = it.href;
+  }, []);
+
+  // Follow a resolved alternative chip (or the confident match itself).
+  const followAlt = useCallback((alt: IntentAlternative) => {
+    setAskAlts(null);
+    setAskHint("");
+    setAsk("");
+    if (alt.kind === "todo" && alt.todo) { notify(`Opening ${alt.todo.title}`, "info"); openTodo(alt.todo); }
+    else if (alt.kind === "module" && alt.module) { notify(`Opening ${alt.module.label}`, "info"); goToPanel(alt.module.key); }
+    else if (alt.kind === "suggestion" && alt.suggestion?.panel) { notify("Opening", "info"); goToPanel(alt.suggestion.panel); }
+  }, [openTodo]);
+
+  // The field is a pure intent ROUTER — it navigates the operator to the
+  // matched panel / live to-do (no chat). The floating Ask AI button remains
+  // the surface for actual Q&A.
   const submitAsk = useCallback(() => {
     const q = ask.trim();
     if (!q) return;
-    setAsk("");
-    askAI({ prompt: q, source: "today-page" });
-  }, [ask]);
+    const res = resolveIntent(q, {
+      todos: data?.todos || [],
+      suggestions: data?.suggestions || [],
+      modules: MODULES,
+    });
+    if (res.kind === "todo" && res.todo) {
+      setAskAlts(null); setAskHint(""); setAsk("");
+      notify(`Opening ${res.todo.title}`, "info");
+      openTodo(res.todo);
+    } else if (res.kind === "module" && res.module) {
+      setAskAlts(null); setAskHint(""); setAsk("");
+      notify(`Opening ${res.module.label}`, "info");
+      goToPanel(res.module.key);
+    } else if (res.kind === "suggestion" && res.suggestion?.panel) {
+      setAskAlts(null); setAskHint(""); setAsk("");
+      notify("Opening", "info");
+      goToPanel(res.suggestion.panel);
+    } else if (res.alternatives.length > 0) {
+      setAskAlts(res.alternatives);
+      setAskHint("");
+    } else {
+      setAskAlts(null);
+      setAskHint("Try naming one of your to-dos, e.g. “month close” or “chargebacks”.");
+    }
+  }, [ask, data, openTodo]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -141,10 +188,7 @@ export default function InternalToday() {
     }).catch(() => { /* optimistic; queue re-surfaces tomorrow anyway */ });
   }, []);
 
-  const openItem = (it: { panel?: string | null; href?: string }) => {
-    if (it.panel) goToPanel(it.panel);
-    else if (it.href) window.location.href = it.href;
-  };
+  const openItem = openTodo;
 
   const name = data?.greeting?.name || getCachedAuthUserName() || "";
   const firstName = name.split(/[\s@.]/)[0] || "";
@@ -190,7 +234,8 @@ export default function InternalToday() {
               onChange={(e) => setAsk(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") submitAsk(); }}
               onFocus={(e) => e.currentTarget.select()}
-              placeholder="What do you want to work on? Ask your assistant…"
+              placeholder="What do you want to work on?"
+              title="Type where you want to go — e.g. “month close”, “pos flagged here”, “chargebacks”"
               style={{
                 flex: 1, background: "#0b1220", border: `1px solid ${C.cardBdr}`, color: C.text,
                 borderRadius: 8, padding: "8px 12px", fontSize: 13.5, outline: "none",
@@ -206,9 +251,29 @@ export default function InternalToday() {
                 borderRadius: 8, padding: "8px 14px", cursor: ask.trim() ? "pointer" : "default", fontSize: 13.5,
               }}
             >
-              Ask
+              Go
             </button>
           </div>
+          {askAlts && askAlts.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, maxWidth: 560, alignItems: "center" }}>
+              <span style={{ fontSize: 12.5, color: C.textMuted }}>Did you mean:</span>
+              {askAlts.map((alt, i) => (
+                <button
+                  key={`${alt.kind}-${alt.todo?.key || alt.module?.key || alt.suggestion?.key || i}`}
+                  onClick={() => followAlt(alt)}
+                  style={{
+                    background: "transparent", border: `1px solid ${C.primary}`, color: C.primary,
+                    borderRadius: 999, padding: "4px 12px", cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+                  }}
+                >
+                  {alt.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {askHint && (
+            <div style={{ fontSize: 12.5, color: C.textMuted, marginTop: 8, maxWidth: 560 }}>{askHint}</div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {prefStatus === "ready" && !isHome && (
