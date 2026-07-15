@@ -221,4 +221,19 @@ Companion to §22.12 — the same audit's remaining P0s. **Error tracking** (`ap
 
 ---
 
-Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.
+## 22.14 SO status stays current — terminal-status mirror walk (2026-07-14)
+
+**Symptom:** `ROF-S031893` (Burlington Coat Factory) shipped + closed in Xoro on 07/06 but still showed **Confirmed** in Tangerine's Sales Orders list. It was not alone — ~1,247 sales orders were stuck at Confirmed after they had actually shipped/closed.
+
+**Root cause:** the SO mirror chain is `Xoro → rest_sales_orders_sync.py → /api/tanda/upload-sos → tanda_sos → import-xoro-orders.mjs --sos-native → sales_orders`. The nightly walk only fetched the **active** statuses (`Released`, `Partially Shipped`) — deliberately, because terminals aren't *supply*. But once an order ships, Xoro flips it `Released → Shipped/Closed` and it **drops out of the active walk**. Nothing ever fetched the terminal buckets, so the mirror's last-seen `Released` row was never overwritten, and the native import kept mapping it to `confirmed` forever. Correct when the mirror only fed ATS supply; wrong once it also drove SO **status**.
+
+**Fix:** `rest_sales_orders_sync.py` now also runs a **terminal-status mirror walk** (`Shipped`, `Invoiced`, `Closed`, `Cancelled`) whose records feed **only** the `tanda_sos` push — never the ATS supply CSV. It is:
+- **tail-first + date-windowed** — a recently-terminal order has a recent ship/cancel date, so a bounded recent-tail walk catches the flips without re-pulling years of closed history (`--terminal-lookback-days`, default 120; `--terminal-max-pages`, default 150 per bucket);
+- **on by default** in the nightly (disable with `--no-mirror-terminal`);
+- **separable** — `--skip-ats-upload` refreshes the mirror without touching supply (used for the one-time backlog catch-up).
+
+Once the mirror carries the true status, `import-xoro-orders.mjs --sos-native` maps it through `mapSoStatus` (`Shipped→shipped`, `Closed→closed`, `Cancelled→cancelled`, `Invoiced→invoiced`) and the SO list reflects reality. **Xoro remains system-of-record; the mirror still never writes back.** (One-time 2026-07-14 backlog catch-up moved ~1,190 orders out of Confirmed and imported 4,790 terminal SOs not previously mirrored.)
+
+---
+
+Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops), chapter 27 (Sales Orders). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.
