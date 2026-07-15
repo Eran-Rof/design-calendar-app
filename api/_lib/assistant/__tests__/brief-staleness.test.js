@@ -210,38 +210,39 @@ describe("briefNeedsRefresh", () => {
     partial: false,
   };
   const now = new Date("2026-07-15T17:00:00Z");
-  const fresh = "2026-07-15T16:30:00Z";  // 30 min old
-  const old = "2026-07-15T14:45:00Z";    // 135 min old
+  const fresh = "2026-07-15T16:59:40Z";  // 20s old (inside the 45s window)
+  const old = "2026-07-15T16:58:00Z";    // 120s old (past the window)
+  const WINDOW = 45;                      // seconds
 
   it("regenerates when the to-do SET changed (item completed)", () => {
     const live = { ...base, todos: [{ key: "a", count: 10 }] };  // 'b' cleared
-    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(true);
+    expect(briefNeedsRefresh(base, live, fresh, WINDOW, now)).toBe(true);
   });
 
-  it("regenerates when the brief is older than the stale window even if the set is unchanged", () => {
-    // Same keys, only counts drifted — the exact bug the operator hit.
+  it("regenerates once the brief is older than the debounce window even if the set is unchanged", () => {
+    // Same keys, only counts drifted — real-time refresh picks it up.
     const live = { ...base, todos: [{ key: "a", count: 8 }, { key: "b", count: 3 }] };
-    expect(briefNeedsRefresh(base, live, old, 60, now)).toBe(true);
+    expect(briefNeedsRefresh(base, live, old, WINDOW, now)).toBe(true);
   });
 
-  it("does NOT regenerate a fresh brief whose set is unchanged (count drift within the window)", () => {
+  it("does NOT regenerate inside the debounce window on a rapid re-load (count drift, same set)", () => {
     const live = { ...base, todos: [{ key: "a", count: 8 }, { key: "b", count: 3 }] };
-    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(false);
+    expect(briefNeedsRefresh(base, live, fresh, WINDOW, now)).toBe(false);
   });
 
   it("regenerates when the partial flag flips (stale 'counts may be incomplete' caveat)", () => {
     const cachedPartial = { ...base, partial: true };
     const liveComplete = { ...base, partial: false };
-    expect(briefNeedsRefresh(cachedPartial, liveComplete, fresh, 60, now)).toBe(true);
+    expect(briefNeedsRefresh(cachedPartial, liveComplete, fresh, WINDOW, now)).toBe(true);
   });
 
   it("regenerates on a process state flip", () => {
     const live = { ...base, processes: [{ key: "p1", state: "error" }] };
-    expect(briefNeedsRefresh(base, live, fresh, 60, now)).toBe(true);
+    expect(briefNeedsRefresh(base, live, fresh, WINDOW, now)).toBe(true);
   });
 
   it("tolerates a missing/garbage created_at (no age-based regen, no throw)", () => {
-    expect(briefNeedsRefresh(base, base, null, 60, now)).toBe(false);
-    expect(briefNeedsRefresh(base, base, "not-a-date", 60, now)).toBe(false);
+    expect(briefNeedsRefresh(base, base, null, WINDOW, now)).toBe(false);
+    expect(briefNeedsRefresh(base, base, "not-a-date", WINDOW, now)).toBe(false);
   });
 });
