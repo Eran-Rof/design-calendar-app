@@ -54,6 +54,7 @@ export type StmtLine = {
   byMonth?: Record<string, number>; // cents (already sign-applied)
   total?: number;                   // cents (already sign-applied)
   pyTotal?: number;                 // cents (already sign-applied) — prior-year Total
+  budgetTotal?: number;             // cents (already sign-applied) — budget Total
   hasValues?: boolean;              // whether to render the amount columns
 };
 
@@ -71,6 +72,8 @@ export type StatementModel = {
   netSalesBase: number; // cents — denominator for % of Net Sales
   comparePY?: boolean;  // append prior-year Total + Change columns
   pyLabel?: string;     // header label for the PY Total column
+  compareBudget?: boolean; // append Budget + Variance columns
+  budgetLabel?: string;    // header label for the Budget column
   lines: StmtLine[];
 };
 
@@ -90,7 +93,7 @@ function pctStr(totalCents: number | undefined | null, baseCents: number): strin
 // Number of leading label columns (Code + Account, or just Account).
 function leadCols(m: StatementModel): number { return m.hideAccountNum ? 1 : 2; }
 function colCount(m: StatementModel): number {
-  return leadCols(m) + m.months.length + 1 /* Total */ + (m.comparePY ? 2 : 0) + (m.showPct ? 1 : 0);
+  return leadCols(m) + m.months.length + 1 /* Total */ + (m.comparePY ? 2 : 0) + (m.compareBudget ? 2 : 0) + (m.showPct ? 1 : 0);
 }
 
 // ── xlsx-js-style cell style factories (consumed by renderStyledAoa) ─────────
@@ -158,6 +161,7 @@ export function buildIncomeStatementWorkbook(m: StatementModel) {
   for (const mc of m.months) hdr.push({ v: mc.label, s: hstyle("right") });
   hdr.push({ v: m.months.length ? "Total" : "Amount", s: hstyle("right") });
   if (m.comparePY) { hdr.push({ v: m.pyLabel || "Prior Year", s: hstyle("right") }); hdr.push({ v: "Change", s: hstyle("right") }); }
+  if (m.compareBudget) { hdr.push({ v: m.budgetLabel || "Budget", s: hstyle("right") }); hdr.push({ v: "Variance", s: hstyle("right") }); }
   if (m.showPct) hdr.push({ v: "% of Net Sales", s: hstyle("right") });
   aoa.push(hdr);
 
@@ -189,6 +193,10 @@ export function buildIncomeStatementWorkbook(m: StatementModel) {
       row.push(moneyCell(line.pyTotal, { ...cellBase, font: font({ bold: spec.bold, sz: 10, color: MUTED_TEXT }) }, has));
       row.push(moneyCell((Number(line.total) || 0) - (Number(line.pyTotal) || 0), valFont, has));
     }
+    if (m.compareBudget) {
+      row.push(moneyCell(line.budgetTotal, { ...cellBase, font: font({ bold: spec.bold, sz: 10, color: MUTED_TEXT }) }, has));
+      row.push(moneyCell((Number(line.total) || 0) - (Number(line.budgetTotal) || 0), valFont, has));
+    }
     if (m.showPct) row.push(pctCell(line.total, m.netSalesBase, { ...cellBase, font: font({ bold: spec.bold, sz: 9, color: MUTED_TEXT }) }, has));
     aoa.push(row);
   }
@@ -200,6 +208,7 @@ export function buildIncomeStatementWorkbook(m: StatementModel) {
   for (let i = 0; i < m.months.length; i++) widths.push(15);
   widths.push(16);
   if (m.comparePY) { widths.push(16); widths.push(15); }
+  if (m.compareBudget) { widths.push(16); widths.push(15); }
   if (m.showPct) widths.push(13);
 
   renderStyledAoa(wb, m.reportTitle.slice(0, 28) || "Income Statement", aoa, {
@@ -223,13 +232,14 @@ function escapeHtml(s: string): string {
 }
 
 export function buildIncomeStatementHtml(m: StatementModel): string {
-  const moneyCols = m.months.length + 1 + (m.comparePY ? 2 : 0) + (m.showPct ? 1 : 0);
+  const moneyCols = m.months.length + 1 + (m.comparePY ? 2 : 0) + (m.compareBudget ? 2 : 0) + (m.showPct ? 1 : 0);
   const colGroup =
     (m.hideAccountNum ? "" : `<col style="width:70px" />`) +
     `<col />` +
     m.months.map(() => `<col style="width:96px" />`).join("") +
     `<col style="width:104px" />` +
     (m.comparePY ? `<col style="width:104px" /><col style="width:96px" />` : "") +
+    (m.compareBudget ? `<col style="width:104px" /><col style="width:96px" />` : "") +
     (m.showPct ? `<col style="width:80px" />` : "");
 
   const headTh =
@@ -238,6 +248,7 @@ export function buildIncomeStatementHtml(m: StatementModel): string {
     m.months.map((mc) => `<th class="rc">${escapeHtml(mc.label)}</th>`).join("") +
     `<th class="rc">${m.months.length ? "Total" : "Amount"}</th>` +
     (m.comparePY ? `<th class="rc">${escapeHtml(m.pyLabel || "Prior Year")}</th><th class="rc">Change</th>` : "") +
+    (m.compareBudget ? `<th class="rc">${escapeHtml(m.budgetLabel || "Budget")}</th><th class="rc">Variance</th>` : "") +
     (m.showPct ? `<th class="rc">% of Net Sales</th>` : "");
 
   const bodyRows = m.lines.map((line) => {
@@ -263,8 +274,13 @@ export function buildIncomeStatementHtml(m: StatementModel): string {
           ? `<td class="num pct">${moneyStr(line.pyTotal)}</td><td class="num">${moneyStr((Number(line.total) || 0) - (Number(line.pyTotal) || 0))}</td>`
           : `<td></td><td></td>`)
       : "";
+    const budgetCells = m.compareBudget
+      ? (has
+          ? `<td class="num pct">${moneyStr(line.budgetTotal)}</td><td class="num">${moneyStr((Number(line.total) || 0) - (Number(line.budgetTotal) || 0))}</td>`
+          : `<td></td><td></td>`)
+      : "";
     const pctCell = m.showPct ? (has ? `<td class="num pct">${pctStr(line.total, m.netSalesBase)}</td>` : `<td></td>`) : "";
-    return `<tr class="${cls}">${codeCell}${nameCell}${moneyCells}${pyCells}${pctCell}</tr>`;
+    return `<tr class="${cls}">${codeCell}${nameCell}${moneyCells}${pyCells}${budgetCells}${pctCell}</tr>`;
   }).join("");
 
   return `<!DOCTYPE html>

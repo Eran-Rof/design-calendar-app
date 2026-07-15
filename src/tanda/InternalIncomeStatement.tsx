@@ -45,6 +45,7 @@
 // useSeqGuard, click-through to GL detail, ExportButton (xlsx). Dark theme.
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { variancePct as budgetVariancePct } from "../lib/budget";
 import { useSeqGuard } from "./hooks/useSeqGuard";
 import IncomeStatementExportButton from "./exports/IncomeStatementExportButton";
 import type { StatementModel, StmtLine } from "./exports/incomeStatementExport";
@@ -152,6 +153,12 @@ export function classifyBand(accountType: string, code: string, name: string): B
   return "opex";
 }
 
+// Budget favorability by band: income-like bands are favorable when actual is
+// ABOVE budget; cost/deduction bands are favorable when actual is BELOW budget.
+const BAND_FAV_POSITIVE: Record<BandId, boolean> = {
+  revenue: true, contra: false, cogs: false, opex: false, other_inc: true, other_exp: false,
+};
+
 // ── Enumerate the inclusive list of months spanning [from, to] ────────────────
 export function monthsInRange(from: string, to: string): MonthCol[] {
   const [fy, fm] = from.split("-").map(Number);
@@ -236,6 +243,9 @@ export default function InternalIncomeStatement() {
   const [rows, setRows] = useState<MRow[]>([]);
   const [pyRows, setPyRows] = useState<MRow[]>([]);
   const [comparePY, setComparePY] = useState(true);
+  const [compareBudget, setCompareBudget] = useState(false);
+  const [budgetScenario, setBudgetScenario] = useState("default");
+  const [budgetByCodeRaw, setBudgetByCodeRaw] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [basis, setBasis] = useState<"ACCRUAL" | "CASH">("ACCRUAL");
@@ -260,18 +270,35 @@ export default function InternalIncomeStatement() {
     return ((await r.json()).rows || []) as MRow[];
   }
 
+  // Budget totals per account code over the current window (Total column only).
+  async function fetchBudget(f: string, t: string): Promise<Record<string, number>> {
+    const params = new URLSearchParams();
+    if (f) params.set("from", f);
+    if (t) params.set("to", t);
+    params.set("scenario", budgetScenario);
+    const r = await fetch(`/api/internal/budget-range?${params.toString()}`);
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    const out: Record<string, number> = {};
+    for (const row of ((await r.json()).rows || []) as Array<{ code: string; budget_cents: number }>) {
+      out[row.code] = (out[row.code] || 0) + Number(row.budget_cents || 0);
+    }
+    return out;
+  }
+
   async function load() {
     const seq = seqGuard.begin();
     setLoading(true);
     setErr(null);
     try {
-      // Current + prior-year (same window shifted −1 year) fetched and applied
-      // together under one seq — comparative fetches must be guarded as a unit.
+      // Current + prior-year + budget fetched and applied together under one seq
+      // — comparative + budget fetches must be guarded as a unit.
       const cur = await fetchRange(from, to);
       const py = comparePY ? await fetchRange(priorYearISO(from), priorYearISO(to)) : [];
+      const bud = compareBudget ? await fetchBudget(from, to) : {};
       if (!seqGuard.isCurrent(seq)) return;
       setRows(cur);
       setPyRows(py);
+      setBudgetByCodeRaw(bud);
     } catch (e: unknown) {
       if (seqGuard.isCurrent(seq)) setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -281,7 +308,7 @@ export default function InternalIncomeStatement() {
 
   // Refetch on basis / date-window / compare change (seq-guard drops stale responses).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, [basis, from, to, comparePY]);
+  useEffect(() => { void load(); }, [basis, from, to, comparePY, compareBudget, budgetScenario]);
 
   const accts = useMemo(() => aggregate(rows), [rows]);
   const allMonths = useMemo(() => monthsInRange(from, to), [from, to]);
@@ -336,6 +363,23 @@ export default function InternalIncomeStatement() {
     return { ...b, netSales, grossProfit, noi, otherNet, netIncome };
   }, [pyAccts]);
   const pyRangeLabel = `${priorYearISO(from)} → ${priorYearISO(to)}`;
+
+  // ── Budget comparative (Total column only, same shape as PY) ─────────────────
+  const budgetByCode = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [code, cents] of Object.entries(budgetByCodeRaw)) m.set(code, cents);
+    return m;
+  }, [budgetByCodeRaw]);
+  const budgetBands = useMemo(() => {
+    const b: Record<BandId, number> = { revenue: 0, contra: 0, cogs: 0, opex: 0, other_inc: 0, other_exp: 0 };
+    for (const a of accts) b[a.band] += budgetByCode.get(a.code) || 0;
+    const netSales = b.revenue - b.contra;
+    const grossProfit = netSales - b.cogs;
+    const noi = grossProfit - b.opex;
+    const otherNet = b.other_inc - b.other_exp;
+    const netIncome = noi + otherNet;
+    return { ...b, netSales, grossProfit, noi, otherNet, netIncome };
+  }, [accts, budgetByCode]);
 
   const nsBase = totals.netSales.total || 0;
   const leadCols = hideAccountNum ? 1 : 2; // (code?) + account
@@ -398,18 +442,52 @@ export default function InternalIncomeStatement() {
     );
   };
 
-  // A data row's value cells: each month + Total [+ PY + Change] + optional %.
-  // `sign` flips the display (e.g. other-expense shown as a reduction); PY gets
-  // the same sign. PY attaches to the Total column only.
-  const valueCells = (byMonth: Record<string, number>, total: number, opts: { bold?: boolean; color?: string; sign?: number; pyTotal?: number } = {}) => {
+  // Budget Total cell (muted) + a favorability-aware Variance cell (Amount −
+  // Budget, with %), appended after the Total/PY columns when comparing budget.
+  // Budget/Variance attach to the Total column ONLY (never per-month) so the
+  // grid stays readable alongside the monthly + prior-year columns.
+  const cellBudget = (v: number, opts: { bold?: boolean } = {}) => (
+    <td style={{
+      padding: "6px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+      fontSize: 12.5, color: C.textMuted, whiteSpace: "nowrap", fontWeight: opts.bold ? 700 : 400,
+      borderBottom: "1px solid #1f2a3d",
+    }}>
+      {fmtCents(v)}
+    </td>
+  );
+  const cellVariance = (actualDisp: number, budgetDisp: number, natVar: number, favPos: boolean, budgetTotal: number, opts: { bold?: boolean } = {}) => {
+    const d = actualDisp - budgetDisp;
+    const favorable = favPos ? natVar >= 0 : natVar <= 0;
+    const pct = budgetVariancePct(budgetTotal + natVar, budgetTotal);
+    return (
+      <td style={{
+        padding: "6px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums",
+        fontSize: 12, whiteSpace: "nowrap", fontWeight: opts.bold ? 700 : 400,
+        color: budgetTotal === 0 ? C.textMuted : favorable ? C.success : C.danger, borderBottom: "1px solid #1f2a3d",
+      }}>
+        {fmtCents(d)}<span style={{ color: C.textMuted, fontSize: 10.5, marginLeft: 5 }}>{pct == null ? "" : `${pct.toFixed(1)}%`}</span>
+      </td>
+    );
+  };
+
+  // A data row's value cells: each month + Total [+ PY + Change] [+ Budget +
+  // Variance] + optional %. `sign` flips the display (e.g. other-expense shown as
+  // a reduction); PY/Budget get the same sign. Favorability is computed on the
+  // NATURAL (pre-sign) actual − budget so over-revenue reads favorable and
+  // over-expense reads unfavorable regardless of display sign.
+  const valueCells = (byMonth: Record<string, number>, total: number, opts: { bold?: boolean; color?: string; sign?: number; pyTotal?: number; budgetTotal?: number; favPos?: boolean } = {}) => {
     const sign = opts.sign ?? 1;
     const py = sign * (opts.pyTotal || 0);
+    const budgetTotal = opts.budgetTotal || 0;
+    const natVar = total - budgetTotal;
     return (
       <>
         {months.map((mc) => <Fragment key={mc.key}>{cellNum(sign * (byMonth[mc.key] || 0), { bold: opts.bold, color: opts.color, zeroMuted: true })}</Fragment>)}
         {cellNum(sign * total, { bold: opts.bold, color: opts.color })}
         {comparePY && cellPY(py, { bold: opts.bold })}
         {comparePY && cellChange(sign * total, py, { bold: opts.bold })}
+        {compareBudget && cellBudget(sign * budgetTotal, { bold: opts.bold })}
+        {compareBudget && cellVariance(sign * total, sign * budgetTotal, natVar, opts.favPos ?? true, budgetTotal, { bold: opts.bold })}
         {cellPct(sign * total, { bold: opts.bold })}
       </>
     );
@@ -437,13 +515,13 @@ export default function InternalIncomeStatement() {
         <td style={{ ...cellName(indent), color: drillable ? C.primary : C.textSub }}>
           {a.name}
         </td>
-        {valueCells(a.byMonth, a.total, { sign, pyTotal: pyByCode.get(a.code) || 0 })}
+        {valueCells(a.byMonth, a.total, { sign, pyTotal: pyByCode.get(a.code) || 0, budgetTotal: budgetByCode.get(a.code) || 0, favPos: BAND_FAV_POSITIVE[a.band] })}
       </tr>
     );
   }
 
   // ── Section (Revenue / Deductions / COGS / OpEx / Other) ─────────────────────
-  function renderSection(id: string, title: string, accounts: Acct[], sectionTotal: Totalset, pyBandTotal: number, sign = 1) {
+  function renderSection(id: string, title: string, accounts: Acct[], sectionTotal: Totalset, pyBandTotal: number, budgetBandTotal: number, favPos: boolean, sign = 1) {
     const collapsed = collapsedSections.has(id);
     const items = buildItems(accounts);
     const acctCount = accounts.length;
@@ -458,13 +536,14 @@ export default function InternalIncomeStatement() {
               ({acctCount} {acctCount === 1 ? "account" : "accounts"})
             </span>
           </td>
-          {valueCells(sectionTotal.byMonth, sectionTotal.total, { bold: true, color: C.textSub, sign, pyTotal: pyBandTotal })}
+          {valueCells(sectionTotal.byMonth, sectionTotal.total, { bold: true, color: C.textSub, sign, pyTotal: pyBandTotal, budgetTotal: budgetBandTotal, favPos })}
         </tr>
         {!collapsed && items.map((it) => {
           if (it.kind === "acct") return renderAcctRow(it.acct, false, sign);
           const gid = `${id}:${it.parentCode}`;
           const gCollapsed = collapsedGroups.has(gid);
           const gPyTotal = it.children.reduce((s, c) => s + (pyByCode.get(c.code) || 0), 0);
+          const gBudgetTotal = it.children.reduce((s, c) => s + (budgetByCode.get(c.code) || 0), 0);
           return (
             <Fragment key={gid}>
               <tr onClick={() => toggleGroup(gid)} style={{ cursor: "pointer" }}>
@@ -473,7 +552,7 @@ export default function InternalIncomeStatement() {
                   <span style={{ marginRight: 6, color: C.textMuted, fontSize: 10 }}>{gCollapsed ? "▶" : "▼"}</span>
                   {it.parentName}
                 </td>
-                {valueCells(it.byMonth, it.total, { color: C.textSub, sign, pyTotal: gPyTotal })}
+                {valueCells(it.byMonth, it.total, { color: C.textSub, sign, pyTotal: gPyTotal, budgetTotal: gBudgetTotal, favPos })}
               </tr>
               {!gCollapsed && it.children.map((c) => renderAcctRow(c, true, sign))}
               {!gCollapsed && (
@@ -482,7 +561,7 @@ export default function InternalIncomeStatement() {
                   <td style={{ ...cellName(true), fontStyle: "italic", color: C.textMuted, textAlign: "right" }}>
                     Subtotal — {it.parentName}
                   </td>
-                  {valueCells(it.byMonth, it.total, { bold: true, color: C.textSub, sign, pyTotal: gPyTotal })}
+                  {valueCells(it.byMonth, it.total, { bold: true, color: C.textSub, sign, pyTotal: gPyTotal, budgetTotal: gBudgetTotal, favPos })}
                 </tr>
               )}
             </Fragment>
@@ -493,11 +572,13 @@ export default function InternalIncomeStatement() {
   }
 
   // ── Band subtotal row (Net Sales, Gross Profit, NOI, Net Income) ─────────────
-  function bandRow(label: string, t: Totalset, pyTotal: number, opts: { strong?: boolean; positiveColor?: boolean } = {}) {
+  function bandRow(label: string, t: Totalset, pyTotal: number, budgetTotal: number, opts: { strong?: boolean; positiveColor?: boolean } = {}) {
     const color = opts.positiveColor ? (t.total >= 0 ? C.success : C.danger) : C.text;
     const bg = opts.strong ? "#132132" : C.band;
     const cell: React.CSSProperties = { padding: "10px 10px", textAlign: "right", fontVariantNumeric: "tabular-nums", background: bg, borderTop: `2px solid ${C.cardBdr}`, fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap" };
     const d = t.total - pyTotal;
+    const bVar = t.total - budgetTotal; // income-like bands: favorable when positive
+    const bPct = budgetVariancePct(t.total, budgetTotal);
     return (
       <tr>
         <td colSpan={leadCols} style={{ padding: "10px 10px", background: bg, borderTop: `2px solid ${C.cardBdr}`, fontWeight: 800, fontSize: opts.strong ? 14 : 13, letterSpacing: 0.3 }}>
@@ -511,6 +592,8 @@ export default function InternalIncomeStatement() {
         <td style={{ ...cell, fontSize: opts.strong ? 14 : 13, color }}>{fmtCents(t.total)}</td>
         {comparePY && <td style={{ ...cell, color: C.textMuted }}>{fmtCents(pyTotal)}</td>}
         {comparePY && <td style={{ ...cell, color: d < 0 ? C.danger : C.success }}>{fmtCents(d)}<span style={{ color: C.textMuted, fontSize: 10.5, marginLeft: 5 }}>{pctChange(t.total, pyTotal)}</span></td>}
+        {compareBudget && <td style={{ ...cell, color: C.textMuted }}>{fmtCents(budgetTotal)}</td>}
+        {compareBudget && <td style={{ ...cell, color: budgetTotal === 0 ? C.textMuted : bVar >= 0 ? C.success : C.danger }}>{fmtCents(bVar)}<span style={{ color: C.textMuted, fontSize: 10.5, marginLeft: 5 }}>{bPct == null ? "" : `${bPct.toFixed(1)}%`}</span></td>}
         {showPct && <td style={{ ...cell, fontSize: 11.5, fontWeight: 700, color: C.textMuted }}>{fmtPct(t.total, nsBase)}</td>}
       </tr>
     );
@@ -528,34 +611,36 @@ export default function InternalIncomeStatement() {
       return out;
     };
     const py = (code: string) => pyByCode.get(code) || 0;
-    const pushSection = (title: string, accounts: Acct[], sectionTotal: Totalset, pyBandTotal: number, sign = 1, spacerBefore = true) => {
+    const bud = (code: string) => budgetByCode.get(code) || 0;
+    const pushSection = (title: string, accounts: Acct[], sectionTotal: Totalset, pyBandTotal: number, budgetBandTotal: number, sign = 1, spacerBefore = true) => {
       if (spacerBefore) lines.push({ kind: "spacer", label: "" });
       lines.push({ kind: "section", label: title, indent: 0, hasValues: false });
       for (const it of buildItems(accounts)) {
         if (it.kind === "acct") {
-          lines.push({ kind: "account", code: it.acct.code, label: it.acct.name, indent: 1, byMonth: scale(it.acct.byMonth, sign), total: sign * it.acct.total, pyTotal: sign * py(it.acct.code) });
+          lines.push({ kind: "account", code: it.acct.code, label: it.acct.name, indent: 1, byMonth: scale(it.acct.byMonth, sign), total: sign * it.acct.total, pyTotal: sign * py(it.acct.code), budgetTotal: sign * bud(it.acct.code) });
           continue;
         }
         const gPy = it.children.reduce((s, c) => s + py(c.code), 0);
-        lines.push({ kind: "group", code: it.parentCode, label: it.parentName, indent: 1, byMonth: scale(it.byMonth, sign), total: sign * it.total, pyTotal: sign * gPy });
-        for (const c of it.children) lines.push({ kind: "account", code: c.code, label: c.name, indent: 2, byMonth: scale(c.byMonth, sign), total: sign * c.total, pyTotal: sign * py(c.code) });
-        lines.push({ kind: "subtotal", label: `Subtotal — ${it.parentName}`, indent: 2, byMonth: scale(it.byMonth, sign), total: sign * it.total, pyTotal: sign * gPy });
+        const gBud = it.children.reduce((s, c) => s + bud(c.code), 0);
+        lines.push({ kind: "group", code: it.parentCode, label: it.parentName, indent: 1, byMonth: scale(it.byMonth, sign), total: sign * it.total, pyTotal: sign * gPy, budgetTotal: sign * gBud });
+        for (const c of it.children) lines.push({ kind: "account", code: c.code, label: c.name, indent: 2, byMonth: scale(c.byMonth, sign), total: sign * c.total, pyTotal: sign * py(c.code), budgetTotal: sign * bud(c.code) });
+        lines.push({ kind: "subtotal", label: `Subtotal — ${it.parentName}`, indent: 2, byMonth: scale(it.byMonth, sign), total: sign * it.total, pyTotal: sign * gPy, budgetTotal: sign * gBud });
       }
-      lines.push({ kind: "subtotal", label: `Total ${title}`, indent: 0, byMonth: scale(sectionTotal.byMonth, sign), total: sign * sectionTotal.total, pyTotal: sign * pyBandTotal });
+      lines.push({ kind: "subtotal", label: `Total ${title}`, indent: 0, byMonth: scale(sectionTotal.byMonth, sign), total: sign * sectionTotal.total, pyTotal: sign * pyBandTotal, budgetTotal: sign * budgetBandTotal });
     };
-    const band = (label: string, t: Totalset, pyTotal: number, strong = false) =>
-      lines.push({ kind: strong ? "band_strong" : "band", label, indent: 0, byMonth: t.byMonth, total: t.total, pyTotal });
+    const band = (label: string, t: Totalset, pyTotal: number, budgetTotal: number, strong = false) =>
+      lines.push({ kind: strong ? "band_strong" : "band", label, indent: 0, byMonth: t.byMonth, total: t.total, pyTotal, budgetTotal });
 
-    pushSection("Revenue", byBand.revenue, totals.revenue, pyBands.revenue, 1, false);
-    if (byBand.contra.length) pushSection("Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra, pyBands.contra);
-    band("NET SALES", totals.netSales, pyBands.netSales, true);
-    pushSection("Cost of Goods Sold", byBand.cogs, totals.cogs, pyBands.cogs);
-    band("GROSS PROFIT", totals.grossProfit, pyBands.grossProfit);
-    pushSection("Operating Expenses", byBand.opex, totals.opex, pyBands.opex);
-    band("NET OPERATING INCOME", totals.noi, pyBands.noi);
-    if (byBand.other_inc.length) pushSection("Other Income", byBand.other_inc, totals.otherInc, pyBands.other_inc);
-    if (byBand.other_exp.length) pushSection("Other Expense", byBand.other_exp, totals.otherExp, pyBands.other_exp, -1);
-    band("NET INCOME", totals.netIncome, pyBands.netIncome, true);
+    pushSection("Revenue", byBand.revenue, totals.revenue, pyBands.revenue, budgetBands.revenue, 1, false);
+    if (byBand.contra.length) pushSection("Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra, pyBands.contra, budgetBands.contra);
+    band("NET SALES", totals.netSales, pyBands.netSales, budgetBands.netSales, true);
+    pushSection("Cost of Goods Sold", byBand.cogs, totals.cogs, pyBands.cogs, budgetBands.cogs);
+    band("GROSS PROFIT", totals.grossProfit, pyBands.grossProfit, budgetBands.grossProfit);
+    pushSection("Operating Expenses", byBand.opex, totals.opex, pyBands.opex, budgetBands.opex);
+    band("NET OPERATING INCOME", totals.noi, pyBands.noi, budgetBands.noi);
+    if (byBand.other_inc.length) pushSection("Other Income", byBand.other_inc, totals.otherInc, pyBands.other_inc, budgetBands.other_inc);
+    if (byBand.other_exp.length) pushSection("Other Expense", byBand.other_exp, totals.otherExp, pyBands.other_exp, budgetBands.other_exp, -1);
+    band("NET INCOME", totals.netIncome, pyBands.netIncome, budgetBands.netIncome, true);
 
     return {
       company: "Ring of Fire",
@@ -569,6 +654,8 @@ export default function InternalIncomeStatement() {
       netSalesBase: nsBase,
       comparePY,
       pyLabel: `PY (${fmtLongDate(priorYearISO(from))} – ${fmtLongDate(priorYearISO(to))})`,
+      compareBudget,
+      budgetLabel: `Budget (${budgetScenario})`,
       lines,
     };
   }
@@ -611,6 +698,14 @@ export default function InternalIncomeStatement() {
           <input type="checkbox" checked={comparePY} onChange={(e) => setComparePY(e.target.checked)} /> Compare prior year
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
+          <input type="checkbox" checked={compareBudget} onChange={(e) => setCompareBudget(e.target.checked)} /> Compare budget
+        </label>
+        {compareBudget && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub }}>
+            Scenario:<input value={budgetScenario} onChange={(e) => setBudgetScenario(e.target.value.trim() || "default")} style={{ ...inputStyle, width: 110 }} />
+          </label>
+        )}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
           <input type="checkbox" checked={showPct} onChange={(e) => setShowPct(e.target.checked)} /> % of Net Sales
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSub, cursor: "pointer" }}>
@@ -645,20 +740,22 @@ export default function InternalIncomeStatement() {
                 <th style={{ ...thBase, textAlign: "right" }}>{months.length ? "Total" : "Amount"}</th>
                 {comparePY && <th style={{ ...thBase, textAlign: "right" }} title={`Prior year: ${pyRangeLabel}`}>PY Total</th>}
                 {comparePY && <th style={{ ...thBase, textAlign: "right" }}>Change</th>}
+                {compareBudget && <th style={{ ...thBase, textAlign: "right" }} title={`Budget scenario: ${budgetScenario}`}>Budget</th>}
+                {compareBudget && <th style={{ ...thBase, textAlign: "right" }}>Variance</th>}
                 {showPct && <th style={{ ...thBase, textAlign: "right" }}>% NS</th>}
               </tr>
             </thead>
             <tbody>
-              {renderSection("revenue", "Revenue", byBand.revenue, totals.revenue, pyBands.revenue)}
-              {byBand.contra.length > 0 && renderSection("contra", "Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra, pyBands.contra)}
-              {bandRow("NET SALES", totals.netSales, pyBands.netSales, { strong: true })}
-              {renderSection("cogs", "Cost of Goods Sold", byBand.cogs, totals.cogs, pyBands.cogs)}
-              {bandRow("GROSS PROFIT", totals.grossProfit, pyBands.grossProfit, { positiveColor: true })}
-              {renderSection("opex", "Operating Expenses", byBand.opex, totals.opex, pyBands.opex)}
-              {bandRow("NET OPERATING INCOME", totals.noi, pyBands.noi, { positiveColor: true })}
-              {byBand.other_inc.length > 0 && renderSection("other_inc", "Other Income", byBand.other_inc, totals.otherInc, pyBands.other_inc)}
-              {byBand.other_exp.length > 0 && renderSection("other_exp", "Other Expense", byBand.other_exp, totals.otherExp, pyBands.other_exp, -1)}
-              {bandRow("NET INCOME", totals.netIncome, pyBands.netIncome, { strong: true, positiveColor: true })}
+              {renderSection("revenue", "Revenue", byBand.revenue, totals.revenue, pyBands.revenue, budgetBands.revenue, BAND_FAV_POSITIVE.revenue)}
+              {byBand.contra.length > 0 && renderSection("contra", "Less: Returns, Discounts & Chargebacks", byBand.contra, totals.contra, pyBands.contra, budgetBands.contra, BAND_FAV_POSITIVE.contra)}
+              {bandRow("NET SALES", totals.netSales, pyBands.netSales, budgetBands.netSales, { strong: true })}
+              {renderSection("cogs", "Cost of Goods Sold", byBand.cogs, totals.cogs, pyBands.cogs, budgetBands.cogs, BAND_FAV_POSITIVE.cogs)}
+              {bandRow("GROSS PROFIT", totals.grossProfit, pyBands.grossProfit, budgetBands.grossProfit, { positiveColor: true })}
+              {renderSection("opex", "Operating Expenses", byBand.opex, totals.opex, pyBands.opex, budgetBands.opex, BAND_FAV_POSITIVE.opex)}
+              {bandRow("NET OPERATING INCOME", totals.noi, pyBands.noi, budgetBands.noi, { positiveColor: true })}
+              {byBand.other_inc.length > 0 && renderSection("other_inc", "Other Income", byBand.other_inc, totals.otherInc, pyBands.other_inc, budgetBands.other_inc, BAND_FAV_POSITIVE.other_inc)}
+              {byBand.other_exp.length > 0 && renderSection("other_exp", "Other Expense", byBand.other_exp, totals.otherExp, pyBands.other_exp, budgetBands.other_exp, BAND_FAV_POSITIVE.other_exp, -1)}
+              {bandRow("NET INCOME", totals.netIncome, pyBands.netIncome, budgetBands.netIncome, { strong: true, positiveColor: true })}
             </tbody>
           </table>
         </div>

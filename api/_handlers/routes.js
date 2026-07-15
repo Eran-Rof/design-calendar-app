@@ -164,6 +164,7 @@ import r_internal_bank_transactions_index from "./internal/bank-transactions/ind
 import r_internal_bank_transactions_match_candidates from "./internal/bank-transactions/match-candidates.js";
 import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/unmatch.js";
 import r_internal_brands_index from "./internal/brands/index.js";
+import r_internal_budget_range_index from "./internal/budget-range/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
 import r_internal_build_orders_id from "./internal/build-orders/[id].js";
 import r_internal_build_orders_cancel from "./internal/build-orders/cancel.js";
@@ -1370,6 +1371,7 @@ export const ROUTES = [
   { pattern: "/api/cron/shopify-backfill", handler: r_cron_shopify_backfill },
   { pattern: "/api/cron/subledger-tieout", handler: r_cron_subledger_tieout },
   { pattern: "/api/internal/b2b-accounts", handler: r_internal_b2b_accounts_index },
+  { pattern: "/api/internal/budget-range", handler: r_internal_budget_range_index },
   { pattern: "/api/internal/build-orders", handler: r_internal_build_orders_index },
   { pattern: "/api/internal/date-presets", handler: r_internal_date_presets_index },
   { pattern: "/api/internal/edi-messages", handler: r_internal_edi_messages_index },
