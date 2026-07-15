@@ -393,18 +393,19 @@ export const wholesaleRepo = {
       500,
     );
   },
-  async listInventorySnapshots(supplySource: IpSupplySource = "xoro"): Promise<IpInventorySnapshot[]> {
-    // Trimmed: drops warehouse_code / qty_on_order / qty_in_transit /
-    // raw_payload_id. `source` is kept — used as dedup-priority key.
-    //
-    // Source filter (M31 dir-B): 'tangerine' reconciles against native
-    // Tangerine on-hand only; 'xoro' (default) uses everything EXCEPT
-    // tangerine (manual / xoro / shopify) — byte-identical to the prior
-    // unfiltered behavior, since no tangerine rows existed before. This
-    // stops the two supply sources from summing together.
-    const sourceFilter = supplySource === "tangerine" ? "&source=eq.tangerine" : "&source=neq.tangerine";
+  async listInventorySnapshots(warehouses?: readonly string[]): Promise<IpInventorySnapshot[]> {
+    // Single source of truth (docs/tangerine/onhand-single-source-of-truth.md):
+    // on-hand is the Xoro REST by-size pull, re-sourced as source='tangerine'
+    // (PR #1786). Read THAT source only, optionally filtered to a channel's
+    // warehouse set — latestOnHandBySku then sums across those warehouses per
+    // SKU. `warehouse_code` is kept so the per-warehouse dedup/sum works (it was
+    // previously trimmed, which silently collapsed multi-warehouse SKUs to one).
+    // Passing no warehouses reads all of them (e.g. a total-company view).
+    const whFilter = warehouses && warehouses.length
+      ? `&warehouse_code=in.(${warehouses.map((w) => `"${encodeURIComponent(w)}"`).join(",")})`
+      : "";
     return sbGetAll<IpInventorySnapshot>(
-      `ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,source${sourceFilter}&order=snapshot_date.desc`,
+      `ip_inventory_snapshot?select=sku_id,snapshot_date,qty_on_hand,qty_available,qty_committed,warehouse_code,source&source=eq.tangerine${whFilter}&order=snapshot_date.desc`,
     );
   },
   async listOpenPos(channel: "wholesale" | "ecom" | "all" = "wholesale", supplySource: IpSupplySource = "xoro"): Promise<IpOpenPoRow[]> {

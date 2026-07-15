@@ -1168,70 +1168,77 @@ export async function syncReceiptsFromTandaPos(admin) {
   return result;
 }
 
-// ── Xoro by-size on-hand → planning snapshot (single-source-of-truth, PR1) ────
+// ── Live Xoro by-size on-hand → planning snapshot (single-source-of-truth) ────
 //
-// Design: docs/tangerine/onhand-single-source-of-truth.md. The goal is for
-// planning on-hand and the Tangerine on-hand feed to be identical by reading
-// ONE source. `tangerine_size_onhand` is the Xoro REST by-size pull (the truth,
-// per warehouse). This re-sources it into `ip_inventory_snapshot` under
-// source='tangerine', so planning's existing reader can consume the Xoro truth.
+// Design: docs/tangerine/onhand-single-source-of-truth.md. Goal: planning
+// on-hand and the Tangerine on-hand feed are identical because both read ONE
+// source. The LIVE by-size Xoro on-hand is `inventory_layers` — a FIFO ledger
+// trued to the fresh Xoro REST feed nightly (sync-onhand-spine.mjs). Total
+// on-hand per item+location = Σ remaining_qty across ALL layers (xoro_rest_size
+// = the Xoro truth for spine items, plus native operator layers: receipts /
+// adjustments / transfers / opening_balance). We roll that up per (item,
+// warehouse) into ip_inventory_snapshot under source='tangerine', so planning's
+// reader can consume it.
 //
-// Both tables are SIZE grain and FK to the SAME ip_item_master, so item_id →
-// sku_id is identity — this is a re-source (per warehouse), NOT a roll-up. PPK
-// stays in native grain (packs), exactly like the legacy source='manual' rows;
-// the planning grid expands packs→eaches at display, so PPK normalization is
-// unchanged and consistent. Zero-on-hand rows are carried through (whatever the
-// pull reports). This is ADDITIVE — it does not touch source='manual' (ATS)
-// rows; the reader flip is a later PR.
+// (An earlier version sourced `tangerine_size_onhand`, but that table is stale
+// — its refresh isn't in the nightly — while inventory_layers is current. It
+// also has a phantom 4th "Psycho Tuna Ecom" warehouse; the real inventory lives
+// in 3 locations: Main Warehouse, Psycho Tuna, ROF Ecom.)
+//
+// item_id → sku_id is identity (both the ip_item_master id). PPK stays native
+// grain (the grid expands at display). snapshot_date = today (the layers are
+// "current"; latest-per-SKU picks it up). Only source='tangerine' rows are
+// touched; source='manual' (ATS) is left intact — the reader flip is elsewhere.
 export async function rollUpXoroOnHandToSnapshot(admin) {
-  const result = { snapshot_date: null, rows_read: 0, upserted: 0, warehouses: [], errors: [] };
+  const today = new Date().toISOString().slice(0, 10);
+  const result = { snapshot_date: today, rows_read: 0, upserted: 0, warehouses: [], errors: [] };
 
-  // 1. Latest snapshot_date available in the Xoro by-size feed.
+  // 1. location_id → warehouse name.
+  const locName = new Map();
   {
-    const { data, error } = await admin
-      .from("tangerine_size_onhand")
-      .select("snapshot_date")
-      .order("snapshot_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) return { ...result, error: "tangerine_size_onhand date fetch failed", details: error.message };
-    if (!data?.snapshot_date) return { ...result, error: "tangerine_size_onhand is empty" };
-    result.snapshot_date = data.snapshot_date;
+    const { data, error } = await admin.from("inventory_locations").select("id, name");
+    if (error) return { ...result, error: "inventory_locations fetch failed", details: error.message };
+    for (const l of data ?? []) locName.set(l.id, l.name);
   }
 
-  // 2. Page the by-size on-hand at that date and re-source into ip_inventory_snapshot.
-  const whSet = new Set();
+  // 2. Sum on-hand per (item_id, location_id) across ALL live layers.
+  const agg = new Map(); // `${item_id}|${location_id}` → qty
   const PAGE = 1000;
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await admin
-      .from("tangerine_size_onhand")
-      .select("item_id, warehouse_code, qty_on_hand")
-      .eq("snapshot_date", result.snapshot_date)
-      .order("item_id", { ascending: true })
+      .from("inventory_layers")
+      .select("item_id, location_id, remaining_qty")
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE - 1);
-    if (error) return { ...result, error: "tangerine_size_onhand fetch failed", details: error.message };
+    if (error) return { ...result, error: "inventory_layers fetch failed", details: error.message };
     if (!data || data.length === 0) break;
     result.rows_read += data.length;
-
-    const rows = data.map((r) => {
-      if (r.warehouse_code) whSet.add(r.warehouse_code);
-      return {
-        sku_id: r.item_id,
-        warehouse_code: r.warehouse_code,
-        snapshot_date: result.snapshot_date,
-        qty_on_hand: r.qty_on_hand ?? 0,
-        source: "tangerine",
-      };
-    });
-    for (let i = 0; i < rows.length; i += 500) {
-      const chunk = rows.slice(i, i + 500);
-      const { error: upErr } = await admin
-        .from("ip_inventory_snapshot")
-        .upsert(chunk, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
-      if (upErr) result.errors.push(upErr.message);
-      else result.upserted += chunk.length;
+    for (const r of data) {
+      if (!r.item_id) continue;
+      const key = `${r.item_id}|${r.location_id ?? ""}`;
+      agg.set(key, (agg.get(key) ?? 0) + Number(r.remaining_qty ?? 0));
     }
     if (data.length < PAGE) break;
+  }
+
+  // 3. Upsert ip_inventory_snapshot (source='tangerine', warehouse_code=location name).
+  const whSet = new Set();
+  const rows = [];
+  for (const [key, qty] of agg) {
+    const sep = key.lastIndexOf("|");
+    const itemId = key.slice(0, sep);
+    const locId = key.slice(sep + 1);
+    const wh = locName.get(locId) ?? locId ?? "Unknown";
+    whSet.add(wh);
+    rows.push({ sku_id: itemId, warehouse_code: wh, snapshot_date: today, qty_on_hand: qty, source: "tangerine" });
+  }
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    const { error } = await admin
+      .from("ip_inventory_snapshot")
+      .upsert(chunk, { onConflict: "sku_id,warehouse_code,snapshot_date,source", ignoreDuplicates: false });
+    if (error) result.errors.push(error.message);
+    else result.upserted += chunk.length;
   }
   result.warehouses = Array.from(whSet).sort();
   return result;

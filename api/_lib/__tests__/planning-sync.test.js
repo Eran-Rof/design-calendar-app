@@ -548,18 +548,31 @@ describe("syncReceiptsFromTandaPos — happy path", () => {
   });
 });
 
-describe("rollUpXoroOnHandToSnapshot — re-source Xoro by-size on-hand", () => {
-  it("copies tangerine_size_onhand (latest date) into ip_inventory_snapshot as source=tangerine, per warehouse, keeping zeros", async () => {
+describe("rollUpXoroOnHandToSnapshot — sum inventory_layers per (item, warehouse)", () => {
+  it("sums remaining_qty across layers per (item, location), maps location→warehouse name, writes source=tangerine", async () => {
     const upserts = [];
+    const today = new Date().toISOString().slice(0, 10);
     const admin = makeAdmin({
-      tangerine_size_onhand: {
-        async maybeSingle() { return { data: { snapshot_date: "2026-07-01" }, error: null }; },
+      inventory_locations: {
+        async select() {
+          return { data: [
+            { id: "loc-main", name: "Main Warehouse" },
+            { id: "loc-pt", name: "Psycho Tuna" },
+            { id: "loc-ecom", name: "ROF Ecom" },
+          ], error: null };
+        },
+      },
+      inventory_layers: {
         async select(state) {
           if (state.range && state.range[0] === 0) {
             return { data: [
-              { item_id: "sku-1", warehouse_code: "ROF Main", qty_on_hand: 100 },
-              { item_id: "sku-1", warehouse_code: "Psycho Tuna", qty_on_hand: 40 },
-              { item_id: "sku-2", warehouse_code: "ROF - ECOM", qty_on_hand: 0 }, // zero carried through
+              // sku-1 @ Main: two layers sum to 120
+              { item_id: "sku-1", location_id: "loc-main", remaining_qty: 100 },
+              { item_id: "sku-1", location_id: "loc-main", remaining_qty: 20 },
+              { item_id: "sku-1", location_id: "loc-pt", remaining_qty: 40 },
+              // sku-2 @ ecom: nets to 0 (one layer depleted)
+              { item_id: "sku-2", location_id: "loc-ecom", remaining_qty: 5 },
+              { item_id: "sku-2", location_id: "loc-ecom", remaining_qty: -5 },
             ], error: null };
           }
           return { data: [], error: null };
@@ -572,22 +585,21 @@ describe("rollUpXoroOnHandToSnapshot — re-source Xoro by-size on-hand", () => 
 
     const r = await rollUpXoroOnHandToSnapshot(admin);
     expect(r.error).toBeUndefined();
-    expect(r.snapshot_date).toBe("2026-07-01");
-    expect(r.rows_read).toBe(3);
-    expect(r.upserted).toBe(3);
-    expect(r.warehouses).toEqual(["Psycho Tuna", "ROF - ECOM", "ROF Main"]);
-    // item_id → sku_id identity; source tagged; warehouse preserved; zeros kept.
-    expect(upserts).toHaveLength(3);
-    expect(upserts.every((u) => u.source === "tangerine" && u.snapshot_date === "2026-07-01")).toBe(true);
-    expect(upserts.find((u) => u.warehouse_code === "ROF Main")).toMatchObject({ sku_id: "sku-1", qty_on_hand: 100 });
-    expect(upserts.find((u) => u.warehouse_code === "ROF - ECOM")).toMatchObject({ sku_id: "sku-2", qty_on_hand: 0 });
+    expect(r.snapshot_date).toBe(today);
+    expect(r.rows_read).toBe(5);
+    expect(r.warehouses).toEqual(["Main Warehouse", "Psycho Tuna", "ROF Ecom"]);
+    // Three (item, warehouse) rows; layers summed; location→name mapped.
+    expect(upserts.every((u) => u.source === "tangerine" && u.snapshot_date === today)).toBe(true);
+    expect(upserts.find((u) => u.sku_id === "sku-1" && u.warehouse_code === "Main Warehouse")).toMatchObject({ qty_on_hand: 120 });
+    expect(upserts.find((u) => u.sku_id === "sku-1" && u.warehouse_code === "Psycho Tuna")).toMatchObject({ qty_on_hand: 40 });
+    expect(upserts.find((u) => u.sku_id === "sku-2" && u.warehouse_code === "ROF Ecom")).toMatchObject({ qty_on_hand: 0 });
   });
 
-  it("returns an error when the Xoro by-size feed is empty", async () => {
+  it("errors when inventory_locations can't be read", async () => {
     const admin = makeAdmin({
-      tangerine_size_onhand: { async maybeSingle() { return { data: null, error: null }; } },
+      inventory_locations: { async select() { return { data: null, error: { message: "boom" } }; } },
     });
     const r = await rollUpXoroOnHandToSnapshot(admin);
-    expect(r.error).toMatch(/empty/i);
+    expect(r.error).toMatch(/inventory_locations/i);
   });
 });
