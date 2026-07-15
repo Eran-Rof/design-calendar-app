@@ -64,6 +64,7 @@ export type ModuleKey =
   | "fixed_assets"
   | "budgets"
   | "form_1099"
+  | "sales_tax"
   | "ar_aging"
   | "ar_collections"
   | "ar_backfill"
@@ -301,6 +302,7 @@ export const MODULES: ModuleDef[] = [
   { key: "fixed_assets",      label: "Fixed Assets",       emoji: "🏢", group: "Accounting" },
   { key: "budgets",           label: "Budgets",            emoji: "🎯", group: "Accounting" },
   { key: "form_1099",         label: "1099 Worksheet",     emoji: "🧾", group: "Accounting" },
+  { key: "sales_tax",         label: "Sales Tax & VAT",    emoji: "🏛️", group: "Accounting" },
   // P4-6: AR Aging report (per-customer buckets) + daily overdue cron.
   { key: "ar_aging",          label: "AR Aging",          emoji: "📅", group: "Customers – Accts Rec" },
   // AR Collections — worklist, promise-to-pay pipeline, activity log over open AR.

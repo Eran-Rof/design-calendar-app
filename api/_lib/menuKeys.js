@@ -148,6 +148,7 @@ const KEYS = [
   "tanda/accounting/fixed-assets",
   "tanda/accounting/budgets",
   "tanda/accounting/form-1099",
+  "tanda/accounting/sales-tax",
   "tanda/accounting/bank-reconciliation",
   "tanda/accounting/factor-recon",
   "tanda/accounting/chargebacks",

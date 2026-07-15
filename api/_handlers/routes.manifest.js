@@ -784,4 +784,9 @@ export default [
   ["/api/internal/assistant/brief"                           , "./internal/assistant/brief.js"],
   // P28-4-1 - assistant draft-action confirm (the authenticated write boundary).
   ["/api/internal/assistant/actions/confirm"                 , "./internal/assistant/actions-confirm.js"],
+  // M19 - Sales-Tax / VAT liability & filing (reads GL tax-payable accounts).
+  ["/api/internal/tax/worklist"                              , "./internal/tax/worklist.js"],
+  ["/api/internal/tax/filings"                               , "./internal/tax/filings.js"],
+  ["/api/internal/tax/drill"                                 , "./internal/tax/drill.js"],
+  ["/api/internal/tax"                                       , "./internal/tax/index.js"],
 ];

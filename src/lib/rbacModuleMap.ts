@@ -47,6 +47,9 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   // Factor (Rosenthal) — Phase 2 added the chargeback-dispute write, so the
   // panel gates on finance_misc (matches the server's "factor" segment map).
   factor_recon: "finance_misc",
+  // Sales Tax & VAT liability/filing — record-filing is a write, so gate on
+  // finance_misc (matches the server's existing "tax" segment map).
+  sales_tax: "finance_misc",
   income_statement: "analytics",
   balance_sheet: "analytics",
   cash_flow: "analytics",

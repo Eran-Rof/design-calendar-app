@@ -561,10 +561,14 @@ import r_internal_style_orders_index from "./internal/style-orders/index.js";
 import r_internal_sustainability_id_review from "./internal/sustainability/[id]/review.js";
 import r_internal_sustainability_index from "./internal/sustainability/index.js";
 import r_internal_tax_calculations from "./internal/tax/calculations.js";
+import r_internal_tax_drill from "./internal/tax/drill.js";
+import r_internal_tax_filings from "./internal/tax/filings.js";
+import r_internal_tax_index from "./internal/tax/index.js";
 import r_internal_tax_remittance_report from "./internal/tax/remittance-report.js";
 import r_internal_tax_remittances from "./internal/tax/remittances.js";
 import r_internal_tax_rules_id from "./internal/tax/rules/[id].js";
 import r_internal_tax_rules_index from "./internal/tax/rules/index.js";
+import r_internal_tax_worklist from "./internal/tax/worklist.js";
 import r_internal_three_way_match_matches from "./internal/three-way-match/matches.js";
 import r_internal_three_way_match_resolve from "./internal/three-way-match/resolve.js";
 import r_internal_three_way_match_run from "./internal/three-way-match/run.js";
@@ -1142,16 +1146,19 @@ export const ROUTES = [
   { pattern: "/api/internal/recon/run-ar", handler: r_internal_recon_run_ar },
   { pattern: "/api/internal/recon/run-gl", handler: r_internal_recon_run_gl },
   { pattern: "/api/internal/scf/requests", handler: r_internal_scf_requests_index },
+  { pattern: "/api/internal/tax/worklist", handler: r_internal_tax_worklist },
   { pattern: "/api/edi/outbound/payment", handler: r_edi_outbound_payment },
   { pattern: "/api/external/v1/invoices", handler: r_external_v1_invoices },
   { pattern: "/api/internal/ai/insights", handler: r_internal_ai_insights },
   { pattern: "/api/internal/hts/suggest", handler: r_internal_hts_suggest },
+  { pattern: "/api/internal/tax/filings", handler: r_internal_tax_filings },
   { pattern: "/api/internal/recon/runs", handler: r_internal_recon_runs },
   { pattern: "/api/vendor/scf/requests", handler: r_vendor_scf_requests },
   { pattern: "/api/external/v1/orders", handler: r_external_v1_orders },
   { pattern: "/api/external/v1/styles", handler: r_external_v1_styles },
   { pattern: "/api/internal/audit/log", handler: r_internal_audit_log },
   { pattern: "/api/internal/crm/tasks", handler: r_internal_crm_tasks_index },
+  { pattern: "/api/internal/tax/drill", handler: r_internal_tax_drill },
   { pattern: "/api/internal/tax/rules", handler: r_internal_tax_rules_index },
   { pattern: "/api/vendor/bulk/upload", handler: r_vendor_bulk_upload },
   { pattern: "/api/vendor/mobile/feed", handler: r_vendor_mobile_feed },
@@ -1489,6 +1496,7 @@ export const ROUTES = [
   { pattern: "/api/internal/rfqs", handler: r_internal_rfqs_index },
   { pattern: "/api/xoro/open-pos", handler: r_xoro_open_pos },
   { pattern: "/api/xoro/receipts", handler: r_xoro_receipts },
+  { pattern: "/api/internal/tax", handler: r_internal_tax_index },
   { pattern: "/api/xoro/sync-gl", handler: r_xoro_sync_gl },
   { pattern: "/api/ai/ask-grid", handler: r_ai_ask_grid },
   { pattern: "/api/b2b/account", handler: r_b2b_account },

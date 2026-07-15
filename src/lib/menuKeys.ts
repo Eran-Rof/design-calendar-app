@@ -221,6 +221,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/accounting/fixed-assets", label: "Fixed Assets",     app: "tanda", route: "/tangerine?m=fixed_assets",      group: "Accounting", icon: "🏢" },
   { key: "tanda/accounting/budgets",      label: "Budgets",           app: "tanda", route: "/tangerine?m=budgets",           group: "Accounting", icon: "🎯" },
   { key: "tanda/accounting/form-1099",    label: "1099 Worksheet",    app: "tanda", route: "/tangerine?m=form_1099",         group: "Accounting", icon: "🧾" },
+  { key: "tanda/accounting/sales-tax",    label: "Sales Tax & VAT",   app: "tanda", route: "/tangerine?m=sales_tax",         group: "Accounting", icon: "🏛️" },
   { key: "tanda/accounting/bank-reconciliation", label: "Bank Reconciliation", app: "tanda", route: "/tangerine?m=bank_reconciliation", group: "Accounting", icon: "🏦" },
   // CRM
   { key: "tanda/crm/opportunities",     label: "CRM Opportunities", app: "tanda", route: "/tangerine?m=crm_opportunities", group: "CRM", icon: "💼" },
