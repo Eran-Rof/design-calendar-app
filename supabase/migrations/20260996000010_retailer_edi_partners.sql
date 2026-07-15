@@ -1,5 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- 20260996000000_retailer_edi_partners.sql
+-- 20260996000010_retailer_edi_partners.sql  (bumped from 20260996000000 to
+-- resolve a duplicate-version collision with 20260996000000_fixed_asset_module;
+-- additive + idempotent, so a re-apply under the new version is a no-op)
 --
 -- RETAILER-FACING outbound EDI (supplier → retail customer). Turns the config-
 -- only edi_customer_partners shell (20260816000000_edi_customer_van.sql) into a
