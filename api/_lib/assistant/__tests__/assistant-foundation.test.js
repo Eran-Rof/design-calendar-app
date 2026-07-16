@@ -215,7 +215,7 @@ describe("real packs run against canned counts", () => {
       return 15;                                                          // due ≤7d
     },
     ip_execution_batches: () => 1,
-    v_style_scale_candidates: () => 2119,
+    v_style_scale_missing: () => 44,
     v_prepack_ppk_needed: () => 59,
     // P28-1-4 packs
     mfg_build_orders: () => 3,
@@ -261,7 +261,7 @@ describe("real packs run against canned counts", () => {
     expect(byKey["so.factor_not_submitted"].count).toBe(9);
     expect(byKey["planning.exec_batches_draft"].count).toBe(1);
     expect(byKey["planning.exec_batches_draft"].href).toBe("/planning");
-    expect(byKey["master.scales_missing"].count).toBe(2119);
+    expect(byKey["master.scales_missing"].count).toBe(44);
     expect(byKey["master.ppk_matrix_needed"].count).toBe(59);
 
     // P28-1-4 packs — mine-vs-unassigned split works, personal items keyed on ctx.userId
