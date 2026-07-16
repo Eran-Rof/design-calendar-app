@@ -12,6 +12,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { fetchXoroAll } from "../_lib/xoro-client.js";
 import { canonSku as sharedCanonSku, canonStyleColor, buildItemRow } from "../_lib/sku-canon.js";
+import { buildCustomerLookup, resolveExistingCustomerId, loadLiveCustomers } from "../_lib/customers/matchCustomer.js";
 
 export const config = { maxDuration: 300 };
 
@@ -174,15 +175,21 @@ export default async function handler(req, res) {
   const lines = Array.isArray(xoroResult.body?.Data) ? xoroResult.body.Data : [];
 
   // ── Load masters for reconciliation ────────────────────────────────────────
-  const [{ data: items }, { data: customers }, { data: categories }] = await Promise.all([
+  // Customers: read the base `customers` table filtered to live rows
+  // (deleted_at IS NULL) — NOT the ip_customer_master view, which exposes
+  // merged-away tombstones. loadLiveCustomers paginates past the 1000-row cap.
+  let customerLoadError = null;
+  const [{ data: items }, customers, { data: categories }] = await Promise.all([
     admin.from("ip_item_master").select("id, sku_code"),
-    admin.from("ip_customer_master").select("id, customer_code, name"),
+    loadLiveCustomers(admin).catch((e) => { customerLoadError = `customer load: ${e.message}`; return []; }),
     admin.from("ip_category_master").select("id, category_code, name"),
   ]);
 
   const skuToId = new Map((items ?? []).map((i) => [canonSku(i.sku_code), i.id]));
   const customerCodeToId = new Map((customers ?? []).map((c) => [canonSku(c.customer_code), c.id]));
   const customerNameToId = new Map((customers ?? []).map((c) => [canonName(c.name), c.id]));
+  // Normalized-name guard lookup (uppercase + strip non-alphanumerics).
+  const custLookup = buildCustomerLookup(customers ?? []);
   const catCodeToId = new Map((categories ?? []).map((c) => [canonSku(c.category_code), c.id]));
   const catNameToId = new Map((categories ?? []).map((c) => [canonName(c.name), c.id]));
 
@@ -222,7 +229,9 @@ export default async function handler(req, res) {
     page_start: pageStart,
     page_limit: pageLimit,
     module: moduleOverride,
+    duplicates_prevented: 0,
   };
+  if (customerLoadError) result.errors.push(customerLoadError);
 
   // First pass — collect candidate rows + dedupe missing customers/SKUs
   // so we can bulk-create them in one shot per kind. The previous
@@ -281,12 +290,22 @@ export default async function handler(req, res) {
       null;
     let customerId = customerLookup();
     if (!customerId) {
-      // Mark for bulk-create in step 4 — code key uses Xoro CustomerId
-      // for stability across re-ingests.
       const xCustomerId = header.CustomerId ?? header.CustomerNumber ?? null;
       const customerCode = xCustomerId != null ? `XORO:${xCustomerId}` : null;
       const customerName = header.CustomerName ?? header.CustomerFullName ?? header.BillToCompanyName ?? null;
-      if (customerCode && customerName && !missingCustomers.has(customerCode)) {
+      // Normalized-name guard: attach to an existing live customer (matched by
+      // bare code key, exact name, or NORMALIZED name) instead of forking a
+      // XORO:<id> duplicate. Registering the name→id mapping lets both this
+      // invoice's lines and later invoices resolve without a new row (#1824).
+      const existingId = resolveExistingCustomerId(custLookup, { customerCode, name: customerName });
+      if (existingId) {
+        customerId = existingId;
+        if (customerName) customerNameToId.set(canonName(customerName), existingId);
+        if (customerCode) customerCodeToId.set(canonSku(customerCode), existingId);
+        result.duplicates_prevented += 1;
+      } else if (customerCode && customerName && !missingCustomers.has(customerCode)) {
+        // Mark for bulk-create in step 4 — code key uses Xoro CustomerId
+        // for stability across re-ingests.
         missingCustomers.set(customerCode, { customer_code: customerCode, name: customerName });
       }
     }

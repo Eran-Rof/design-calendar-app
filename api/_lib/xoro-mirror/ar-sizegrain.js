@@ -204,27 +204,35 @@ export function composeExplodedLines(rollup, sizeLines, resolveItemId) {
  * Load size-grain source lines from raw_xoro_payloads for a set of invoice
  * numbers. Returns Map(invoice_number → normalized size lines[]).
  *
- * raw_xoro_payloads is small (sales-history payloads only), so we read the
- * endpoint's rows and normalize in JS, filtering to the requested invoices.
+ * Reads the endpoint's rows and normalizes in JS, filtering to the requested
+ * invoices. Paginated in SMALL pages: legacy full-payload rows run several MB
+ * of jsonb each, and reading them all in one PostgREST response contributed to
+ * the 07-15/16 prod DB outages. Rows written by ar-payload-ingest (#1824) are
+ * slim (whitelisted fields), but page defensively either way.
  */
 export async function loadSizeSourceFromRawPayloads(supabase, invoiceNumbers) {
   const want = new Set((invoiceNumbers || []).filter(Boolean));
   const out = new Map();
   if (want.size === 0) return out;
-  const { data, error } = await supabase
-    .from("raw_xoro_payloads")
-    .select("payload")
-    .eq("endpoint", "sales-history");
-  if (error || !Array.isArray(data)) return out;
-  for (const row of data) {
-    const recs = Array.isArray(row?.payload?.data) ? row.payload.data
-               : Array.isArray(row?.payload) ? row.payload : [];
-    for (const rec of recs) {
-      const { invoice_number, lines } = normalizeInvoicePayloadLines(rec);
-      if (!invoice_number || !want.has(invoice_number) || lines.length === 0) continue;
-      const prev = out.get(invoice_number) || [];
-      out.set(invoice_number, prev.concat(lines));
+  const PAGE = 3;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("raw_xoro_payloads")
+      .select("payload")
+      .eq("endpoint", "sales-history")
+      .range(from, from + PAGE - 1);
+    if (error || !Array.isArray(data)) return out;
+    for (const row of data) {
+      const recs = Array.isArray(row?.payload?.data) ? row.payload.data
+                 : Array.isArray(row?.payload) ? row.payload : [];
+      for (const rec of recs) {
+        const { invoice_number, lines } = normalizeInvoicePayloadLines(rec);
+        if (!invoice_number || !want.has(invoice_number) || lines.length === 0) continue;
+        const prev = out.get(invoice_number) || [];
+        out.set(invoice_number, prev.concat(lines));
+      }
     }
+    if (data.length < PAGE) break;
   }
   return out;
 }

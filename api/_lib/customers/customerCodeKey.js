@@ -20,3 +20,14 @@ export function canonCodeKey(raw) {
 export function codeBareKey(code) {
   return canonCodeKey(String(code ?? "").replace(/^(EXCEL|ATS|XORO):/i, ""));
 }
+
+/** Aggressive dedup key for customer NAMES: uppercase + strip ALL
+ *  non-alphanumerics (whitespace AND punctuation). This is stronger than
+ *  canonCodeKey (which preserves punctuation) so it collapses the duplicate
+ *  pairs the sales importers historically forked — "AMAZON FBM" vs "Amazon FBM",
+ *  "US Apparel" vs "U.S. Apparel", "Vet Inc" vs "Vet Inc." — onto ONE key.
+ *  Used by the importer guard (matchCustomer.js) to attach to an existing
+ *  customer instead of creating a normalized-name duplicate (#1824 / #1816). */
+export function normalizedNameKey(raw) {
+  return String(raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}

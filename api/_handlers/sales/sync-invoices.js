@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
 import { canonSku, canonStyleColor } from "../../_lib/sku-canon.js";
 import { canonCodeKey, codeBareKey } from "../../_lib/customers/customerCodeKey.js";
+import { buildCustomerLookup, resolveExistingCustomerId, loadLiveCustomers } from "../../_lib/customers/matchCustomer.js";
 import { authenticateDesignCalendarCaller, rateLimit } from "../../_lib/auth.js";
 import {
   deriveSalesGrainFields,
@@ -202,6 +203,7 @@ export default async function handler(req, res) {
     avg_cost_lookups: 0,
     new_items_created: 0,
     new_customers_created: 0,
+    duplicates_prevented: 0,
     deleted_before_insert: 0,
     sales_upserted: 0,
     duplicates_merged: 0,
@@ -402,49 +404,48 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── Resolve customers (lookup by both customer_code and name) ────────────
+  // ── Resolve customers (lookup by code, exact name, AND normalized name) ──
+  // Read ALL live customers once (base `customers` table, deleted_at IS NULL —
+  // NOT the ip_customer_master view, which exposes merged-away tombstones). This
+  // lets the guard below match on a NORMALIZED name (uppercase + strip all
+  // non-alphanumerics) so casing/punctuation drift attaches to the existing
+  // customer instead of forking a duplicate (#1824).
   const customerCodeToId = new Map();
   const customerNameToId = new Map();
+  let custLookup = buildCustomerLookup([]);
   if (missingCustomers.size > 0) {
-    // Match on the space-stripped code form so existing legacy rows
-    // (EXCEL:BRIGSURFSHOP) are found instead of forking EXCEL:BRIG SURF SHOP.
-    const codes = Array.from(missingCustomers.keys()).map((k) => `EXCEL:${canonCodeKey(k)}`);
-    const codesAuto = Array.from(missingCustomers.keys()).map((k) => `XORO:${canonCodeKey(k)}`);
-    const allCodes = [...codes, ...codesAuto];
-    for (let i = 0; i < allCodes.length; i += CHUNK) {
-      const chunk = allCodes.slice(i, i + CHUNK);
-      const { data, error } = await admin
-        .from("ip_customer_master")
-        .select("id, customer_code, name")
-        .in("customer_code", chunk);
-      if (error) { counts.errors.push(`customer code lookup chunk ${i}: ${error.message}`); continue; }
-      for (const row of data ?? []) {
-        customerCodeToId.set(codeBareKey(row.customer_code), row.id);
-        if (row.name) customerNameToId.set(canonName(row.name), row.id);
-      }
-    }
-    // Also fetch by name to catch customers added via other ingest paths
-    const names = Array.from(missingCustomers.values());
-    for (let i = 0; i < names.length; i += CHUNK) {
-      const chunk = names.slice(i, i + CHUNK);
-      const { data, error } = await admin
-        .from("ip_customer_master")
-        .select("id, customer_code, name")
-        .in("name", chunk);
-      if (error) { counts.errors.push(`customer name lookup chunk ${i}: ${error.message}`); continue; }
-      for (const row of data ?? []) {
-        if (row.name) customerNameToId.set(canonName(row.name), row.id);
-        customerCodeToId.set(codeBareKey(row.customer_code), row.id);
-      }
+    let liveCustomers = [];
+    try {
+      liveCustomers = await loadLiveCustomers(admin);
+    } catch (e) { counts.errors.push(`customer load: ${e.message}`); }
+    custLookup = buildCustomerLookup(liveCustomers);
+    for (const c of liveCustomers) {
+      if (c.customer_code) customerCodeToId.set(codeBareKey(c.customer_code), c.id);
+      if (c.name) customerNameToId.set(canonName(c.name), c.id);
     }
   }
 
-  // Bulk-create customers we still haven't found
+  // Bulk-create customers we still haven't found — GUARDED against creating a
+  // normalized-name duplicate of an existing customer.
   const newCustomers = [];
   for (const [canonKey, displayName] of missingCustomers) {
     // customerCodeToId is keyed by the bare space-stripped code, so compare with
     // the stripped form of the name key (canonKey is canonName, i.e. spaced).
     if (customerNameToId.has(canonKey) || customerCodeToId.has(canonCodeKey(canonKey))) continue;
+    // Normalized-name guard: attach to an existing live customer whose name
+    // normalizes to the same key rather than forking (AMAZON FBM → Amazon FBM,
+    // US Apparel → U.S. Apparel). resolveExistingCustomerId also re-checks the
+    // bare code key for completeness.
+    const existingId = resolveExistingCustomerId(custLookup, {
+      customerCode: `EXCEL:${canonCodeKey(canonKey)}`,
+      name: displayName,
+    });
+    if (existingId) {
+      customerNameToId.set(canonKey, existingId);
+      customerCodeToId.set(canonCodeKey(canonKey), existingId);
+      counts.duplicates_prevented = (counts.duplicates_prevented ?? 0) + 1;
+      continue;
+    }
     // Mint the code in the canonical space-stripped form so the
     // onConflict=customer_code upsert merges into any existing legacy row
     // instead of forking a duplicate (EXCEL:BRIGSURFSHOP, not EXCEL:BRIG SURF SHOP).

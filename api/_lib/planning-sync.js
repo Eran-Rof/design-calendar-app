@@ -14,6 +14,7 @@
 
 import { canonSku, canonStyleColor, buildItemRow } from "./sku-canon.js";
 import { unpackGzipEnvelope } from "./gzipEnvelope.js";
+import { buildCustomerLookup, resolveExistingCustomerId, loadLiveCustomers } from "./customers/matchCustomer.js";
 
 function toNum(v) {
   if (v == null || v === "") return 0;
@@ -365,15 +366,20 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     result.so_lines_total = allSos.length;
 
     const customerByName = new Map();
+    // Normalized-name guard lookup — built from LIVE customers only (base
+    // `customers` table, deleted_at IS NULL) so we never fork a normalized-name
+    // duplicate (ATS:USAPPAREL next to U.S. Apparel) or resurrect a tombstone.
+    let custLookup = buildCustomerLookup([]);
     {
-      const { data, error } = await admin
-        .from("ip_customer_master")
-        .select("id, customer_code, name");
-      if (error) {
-        result.errors.push(`so customer fetch failed: ${error.message}`);
+      let liveCustomers;
+      try {
+        liveCustomers = await loadLiveCustomers(admin);
+      } catch (e) {
+        result.errors.push(`so customer fetch failed: ${e.message}`);
         return result;
       }
-      for (const c of data ?? []) {
+      custLookup = buildCustomerLookup(liveCustomers);
+      for (const c of liveCustomers) {
         const name = (c.name ?? "").trim().toUpperCase();
         if (name) customerByName.set(name, c.id);
       }
@@ -405,7 +411,19 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
     for (const so of allSos) {
       const raw = String(so.customerName ?? "").trim();
       if (!raw) continue;
-      if (!customerByName.has(raw.toUpperCase())) newCustomerNames.add(raw);
+      if (customerByName.has(raw.toUpperCase())) continue;
+      // Normalized-name guard: attach to an existing live customer whose name
+      // normalizes to the same key instead of forking an ATS:<name> duplicate.
+      const existingId = resolveExistingCustomerId(custLookup, {
+        customerCode: `ATS:${raw.toUpperCase().replace(/\s+/g, "")}`,
+        name: raw,
+      });
+      if (existingId) {
+        customerByName.set(raw.toUpperCase(), existingId);
+        result.so_customers_deduped = (result.so_customers_deduped ?? 0) + 1;
+        continue;
+      }
+      newCustomerNames.add(raw);
     }
     if (newCustomerNames.size > 0) {
       const newRows = Array.from(newCustomerNames).map((name) => ({
