@@ -749,6 +749,7 @@ export default [
   ["/api/cron/edi-3pl-transport"                             , "./cron/edi-3pl-transport.js"],
   ["/api/cron/ip-integration-health"                         , "./cron/ip-integration-health.js"],
   ["/api/cron/xoro-feed-health-alert"                        , "./cron/xoro-feed-health-alert.js"],
+  ["/api/cron/ar-payload-ingest"                             , "./cron/ar-payload-ingest.js"],
   ["/api/cron/app-errors-digest"                             , "./cron/app-errors-digest.js"],
   ["/api/internal/client-errors"                             , "./internal/client-errors.js"],
   ["/api/internal/rfqs/messages-inbox"                       , "./internal/rfqs/messages-inbox/index.js"],

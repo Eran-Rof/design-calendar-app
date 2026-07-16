@@ -70,14 +70,30 @@ async function main() {
   console.log(`AR size-grain explosion backfill — ${APPLY ? "APPLY" : "DRY RUN"}`);
 
   // 1. All size-source invoice numbers present locally.
-  const { data: rawRows } = await sb.from("raw_xoro_payloads").select("payload").eq("endpoint", "sales-history");
+  //    Fast path: #1824 slim rows carry payload.invoice_numbers — select ONLY
+  //    that key so the record arrays are never serialized. Legacy full-payload
+  //    rows are fetched ONE AT A TIME — each can be several MB of jsonb, and
+  //    bulk-reading them contributed to the 07-15/16 prod DB outages.
   const allInvoiceNums = new Set();
-  for (const row of rawRows || []) {
+  const legacyIds = [];
+  for (let from = 0; ; from += 200) {
+    const { data } = await sb.from("raw_xoro_payloads").select("id, invoice_numbers:payload->invoice_numbers").eq("endpoint", "sales-history").range(from, from + 199);
+    const rows = data || [];
+    for (const row of rows) {
+      const nums = row?.invoice_numbers;
+      if (Array.isArray(nums) && nums.length > 0) for (const n of nums) { if (n) allInvoiceNums.add(String(n)); }
+      else legacyIds.push(row.id);
+    }
+    if (rows.length < 200) break;
+  }
+  for (const id of legacyIds) {
+    const { data: row } = await sb.from("raw_xoro_payloads").select("payload").eq("id", id).maybeSingle();
     const recs = Array.isArray(row?.payload?.data) ? row.payload.data : [];
     for (const rec of recs) {
       const num = (rec?.invoiceHeader?.InvoiceNumber ?? "").toString().trim();
       if (num) allInvoiceNums.add(num);
     }
+    await new Promise((r) => setTimeout(r, 200));
   }
   console.log(`size-source (raw_xoro_payloads sales-history): ${allInvoiceNums.size} distinct invoice numbers`);
 

@@ -59,6 +59,7 @@ function makeSupabase(seed = {}) {
     let toInsert = null;
     let postSelect = false;
     let postSelectCols = "*";
+    let rangeWindow = null; // [fromIdx, toIdx] inclusive, PostgREST-style
 
     function applyFilters(rows) {
       return rows.filter((row) => {
@@ -81,7 +82,8 @@ function makeSupabase(seed = {}) {
       if (hook?.error) return { data: null, error: hook.error };
 
       if (mode === "select") {
-        const rows = applyFilters(store[table] || []);
+        let rows = applyFilters(store[table] || []);
+        if (rangeWindow) rows = rows.slice(rangeWindow[0], rangeWindow[1] + 1);
         return { data: rows, error: null };
       }
       if (mode === "insert") {
@@ -121,6 +123,10 @@ function makeSupabase(seed = {}) {
       in(col, vals) { filters.push({ op: "in", col, val: vals }); return builder; },
       gte(col, val) { filters.push({ op: "gte", col, val }); return builder; },
       lt(col, val) { filters.push({ op: "lt", col, val }); return builder; },
+      // range(from, to): slice the settled rows like PostgREST pagination.
+      // Added when loadSizeSourceFromRawPayloads went paginated (#1824) — the
+      // mock must grow a method whenever mirrored code adds a query filter.
+      range(fromIdx, toIdx) { rangeWindow = [fromIdx, toIdx]; return builder; },
       insert(rows) { mode = "insert"; toInsert = rows; return builder; },
       update(p) { mode = "update"; patch = p; return builder; },
       delete() { mode = "delete"; return builder; },

@@ -456,6 +456,14 @@ For the widget to work, an operator with admin access to Supabase must have crea
 ![Customer Master list view](screenshots/02-customer-master-list.png)
 <!-- screenshot needed: Customer Master list with type filter visible -->
 
+### How sales imports find (or create) customers — de-duplication (#1824)
+
+Customers are also created **automatically** by the sales-history importers — the nightly Excel invoice feed (`/api/sales/sync-invoices`), the Xoro invoice sync (`/api/xoro-sales-sync`), and the planning SO ingest (`planning-sync`). Historically these matched an incoming customer to an existing one only by exact code (`EXCEL:` / `XORO:` / `ATS:`) or a case- and punctuation-sensitive name, so any drift forked a **duplicate**: `AMAZON FBM` beside `Amazon FBM`, `US Apparel` beside `U.S. Apparel`, `Vet Inc` beside `Vet Inc.`.
+
+The importers now run a **normalized-name guard** (`api/_lib/customers/matchCustomer.js`) before creating anyone: they load the **live** customers (soft-deleted rows excluded, so a merged-away duplicate is never resurrected) and match an incoming customer in order of **bare code key → exact name → normalized name** (uppercase with **all** whitespace *and* punctuation stripped). On a match the sale attaches to the existing customer; only a genuinely new name creates a row. The response counts these as `duplicates_prevented`.
+
+> This is a code-level guard rather than a database unique index because a few pre-existing two-code duplicate pairs still need a manual FK-repoint merge (the #1816 tooling). Once those are merged, a partial unique index on the normalized name (per entity, `deleted_at IS NULL`) can be added as a hard safety net.
+
 ### Supporting documents (M29 / P2-6)
 
 The Customer Edit modal renders the same `<DocumentAttachmentList>` widget as Vendor Master. Seeded document kinds: `contract`, `tax_exempt`, `credit_app`, `other`. The widget appears below the form fields once the customer is in `mode='edit'`. Use it to attach signed contracts, tax-exempt certificates, credit applications — see [09-documents.md](09-documents.md).

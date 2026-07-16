@@ -43,6 +43,7 @@ function makeChain(handler, table) {
       return chain;
     },
     eq(k, v)    { state.filters.push(["eq",    k, v]); return chain; },
+    is(k, v)    { state.filters.push(["is",    k, v]); return chain; },
     in(k, v)    { state.filters.push(["in",    k, v]); return chain; },
     lt(k, v)    { state.filters.push(["lt",    k, v]); return chain; },
     ilike(k, v) { state.filters.push(["ilike", k, v]); return chain; },
