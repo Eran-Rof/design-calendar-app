@@ -21,7 +21,8 @@ function row(over: Partial<AgingRow>): AgingRow {
     int_annual_cents: 0, sto_annual_cents: 0,
     carry_pct: 0, carry_per_unit_cents: 0,
     last_sold: null, days_since_last_sale: null,
-    units_sold_90: null, weeks_of_supply: null, uncosted_qty: 0,
+    units_sold_90: null, units_sold_270: null, units_sold_365: null,
+    weeks_of_supply: null, uncosted_qty: 0,
     ...over,
   };
 }
@@ -34,13 +35,15 @@ describe("aggregateRows — subtotal math", () => {
       style_code: "RYB0412", color: "Red", on_hand_qty: 100, cost_value_cents: 50000,
       wavg_age_days: 40, oldest_age_days: 100, b1_qty: 100, b1_value_cents: 50000,
       int_annual_cents: 4500, sto_annual_cents: 231, last_received: "2026-01-10",
-      last_sold: "2026-06-01", days_since_last_sale: 30, units_sold_90: 45, uncosted_qty: 0,
+      last_sold: "2026-06-01", days_since_last_sale: 30, units_sold_90: 45,
+      units_sold_270: 120, units_sold_365: 200, uncosted_qty: 0,
     }),
     row({
       style_code: "RYB0412", color: "Blue", on_hand_qty: 300, cost_value_cents: 90000,
       wavg_age_days: 200, oldest_age_days: 400, b5_qty: 300, b5_value_cents: 90000,
       int_annual_cents: 8100, sto_annual_cents: 694, last_received: "2026-03-15",
-      last_sold: "2026-05-01", days_since_last_sale: 60, units_sold_90: null, uncosted_qty: 12,
+      last_sold: "2026-05-01", days_since_last_sale: 60, units_sold_90: null,
+      units_sold_270: 80, units_sold_365: 90, uncosted_qty: 12,
     }),
   ];
 
@@ -101,6 +104,32 @@ describe("aggregateRows — subtotal math", () => {
     );
     expect(allNull.units_sold_90).toBeNull();
     expect(allNull.weeks_of_supply).toBeNull();
+  });
+
+  it("SUMs the T9 (270d) and T12 (365d) velocity windows, null only when EVERY member is null", () => {
+    const a = aggregateRows(members, { style_code: "RYB0412", color: null, size: null });
+    // member1 120/200 + member2 80/90 → 200 / 290 (T9/T12 present on both here).
+    expect(a.units_sold_270).toBe(200);
+    expect(a.units_sold_365).toBe(290);
+    // one member null, one present → summed present value only.
+    const mixed = aggregateRows(
+      [row({ on_hand_qty: 10, units_sold_270: 5, units_sold_365: 7 }), row({ on_hand_qty: 20 })],
+      { style_code: "X", color: null, size: null },
+    );
+    expect(mixed.units_sold_270).toBe(5);
+    expect(mixed.units_sold_365).toBe(7);
+    // every member null → null.
+    const allNull = aggregateRows(
+      [row({ on_hand_qty: 10 }), row({ on_hand_qty: 20 })],
+      { style_code: "X", color: null, size: null },
+    );
+    expect(allNull.units_sold_270).toBeNull();
+    expect(allNull.units_sold_365).toBeNull();
+  });
+
+  it("derives avg unit cost on the subtotal from summed value / summed qty", () => {
+    const a = aggregateRows(members, { style_code: "RYB0412", color: null, size: null });
+    expect(a.avg_unit_cost_cents).toBeCloseTo(140000 / 400, 9);
   });
 });
 
@@ -204,5 +233,19 @@ describe("agingSortValue", () => {
     expect(agingSortValue("weeks_of_supply", r)).toBe(Number.MAX_SAFE_INTEGER);
     expect(agingSortValue("days_since_last_sale", r)).toBe(-1);
     expect(agingSortValue("style_code", r)).toBe("Z");
+  });
+
+  it("maps the velocity + avg-cost + last-sold keys with null coalescing", () => {
+    const sold = row({ avg_unit_cost_cents: 350, units_sold_90: 45, units_sold_270: 120, units_sold_365: 200, last_sold: "2026-06-01" });
+    expect(agingSortValue("avg_unit_cost_cents", sold)).toBe(350);
+    expect(agingSortValue("units_sold_90", sold)).toBe(45);
+    expect(agingSortValue("units_sold_270", sold)).toBe(120);
+    expect(agingSortValue("units_sold_365", sold)).toBe(200);
+    expect(agingSortValue("last_sold", sold)).toBe(Date.parse("2026-06-01"));
+    // never-sold rows sort low (-1) rather than NaN.
+    const never = row({ units_sold_90: null, units_sold_270: null, units_sold_365: null, last_sold: null });
+    expect(agingSortValue("units_sold_270", never)).toBe(-1);
+    expect(agingSortValue("units_sold_365", never)).toBe(-1);
+    expect(agingSortValue("last_sold", never)).toBe(-1);
   });
 });

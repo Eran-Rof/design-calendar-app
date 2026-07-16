@@ -586,11 +586,14 @@ on days it costs anything. A quiet day fills 0.
 
 ### What each row shows
 
-On-hand qty, value at cost, average unit cost, **weighted-average age**, oldest age,
+On-hand qty, value at cost, **average unit cost**, **weighted-average age**, oldest age,
 last received, **$ per age bucket** (units in the cell tooltip; 181-365 & 366+
 highlighted amber), **carrying cost** (interest 9%/yr + storage $20/pallet-month at
-864 pcs/pallet — identical constants to ATS), and **velocity** (days since last sale,
-weeks of supply from the trailing-90-day sell-through). The KPI header totals
+864 pcs/pallet — identical constants to ATS), **last sold** date, and **velocity**
+(days since last sale, weeks of supply from the trailing-90-day sell-through, and
+**units sold T3 / T9 / T12** — the count of units invoiced in the trailing **90 / 270 /
+365 days** measured from the aged date; a never-sold row shows `—`). Every one of these
+is an individually **hideable** column in the Columns selector. The KPI header totals
 on-hand value, weighted age, distinct SKUs/styles, **dead stock** (value past the top
 cut-off) and annual carrying cost, with a per-bucket distribution strip.
 
@@ -620,6 +623,12 @@ the evidence behind the aggregate.
   **split Style/Color/Size** columns for those groupings, **only the columns you've left
   visible**, and — when Subtotals is on — the subtotal rows, with a leading **Row type**
   column marking each row `detail`, `subtotal`, or `style subtotal`.
+- **Avg cost, Last sold & sell-through windows.** Five more columns join the set (all
+  hideable, sortable, aggregated on subtotals, and exported when visible): **Avg cost**
+  (value ÷ on-hand), **Last sold** (last invoice date, `never` when unsold), and **Sold
+  T3 / T9 / T12** — units invoiced in the trailing **90 / 270 / 365 days** from the aged
+  date. On a subtotal row the sold windows **sum**, Avg cost is re-derived from the summed
+  value ÷ qty, and Last sold is the **max**. `weeks_of_supply` still uses the T3 window.
 
 ### API & internals
 

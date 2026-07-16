@@ -83,6 +83,7 @@ const fmtUsd0 = (cents: number | string | null | undefined) =>
 const fmtPct = (v: number | string | null | undefined) => `${(n(v) * 100).toFixed(1)}%`;
 const fmtDays = (v: number | string | null | undefined) => `${Math.round(n(v)).toLocaleString()}d`;
 const fmtWos = (v: number | null) => (v == null ? "—" : v > 520 ? "10y+" : `${v.toFixed(1)}w`);
+const fmtSold = (v: number | null | undefined) => (v == null ? "—" : fmtInt(v));
 const todayISO = () => new Date(Date.now()).toISOString().slice(0, 10);
 
 function Tile({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -248,6 +249,7 @@ export default function InternalInventoryAging() {
   const measureColumns: ColumnDef[] = useMemo(() => [
     { key: "on_hand_qty", label: "On-hand" },
     { key: "cost_value_cents", label: "Value" },
+    { key: "avg_unit_cost_cents", label: "Avg cost" },
     { key: "wavg_age_days", label: "Wavg age" },
     { key: "oldest_age_days", label: "Oldest" },
     { key: "last_received", label: "Last recv" },
@@ -255,8 +257,12 @@ export default function InternalInventoryAging() {
     { key: "b4", label: `${labels[3]} $` }, { key: "b5", label: `${labels[4]} $` }, { key: "b6", label: `${labels[5]} $` },
     { key: "carry_pct", label: "Carry %/yr" },
     { key: "carry_annual", label: "Carry $/yr" },
+    { key: "last_sold", label: "Last sold" },
     { key: "days_since_last_sale", label: "Days since sale" },
     { key: "weeks_of_supply", label: "Wks supply" },
+    { key: "units_sold_90", label: "Sold T3" },
+    { key: "units_sold_270", label: "Sold T9" },
+    { key: "units_sold_365", label: "Sold T12" },
   ], [labels]);
   const allColumns = useMemo(() => [...identityColumns, ...measureColumns], [identityColumns, measureColumns]);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, allColumns);
@@ -298,16 +304,21 @@ export default function InternalInventoryAging() {
       <>
         <td style={{ ...tdR, ...bold }} hidden={!vis("on_hand_qty")}>{fmtInt(r.on_hand_qty)}</td>
         <td style={{ ...tdR, ...bold }} hidden={!vis("cost_value_cents")}>{fmtUsd0(r.cost_value_cents)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("avg_unit_cost_cents")}>{fmtUsd(r.avg_unit_cost_cents)}</td>
         <td style={{ ...tdR, ...bold }} hidden={!vis("wavg_age_days")}>{fmtDays(r.wavg_age_days)}</td>
         <td style={{ ...tdR, ...bold, color: n(r.oldest_age_days) > bucketDays[4] ? C.warn : C.text }} hidden={!vis("oldest_age_days")}>{fmtDays(r.oldest_age_days)}</td>
         <td style={{ ...td, ...bold, color: C.textSub }} hidden={!vis("last_received")}>{r.last_received ? fmtDateDisplay(r.last_received) : "—"}</td>
         {[0, 1, 2, 3, 4, 5].map((i) => bucketCell(r, i, strong))}
         <td style={{ ...tdR, ...bold }} hidden={!vis("carry_pct")}>{fmtPct(r.carry_pct)}</td>
         <td style={{ ...tdR, ...bold, color: C.purple }} hidden={!vis("carry_annual")}>{fmtUsd0(n(r.int_annual_cents) + n(r.sto_annual_cents))}</td>
+        <td style={{ ...td, ...bold, color: r.last_sold == null ? C.danger : C.textSub }} hidden={!vis("last_sold")}>{r.last_sold ? fmtDateDisplay(r.last_sold) : "never"}</td>
         <td style={{ ...tdR, ...bold, color: r.days_since_last_sale == null ? C.danger : n(r.days_since_last_sale) > bucketDays[4] ? C.warn : C.text }} hidden={!vis("days_since_last_sale")}>
           {r.days_since_last_sale == null ? "never" : fmtDays(r.days_since_last_sale)}
         </td>
         <td style={{ ...tdR, ...bold }} hidden={!vis("weeks_of_supply")}>{fmtWos(r.weeks_of_supply)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("units_sold_90")}>{fmtSold(r.units_sold_90)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("units_sold_270")}>{fmtSold(r.units_sold_270)}</td>
+        <td style={{ ...tdR, ...bold }} hidden={!vis("units_sold_365")}>{fmtSold(r.units_sold_365)}</td>
       </>
     );
   };
@@ -318,11 +329,13 @@ export default function InternalInventoryAging() {
       kind: it.kind === "detail" ? "detail" : it.kind === "style_subtotal" ? "style subtotal" : "subtotal",
       grain: r.grain_label, style: r.style_code, color: r.color, size: r.size,
       on_hand_qty: n(r.on_hand_qty), cost_value_cents: n(r.cost_value_cents),
+      avg_unit_cost_cents: n(r.avg_unit_cost_cents),
       wavg_age_days: Math.round(n(r.wavg_age_days)), oldest_age_days: n(r.oldest_age_days), last_received: r.last_received,
       b1_value_cents: n(r.b1_value_cents), b2_value_cents: n(r.b2_value_cents), b3_value_cents: n(r.b3_value_cents),
       b4_value_cents: n(r.b4_value_cents), b5_value_cents: n(r.b5_value_cents), b6_value_cents: n(r.b6_value_cents),
       carry_pct: n(r.carry_pct) * 100, carry_annual_cents: n(r.int_annual_cents) + n(r.sto_annual_cents),
-      days_since_last_sale: r.days_since_last_sale, weeks_of_supply: r.weeks_of_supply,
+      last_sold: r.last_sold, days_since_last_sale: r.days_since_last_sale, weeks_of_supply: r.weeks_of_supply,
+      units_sold_90: r.units_sold_90, units_sold_270: r.units_sold_270, units_sold_365: r.units_sold_365,
     } as Record<string, unknown>;
   }), [display]);
 
@@ -338,6 +351,7 @@ export default function InternalInventoryAging() {
     const M: Array<{ vis: string; key: string; header: string; format?: ExportColumn["format"]; digits?: number }> = [
       { vis: "on_hand_qty", key: "on_hand_qty", header: "On-hand" },
       { vis: "cost_value_cents", key: "cost_value_cents", header: "Value $", format: "currency_cents" },
+      { vis: "avg_unit_cost_cents", key: "avg_unit_cost_cents", header: "Avg cost $", format: "currency_cents" },
       { vis: "wavg_age_days", key: "wavg_age_days", header: "Wavg age (d)" },
       { vis: "oldest_age_days", key: "oldest_age_days", header: "Oldest (d)" },
       { vis: "last_received", key: "last_received", header: "Last received", format: "date" },
@@ -349,8 +363,12 @@ export default function InternalInventoryAging() {
       { vis: "b6", key: "b6_value_cents", header: `${labels[5]} $`, format: "currency_cents" },
       { vis: "carry_pct", key: "carry_pct", header: "Carry %/yr", format: "percent" },
       { vis: "carry_annual", key: "carry_annual_cents", header: "Carry $/yr", format: "currency_cents" },
+      { vis: "last_sold", key: "last_sold", header: "Last sold", format: "date" },
       { vis: "days_since_last_sale", key: "days_since_last_sale", header: "Days since sale" },
       { vis: "weeks_of_supply", key: "weeks_of_supply", header: "Wks supply", format: "number", digits: 1 },
+      { vis: "units_sold_90", key: "units_sold_90", header: "Sold T3 (90d)" },
+      { vis: "units_sold_270", key: "units_sold_270", header: "Sold T9 (270d)" },
+      { vis: "units_sold_365", key: "units_sold_365", header: "Sold T12 (365d)" },
     ];
     for (const m of M) if (vis(m.vis)) cols.push({ key: m.key, header: m.header, format: m.format, digits: m.digits });
     return cols;
@@ -528,6 +546,7 @@ export default function InternalInventoryAging() {
               )}
               <SortableTh label="On-hand" sortKey="on_hand_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("on_hand_qty")} />
               <SortableTh label="Value" sortKey="cost_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("cost_value_cents")} />
+              <SortableTh label="Avg cost" sortKey="avg_unit_cost_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("avg_unit_cost_cents")} />
               <SortableTh label="Wavg age" sortKey="wavg_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("wavg_age_days")} />
               <SortableTh label="Oldest" sortKey="oldest_age_days" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("oldest_age_days")} />
               <th style={th} hidden={!vis("last_received")}>Last recv</th>
@@ -538,8 +557,12 @@ export default function InternalInventoryAging() {
               ))}
               <SortableTh label="Carry %/yr" sortKey="carry_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("carry_pct")} />
               <SortableTh label="Carry $/yr" sortKey="carry_annual" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("carry_annual")} />
+              <SortableTh label="Last sold" sortKey="last_sold" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!vis("last_sold")} />
               <SortableTh label="Days since sale" sortKey="days_since_last_sale" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("days_since_last_sale")} />
               <SortableTh label="Wks supply" sortKey="weeks_of_supply" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("weeks_of_supply")} />
+              <SortableTh label="Sold T3" sortKey="units_sold_90" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("units_sold_90")} />
+              <SortableTh label="Sold T9" sortKey="units_sold_270" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("units_sold_270")} />
+              <SortableTh label="Sold T12" sortKey="units_sold_365" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thR} cellStyle={{ textAlign: "right" }} hidden={!vis("units_sold_365")} />
             </tr>
           </thead>
           <tbody>

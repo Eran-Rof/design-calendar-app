@@ -57,6 +57,8 @@ export interface AgingRow {
   last_sold: string | null;
   days_since_last_sale: number | null;
   units_sold_90: number | null;
+  units_sold_270: number | null;
+  units_sold_365: number | null;
   weeks_of_supply: number | null;
   uncosted_qty: number;
 }
@@ -110,6 +112,11 @@ export function agingSortValue(key: string, row: AgingRow): unknown {
     case "carry_pct": return num(row.carry_pct);
     case "carry_annual": return num(row.int_annual_cents) + num(row.sto_annual_cents);
     case "days_since_last_sale": return row.days_since_last_sale == null ? -1 : num(row.days_since_last_sale);
+    case "avg_unit_cost_cents": return num(row.avg_unit_cost_cents);
+    case "last_sold": return row.last_sold == null ? -1 : Date.parse(row.last_sold);
+    case "units_sold_90": return row.units_sold_90 == null ? -1 : num(row.units_sold_90);
+    case "units_sold_270": return row.units_sold_270 == null ? -1 : num(row.units_sold_270);
+    case "units_sold_365": return row.units_sold_365 == null ? -1 : num(row.units_sold_365);
     case "weeks_of_supply": return row.weeks_of_supply == null ? Number.MAX_SAFE_INTEGER : num(row.weeks_of_supply);
     case "b6_value_cents": return num(row.b6_value_cents);
     default: return (row as unknown as Record<string, unknown>)[key];
@@ -124,6 +131,7 @@ export function aggregateRows(members: AgingRow[], identity: Identity): AgingRow
   const bq = [0, 0, 0, 0, 0, 0];
   const bv = [0, 0, 0, 0, 0, 0];
   let intA = 0, stoA = 0, units90 = 0, units90HasAny = false;
+  let units270 = 0, units270HasAny = false, units365 = 0, units365HasAny = false;
   let ageWeighted = 0, oldest = 0;
   let lastRecv: string | null = null, lastSold: string | null = null;
   let daysSince: number | null = null;
@@ -142,6 +150,8 @@ export function aggregateRows(members: AgingRow[], identity: Identity): AgingRow
     intA += num(m.int_annual_cents);
     stoA += num(m.sto_annual_cents);
     if (m.units_sold_90 != null) { units90 += num(m.units_sold_90); units90HasAny = true; }
+    if (m.units_sold_270 != null) { units270 += num(m.units_sold_270); units270HasAny = true; }
+    if (m.units_sold_365 != null) { units365 += num(m.units_sold_365); units365HasAny = true; }
     ageWeighted += q * num(m.wavg_age_days);
     if (num(m.oldest_age_days) > oldest) oldest = num(m.oldest_age_days);
     lastRecv = laterIso(lastRecv, m.last_received);
@@ -171,7 +181,10 @@ export function aggregateRows(members: AgingRow[], identity: Identity): AgingRow
     int_annual_cents: intA, sto_annual_cents: stoA,
     carry_pct: carryPct, carry_per_unit_cents: carryPerUnit,
     last_sold: lastSold, days_since_last_sale: daysSince,
-    units_sold_90: units90HasAny ? units90 : null, weeks_of_supply: wos,
+    units_sold_90: units90HasAny ? units90 : null,
+    units_sold_270: units270HasAny ? units270 : null,
+    units_sold_365: units365HasAny ? units365 : null,
+    weeks_of_supply: wos,
     uncosted_qty: uncosted,
   };
 }
