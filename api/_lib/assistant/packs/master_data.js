@@ -19,14 +19,17 @@ const scalesMissing = {
   key: "master.scales_missing",
   module_key: "style_master",
   async run(admin) {
+    // v_style_scale_missing = genuinely missing (no scale + a real multi-size
+    // run). NOT v_style_scale_candidates, which is one-row-per-style (its count
+    // = the TOTAL style count, so it never moved — the "still 2,119" bug).
     const n = await headCount(
-      admin.from("v_style_scale_candidates").select("id", { count: "exact", head: true }),
+      admin.from("v_style_scale_missing").select("id", { count: "exact", head: true }),
     );
     if (n === 0) return [];
     return [{
       key: "master.scales_missing",
       title: "Styles missing a size scale",
-      detail: "Sized variants, no scale — bulk Auto-assign fixes most in one click",
+      detail: "Multi-size styles with no size scale assigned",
       count: n,
       severity: "warn",
       panel: "style_master",
@@ -58,10 +61,13 @@ const suggestBulkScaleAssign = {
   module_key: "style_master",
   derive(aggregate) {
     const hit = aggregate.todos.find((t) => t.key === "master.scales_missing");
-    if (!hit || (hit.count || 0) < 10) return [];
+    if (!hit || (hit.count || 0) < 5) return [];
+    // Honest framing: Auto-assign clears the ones with a clean size run it can
+    // confidently match (≥3 sizes, ≥60% coverage); the rest need a quick manual
+    // pick in Style Master. Don't claim it fixes "most in one click".
     return [{
       key: "master.suggest_bulk_scale_assign",
-      text: `Style Master's 🎯 Auto-assign can scale-match ${hit.count.toLocaleString()} styles in one preview-then-apply pass — one at a time would take days (user guide ch02).`,
+      text: `${hit.count.toLocaleString()} styles have a size run but no size scale — Style Master's 🎯 Auto-assign matches the clean ones in one preview-then-apply pass; the rest take a quick manual pick (user guide ch02).`,
       panel: "style_master",
     }];
   },
