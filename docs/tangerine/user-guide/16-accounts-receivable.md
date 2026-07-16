@@ -191,6 +191,16 @@ The detail lazy-loads the invoice's lines (`GET /api/internal/ar-invoices/:id`) 
 
 The grouping logic lives in the pure, unit-tested helper `src/tanda/arInvoiceLineDetail.ts` (`buildArLineDetail`); the read-only expander reuses the existing invoice-detail endpoint, so no new API was added.
 
+### Why some lines land in "Other lines" — size grain of mirrored AR
+
+Mirrored / historical AR invoices (`source='xoro_mirror'` and the `manual` history backfill) inherit their `inventory_item_id` from `ip_sales_history_wholesale`, whose feeds (the Excel sales ingest **and** `xoro-sales-sync`) deliberately roll SKUs up to **style + color grain** (`canonStyleColor`) so they line up with the planning grid. A style + color item has no size, so the expander can't place the line in a size cell — it falls to **Other lines**. **Planning's grain is intentional and is never changed.**
+
+Two mechanisms restore size grain on the AR side without touching planning:
+
+1. **Item size-resolution (#1817 + follow-up).** `scripts/backfills/ar-mirror-size-resolution.mjs --parse-sizes` populates `ip_item_master.size` for items whose `sku_code` already embeds a size token (`…-LARGE`, `…-12MO`, `…-30`), turning the AR lines that point at them into true matrix cells. Items that are **duplicate fragments** of an already-sized twin (writing the size would violate `uq_ip_item_master_logical_sku`) are handled by `scripts/backfills/ar-line-repoint-fragments.mjs`, which **re-points the AR line to the canonical sized twin** — touching only `inventory_item_id`, so the line total is provably untouched (the `ar_invoice_lines_compute_total_trg` clobber trigger is column-scoped to `quantity, unit_price_cents, line_total_cents` and does not fire).
+
+2. **Size-grain explosion (this PR).** When a size-grain **source** carries per-size lines for an invoice, the AR mirror **explodes** the one style + color line into per-size lines pointing at true size-grain items, preserving the line total **to the cent** (remainder to the last size). The source is `raw_xoro_payloads` rows with `endpoint='sales-history'` — the raw Xoro `invoice/getinvoice` response (already mirrored locally), whose `invoiceItemLineArr[].ItemNumber` is the full size SKU. This runs automatically in the nightly mirror (`api/_lib/xoro-mirror/ar-sizegrain.js`, wired into `ar.js`) and can be applied to existing invoices with `scripts/backfills/ar-sizegrain-explode.mjs`. Coverage is bounded by how many invoices the sales-history raw-payload ingest holds; uncovered invoices stay as honest style + color rollups (no fabricated sizes). Every exploded insert sets `unit_price_cents=NULL` unless `quantity × unit` reproduces the total exactly, so a discounted net is never re-grossed by the compute trigger (#1674).
+
 ## Supporting documents
 
 The edit modal embeds `<DocumentAttachmentList contextTable="ar_invoices" kinds={["customer_invoice_pdf","approval_correspondence","other"]} />` so accountants can attach the PDF copy of the invoice that goes out to the customer plus any approval correspondence.

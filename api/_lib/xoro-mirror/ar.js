@@ -32,6 +32,12 @@
 //     errors: [ { kind, ...context } ],
 //   }
 
+import {
+  loadSizeSourceFromRawPayloads,
+  resolveOrCreateSizeItems,
+  buildExplodedInvoiceLines,
+} from "./ar-sizegrain.js";
+
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isISODate(v) {
@@ -249,9 +255,20 @@ export async function mirrorArForDate(supabase, entity_id, mirror_date) {
 
   const groups = groupByInvoice(srcRows);
 
+  // Size-grain source (best-effort): raw_xoro_payloads holds the raw Xoro
+  // invoice/getinvoice response with per-size lines. When an invoice is
+  // covered, processGroup explodes its style+color lines into per-size lines.
+  // Never fatal — a failed load leaves every invoice as a style+color rollup.
+  let sizeSource = new Map();
+  try {
+    sizeSource = await loadSizeSourceFromRawPayloads(supabase, [...groups.keys()]);
+  } catch {
+    sizeSource = new Map();
+  }
+
   for (const group of groups.values()) {
     try {
-      await processGroup(supabase, { entity_id, group, summary });
+      await processGroup(supabase, { entity_id, group, summary, sizeSource });
     } catch (e) {
       summary.errors.push({
         kind: "group_failed",
@@ -266,10 +283,43 @@ export async function mirrorArForDate(supabase, entity_id, mirror_date) {
 }
 
 /**
+ * Best-effort size-grain explosion for one invoice's composed rollup lines.
+ * Returns the final ar_invoice_lines set (exploded per-size where the size
+ * source covers a style+color line; original rollup line otherwise). NEVER
+ * throws — any failure returns the untouched rollup lines, so the mirror is
+ * always safe. Internal (`_`-prefixed) fields are stripped before return.
+ */
+export async function maybeExplodeLines(supabase, { entity_id, invoice_number, composedLines, sizeSource }) {
+  try {
+    const sizeLines = sizeSource && typeof sizeSource.get === "function" ? sizeSource.get(invoice_number) : null;
+    if (!sizeLines || sizeLines.length === 0) return composedLines;
+
+    // Need each rollup line's style+color sku_code to bucket the size lines.
+    const itemIds = [...new Set(composedLines.map((l) => l.inventory_item_id).filter(Boolean))];
+    if (itemIds.length === 0) return composedLines;
+    const { data: items } = await supabase
+      .from("ip_item_master")
+      .select("id, sku_code")
+      .in("id", itemIds);
+    const skuById = new Map((items || []).map((r) => [r.id, r.sku_code]));
+    const rollup = composedLines.map((l) => ({ ...l, _style_color: skuById.get(l.inventory_item_id) || null }));
+
+    // Resolve (or create) the true size-grain items the source references.
+    const itemMap = await resolveOrCreateSizeItems(supabase, entity_id, sizeLines.map((s) => s.canon_sku));
+    const { lines } = buildExplodedInvoiceLines(rollup, sizeLines, (e) => itemMap.get(e.canon_sku) || null);
+
+    // Strip internal bookkeeping fields before they reach the DB insert.
+    return lines.map(({ _style_color, _size, _canon_sku, ...rest }) => rest);
+  } catch {
+    return composedLines;
+  }
+}
+
+/**
  * Process one Xoro invoice group: resolve customer → upsert ar_invoices →
  * delete-and-reinsert ar_invoice_lines.
  */
-async function processGroup(supabase, { entity_id, group, summary }) {
+async function processGroup(supabase, { entity_id, group, summary, sizeSource }) {
   // 1. Resolve customer.
   const resolved = await resolveCustomerId(supabase, {
     entity_id,
@@ -291,9 +341,15 @@ async function processGroup(supabase, { entity_id, group, summary }) {
     return;
   }
 
-  // 2. Compose lines first so we know the total.
+  // 2. Compose style+color rollup lines, then (best-effort) explode into
+  //    per-size lines when a size-grain source covers this invoice. Explosion
+  //    preserves each rollup line's total to the cent, so total_amount_cents is
+  //    computed AFTER and is unchanged whether or not explosion fired.
   const composedLines = group.lines.map((src, i) => composeLine(null, i + 1, src));
-  const total_amount_cents = composedLines.reduce((sum, l) => sum + (l.line_total_cents || 0), 0);
+  const finalLines = await maybeExplodeLines(supabase, {
+    entity_id, invoice_number: group.invoice_number, composedLines, sizeSource,
+  });
+  const total_amount_cents = finalLines.reduce((sum, l) => sum + (l.line_total_cents || 0), 0);
 
   // 3. Look up the existing invoice (if any) by (entity_id, invoice_number)
   //    to decide between INSERT, UPDATE, or skip-manual-conflict.
@@ -390,8 +446,8 @@ async function processGroup(supabase, { entity_id, group, summary }) {
     return;
   }
 
-  // Stamp ar_invoice_id on the composed lines.
-  const linesToInsert = composedLines.map((l) => ({ ...l, ar_invoice_id: invoiceId }));
+  // Stamp ar_invoice_id on the final (possibly exploded) lines.
+  const linesToInsert = finalLines.map((l) => ({ ...l, ar_invoice_id: invoiceId }));
   if (linesToInsert.length > 0) {
     const { error: linesErr } = await supabase
       .from("ar_invoice_lines")

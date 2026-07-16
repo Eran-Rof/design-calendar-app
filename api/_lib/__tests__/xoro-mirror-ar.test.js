@@ -21,7 +21,14 @@ import {
   composeInvoiceHeader,
   groupByInvoice,
   resolveCustomerId,
+  maybeExplodeLines,
 } from "../xoro-mirror/ar.js";
+import {
+  allocateProportional,
+  normalizeInvoicePayloadLines,
+  composeExplodedLines,
+  buildExplodedInvoiceLines,
+} from "../xoro-mirror/ar-sizegrain.js";
 
 const ENTITY_ID = "00000000-0000-0000-0000-000000000001";
 const OTHER_ENTITY_ID = "00000000-0000-0000-0000-0000000000ff";
@@ -61,6 +68,7 @@ function makeSupabase(seed = {}) {
           if (f.op === "lt" && !(row[f.col] < f.val)) return false;
           if (f.op === "is" && f.val === null && !(row[f.col] === null || row[f.col] === undefined)) return false;
           if (f.op === "is" && f.val !== null && row[f.col] !== f.val) return false;
+          if (f.op === "in" && !(Array.isArray(f.val) && f.val.includes(row[f.col]))) return false;
         }
         return true;
       });
@@ -110,6 +118,7 @@ function makeSupabase(seed = {}) {
       select(cols = "*") { selectCols = cols; if (mode === "insert") { postSelect = true; postSelectCols = cols; } return builder; },
       eq(col, val) { filters.push({ op: "eq", col, val }); return builder; },
       is(col, val) { filters.push({ op: "is", col, val }); return builder; },
+      in(col, vals) { filters.push({ op: "in", col, val: vals }); return builder; },
       gte(col, val) { filters.push({ op: "gte", col, val }); return builder; },
       lt(col, val) { filters.push({ op: "lt", col, val }); return builder; },
       insert(rows) { mode = "insert"; toInsert = rows; return builder; },
@@ -649,5 +658,199 @@ describe("mirrorArForDate — line composition edge cases", () => {
     const { sb, store } = makeSupabase(seed);
     await mirrorArForDate(sb, ENTITY_ID, "2026-05-28");
     expect(store.ar_invoices[0].total_amount_cents).toBe(777);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Size-grain explosion (deliverable 2)
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("allocateProportional", () => {
+  it("splits exactly and preserves the total", () => {
+    expect(allocateProportional(100, [6, 4])).toEqual([60, 40]);
+    const p = allocateProportional(10000, [6000, 4000]);
+    expect(p.reduce((a, b) => a + b, 0)).toBe(10000);
+  });
+  it("hands the rounding remainder to the largest fractional remainder", () => {
+    const p = allocateProportional(10, [1, 1, 1]);
+    expect(p.reduce((a, b) => a + b, 0)).toBe(10);
+    expect(p).toEqual([4, 3, 3]);
+  });
+  it("even-splits when all weights are zero", () => {
+    expect(allocateProportional(7, [0, 0, 0])).toEqual([3, 2, 2]);
+  });
+  it("returns zeros for total 0", () => {
+    expect(allocateProportional(0, [5, 5])).toEqual([0, 0]);
+  });
+  it("is cents-exact on a discounted (indivisible) total", () => {
+    const p = allocateProportional(9499, [7, 3]);
+    expect(p.reduce((a, b) => a + b, 0)).toBe(9499);
+  });
+});
+
+describe("normalizeInvoicePayloadLines", () => {
+  const rec = {
+    invoiceHeader: { InvoiceNumber: "PT-I001348" },
+    invoiceItemLineArr: [
+      { Id: 1, ItemNumber: "PTYG0001H-Black-M", Qty: 6, TotalAmount: 42, Discount: 0 },
+      { Id: 2, ItemNumber: "PTYG0001H-Black-L", Qty: 4, TotalAmount: 28, Discount: 0 },
+      { Id: 3, ItemNumber: "", Qty: 1, TotalAmount: 5 },
+    ],
+  };
+  it("reads the invoice number from the header", () => {
+    expect(normalizeInvoicePayloadLines(rec).invoice_number).toBe("PT-I001348");
+  });
+  it("keeps only lines with a SKU and carries size + net cents", () => {
+    const { lines } = normalizeInvoicePayloadLines(rec);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ canon_sku: "PTYG0001H-BLACK-M", style_color: "PTYG0001H-BLACK", size: "M", qty: 6, net_cents: 4200 });
+  });
+  it("computes net = gross - discount in cents", () => {
+    const { lines } = normalizeInvoicePayloadLines({
+      invoiceHeader: { InvoiceNumber: "X" },
+      invoiceItemLineArr: [{ ItemNumber: "A-RED-M", Qty: 2, TotalAmount: 20, Discount: 3 }],
+    });
+    expect(lines[0].net_cents).toBe(1700);
+  });
+});
+
+describe("composeExplodedLines", () => {
+  const resolve = (e) => ({ "A-RED-M": "id-m", "A-RED-L": "id-l" }[e.canon_sku] || null);
+  const sizeLines = [
+    { canon_sku: "A-RED-M", size: "M", qty: 6, net_cents: 6000, item_number: "A-RED-M" },
+    { canon_sku: "A-RED-L", size: "L", qty: 4, net_cents: 4000, item_number: "A-RED-L" },
+  ];
+  it("preserves the line total to the cent", () => {
+    const out = composeExplodedLines({ line_number: 1, line_total_cents: 10000, quantity: 10 }, sizeLines, resolve);
+    expect(out.reduce((a, l) => a + l.line_total_cents, 0)).toBe(10000);
+  });
+  it("preserves the total quantity", () => {
+    const out = composeExplodedLines({ line_number: 1, line_total_cents: 10000, quantity: 10 }, sizeLines, resolve);
+    expect(out.reduce((a, l) => a + l.quantity, 0)).toBe(10);
+  });
+  it("sets unit_price_cents null when qty*unit cannot reproduce the total (trigger-safe)", () => {
+    const out = composeExplodedLines({ line_number: 1, line_total_cents: 9499, quantity: 10 }, sizeLines, resolve);
+    expect(out.reduce((a, l) => a + l.line_total_cents, 0)).toBe(9499);
+    expect(out.some((l) => l.unit_price_cents === null)).toBe(true);
+  });
+  it("sets a clean unit_price_cents when it divides exactly", () => {
+    const out = composeExplodedLines({ line_number: 1, line_total_cents: 10000, quantity: 10 }, sizeLines, resolve);
+    expect(out.every((l) => l.unit_price_cents === 1000)).toBe(true);
+  });
+  it("returns null when a size item cannot be resolved (keeps the rollup)", () => {
+    const out = composeExplodedLines({ line_number: 1, line_total_cents: 10000, quantity: 10 }, sizeLines, () => null);
+    expect(out).toBeNull();
+  });
+  it("returns null when there are no size lines", () => {
+    expect(composeExplodedLines({ line_number: 1, line_total_cents: 100 }, [], resolve)).toBeNull();
+  });
+});
+
+describe("buildExplodedInvoiceLines", () => {
+  const resolve = (e) => ({ "A-RED-M": "id-m", "A-RED-L": "id-l" }[e.canon_sku] || null);
+  const sizeLines = [
+    { canon_sku: "A-RED-M", size: "M", qty: 6, net_cents: 6000, style_color: "A-RED" },
+    { canon_sku: "A-RED-L", size: "L", qty: 4, net_cents: 4000, style_color: "A-RED" },
+  ];
+  it("explodes matched rollups and re-sequences line numbers", () => {
+    const rollups = [{ line_number: 1, line_total_cents: 10000, quantity: 10, _style_color: "A-RED" }];
+    const { lines, explodedRollups, keptRollups } = buildExplodedInvoiceLines(rollups, sizeLines, resolve);
+    expect(explodedRollups).toBe(1);
+    expect(keptRollups).toBe(0);
+    expect(lines).toHaveLength(2);
+    expect(lines.map((l) => l.line_number)).toEqual([1, 2]);
+    expect(lines.reduce((a, l) => a + l.line_total_cents, 0)).toBe(10000);
+  });
+  it("passes through rollups with no matching size bucket", () => {
+    const rollups = [{ line_number: 1, line_total_cents: 500, quantity: 5, _style_color: "B-BLUE" }];
+    const { lines, explodedRollups, keptRollups } = buildExplodedInvoiceLines(rollups, sizeLines, resolve);
+    expect(explodedRollups).toBe(0);
+    expect(keptRollups).toBe(1);
+    expect(lines).toHaveLength(1);
+  });
+});
+
+describe("maybeExplodeLines (mock-integrated)", () => {
+  function seed() {
+    return {
+      ip_item_master: [
+        { id: "item-sc", sku_code: "A-RED" },
+        { id: "item-m", sku_code: "A-RED-M" },
+        { id: "item-l", sku_code: "A-RED-L" },
+      ],
+    };
+  }
+  const composed = [{ line_number: 1, inventory_item_id: "item-sc", line_total_cents: 10000, quantity: 10, source: "xoro_mirror", description: null }];
+  it("explodes into per-size lines when the invoice is covered", async () => {
+    const { sb } = makeSupabase(seed());
+    const sizeSource = new Map([["INV-1", [
+      { canon_sku: "A-RED-M", size: "M", qty: 6, net_cents: 6000, style_color: "A-RED" },
+      { canon_sku: "A-RED-L", size: "L", qty: 4, net_cents: 4000, style_color: "A-RED" },
+    ]]]);
+    const out = await maybeExplodeLines(sb, { entity_id: ENTITY_ID, invoice_number: "INV-1", composedLines: composed, sizeSource });
+    expect(out).toHaveLength(2);
+    expect(out.map((l) => l.inventory_item_id).sort()).toEqual(["item-l", "item-m"]);
+    expect(out.reduce((a, l) => a + l.line_total_cents, 0)).toBe(10000);
+    expect(out.every((l) => l._style_color === undefined)).toBe(true);
+  });
+  it("is a no-op when the invoice has no size coverage", async () => {
+    const { sb } = makeSupabase(seed());
+    const out = await maybeExplodeLines(sb, { entity_id: ENTITY_ID, invoice_number: "INV-UNCOVERED", composedLines: composed, sizeSource: new Map() });
+    expect(out).toBe(composed);
+  });
+});
+
+describe("mirrorArForDate — size-grain explosion end to end", () => {
+  it("mirrors a covered invoice as per-size lines summing to the invoice total", async () => {
+    const seed = {
+      ip_sales_history_wholesale: [
+        srcRow({ id: "s1", sku_id: "item-sc", invoice_number: "INV-100", txn_date: "2026-05-28", qty: 10, unit_price: 10, net_amount: 100 }),
+      ],
+      ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "A" }],
+      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A" }],
+      ip_item_master: [
+        { id: "item-sc", sku_code: "PTYG0001H-BLACK" },
+        { id: "item-m", sku_code: "PTYG0001H-BLACK-M" },
+        { id: "item-l", sku_code: "PTYG0001H-BLACK-L" },
+      ],
+      raw_xoro_payloads: [
+        { endpoint: "sales-history", payload: { data: [
+          { invoiceHeader: { InvoiceNumber: "INV-100" }, invoiceItemLineArr: [
+            { Id: 1, ItemNumber: "PTYG0001H-Black-M", Qty: 6, TotalAmount: 60, Discount: 0 },
+            { Id: 2, ItemNumber: "PTYG0001H-Black-L", Qty: 4, TotalAmount: 40, Discount: 0 },
+          ] },
+        ] } },
+      ],
+      ar_invoices: [],
+      ar_invoice_lines: [],
+    };
+    const { sb, store } = makeSupabase(seed);
+    const r = await mirrorArForDate(sb, ENTITY_ID, "2026-05-28");
+    expect(r.rows_upserted).toBe(1);
+    const lines = store.ar_invoice_lines.filter((l) => l.ar_invoice_id === store.ar_invoices[0].id);
+    expect(lines).toHaveLength(2);
+    expect(lines.map((l) => l.inventory_item_id).sort()).toEqual(["item-l", "item-m"]);
+    expect(lines.reduce((a, l) => a + l.line_total_cents, 0)).toBe(10000);
+    expect(store.ar_invoices[0].total_amount_cents).toBe(10000);
+  });
+
+  it("leaves an uncovered invoice as a single style+color rollup line", async () => {
+    const seed = {
+      ip_sales_history_wholesale: [
+        srcRow({ id: "s1", sku_id: "item-sc", invoice_number: "INV-NOCOV", txn_date: "2026-05-28", qty: 10, unit_price: 10, net_amount: 100 }),
+      ],
+      ip_customer_master: [{ id: "ipc-1", customer_code: "CUST-A", name: "A" }],
+      customers: [{ id: "c-A", entity_id: ENTITY_ID, code: "CUST-A", customer_code: "CUST-A" }],
+      ip_item_master: [{ id: "item-sc", sku_code: "PTYG0001H-BLACK" }],
+      raw_xoro_payloads: [],
+      ar_invoices: [],
+      ar_invoice_lines: [],
+    };
+    const { sb, store } = makeSupabase(seed);
+    await mirrorArForDate(sb, ENTITY_ID, "2026-05-28");
+    const lines = store.ar_invoice_lines.filter((l) => l.ar_invoice_id === store.ar_invoices[0].id);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].inventory_item_id).toBe("item-sc");
+    expect(store.ar_invoices[0].total_amount_cents).toBe(10000);
   });
 });
