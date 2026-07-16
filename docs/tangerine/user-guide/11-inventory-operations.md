@@ -553,8 +553,13 @@ GL / on-hand / layer impact, idempotent, never overwriting a real cost:
 - **Tier 2 — style-sibling average:** for the fragmented remainder (whose color
   fields carry size fragments, so exact matching fails), apply the **average cost of
   the style** from its own already-costed stock (**~1,841 items / ~156k units**;
-  ~19 items with no costed sibling stay flagged). *Staged in `scripts/backfills/`,
-  applied on review.*
+  ~19 items with no costed sibling stay flagged). *Applied — maintained nightly.*
+
+Tier 2 is **PPK-grain-aware:** a PPK pack is a multiple of the base each, so the
+style average is computed **per grain** — pack siblings inherit only pack-grain
+costs, each siblings only each-grain. A misnumbered prepack (a PPK sku sharing the
+base style code) would otherwise blend a pack cost with each costs into a nonsense
+style average.
 
 After Tier 1 + Tier 2, entity uncosted units fell 455,726 → ~951 (99.8% costed) and
 on-hand value rose $4.25M → $6.99M. A residual of items with no cost anywhere stays
