@@ -239,7 +239,12 @@ export default function InternalSalesOrders() {
   // Item 6 — multi-select status filter (any combination of statuses). Defaults
   // to the live/open statuses (draft, confirmed, allocated, fulfilling) so the
   // grid opens on actionable orders, not the full closed/cancelled history.
-  const [statusFilters, setStatusFilters] = useState<string[]>(["draft", "confirmed", "allocated", "fulfilling"]);
+  // Default to the live/open statuses; a Today drill (?status=draft → "Draft SOs
+  // older than 3 days") narrows the multi-select to just that status on arrival.
+  const [statusFilters, setStatusFilters] = useState<string[]>(() => {
+    const s = readDrillParam("status");
+    return s ? [s] : ["draft", "confirmed", "allocated", "fulfilling"];
+  });
   // Item 5 — selling-store filter (Xoro SaleStoreName), mirrors the Inventory
   // Matrix store filter. storeOptions is the distinct store list for the dropdown.
   const [storeFilter, setStoreFilter] = useState("");
@@ -432,7 +437,7 @@ export default function InternalSalesOrders() {
   // useState initializers above have seeded from them, so leaving and returning to
   // this panel starts with a clean (unfiltered) list instead of silently re-
   // applying a stale search that can hide the whole list. Runs once on mount.
-  useEffect(() => { consumeDrillParams(["q", "so", "customer", "style_id"]); }, []);
+  useEffect(() => { consumeDrillParams(["q", "so", "customer", "style_id", "status"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), storeFilter, customerFilter, searchDebounced]);
   useEffect(() => {
     // Warehouse list for the SO Warehouse field + filter — sourced from the

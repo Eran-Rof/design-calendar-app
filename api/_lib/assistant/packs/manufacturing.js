@@ -28,6 +28,8 @@ const buildsInProgress = {
       count: n,
       severity: "info",
       panel: "mfg_build_orders",
+      // Build Orders filters to the open (draft/issued/in-progress) builds.
+      drill: { status: "open" },
     }];
   },
 };

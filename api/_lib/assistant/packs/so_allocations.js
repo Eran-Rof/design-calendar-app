@@ -30,6 +30,8 @@ const draftSosAging = {
       count: n,
       severity: "action",
       panel: "sales_orders",
+      // Sales Orders defaults to all live statuses — narrow it to just drafts.
+      drill: { status: "draft" },
     }];
   },
 };

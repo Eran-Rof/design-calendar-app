@@ -47,6 +47,7 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import SearchableSelect from "./components/SearchableSelect";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 
 const TABLE_KEY = "tangerine:prepackmatrix:columns";
 const COLUMNS: ColumnDef[] = [
@@ -508,6 +509,12 @@ export default function InternalPrepackMatrix() {
   const [needing, setNeeding] = useState(false);
   const [needed, setNeeded] = useState<NeededRow[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // "PPK styles needing a matrix" drill (Today → master.ppk_matrix_needed,
+  // ?needed=1): open focused on the needed list — banner it and scroll it into
+  // view (the list itself already renders below the matrices table).
+  const [neededFocus, setNeededFocus] = useState<boolean>(() => readDrillParam("needed") === "1");
+  const neededSectionRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (neededFocus) consumeDrillParams(["needed"]); }, [neededFocus]);
 
   const { visibleColumns, toggleColumn, resetToDefault } = useTablePrefs(TABLE_KEY, COLUMNS);
   const isVisible = (k: string): boolean => visibleColumns.has(k);
@@ -571,6 +578,15 @@ export default function InternalPrepackMatrix() {
     return base.filter((x) =>
       [x.ppk_style_code, x.style_name, x.pack_token].some((f) => (f || "").toLowerCase().includes(needle)));
   }, [needed, rows, q]);
+
+  // On the ?needed=1 drill, once the needed list has loaded, scroll it into
+  // view so the operator lands directly on the styles that need work.
+  useEffect(() => {
+    if (neededFocus && neededFiltered.length > 0 && neededSectionRef.current) {
+      neededSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [neededFocus, needed]);
 
   function createFromNeeded(x: NeededRow) {
     setAddPrefill({
@@ -723,6 +739,25 @@ export default function InternalPrepackMatrix() {
         />
       </div>
 
+      {neededFocus && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>
+            Showing {neededFiltered.length.toLocaleString()} PPK style{neededFiltered.length === 1 ? "" : "s"} that still need a prepack matrix
+          </span>
+          <span style={{ color: C.textMuted }}>— click “+ Create” on any row below to build one.</span>
+          <button
+            onClick={() => setNeededFocus(false)}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
       {err && (
         <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>
           Error: {err}
@@ -785,7 +820,7 @@ export default function InternalPrepackMatrix() {
           not only existing matrices. Click "Create" to open the add form
           pre-filled with the style's PPK code, name and pack token. */}
       {neededFiltered.length > 0 && (
-        <div style={{ marginTop: 18 }}>
+        <div style={{ marginTop: 18 }} ref={neededSectionRef}>
           <div style={{ fontSize: 13, color: C.textSub, marginBottom: 8 }}>
             <strong style={{ color: C.warn }}>{neededFiltered.length}</strong> PPK style{neededFiltered.length === 1 ? "" : "s"} still need{neededFiltered.length === 1 ? "s" : ""} a matrix{q.trim() ? ` matching “${q.trim()}”` : ""}
           </div>

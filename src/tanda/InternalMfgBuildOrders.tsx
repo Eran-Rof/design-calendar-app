@@ -5,8 +5,9 @@
 // into WIP at FIFO cost) → capitalize conversion services → complete (WIP →
 // finished-goods inventory at actual cost). Shows the live WIP cost rollup.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
 import QuickAddStyleModal from "./components/QuickAddStyleModal";
 import { EditableSizeMatrix, matrixCellKey, type EditableMatrixRow } from "../shared/matrix/EditableSizeMatrix";
@@ -72,6 +73,15 @@ export default function InternalMfgBuildOrders() {
   const [err, setErr] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // Today drill (?status=open → "Build orders open") filters to the WIP-carrying
+  // builds (draft / issued / in_progress). Client-side (the list is small); the
+  // banner names the filter and clears it.
+  const [openOnly, setOpenOnly] = useState<boolean>(() => readDrillParam("status") === "open");
+  useEffect(() => { consumeDrillParams(["status"]); }, []);
+  const displayRows = useMemo(
+    () => (openOnly ? rows.filter((b) => b.status === "draft" || b.status === "issued" || b.status === "in_progress") : rows),
+    [rows, openOnly],
+  );
 
   async function load() {
     setLoading(true); setErr(null);
@@ -125,7 +135,7 @@ export default function InternalMfgBuildOrders() {
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "center" }}>
         <ExportButton
-          rows={rows.map((b) => ({ build_number: b.build_number, finished_sku: b.finished_item?.sku_code ?? "", target_qty: b.target_qty, status: b.status, accumulated_cost_cents: b.accumulated_cost_cents, finished_unit_cost_cents: b.finished_unit_cost_cents })) as unknown as Array<Record<string, unknown>>}
+          rows={displayRows.map((b) => ({ build_number: b.build_number, finished_sku: b.finished_item?.sku_code ?? "", target_qty: b.target_qty, status: b.status, accumulated_cost_cents: b.accumulated_cost_cents, finished_unit_cost_cents: b.finished_unit_cost_cents })) as unknown as Array<Record<string, unknown>>}
           filename="build-orders"
           sheetName="Build Orders"
           columns={[
@@ -139,11 +149,28 @@ export default function InternalMfgBuildOrders() {
         />
       </div>
 
+      {openOnly && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>Showing {displayRows.length.toLocaleString()} open build order{displayRows.length === 1 ? "" : "s"}</span>
+          <span style={{ color: C.textMuted }}>— draft / issued / in-progress (carrying WIP).</span>
+          <button
+            onClick={() => setOpenOnly(false)}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
+
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}
 
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         {loading ? <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
-          : rows.length === 0 ? <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>No build orders yet. Create one with &quot;+ New build&quot;.</div>
+          : displayRows.length === 0 ? <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>{openOnly ? "No open build orders." : "No build orders yet. Create one with “+ New build”."}</div>
           : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -158,7 +185,7 @@ export default function InternalMfgBuildOrders() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((b) => (
+                {displayRows.map((b) => (
                   <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => setDetailId(b.id)}>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{b.build_number}</td>
                     <td style={td}>{b.finished_item?.sku_code ?? "—"}{b.finished_item?.description ? <span style={{ color: C.textSub }}> — {b.finished_item.description}</span> : null}</td>

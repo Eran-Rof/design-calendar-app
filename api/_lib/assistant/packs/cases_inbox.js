@@ -29,6 +29,8 @@ const myOpenCases = {
       count: n,
       severity: "action",
       panel: "cases",
+      // Cases panel resolves assignee="me" to the signed-in user + status filter.
+      drill: { assignee: "me", status: "open" },
     }];
   },
 };
@@ -50,6 +52,8 @@ const unassignedCases = {
       count: n,
       severity: "warn",
       panel: "cases",
+      // assignee="none" → Cases panel shows only the unassigned open cases.
+      drill: { assignee: "none", status: "open" },
     }];
   },
 };
@@ -72,6 +76,8 @@ const myUnreadNotifications = {
       count: n,
       severity: "info",
       panel: "notifications",
+      // Notification Center opens with "Show read" off (unread only).
+      drill: { unread: "1" },
     }];
   },
 };

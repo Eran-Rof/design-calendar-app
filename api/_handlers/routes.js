@@ -571,6 +571,7 @@ import r_internal_style_master_cbm_estimate from "./internal/style-master/cbm-es
 import r_internal_style_master_dim_values from "./internal/style-master/dim-values.js";
 import r_internal_style_master_index from "./internal/style-master/index.js";
 import r_internal_style_master_notes from "./internal/style-master/notes.js";
+import r_internal_style_master_scale_missing from "./internal/style-master/scale-missing.js";
 import r_internal_style_matrix_index from "./internal/style-matrix/index.js";
 import r_internal_style_matrix_resolve_sku from "./internal/style-matrix/resolve-sku.js";
 import r_internal_style_orders_index from "./internal/style-orders/index.js";
@@ -1012,6 +1013,7 @@ export const ROUTES = [
   { pattern: "/api/internal/inventory-accuracy/summary", handler: r_internal_inventory_accuracy_summary },
   { pattern: "/api/internal/marketplace/convert-to-rfq", handler: r_internal_marketplace_convert_to_rfq },
   { pattern: "/api/internal/month-end-close/run-checks", handler: r_internal_month_end_close_run_checks },
+  { pattern: "/api/internal/style-master/scale-missing", handler: r_internal_style_master_scale_missing },
   { pattern: "/api/internal/three-way-match/tolerances", handler: r_internal_three_way_match_tolerances },
   { pattern: "/api/internal/xoro-mirror/backfill-range", handler: r_internal_xoro_mirror_backfill_range },
   { pattern: "/api/internal/analytics/diversity-spend", handler: r_internal_analytics_diversity_spend },

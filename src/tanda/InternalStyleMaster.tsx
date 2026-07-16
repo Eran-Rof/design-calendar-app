@@ -67,6 +67,7 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { useSearchSeed } from "./hooks/useSearchSeed";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { getCachedAuthUserId, getCachedAuthUserEmail } from "../utils/tangerineAuthUser";
 // Universal row-click + scroll-highlight primitive (operator ask #4).
 import { useRowClickEdit } from "./hooks/useRowClickEdit";
@@ -251,6 +252,13 @@ export default function InternalStyleMaster() {
   const [reviewOnly, setReviewOnly] = useState<boolean>(() => {
     try { return new URLSearchParams(window.location.search).get("review") === "1"; } catch { return false; }
   });
+  // "Missing size scale" drill (Today → master.scales_missing, ?scale=missing):
+  // filters the grid to just the styles the v_style_scale_missing view flags
+  // (no size_scale_id + a real multi-size run — the 44). The style_codes come
+  // from /api/internal/style-master/scale-missing so the count matches the
+  // to-do exactly; the grid then shows only those.
+  const [scaleMissing, setScaleMissing] = useState<boolean>(() => readDrillParam("scale") === "missing");
+  const [missingScaleCodes, setMissingScaleCodes] = useState<Set<string> | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Style | null>(null);
   const [assigningScales, setAssigningScales] = useState(false);
@@ -394,7 +402,30 @@ export default function InternalStyleMaster() {
     return !!a && (a.needs_review === true || a.source === "planning_promoted");
   };
   const reviewCount = useMemo(() => rows.filter(isNeedsReview).length, [rows]);
-  const visibleRows = useMemo(() => (reviewOnly ? rows.filter(isNeedsReview) : rows), [rows, reviewOnly]);
+  const visibleRows = useMemo(() => {
+    let out = reviewOnly ? rows.filter(isNeedsReview) : rows;
+    if (scaleMissing && missingScaleCodes) {
+      out = out.filter((r) => missingScaleCodes.has(String(r.style_code).toUpperCase()));
+    }
+    return out;
+  }, [rows, reviewOnly, scaleMissing, missingScaleCodes]);
+  // Fetch the missing-scale style_codes once when the drill is active; consume
+  // the one-shot ?scale= param so it doesn't linger on a later visit.
+  useEffect(() => {
+    if (!scaleMissing) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/internal/style-master/scale-missing");
+        if (!r.ok) return;
+        const d = await r.json();
+        const codes: string[] = Array.isArray(d?.style_codes) ? d.style_codes : [];
+        if (alive) setMissingScaleCodes(new Set(codes.map((c) => String(c).toUpperCase())));
+      } catch { /* non-fatal — banner still shows, filter just no-ops */ }
+    })();
+    consumeDrillParams(["scale"]);
+    return () => { alive = false; };
+  }, [scaleMissing]);
   useEffect(() => { void loadDimValues(); }, [loadDimValues]);
   useEffect(() => { void loadBrands(); }, [loadBrands]);
   useEffect(() => { void loadGenders(); }, [loadGenders]);
@@ -649,12 +680,31 @@ export default function InternalStyleMaster() {
         </div>
       )}
 
+      {scaleMissing && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>
+            Showing {missingScaleCodes ? missingScaleCodes.size.toLocaleString() : "…"} style{missingScaleCodes && missingScaleCodes.size === 1 ? "" : "s"} missing a size scale
+          </span>
+          <span style={{ color: C.textMuted }}>— use Auto-assign size scales above, or pick a scale per style.</span>
+          <button
+            onClick={() => { setScaleMissing(false); setMissingScaleCodes(null); }}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
+
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: "calc(100vh - 220px)", overflowY: "auto", overflowX: "auto" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
         ) : visibleRows.length === 0 ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>
-            {reviewOnly ? "No styles awaiting review." : "No styles found."}
+            {scaleMissing ? "No styles missing a size scale." : reviewOnly ? "No styles awaiting review." : "No styles found."}
           </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

@@ -33,6 +33,9 @@ const scalesMissing = {
       count: n,
       severity: "warn",
       panel: "style_master",
+      // Drill straight to the 44 unscaled styles (Style Master's scale=missing
+      // mode filters the grid to v_style_scale_missing; 🎯 Auto-assign is there).
+      drill: { scale: "missing" },
     }];
   },
 };
@@ -52,6 +55,9 @@ const ppkMatrixNeeded = {
       count: n,
       severity: "warn",
       panel: "prepack_matrices",
+      // Drill straight to the "PPK styles needing a matrix" list (Prepack
+      // Matrices focuses that list + banners it when needed=1).
+      drill: { needed: "1" },
     }];
   },
 };

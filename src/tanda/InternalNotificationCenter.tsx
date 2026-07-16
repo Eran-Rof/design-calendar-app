@@ -11,6 +11,7 @@ import { getCachedAuthUserId, setCachedAuthUserId } from "../utils/tangerineAuth
 import SearchableSelect from "./components/SearchableSelect";
 import { useEmployeeOptions } from "./hooks/useEmployeeOptions";
 import { notificationTarget, notificationTargetUrl } from "./notificationTarget";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 
 type NotificationEvent = {
   id: string;
@@ -67,7 +68,9 @@ export default function InternalNotificationCenter() {
   const [rows, setRows] = useState<NotificationDispatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [showRead, setShowRead] = useState(true);
+  // Today drill (?unread=1 → "Unread notifications") opens with read items
+  // hidden; the "Show read" checkbox is the visible toggle to bring them back.
+  const [showRead, setShowRead] = useState(() => readDrillParam("unread") !== "1");
   // Resolve the cached auth user id to a name (no raw uuid shown). An optional
   // employee picker lets you switch whose inbox you view — never a uuid box.
   const [switching, setSwitching] = useState(false);
@@ -104,6 +107,7 @@ export default function InternalNotificationCenter() {
     }
   }
   useEffect(() => { void load(); }, [user, showRead]);
+  useEffect(() => { consumeDrillParams(["unread"]); }, []);
 
   function saveUser(u: string) {
     const trimmed = u.trim();
