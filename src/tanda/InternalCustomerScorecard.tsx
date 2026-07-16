@@ -50,11 +50,22 @@ export default function InternalCustomerScorecard() {
     return () => { cancelled = true; };
   }, []);
 
+  // Only surface the internal CUST-NNNNN code in the picker — never the legacy
+  // Xoro/Excel import ref (EXCEL:MACYS, ATS:…). Those render as all-caps, no-space
+  // machine identifiers next to the proper name, which the operator asked to
+  // remove. Customers with no CUST code show by name alone.
   const options = useMemo<SearchableSelectOption[]>(
     () =>
       customers.map((c) => {
-        const code = displayCustomerCode(c.customer_code ?? c.code ?? null);
-        return { value: c.id, label: code ? `${code} — ${c.name}` : c.name };
+        const code = c.code && /^CUST-/i.test(c.code) ? c.code : null;
+        return {
+          value: c.id,
+          label: code ? `${code} — ${c.name}` : c.name,
+          // Keep the customer searchable by its old import ref without showing it.
+          searchHaystack: [code, c.name, displayCustomerCode(c.customer_code)]
+            .filter(Boolean)
+            .join(" "),
+        };
       }),
     [customers],
   );
@@ -64,7 +75,7 @@ export default function InternalCustomerScorecard() {
     { key: "name", header: "Customer Name" },
   ];
   const exportRows = customers.map((c) => ({
-    code: displayCustomerCode(c.customer_code ?? c.code ?? null) || "",
+    code: (c.code && /^CUST-/i.test(c.code) ? c.code : displayCustomerCode(c.customer_code ?? c.code ?? null)) || "",
     name: c.name,
   }));
 

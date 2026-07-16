@@ -94,7 +94,7 @@ A rep with empty tier table uses `default_commission_pct` on every accrual. A re
 | **AR Aging** | (existing — P4-6) | Stays under 💼 Accounting; relisted in §19.3.6 cross-reference table below |
 | **AP Aging** | `📊 Reports → AP Aging` | NEW (P7-7) — pivoted buckets per vendor |
 | **Sales by Rep** | `📊 Reports → Sales by Rep` | NEW (P7-7) — joins commission_accruals when present |
-| **Sales by Customer** | `📊 Reports → Sales by Customer` | NEW (P7-7) — gross / credit memos / net |
+| **Sales by Customer** | `📊 Reports → Sales by Customer` | gross / credit memos / net. Counts **mirrored historical AR** (`customer_invoice_historical`) as well as native invoices, so the report reflects the full Xoro/Excel sales history — previously it filtered these out and rendered blank. |
 | **GL Detail** | `📊 Reports → GL Detail` | NEW (P7-7) — drill any TB row to underlying JE lines with running balance |
 
 All 5 reports support:
