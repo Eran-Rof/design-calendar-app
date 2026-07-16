@@ -274,6 +274,21 @@ export async function resolveOrCreateSizeItems(supabase, entity_id, canonSkus) {
     .select("id, sku_code");
   if (!error && Array.isArray(created)) {
     for (const r of created) map.set(r.sku_code, r.id);
+  } else if (error) {
+    // A MULTI-ROW insert aborts WHOLESALE when ANY row violates
+    // uq_ip_item_master_logical_sku (#1825 finding: private-label SKUs whose
+    // color can't be parsed collide per (style, '', size) — one collision was
+    // poisoning resolution for every OTHER sku in the batch, skipping ~97% of
+    // otherwise-explodable invoices). Fall back to per-row inserts so a
+    // collision only leaves ITS OWN sku unresolved.
+    for (const row of rows) {
+      const { data: one } = await supabase
+        .from("ip_item_master")
+        .insert(row)
+        .select("id, sku_code")
+        .maybeSingle();
+      if (one) map.set(one.sku_code, one.id);
+    }
   }
   // Re-read anything still unmapped (collision fell back to an existing row,
   // or a partial insert): resolve by sku_code, else by logical twin.
