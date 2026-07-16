@@ -17,7 +17,7 @@ import { useSeqGuard } from "./hooks/useSeqGuard";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
-import { drillToModule, type DrillModuleKey } from "./scorecardDrill";
+import { drillToModule, readDrillParam, consumeDrillParams, type DrillModuleKey } from "./scorecardDrill";
 
 type StripRow = {
   month: string; // YYYY-MM
@@ -259,7 +259,13 @@ const EXPORT_COLUMNS = [
 ] as ExportColumn<Record<string, unknown>>[];
 
 export default function InternalMonthEndClose() {
-  const [month, setMonth] = useState<string>(prevMonthISO());
+  // Preselect the month when arrived at via the Today "prior months not closed"
+  // drill (?month=YYYY-MM) so we land on the period that needs finishing; else
+  // default to the previous calendar month. One-shot: consumed on mount.
+  const [month, setMonth] = useState<string>(() => {
+    const m = readDrillParam("month");
+    return /^\d{4}-\d{2}$/.test(m) ? m : prevMonthISO();
+  });
   const [strip, setStrip] = useState<StripRow[]>([]);
   const [data, setData] = useState<Checklist | null>(null);
   const [loading, setLoading] = useState(true);
@@ -298,6 +304,7 @@ export default function InternalMonthEndClose() {
 
   useEffect(() => { loadStrip(); }, [loadStrip]);
   useEffect(() => { loadChecklist(month); }, [month, loadChecklist]);
+  useEffect(() => { consumeDrillParams(["month"]); }, []);
 
   async function post(path: string, body: Record<string, unknown>): Promise<{ ok: boolean; json: { error?: string; blocking?: Array<{ label: string }> } }> {
     const r = await fetch(`/api/internal/month-end-close/${path}`, {

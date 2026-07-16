@@ -60,6 +60,9 @@ const chargebacksOpen = {
       count: n,
       severity: "warn",
       panel: "chargebacks",
+      // Chargeback Management already reads cb_disposition on mount — land the
+      // worklist filtered to the open items (#1744).
+      drill: { cb_disposition: "open" },
     }];
   },
 };
@@ -91,6 +94,18 @@ const monthEndClose = {
         .neq("status", "closed").lt("period_month", currentMonth),
     );
     if (openPrior === 0) return [];
+    // Preselect the EARLIEST still-open prior period so Month-End Close opens on
+    // the one that most needs finishing. period_month is a YYYY-MM-01 date; the
+    // panel's month selector keys on YYYY-MM.
+    let drill;
+    const { data: earliest } = await admin
+      .from("close_periods")
+      .select("period_month")
+      .neq("status", "closed").lt("period_month", currentMonth)
+      .order("period_month", { ascending: true })
+      .limit(1);
+    const pm = Array.isArray(earliest) && earliest[0] ? earliest[0].period_month : null;
+    if (pm) drill = { month: String(pm).slice(0, 7) };
     return [{
       key: "accounting.close_open_prior",
       title: "Prior months not closed",
@@ -98,6 +113,7 @@ const monthEndClose = {
       count: openPrior,
       severity: "action",
       panel: "month_end_close",
+      ...(drill ? { drill } : {}),
     }];
   },
 };

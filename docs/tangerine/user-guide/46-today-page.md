@@ -40,6 +40,8 @@ What can appear here today:
 | Unread notifications | your in-app notification inbox | Notifications |
 | Build orders open | draft / issued / in-progress manufacturing builds | Build Orders |
 
+**Every to-do drills straight to the items that need work.** Clicking a row no longer just opens the bare panel — it opens it **pre-filtered to exactly the subset the count refers to**, so you land on the work, not a screen to go hunt in. *Styles missing a size scale* opens Style Master showing **only** those styles (with 🎯 Auto-assign right there); *PPK styles without a matrix* opens Prepack Matrices focused on the needed list; *Chargebacks to disposition* lands on the open items; *Prior months not closed* opens Month-End Close already on the earliest unfinished month; *Failed QC inspections* filters to the failures; *Draft SOs older than 3 days* filters Sales Orders to drafts; *Cases assigned to you* / *unassigned open cases* filter the case list to yours / the unowned ones; *Unread notifications* opens with read items hidden; *Build orders open* filters to the WIP-carrying builds. When a click applies a filter, a small blue banner names it with a **✕ Clear** so you're never stuck in a filtered view. (A few status-page items — Sync Health, the mirror process cards, the Planning app and PO WIP — open as-is, since there's no sub-list to narrow.)
+
 **Access-rights aware:** when RBAC enforcement is on, you only see rows for modules you hold read access to — a warehouse user's Today page and the bookkeeper's look completely different.
 
 ## 46.1b The assistant follows you (companion mode)

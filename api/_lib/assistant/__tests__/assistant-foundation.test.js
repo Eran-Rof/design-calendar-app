@@ -286,6 +286,41 @@ describe("real packs run against canned counts", () => {
 
     // every emitted item uses the closed severity vocabulary
     for (const t of out.todos) expect(isValidSeverity(t.severity), t.key).toBe(true);
+
+    // Today drill params — each wired to-do carries the filter its panel reads.
+    expect(byKey["accounting.chargebacks_open"].drill).toEqual({ cb_disposition: "open" });
+    expect(byKey["master.scales_missing"].drill).toEqual({ scale: "missing" });
+    expect(byKey["master.ppk_matrix_needed"].drill).toEqual({ needed: "1" });
+    expect(byKey["so.drafts_aging"].drill).toEqual({ status: "draft" });
+    expect(byKey["mfg.builds_open"].drill).toEqual({ status: "open" });
+    expect(byKey["cases.mine_open"].drill).toEqual({ assignee: "me", status: "open" });
+    expect(byKey["cases.unassigned_open"].drill).toEqual({ assignee: "none", status: "open" });
+    expect(byKey["cases.notifications_unread"].drill).toEqual({ unread: "1" });
+    // Deferred / intentionally plain-open to-dos carry no drill.
+    expect(byKey["po.receipts_overdue"].drill).toBeUndefined();
+    expect(byKey["accounting.cron_errors_24h"].drill).toBeUndefined();
+    expect(byKey["accounting.close_not_started"].drill).toBeUndefined();
+  });
+
+  it("close_open_prior carries a month drill = the earliest still-open prior period", async () => {
+    // close_periods exists (total>0) with an open prior month; the provider adds
+    // a drill preselecting the EARLIEST open prior period (YYYY-MM).
+    const closeAdmin = fakeAdmin((state) => {
+      if (state.table === "ai_insights") return { data: [] };
+      if (state.table === "close_periods") {
+        if (state.filters.length === 0) return { count: 5 };          // total rows
+        if (state.opts && state.opts.head) return { count: 3 };       // openPrior count
+        return { data: [{ period_month: "2025-11-01" }] };            // earliest select
+      }
+      return { count: 0, data: [] }; // every other pack stays quiet
+    });
+    const out = await buildToday(closeAdmin, {
+      userId: "u1", permissions: null, dismissedKeys: new Set(), todayISO: "2026-07-14",
+    });
+    const hit = out.todos.find((t) => t.key === "accounting.close_open_prior");
+    expect(hit).toBeTruthy();
+    expect(hit.count).toBe(3);
+    expect(hit.drill).toEqual({ month: "2025-11" });
   });
 
   it("personal items stay hidden without a resolvable user", async () => {

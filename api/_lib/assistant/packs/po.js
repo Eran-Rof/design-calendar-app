@@ -107,9 +107,11 @@ const qcFailedOpen = {
   key: "po.qc_failed_open",
   module_key: "procurement",
   async run(admin) {
+    // Status vocabulary is CHECK (pending|passed|failed|partial) — 'failed',
+    // not 'fail' (the old value never matched, so this to-do never fired).
     const n = await headCount(
       admin.from("tanda_po_qc_inspections").select("id", { count: "exact", head: true })
-        .eq("status", "fail"),
+        .eq("status", "failed"),
     );
     if (n === 0) return [];
     return [{
@@ -119,6 +121,8 @@ const qcFailedOpen = {
       count: n,
       severity: "warn",
       panel: "qc_inspections",
+      // QC Inspections reads a status filter — land it on the failed ones.
+      drill: { status: "failed" },
     }];
   },
 };

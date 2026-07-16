@@ -15,6 +15,7 @@ import { usePersonalization } from "../hooks/usePersonalization";
 import { notify } from "../shared/ui/warn";
 import { MODULES } from "../erp/modules";
 import { resolveIntent, type IntentAlternative } from "./todayIntentRouter";
+import { buildPanelUrl } from "./scorecardDrill";
 
 // menuKeys key for this page — setting it as home_route makes Today the
 // operator's auto-landing screen (T4-4 redirect, once per tab session).
@@ -34,12 +35,15 @@ type TodoItem = {
   key: string; title: string; detail?: string; count: number;
   severity: "action" | "warn" | "error" | "info";
   panel?: string | null; href?: string; pack: string;
+  // One-shot filter params to apply to the target panel's URL so the to-do
+  // drills straight to the subset that needs work (e.g. { scale: "missing" }).
+  drill?: Record<string, string> | null;
 };
 type ProcessItem = {
   key: string; label: string; state: "ok" | "running" | "warn" | "error";
   detail?: string; last_run_at?: string | null; panel?: string | null; pack: string;
 };
-type SuggestionItem = { key: string; text: string; panel?: string | null; pack: string };
+type SuggestionItem = { key: string; text: string; panel?: string | null; pack: string; drill?: Record<string, string> | null };
 type InsightRow = { id: string | number; title?: string; summary?: string; recommendation?: string };
 
 type TodayPayload = {
@@ -64,12 +68,12 @@ const STATE_DOT: Record<string, string> = {
 };
 
 /** Same-shell module hop — the URL contract every panel honors (?m= +
- *  synthetic popstate; see scorecardDrill.ts).                          */
-function goToPanel(moduleKey: string): void {
-  const url = new URL(window.location.href);
-  for (const k of ["vendor", "customer", "q"]) url.searchParams.delete(k);
-  url.searchParams.set("m", moduleKey);
-  window.history.pushState({ module: moduleKey }, "", url.toString());
+ *  synthetic popstate; see scorecardDrill.ts). An optional `drill` map seeds
+ *  the target panel's one-shot filter params so the hop lands on the subset
+ *  that needs work (mirrors scorecardDrill.drillToModule).                */
+function goToPanel(moduleKey: string, drill?: Record<string, string> | null): void {
+  const href = buildPanelUrl(window.location.href, moduleKey, drill);
+  window.history.pushState({ module: moduleKey }, "", href);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -112,9 +116,10 @@ export default function InternalToday() {
   }, []);
   useEffect(() => { loadBrief(); }, [loadBrief]);
 
-  // Navigate to a to-do (its owning panel / href) exactly like a row click.
-  const openTodo = useCallback((it: { panel?: string | null; href?: string }) => {
-    if (it.panel) goToPanel(it.panel);
+  // Navigate to a to-do (its owning panel / href) exactly like a row click,
+  // carrying its drill params so the panel opens filtered to the subset.
+  const openTodo = useCallback((it: { panel?: string | null; href?: string; drill?: Record<string, string> | null }) => {
+    if (it.panel) goToPanel(it.panel, it.drill);
     else if (it.href) window.location.href = it.href;
   }, []);
 
@@ -391,7 +396,7 @@ export default function InternalToday() {
             {data.suggestions.map((s) => (
               <div
                 key={s.key}
-                onClick={() => s.panel && goToPanel(s.panel)}
+                onClick={() => s.panel && goToPanel(s.panel, s.drill)}
                 style={{
                   display: "flex", gap: 10, padding: "8px 8px", borderTop: `1px solid ${C.cardBdr}`,
                   cursor: s.panel ? "pointer" : "default", alignItems: "flex-start",

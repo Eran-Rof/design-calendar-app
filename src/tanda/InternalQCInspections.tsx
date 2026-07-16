@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { notify } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -85,9 +86,15 @@ export default function InternalQCInspections() {
   const [pos, setPos] = useState<PO[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("");
+  // Seed from the Today drill (?status=failed → "Failed QC inspections") so the
+  // grid lands filtered; the status dropdown is the visible filter + reset.
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const s = readDrillParam("status");
+    return QC_STATUSES.includes(s) ? s : "";
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Inspection | null>(null);
+  useEffect(() => { consumeDrillParams(["status"]); }, []);
 
   const poById = useMemo(() => new Map(pos.map((p) => [p.id, p])), [pos]);
 

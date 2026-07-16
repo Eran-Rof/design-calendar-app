@@ -64,6 +64,41 @@ export function drillToModule(
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+// Every one-shot drill/filter param name that any panel-hop may set. Cleared
+// on EVERY same-shell navigation so a stale filter from a prior drill (e.g. a
+// `?status=` left by a Sales-Orders hop) can't silently cross-wire the next
+// panel. Panels also self-clear via consumeDrillParams on mount; this belt-and-
+// braces list guards the window before that mount runs.
+export const DRILL_PARAM_KEYS = [
+  "vendor", "customer", "q", "so", "style_id", "review",
+  "scale", "needed", "cb_disposition", "cb_month",
+  "status", "month", "unread", "assignee", "due",
+] as const;
+
+/**
+ * Pure builder for the Today page's same-shell panel hop. Given the current
+ * URL, a target moduleKey and an optional one-shot drill map, returns the URL
+ * to push: `?m=<moduleKey>` plus each drill param. Stale drill params are
+ * stripped first so a no-drill hop lands on the bare panel.
+ *
+ * Extracted so the plumbing is unit-testable without a DOM (Today Layer 1).
+ */
+export function buildPanelUrl(
+  currentHref: string,
+  moduleKey: string,
+  drill?: Record<string, string> | null,
+): string {
+  const url = new URL(currentHref);
+  for (const k of DRILL_PARAM_KEYS) url.searchParams.delete(k);
+  url.searchParams.set("m", moduleKey);
+  if (drill) {
+    for (const [k, v] of Object.entries(drill)) {
+      if (v != null && String(v) !== "") url.searchParams.set(k, String(v));
+    }
+  }
+  return url.toString();
+}
+
 /**
  * Read a single query param once (panel mount). Mirrors how ATSContext reads
  * `?style=`. Returns "" when absent so callers can use it directly as seed.

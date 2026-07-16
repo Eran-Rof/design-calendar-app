@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import ExportButton from "./exports/ExportButton";
 import SearchableSelect from "./components/SearchableSelect";
 // Cross-cutter T11-3 — audit-trail drop-in for the case detail modal.
@@ -161,10 +162,23 @@ export default function InternalCases() {
     return m;
   }, [employees]);
 
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  // Today drills seed these on mount (one-shot):
+  //   cases.mine_open       → ?assignee=me&status=open  (my open cases)
+  //   cases.unassigned_open → ?assignee=none&status=open (no owner yet)
+  // "me" resolves to the signed-in user; "none" can't be a server filter
+  // (assignee_user_id must be a uuid), so it's applied client-side + bannered.
+  const [statusFilter, setStatusFilter] = useState<string>(() => readDrillParam("status"));
   const [severityFilter, setSeverityFilter] = useState<string>("");
-  const [assigneeFilter, setAssigneeFilter] = useState<string>("");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>(() => {
+    if (readDrillParam("assignee") === "me") {
+      const me = getCachedAuthUserId();
+      return /^[0-9a-f-]{36}$/i.test(me) ? me : "";
+    }
+    return "";
+  });
+  const [unassignedOnly, setUnassignedOnly] = useState<boolean>(() => readDrillParam("assignee") === "none");
   const [q, setQ] = useState<string>("");
+  useEffect(() => { consumeDrillParams(["assignee", "status"]); }, []);
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -231,6 +245,13 @@ export default function InternalCases() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, severityFilter, assigneeFilter, q]);
 
+  // "Unassigned" is not a server filter (assignee_user_id must be a uuid), so
+  // the ?assignee=none drill is applied here over the server-returned set.
+  const displayRows = useMemo(
+    () => (unassignedOnly ? rows.filter((r) => !r.assignee_user_id) : rows),
+    [rows, unassignedOnly],
+  );
+
   const filterBarStyle: React.CSSProperties = {
     display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
     marginBottom: 14,
@@ -247,7 +268,7 @@ export default function InternalCases() {
         </span>
         <div style={{ flex: 1 }} />
         <ExportButton
-          rows={rows.map((r) => ({
+          rows={displayRows.map((r) => ({
             case_number: r.case_number,
             status: r.status,
             severity: r.severity,
@@ -319,6 +340,23 @@ export default function InternalCases() {
         </div>
       </div>
 
+      {unassignedOnly && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>Showing {displayRows.length.toLocaleString()} unassigned case{displayRows.length === 1 ? "" : "s"}</span>
+          <span style={{ color: C.textMuted }}>— triage and assign an owner.</span>
+          <button
+            onClick={() => setUnassignedOnly(false)}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
+
       {err && (
         <div style={{
           background: "#7f1d1d", color: "#fecaca", padding: "8px 12px",
@@ -349,10 +387,10 @@ export default function InternalCases() {
             {loading && (
               <tr><td style={td} colSpan={8}>Loading…</td></tr>
             )}
-            {!loading && rows.length === 0 && (
+            {!loading && displayRows.length === 0 && (
               <tr><td style={td} colSpan={8}>No cases match.</td></tr>
             )}
-            {!loading && rows.map((r) => (
+            {!loading && displayRows.map((r) => (
               <tr
                 key={r.id}
                 onClick={() => setDetailId(r.id)}

@@ -245,6 +245,7 @@ export default [
   ["/api/internal/style-master/dim-values"                   , "./internal/style-master/dim-values.js"],
   ["/api/internal/style-master/notes"                        , "./internal/style-master/notes.js"],
   ["/api/internal/style-master/auto-assign-scales"           , "./internal/style-master/auto-assign-scales.js"],
+  ["/api/internal/style-master/scale-missing"                , "./internal/style-master/scale-missing.js"],
   ["/api/internal/style-master/cbm-estimate"                 , "./internal/style-master/cbm-estimate.js"],
   ["/api/internal/style-master/:id"                          , "./internal/style-master/[id].js"],
   ["/api/internal/style-master"                              , "./internal/style-master/index.js"],
