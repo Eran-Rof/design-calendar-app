@@ -43,6 +43,10 @@ export default function PlanningRunControls({
   const [showEdit, setShowEdit] = useState(false);
   const [building, setBuilding] = useState(false);
   const [pushingBuys, setPushingBuys] = useState(false);
+  // After a successful "Finalize with my buys" push we show a small success
+  // modal (instead of a bare toast) that points the planner forward to the
+  // Buy plan. Holds the finalized line/unit counts for the modal body.
+  const [pushResult, setPushResult] = useState<{ lines: number; units: number } | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
   const [wipeStage, setWipeStage] = useState<"choice" | "confirm">("choice");
@@ -78,6 +82,20 @@ export default function PlanningRunControls({
   const [saveProgress, setSaveProgress] = useState<SaveBuildProgress | null>(null);
 
   const selected = runs.find((r) => r.id === selectedRunId) ?? null;
+
+  // Publish the active flow run so the PlanFlowRail can show it ("Working
+  // run: …") and the Execution / Supply deep-links can target it. Written
+  // whenever the selected run changes and on mount when one is already
+  // selected. Contract: localStorage `ip_active_flow_run` = {runId, name}.
+  useEffect(() => {
+    if (!selected) return;
+    try {
+      localStorage.setItem(
+        "ip_active_flow_run",
+        JSON.stringify({ runId: selected.id, name: selected.name }),
+      );
+    } catch { /* ignore */ }
+  }, [selected?.id, selected?.name]);
   // Is the currently-loaded run itself a saved build? Drives the
   // toolbar UX — when viewing a saved build, the primary action
   // becomes "Fork" (clone-of-clone for the edit/resave workflow);
@@ -236,23 +254,27 @@ export default function PlanningRunControls({
   async function pushPlannerBuys() {
     if (!selected) return;
     const ok = await confirmDialog(
-      `Use the planner-typed buy quantities (the Buy column) as the buy plan for "${selected.name}"?\n\n` +
-      `This REPLACES any reconciliation-computed recommendations for this run with your typed buys — ` +
-      `supply netting is skipped. The execution batch and buy-plan export then reflect your numbers.`,
-      { title: "Push planner buys → plan", confirmText: "Use my buys" },
+      `Finalize the plan for "${selected.name}" from your typed Buy column?\n\n` +
+      `This uses the planner-typed buy quantities (the Buy column) as this run's buy plan, ` +
+      `skips supply reconciliation, and approves the run so it's ready for the Buy plan on the ` +
+      `Execution screen. It REPLACES any reconciliation-computed recommendations for this run.`,
+      { title: "Finalize with my buys", confirmText: "Finalize" },
     );
     if (!ok) return;
     setPushingBuys(true);
     try {
       const r = await generatePlannerBuyPlanForRun(selected.id);
-      onToast({
-        text: r.recommendations > 0
-          ? `Buy plan set from planner buys — ${r.recommendations} lines · ${r.units.toLocaleString()} units`
-          : "No typed buys found (the Buy column is empty for this run) — nothing to push.",
-        kind: r.recommendations > 0 ? "success" : "info",
-      });
+      if (r.recommendations > 0) {
+        // Forward-pointing success modal instead of a bare toast.
+        setPushResult({ lines: r.recommendations, units: r.units });
+      } else {
+        onToast({
+          text: "No typed buys found (the Buy column is empty for this run) — nothing to push.",
+          kind: "info",
+        });
+      }
     } catch (e) {
-      onToast({ text: "Push planner buys failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+      onToast({ text: "Finalize with my buys failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setPushingBuys(false);
     }
@@ -436,18 +458,8 @@ export default function PlanningRunControls({
                 {building ? "Building…" : (filterActive ? "Build (filtered)" : "Build forecast")}
               </button>
             )}
-            {/* Turn the typed Buy column into the run's buy plan directly,
-                skipping reconciliation. Hidden on saved-build snapshots. */}
-            {!selectedSavedBuild && (
-              <button
-                style={S.btnSecondary}
-                onClick={() => { void pushPlannerBuys(); }}
-                disabled={building || pushingBuys}
-                title="Use your typed Buy quantities as this run's buy plan (skips supply reconciliation). The execution batch and buy-plan export then reflect your numbers."
-              >
-                {pushingBuys ? "Pushing…" : "Push planner buys → plan"}
-              </button>
-            )}
+            {/* The finalize affordances moved into the "Next step:" group at
+                the end of the toolbar — see below. */}
             {/* Save / Fork — capture the current build (including planner
                 edits, TBD rows, recs, bucket buys) as a snapshot. When
                 viewing a saved build the label flips to "Fork & save"
@@ -493,12 +505,17 @@ export default function PlanningRunControls({
             >
               What-if →
             </a>
+            {/* Build Reconcile is a DIFFERENT screen from Supply reconciliation
+                (it combines recommendations across multiple saved builds). Kept
+                as a small link so that path isn't lost — the guided "Reconcile
+                against supply first" button in the Next-step group goes to the
+                Supply screen instead. */}
             <a
               href="/planning/reconcile"
-              style={{ ...S.btnSecondary, textDecoration: "none" }}
-              title="Open Reconcile — combine recommendations across multiple saved builds into one buy plan"
+              style={{ ...S.btnGhost, textDecoration: "none", fontSize: 12 }}
+              title="Open Build Reconcile — combine recommendations across multiple saved builds into one buy plan (a separate tool from Supply reconciliation)"
             >
-              Reconcile →
+              Build reconcile
             </a>
           </>
         )}
@@ -529,6 +546,41 @@ export default function PlanningRunControls({
             Delete saved
           </button>
         )}
+        {/* ── Next step ──────────────────────────────────────────────
+            The two guided finalize paths, grouped at the end of the row.
+            Hidden on saved-build snapshots (exactly like the old push
+            button was) — you finalize a live run, not a snapshot. */}
+        {selected && !selectedSavedBuild && (
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "5px 10px",
+              border: `1px solid ${PAL.border}`,
+              borderRadius: 8,
+              background: `${PAL.yellow}0D`,
+            }}
+          >
+            <span style={{ color: PAL.textDim, fontSize: 12, fontWeight: 600 }}>Next step:</span>
+            <button
+              style={{ ...S.btnPrimary, background: "#EA580C" }}
+              onClick={() => { void pushPlannerBuys(); }}
+              disabled={building || pushingBuys}
+              title="Finalize the plan from your typed Buy column: uses your buys verbatim, skips supply reconciliation, and approves the run so it's ready for the Buy plan on the Execution screen."
+            >
+              {pushingBuys ? "Finalizing…" : "Finalize with my buys →"}
+            </button>
+            <a
+              href={`/planning/supply?fromRunId=${encodeURIComponent(selected.id)}`}
+              style={{ ...S.btnSecondary, textDecoration: "none" }}
+              title="Reconcile this run's demand against on-hand + inbound supply first, then finalize the computed buy recommendations."
+            >
+              Reconcile against supply first →
+            </a>
+          </div>
+        )}
         </>)}
       </div>
       {building && progress && (
@@ -538,6 +590,33 @@ export default function PlanningRunControls({
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
           Snapshot {formatDate(selected.source_snapshot_date)}
           {selected.note ? ` · ${selected.note}` : ""}
+        </div>
+      )}
+      {pushResult && selected && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPushResult(null); }}
+        >
+          <div style={{ background: PAL.panel, border: `1px solid ${PAL.green}`, borderRadius: 10, padding: 18, width: "min(480px, 95vw)", boxSizing: "border-box", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ background: PAL.green, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DONE</span>
+              <strong style={{ color: PAL.text, fontSize: 14 }}>Buy plan finalized</strong>
+            </div>
+            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
+              {pushResult.lines.toLocaleString()} line{pushResult.lines === 1 ? "" : "s"} · {pushResult.units.toLocaleString()} units set as this run&apos;s buy plan and the run was approved.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button style={S.btnSecondary} onClick={() => setPushResult(null)}>Stay here</button>
+              <button
+                style={{ ...S.btnPrimary, background: "#EA580C" }}
+                onClick={() => { window.location.href = `/planning/execution?fromRunId=${encodeURIComponent(selected.id)}&autoCreate=buy_plan`; }}
+              >
+                Continue to Buy plan →
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {showNew && (

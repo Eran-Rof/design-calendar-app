@@ -61,6 +61,24 @@ export default function ReconciliationWorkbench() {
 
   const skuCodeById = useMemo(() => new Map(items.map((i) => [i.id, i.sku_code])), [items]);
 
+  // Deep-link from the Forecast page's "Reconcile against supply first →"
+  // button: /planning/supply?fromRunId=<wholesale demand run>. The demand run
+  // is a scope='wholesale' run, not a reconciliation run, so it can't be
+  // *selected* in the recon picker (which lists scope='all' runs). Instead we
+  // surface a guidance banner and pre-open the new-run form with this run
+  // pre-picked as the wholesale source.
+  const fromRunId = useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get("fromRunId"); } catch { return null; }
+  }, []);
+  const fromRun = useMemo(() => wholesaleRuns.find((r) => r.id === fromRunId) ?? null, [wholesaleRuns, fromRunId]);
+  const [autoOpenedFromLink, setAutoOpenedFromLink] = useState(false);
+  useEffect(() => {
+    if (fromRunId && fromRun && !autoOpenedFromLink) {
+      setShowNewRun(true);
+      setAutoOpenedFromLink(true);
+    }
+  }, [fromRunId, fromRun, autoOpenedFromLink]);
+
   const loadRuns = useCallback(async () => {
     const [all, ws, es] = await Promise.all([
       wholesaleRepo.listPlanningRuns("all"),
@@ -271,6 +289,7 @@ export default function ReconciliationWorkbench() {
             <NewReconciliationRunForm
               wholesaleRuns={wholesaleRuns}
               ecomRuns={ecomRuns}
+              initialWholesaleId={fromRun?.id}
               onCancel={() => setShowNewRun(false)}
               onCreated={async (id) => {
                 setShowNewRun(false);
@@ -315,6 +334,17 @@ export default function ReconciliationWorkbench() {
           )}
         </div>
 
+        {fromRunId && (
+          <div style={{
+            ...S.card, marginBottom: 12, padding: "10px 14px",
+            border: `1px solid ${PAL.accent}`, background: `${PAL.accent}14`,
+            color: PAL.text, fontSize: 13, lineHeight: 1.5,
+          }}>
+            Reconciling demand run <strong>{fromRun?.name ?? fromRunId}</strong> against supply.
+            When you&apos;re done, <strong>Run reconciliation</strong> writes buy recommendations you can take to the Buy plan.
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           <TabButton active={tab === "grid"} onClick={() => setTab("grid")}>Reconciliation grid</TabButton>
           <TabButton active={tab === "exceptions"} onClick={() => setTab("exceptions")}>
@@ -324,7 +354,11 @@ export default function ReconciliationWorkbench() {
 
         {tab === "grid" && (
           <>
-            <ReconciliationGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+            {!loading && rows.length === 0 ? (
+              <ReconciliationEmptyState />
+            ) : (
+              <ReconciliationGrid rows={rows} loading={loading} onSelectRow={setSelectedRow} />
+            )}
             {/* Inline detail panel — renders below the grid when a
                 row is selected. Replaces the previous side drawer
                 so the planner keeps grid context visible while
@@ -357,10 +391,13 @@ export default function ReconciliationWorkbench() {
 // pattern. Renders inside the run-picker card; no overlay or drawer.
 
 function NewReconciliationRunForm({
-  wholesaleRuns, ecomRuns, onCancel, onCreated, onToast,
+  wholesaleRuns, ecomRuns, initialWholesaleId, onCancel, onCreated, onToast,
 }: {
   wholesaleRuns: IpPlanningRun[];
   ecomRuns: IpPlanningRun[];
+  // When arriving via the Forecast deep-link, pre-pick this run as the
+  // wholesale source so the planner doesn't have to hunt for it.
+  initialWholesaleId?: string;
   onCancel: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
@@ -369,7 +406,9 @@ function NewReconciliationRunForm({
   const yyyy = today.getUTCFullYear();
   const mm = String(today.getUTCMonth() + 1).padStart(2, "0");
   const [name, setName] = useState(`Recon — ${yyyy}-${mm}`);
-  const [wholesaleId, setWholesaleId] = useState<string>(wholesaleRuns.find((r) => r.status === "active")?.id ?? wholesaleRuns[0]?.id ?? "");
+  const [wholesaleId, setWholesaleId] = useState<string>(
+    (initialWholesaleId && wholesaleRuns.some((r) => r.id === initialWholesaleId) ? initialWholesaleId : null)
+    ?? wholesaleRuns.find((r) => r.status === "active")?.id ?? wholesaleRuns[0]?.id ?? "");
   const [ecomId, setEcomId] = useState<string>(ecomRuns.find((r) => r.status === "active")?.id ?? ecomRuns[0]?.id ?? "");
   const [snapshot, setSnapshot] = useState(today.toISOString().slice(0, 10));
   const [supplySource, setSupplySource] = useState<IpSupplySource>("xoro");
@@ -476,6 +515,39 @@ function NewReconciliationRunForm({
       <button type="button" onClick={onCancel} style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }}>
         Cancel
       </button>
+    </div>
+  );
+}
+
+// ── Empty-state explainer ──────────────────────────────────────────────────
+// Shown in the grid tab when a run has produced no reconciliation output yet
+// (or no run is selected). Explains what this screen does + the 3 actions, and
+// tells planners who already finalized via "Finalize with my buys" that they
+// can skip this screen entirely — their buy plan is already on Execution.
+function ReconciliationEmptyState() {
+  return (
+    <div style={{ ...S.card, padding: 20, maxWidth: 720 }}>
+      <div style={{ color: PAL.text, fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+        Reconcile demand against supply
+      </div>
+      <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>
+        This screen nets your demand plan against on-hand + inbound supply
+        (open POs and receipts) and computes the recommended buys to cover the gap.
+      </div>
+      <ol style={{ margin: "0 0 14px 18px", padding: 0, color: PAL.textDim, fontSize: 13, lineHeight: 1.7 }}>
+        <li>Create a reconciliation run — pick the wholesale / ecom demand runs to source from.</li>
+        <li>Click <strong style={{ color: PAL.text }}>Run reconciliation</strong> to compute projected inventory and buy recommendations.</li>
+        <li>Continue to the <strong style={{ color: PAL.text }}>Buy plan</strong> on the Execution screen.</li>
+      </ol>
+      <div style={{
+        padding: "10px 12px", borderRadius: 8,
+        background: `${PAL.yellow}12`, border: `1px solid ${PAL.yellow}44`,
+        color: PAL.textDim, fontSize: 12.5, lineHeight: 1.6,
+      }}>
+        Already finalized your plan with <strong style={{ color: PAL.text }}>&quot;Finalize with my buys&quot;</strong> on
+        the Forecast page? Skip this screen — your buy plan is ready on the{" "}
+        <a href="/planning/execution" style={{ color: PAL.accent, textDecoration: "none", fontWeight: 600 }}>Execution screen</a>.
+      </div>
     </div>
   );
 }
