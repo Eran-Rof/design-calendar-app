@@ -296,8 +296,16 @@ describe("real packs run against canned counts", () => {
     expect(byKey["cases.mine_open"].drill).toEqual({ assignee: "me", status: "open" });
     expect(byKey["cases.unassigned_open"].drill).toEqual({ assignee: "none", status: "open" });
     expect(byKey["cases.notifications_unread"].drill).toEqual({ unread: "1" });
-    // Deferred / intentionally plain-open to-dos carry no drill.
-    expect(byKey["po.receipts_overdue"].drill).toBeUndefined();
+    // #1826 follow-up — the previously-deferred to-dos now drill filtered too.
+    expect(byKey["po.three_way_exceptions"].drill).toEqual({ tw: "exceptions" });
+    expect(byKey["po.receipts_overdue"].drill).toEqual({ due: "overdue" });
+    expect(byKey["po.receipts_overdue"].panel).toBe("purchase_orders");
+    expect(byKey["po.receipts_due_7d"].drill).toEqual({ due: "week" });
+    expect(byKey["po.receipts_due_7d"].panel).toBe("purchase_orders");
+    expect(byKey["so.ship_due_7d"].drill).toEqual({ focus: "ship_due" });
+    expect(byKey["so.ship_overdue"].drill).toEqual({ focus: "ship_overdue" });
+    expect(byKey["so.factor_not_submitted"].drill).toEqual({ focus: "factor_gate" });
+    // Intentionally plain-open to-dos still carry no drill.
     expect(byKey["accounting.cron_errors_24h"].drill).toBeUndefined();
     expect(byKey["accounting.close_not_started"].drill).toBeUndefined();
   });
