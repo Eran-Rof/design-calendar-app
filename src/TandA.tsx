@@ -74,6 +74,7 @@ import type { SyncLogEntry } from "./tanda/state/sync/syncTypes";
 import type { EmailState } from "./tanda/state/email/emailTypes";
 import type { TeamsState } from "./tanda/state/teams/teamsTypes";
 import type { CoreState } from "./tanda/state/core/coreTypes";
+import { KNOWN_VIEWS } from "./tanda/state/core/coreTypes";
 import { useTandaStore } from "./tanda/store/index";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import type { GridContextSnapshot } from "./ai/tools";
@@ -1144,6 +1145,19 @@ function TandAApp() {
       setView("list");
     }
   }, [pos]);
+
+  // ── Deep-link: ?view=NAME lands directly on that view on load ──
+  // The store restores `view` from localStorage, NOT the URL, so a fresh
+  // ?view= link (e.g. Today's "Vendor replies unread" → ?view=messages) would
+  // otherwise be ignored. One-shot on mount; only known views are honored.
+  const viewDeepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (viewDeepLinkHandled.current) return;
+    viewDeepLinkHandled.current = true;
+    const param = new URLSearchParams(window.location.search).get("view");
+    if (param && KNOWN_VIEWS.includes(param as View)) setView(param as View);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Realtime sync — poll every 15 seconds for changes from other users ──
   // Skips while: a sync is running, the tab is hidden, or a poll is already

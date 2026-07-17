@@ -39,10 +39,13 @@ export type CoreAction =
   | { type: "UPDATE_ATTACHMENT"; poNumber: string; attachId: string; entry: any }
   | { type: "REMOVE_PO"; poNumber: string };
 
+// Views that may be restored from localStorage OR deep-linked via ?view=.
+// Shared with TandA.tsx's ?view= deep-link so the two stay in lockstep.
+export const KNOWN_VIEWS: View[] = ["dashboard", "list", "detail", "templates", "email", "teams", "activity", "vendors", "timeline", "archive", "shipments", "match", "compliance", "messages", "scorecards", "spend", "notifications"];
+
 function loadView(): View {
   const saved = localStorage.getItem("tanda_view");
-  const valid: View[] = ["dashboard", "list", "detail", "templates", "email", "teams", "activity", "vendors", "timeline", "archive", "shipments", "match", "compliance", "messages", "scorecards", "spend", "notifications"];
-  return valid.includes(saved as View) ? (saved as View) : "dashboard";
+  return KNOWN_VIEWS.includes(saved as View) ? (saved as View) : "dashboard";
 }
 
 export const initialCoreState: CoreState = {
