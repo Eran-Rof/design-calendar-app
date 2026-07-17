@@ -5,12 +5,15 @@
 //
 //   • Worklist — every chargeback/creditback with its auto-matched AR invoice,
 //     governed reason code and disposition. Filter by disposition / customer /
-//     reason / month / matched / type / text. FULL-ROW click opens the detail
-//     modal (no ↗ arrows — house rule). The clickable item identifier renders
-//     blue. Every table carries <ExportButton>.
+//     reason / month / matched / type / text. Column headers sort SERVER-SIDE
+//     (the grid is paginated; keys mirror the handler's SORTS whitelist).
+//     FULL-ROW click opens the detail modal (no ↗ arrows — house rule). The
+//     clickable item identifier renders blue. Every table carries <ExportButton>.
 //
 //   • Dilution — chargeback $ and % of gross sales: top offenders by customer,
 //     breakdown by reason, and the monthly trend. Table-first (no chart libs).
+//     Column headers sort CLIENT-SIDE (full dataset in memory); exports follow
+//     the on-screen sort.
 //
 // Detail modal: chargeback fields + matched invoice (click drills to the AR
 // invoice), the disposition workflow (a change requires a reason note), owner
@@ -123,6 +126,18 @@ type DilutionSummary = {
   by_month: DilutionMonth[];
   by_reason: DilutionReason[];
 };
+
+// Worklist sort — server-side (the grid is paginated); keys must stay in the
+// handler's SORTS whitelist (api/_handlers/internal/chargebacks/index.js).
+type WorklistSortKey = "item_num" | "customer_name" | "cb_date" | "reason" | "amount_cents" | "disposition" | "owner";
+const WORKLIST_SORT_DEFAULT_DIR: Record<WorklistSortKey, "asc" | "desc"> = {
+  item_num: "asc", customer_name: "asc", cb_date: "desc", reason: "asc",
+  amount_cents: "desc", disposition: "asc", owner: "asc",
+};
+
+function sortIndicator(active: boolean, dir: "asc" | "desc"): string {
+  return active ? (dir === "asc" ? " ▲" : " ▼") : "";
+}
 
 const DISPOSITIONS = ["open", "valid", "disputed", "recovered", "written_off"] as const;
 const DISPOSITION_LABEL: Record<string, string> = {
@@ -328,6 +343,8 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   const [fMatched, setFMatched] = useState("");
   const [fType, setFType] = useState("");
   const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<WorklistSortKey>("cb_date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const seqGuard = useSeqGuard();
 
   const load = React.useCallback(async (goPage: number) => {
@@ -342,6 +359,8 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
       if (fMatched) p.set("matched", fMatched);
       if (fType) p.set("item_type", fType);
       if (q.trim()) p.set("q", q.trim());
+      p.set("sort", sortKey);
+      p.set("dir", sortDir);
       p.set("page", String(goPage));
       p.set("page_size", String(pageSize));
       const r = await fetch(`/api/internal/chargebacks?${p}`);
@@ -358,9 +377,9 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
       if (seqGuard.isCurrent(seq)) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, q]);
+  }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, q, sortKey, sortDir]);
 
-  useEffect(() => { void load(1); }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(1); }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, sortKey, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void load(1); consumeDrillParams(["cb_disposition", "cb_month"]); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function patchRow(id: string, patch: Record<string, unknown>) {
@@ -395,6 +414,20 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   })) as unknown as Array<Record<string, unknown>>;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  function toggleSort(key: WorklistSortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(WORKLIST_SORT_DEFAULT_DIR[key]); }
+  }
+  const SortTh = ({ label, k, numeric }: { label: string; k: WorklistSortKey; numeric?: boolean }) => (
+    <th
+      style={{ ...(numeric ? thNum : th), cursor: "pointer", userSelect: "none", color: sortKey === k ? C.text : C.textMuted }}
+      onClick={() => toggleSort(k)}
+      title={`Sort by ${label}`}
+    >
+      {label}{sortIndicator(sortKey === k, sortDir)}
+    </th>
+  );
 
   return (
     <div>
@@ -462,14 +495,14 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={th}>Item / Invoice</th>
-                <th style={th}>Customer</th>
+                <SortTh label="Item / Invoice" k="item_num" />
+                <SortTh label="Customer" k="customer_name" />
                 <th style={th}>Matched Invoice</th>
-                <th style={th}>C/B Date</th>
-                <th style={th}>Reason</th>
-                <th style={thNum}>Amount</th>
-                <th style={th}>Disposition</th>
-                <th style={th}>Owner</th>
+                <SortTh label="C/B Date" k="cb_date" />
+                <SortTh label="Reason" k="reason" />
+                <SortTh label="Amount" k="amount_cents" numeric />
+                <SortTh label="Disposition" k="disposition" />
+                <SortTh label="Owner" k="owner" />
               </tr>
             </thead>
             <tbody>
@@ -551,6 +584,7 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
         columns={DILUTION_CUST_COLUMNS}
         filename="chargeback-dilution-by-customer"
         head={["Customer", "Chargebacks", "Creditbacks", "Net", "Gross Sales", "Dilution %", "Items"]}
+        sortKeys={["customer_name", "chargeback_cents", "creditback_cents", "net_cents", "gross_sales_cents", "dilution_pct", "count"]}
         render={(c) => [
           <span style={{ color: C.text }}>{String(c.customer_name)}</span>,
           <span style={{ color: C.warn }}>{fmtCents(c.chargeback_cents as number)}</span>,
@@ -570,6 +604,7 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
         columns={DILUTION_REASON_COLUMNS}
         filename="chargeback-dilution-by-reason"
         head={["Reason", "Category", "Chargebacks", "Net", "Items", "% of Deductions"]}
+        sortKeys={["label", "category", "chargeback_cents", "net_cents", "count", "pct_of_deductions"]}
         render={(r) => [
           <span style={{ color: C.text }}>{String(r.label)}</span>,
           <span style={{ color: C.textMuted }}>{r.category ? String(r.category) : "—"}</span>,
@@ -588,6 +623,7 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
         columns={DILUTION_MONTH_COLUMNS}
         filename="chargeback-dilution-by-month"
         head={["Month", "Chargebacks", "Creditbacks", "Net", "Gross Sales", "Dilution %"]}
+        sortKeys={["ym", "chargeback_cents", "creditback_cents", "net_cents", "gross_sales_cents", "dilution_pct"]}
         render={(m) => [
           <span style={{ color: C.text }}>{String(m.month_label)}</span>,
           <span style={{ color: C.warn }}>{fmtCents(m.chargeback_cents as number)}</span>,
@@ -602,11 +638,39 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
   );
 }
 
-function DilutionTable({ title, note, rows, columns, filename, head, render, numericFrom }: {
+// Null-safe comparator: numbers numerically, everything else as text; nulls last.
+function cmpVals(a: unknown, b: unknown): number {
+  const aNull = a == null || a === "";
+  const bNull = b == null || b === "";
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true });
+}
+
+function DilutionTable({ title, note, rows, columns, filename, head, sortKeys, render, numericFrom }: {
   title: string; note: string; rows: Array<Record<string, unknown>>;
   columns: ExportColumn<Record<string, unknown>>[]; filename: string;
-  head: string[]; render: (r: Record<string, unknown>) => React.ReactNode[]; numericFrom: number;
+  head: string[]; sortKeys: Array<string | null>;
+  render: (r: Record<string, unknown>) => React.ReactNode[]; numericFrom: number;
 }) {
+  const [sortIdx, setSortIdx] = useState<number | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(i: number) {
+    if (sortIdx === i) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortIdx(i); setSortDir(i >= numericFrom ? "desc" : "asc"); }
+  }
+
+  const sorted = useMemo(() => {
+    if (sortIdx == null) return rows;
+    const key = sortKeys[sortIdx];
+    if (!key) return rows;
+    const sign = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => sign * cmpVals(a[key], b[key]));
+  }, [rows, sortKeys, sortIdx, sortDir]);
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
@@ -615,7 +679,7 @@ function DilutionTable({ title, note, rows, columns, filename, head, render, num
           <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>{note}</div>
         </div>
         <div style={{ flex: 1 }} />
-        <ExportButton rows={rows} filename={filename} sheetName={title} columns={columns} />
+        <ExportButton rows={sorted} filename={filename} sheetName={title} columns={columns} />
       </div>
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: 360, overflow: "auto" }}>
         {rows.length === 0 ? (
@@ -623,10 +687,23 @@ function DilutionTable({ title, note, rows, columns, filename, head, render, num
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr>{head.map((h, i) => <th key={h} style={i >= numericFrom ? thNum : th}>{h}</th>)}</tr>
+              <tr>
+                {head.map((h, i) => sortKeys[i] ? (
+                  <th
+                    key={h}
+                    style={{ ...(i >= numericFrom ? thNum : th), cursor: "pointer", userSelect: "none", color: sortIdx === i ? C.text : C.textMuted }}
+                    onClick={() => toggleSort(i)}
+                    title={`Sort by ${h}`}
+                  >
+                    {h}{sortIndicator(sortIdx === i, sortDir)}
+                  </th>
+                ) : (
+                  <th key={h} style={i >= numericFrom ? thNum : th}>{h}</th>
+                ))}
+              </tr>
             </thead>
             <tbody>
-              {rows.map((r, ri) => (
+              {sorted.map((r, ri) => (
                 <tr key={ri}>
                   {render(r).map((cell, ci) => <td key={ci} style={ci >= numericFrom ? tdNum : td}>{cell}</td>)}
                 </tr>

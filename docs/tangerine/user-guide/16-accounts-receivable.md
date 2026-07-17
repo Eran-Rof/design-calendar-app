@@ -648,6 +648,8 @@ The recap's "ACCRUED FEES/OTHER TRANSFERS (FACILITY)" is deliberately NOT posted
 
 Every chargeback / creditback (5,928 rows) as a filterable, sortable worklist. Columns: item/invoice number (rendered blue — click **anywhere on the row** to open the detail; there are no ↗ arrows), customer, the **matched AR invoice**, C/B date, reason, amount, disposition and owner. Filters: disposition · customer · reason (incl. **Un-coded**) · month · matched/unmatched · type · free-text. Paginated 100/page. **Export** (Excel/PDF) on the table honours the current filter.
 
+**Column sorting.** Click any column header to sort; click again to flip direction (▲ ascending / ▼ descending). Sorting is **server-side across the whole filtered set** — not just the visible page — and resets you to page 1. Default is C/B date, newest first. Text columns first sort A→Z, date/amount columns newest/largest first. The only unsortable column is **Matched Invoice** (it lives on the joined AR invoice, not the chargeback row — sort by Item / Invoice instead, which is the same number for matched rows).
+
 **Auto-match to the originating AR invoice.** The importer leaves `item_num` as free text (Rosenthal's format: an 11-digit zero-padded invoice number like `00000010360`, sometimes the prefixed form `ROF-I141259`). A deterministic matcher links each chargeback to `ar_invoices` by **exact normalized equality only** — two disjoint, unambiguous methods:
 
 - **`invoice_number_suffix`** — a purely numeric `item_num`, leading zeros stripped, equals an invoice's trailing digit-run (ROF / ROF-ECOM / PT share one global Xoro invoice sequence, so the numeric core is globally unique).
@@ -673,7 +675,7 @@ Table-first analytics (no chart libraries). Sign convention: **positive = a char
 - **By reason**: share of total gross deductions per governed reason (Un-coded shown explicitly).
 - **Monthly trend**: chargebacks and dilution % by report month.
 
-Each sub-table has its own **Export** button.
+Each sub-table has its own **Export** button, and every column header in the three sub-tables is click-to-sort (▲/▼; numeric columns default to largest-first). Exports follow the on-screen sort.
 
 ### API + RBAC
 
