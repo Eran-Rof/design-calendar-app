@@ -206,3 +206,58 @@ describe("generatePlannerBuyPlanForRun TBD stock-buy rows", () => {
     expect(createApproval).not.toHaveBeenCalled();
   });
 });
+
+describe("generatePlannerBuyPlanForRun onProgress", () => {
+  it("fires the expected stage sequence on a run with forecast + TBD buys", async () => {
+    listForecast.mockResolvedValue([fc({ sku_id: "sku-a", planned_buy_qty: 10 })]);
+    listTbdRows.mockResolvedValue([
+      tbd({ style_code: "RYB0412", color: "Navy", planned_buy_qty: 60 }),
+      tbd({ id: "tbd-2", style_code: "RYB0412", color: "Sunset Coral", is_new_color: true, planned_buy_qty: 40 }),
+    ]);
+
+    const events: Array<{ stage: string; detail?: string; current?: number; total?: number }> = [];
+    const r = await generatePlannerBuyPlanForRun("run-1", (p) => events.push(p));
+
+    // The push itself still behaves exactly as before.
+    expect(r).toEqual({ recommendations: 2, units: 70, skippedTbdLines: 1, skippedTbdUnits: 40 });
+
+    // Stage labels appear in the documented order.
+    const stages = events.map((e) => e.stage);
+    expect(stages).toEqual([
+      "Reading typed buys…",
+      "Reading typed buys…",
+      "Reading TBD stock-buy rows…",
+      "Resolving TBD rows to SKUs…",
+      "Resolving TBD rows to SKUs…",
+      "Writing buy plan… (2 lines)",
+      "Approving run…",
+    ]);
+
+    // The resolve summary reports resolved/skipped counts.
+    const resolveDone = events.find((e) => e.stage === "Resolving TBD rows to SKUs…" && e.detail);
+    expect(resolveDone?.detail).toBe("1 resolved · 1 skipped");
+  });
+
+  it("works with onProgress omitted (default no-op)", async () => {
+    listForecast.mockResolvedValue([fc({ sku_id: "sku-a", planned_buy_qty: 10 })]);
+
+    const r = await generatePlannerBuyPlanForRun("run-1");
+
+    expect(r).toEqual({ recommendations: 1, units: 10, skippedTbdLines: 0, skippedTbdUnits: 0 });
+    expect(createApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits Writing before Approving, and both come after the reads", async () => {
+    listForecast.mockResolvedValue([fc({ sku_id: "sku-a", planned_buy_qty: 5 })]);
+
+    const stages: string[] = [];
+    await generatePlannerBuyPlanForRun("run-1", (p) => stages.push(p.stage));
+
+    const writeIdx = stages.findIndex((s) => s.startsWith("Writing buy plan…"));
+    const approveIdx = stages.indexOf("Approving run…");
+    const firstReadIdx = stages.indexOf("Reading typed buys…");
+    expect(firstReadIdx).toBe(0);
+    expect(writeIdx).toBeGreaterThan(firstReadIdx);
+    expect(approveIdx).toBeGreaterThan(writeIdx);
+  });
+});
