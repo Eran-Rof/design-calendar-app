@@ -28,6 +28,7 @@ import Toast, { type ToastMessage } from "../../components/Toast";
 import { AppDatePicker } from "../../../shared/components/AppDatePicker";
 import SystemHealthBanner from "../../shared/components/SystemHealthBanner";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
+import { confirmDialog } from "../../../shared/ui/warn";
 import ReconciliationGrid from "./ReconciliationGrid";
 import SupplyExceptionPanel from "./SupplyExceptionPanel";
 import AllocationDetailPanel from "../components/AllocationDetailPanel";
@@ -51,6 +52,7 @@ export default function ReconciliationWorkbench() {
   const [showNewRun, setShowNewRun] = useState(false);
   const [selectedRow, setSelectedRow] = useState<IpReconciliationGridRow | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const user = useCurrentUser();
   const canSync = user ? can(user, "manage_integrations") : false;
@@ -150,6 +152,46 @@ export default function ReconciliationWorkbench() {
     }
   }
 
+  // Permanently delete the selected reconciliation run. CASCADE wipes only
+  // THIS run's data — its projected inventory, buy recommendations and supply
+  // exceptions. The wholesale / ecom demand runs it sources from are separate
+  // ip_planning_runs rows and are NOT touched. A run that already has
+  // execution batches is RESTRICTed by the DB, which we surface plainly.
+  async function deleteRun() {
+    if (!selectedRun) return;
+    const ok = await confirmDialog(
+      `Permanently DELETE reconciliation run "${selectedRun.name}"?\n\n` +
+      `This removes this run and its reconciliation output — projected inventory, ` +
+      `buy recommendations and supply exceptions. It cannot be undone.\n\n` +
+      `Your wholesale / ecom demand plans are separate runs and are NOT affected — ` +
+      `only this reconciliation is deleted.\n\n` +
+      `(A run that already has execution batches can't be deleted — remove those in the Execution screen first.)`,
+      { title: "Delete reconciliation run", confirmText: "Delete run" },
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await wholesaleRepo.deletePlanningRun(selectedRun.id);
+      setToast({ text: `Deleted reconciliation run "${selectedRun.name}"`, kind: "info" });
+      setSelectedRunId(null);
+      setRows([]);
+      setExceptions([]);
+      setRecs([]);
+      setSelectedRow(null);
+      await loadRuns();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({
+        text: /23503|foreign key|violates/i.test(msg)
+          ? "Can't delete — this run has execution batches. Delete them in the Execution screen first."
+          : "Delete failed — " + msg,
+        kind: "error",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // M31 dir-B: pull native Tangerine on-hand + open POs into the planning
   // supply tables (source='tangerine'). A run with supply_source='tangerine'
   // then reconciles against this. Global sync (not per-run); re-run
@@ -215,6 +257,13 @@ export default function ReconciliationWorkbench() {
                     title={canSync ? "Pull native Tangerine on-hand + open POs into the planning supply tables (for 'Tangerine ERP' runs)" : "Missing permission: manage_integrations"}>
               {syncing ? "Syncing…" : "Sync Tangerine supply"}
             </button>
+            {selectedRun && (
+              <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }}
+                      onClick={deleteRun} disabled={deleting || building}
+                      title="Permanently delete this reconciliation run and its output. Your demand plans are not affected.">
+                {deleting ? "Deleting…" : "Delete run"}
+              </button>
+            )}
           </div>
           {/* Inline create-run form. Same place the request panel
               opens its "+ New request" form — no overlay/drawer. */}
