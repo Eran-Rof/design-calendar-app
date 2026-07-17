@@ -1,6 +1,6 @@
 // Batch detail: actions table + export/submit panel + validation.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { IpCategory, IpItem } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
@@ -25,7 +25,7 @@ import {
   linkPlanningVendor,
 } from "../services";
 import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
-import type { TangerineVendorSuggestion } from "../services/tangerinePoService";
+import type { TangerinePoResult, TangerineVendorSuggestion } from "../services/tangerinePoService";
 import type { ExecutionExportNameMaps } from "../services";
 import {
   nextStepFor,
@@ -559,7 +559,7 @@ export default function ExecutionBatchDetail({
                 its fix affordance pointed at the right place. */}
             {poResult.diagnostics && (() => {
               const sb = poResult.diagnostics.skip_breakdown || {};
-              const rows: React.ReactNode[] = [];
+              const rows: ReactNode[] = [];
               if (sb.no_vendor) rows.push(
                 <div key="nv">{sb.no_vendor} line(s) have <b>no vendor</b> — assign one inline in the Actions table below (the yellow selects).</div>,
               );
