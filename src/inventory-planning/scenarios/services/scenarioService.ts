@@ -619,9 +619,15 @@ export async function generatePlannerBuyRecommendations(scenarioId: string): Pro
 // Same as generatePlannerBuyRecommendations but keyed directly on a planning
 // run — so a live wholesale run (not just a scenario) can turn its typed buys
 // into the buy plan straight from the main workbench, skipping reconciliation.
-export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ recommendations: number; units: number }> {
-  const [forecast, items] = await Promise.all([
+export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
+  recommendations: number;
+  units: number;
+  skippedTbdLines: number;
+  skippedTbdUnits: number;
+}> {
+  const [forecast, tbdRows, items] = await Promise.all([
     wholesaleRepo.listForecast(runId),
+    wholesaleRepo.listTbdRows(runId),
     wholesaleRepo.listItems(),
   ]);
   const categoryBySku = new Map(items.map((i) => [i.id, i.category_id]));
@@ -632,13 +638,19 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ rec
     sku_id: string; category_id: string | null;
     period_start: string; period_end: string; period_code: string; qty: number;
   }>();
+  const addBuy = (e: {
+    sku_id: string; category_id: string | null;
+    period_start: string; period_end: string; period_code: string; qty: number;
+  }) => {
+    const key = `${e.sku_id}|${e.period_code}`;
+    const ex = bySkuPeriod.get(key);
+    if (ex) { ex.qty += e.qty; return; }
+    bySkuPeriod.set(key, e);
+  };
   for (const f of forecast) {
     const qty = f.planned_buy_qty ?? 0;
     if (qty <= 0 || !f.sku_id) continue;
-    const key = `${f.sku_id}|${f.period_code}`;
-    const ex = bySkuPeriod.get(key);
-    if (ex) { ex.qty += qty; continue; }
-    bySkuPeriod.set(key, {
+    addBuy({
       sku_id: f.sku_id,
       category_id: f.category_id ?? categoryBySku.get(f.sku_id) ?? null,
       period_start: f.period_start,
@@ -646,6 +658,50 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ rec
       period_code: f.period_code,
       qty,
     });
+  }
+
+  // TBD stock-buy rows live in ip_wholesale_forecast_tbd, NOT in the
+  // forecast table — a planner working stock buys types most (sometimes
+  // all) of the Buy column there. Without this pass the push silently
+  // dropped every TBD buy and reported 0 units against a full grid.
+  // TBD rows carry style_code + color but no sku_id, so resolve them
+  // against the item master at BASE-COLOR grain: sku_code is
+  // `${style}-${COLOR}` (see resolveVariantColor.ts) — compare with
+  // spaces/dashes stripped + uppercased so "Tonal Grey Camo" matches
+  // the "TONALGREYCAMO" sku suffix. Unresolvable rows (new colors not
+  // yet promoted via "Add to DB") are counted and reported back so the
+  // UI can tell the planner instead of silently shorting the plan.
+  const normalizeSkuKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const itemByNormalizedCode = new Map<string, { id: string; category_id: string | null }>();
+  for (const i of items) {
+    if (i.sku_code) itemByNormalizedCode.set(normalizeSkuKey(i.sku_code), { id: i.id, category_id: i.category_id ?? null });
+  }
+  let skippedTbdLines = 0;
+  let skippedTbdUnits = 0;
+  for (const t of tbdRows) {
+    const qty = t.planned_buy_qty ?? 0;
+    if (qty <= 0) continue;
+    const match = itemByNormalizedCode.get(normalizeSkuKey(`${t.style_code}-${t.color ?? ""}`));
+    if (!match) {
+      skippedTbdLines += 1;
+      skippedTbdUnits += qty;
+      continue;
+    }
+    addBuy({
+      sku_id: match.id,
+      category_id: match.category_id,
+      period_start: t.period_start,
+      period_end: t.period_end,
+      period_code: t.period_code,
+      qty,
+    });
+  }
+
+  // True no-op when there is nothing to push: don't wipe existing
+  // recommendations and — critically — don't record an approval for an
+  // empty plan.
+  if (bySkuPeriod.size === 0) {
+    return { recommendations: 0, units: 0, skippedTbdLines, skippedTbdUnits };
   }
 
   const rows = [...bySkuPeriod.values()].map((e) => ({
@@ -690,7 +746,7 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ rec
   });
 
   const units = rows.reduce((s, r) => s + (r.recommendation_qty ?? 0), 0);
-  return { recommendations: rows.length, units };
+  return { recommendations: rows.length, units, skippedTbdLines, skippedTbdUnits };
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

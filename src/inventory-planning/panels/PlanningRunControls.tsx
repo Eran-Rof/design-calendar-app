@@ -46,7 +46,7 @@ export default function PlanningRunControls({
   // After a successful "Finalize with my buys" push we show a small success
   // modal (instead of a bare toast) that points the planner forward to the
   // Buy plan. Holds the finalized line/unit counts for the modal body.
-  const [pushResult, setPushResult] = useState<{ lines: number; units: number } | null>(null);
+  const [pushResult, setPushResult] = useState<{ lines: number; units: number; skippedTbdLines: number; skippedTbdUnits: number } | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
   const [wipeStage, setWipeStage] = useState<"choice" | "confirm">("choice");
@@ -266,7 +266,14 @@ export default function PlanningRunControls({
       const r = await generatePlannerBuyPlanForRun(selected.id);
       if (r.recommendations > 0) {
         // Forward-pointing success modal instead of a bare toast.
-        setPushResult({ lines: r.recommendations, units: r.units });
+        setPushResult({ lines: r.recommendations, units: r.units, skippedTbdLines: r.skippedTbdLines, skippedTbdUnits: r.skippedTbdUnits });
+      } else if (r.skippedTbdLines > 0) {
+        // Buys exist but ALL of them are on TBD rows whose style+color
+        // isn't in the item master yet — nothing was pushed or approved.
+        onToast({
+          text: `Nothing pushed — all ${r.skippedTbdUnits.toLocaleString()} typed units are on ${r.skippedTbdLines.toLocaleString()} TBD row(s) whose style+color isn't in the item master yet. Use "Add to DB" on those rows, then Finalize again.`,
+          kind: "error",
+        });
       } else {
         onToast({
           text: "No typed buys found (the Buy column is empty for this run) — nothing to push.",
@@ -604,9 +611,14 @@ export default function PlanningRunControls({
               <span style={{ background: PAL.green, color: "#fff", borderRadius: 3, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>DONE</span>
               <strong style={{ color: PAL.text, fontSize: 14 }}>Buy plan finalized</strong>
             </div>
-            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
+            <div style={{ color: PAL.textDim, fontSize: 13, lineHeight: 1.5, marginBottom: pushResult.skippedTbdLines > 0 ? 8 : 16 }}>
               {pushResult.lines.toLocaleString()} line{pushResult.lines === 1 ? "" : "s"} · {pushResult.units.toLocaleString()} units set as this run&apos;s buy plan and the run was approved.
             </div>
+            {pushResult.skippedTbdLines > 0 && (
+              <div style={{ color: PAL.yellow, fontSize: 12, lineHeight: 1.5, marginBottom: 16, border: `1px solid ${PAL.yellow}`, borderRadius: 6, padding: "6px 10px" }}>
+                ⚠ {pushResult.skippedTbdLines.toLocaleString()} TBD line{pushResult.skippedTbdLines === 1 ? "" : "s"} · {pushResult.skippedTbdUnits.toLocaleString()} units were NOT included — their style+color isn&apos;t in the item master yet. Use &quot;Add to DB&quot; on those rows, then Finalize again to pick them up.
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button style={S.btnSecondary} onClick={() => setPushResult(null)}>Stay here</button>
               <button
