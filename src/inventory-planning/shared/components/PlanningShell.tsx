@@ -29,6 +29,18 @@ import {
   PLANNING_SECTIONS,
   planningActiveModuleFromPath,
 } from "../../planningModules";
+import PlanFlowRail from "./PlanFlowRail";
+
+// Routes that make up the guided buy-planning flow. The PlanFlowRail stepper
+// only renders on these — other planning modules (scenarios, exports, admin,
+// dashboards) aren't part of the linear flow and would be cluttered by it.
+const FLOW_RAIL_ROUTES = new Set([
+  "/planning",
+  "/planning/wholesale",
+  "/planning/supply",
+  "/planning/reconcile",
+  "/planning/execution",
+]);
 
 // PLM login user (sessionStorage) — id scopes the internal notifications bell;
 // name/email feed the drawer's user footer (mirrors GS1App / CostingApp).
@@ -63,9 +75,9 @@ export default function PlanningShell({ title, children }: Props) {
 
   // Drawer highlight follows the current /planning/<slug> route. Navigation is a
   // full page load (the app's model) so there is no in-page view state to track.
-  const activeModule = planningActiveModuleFromPath(
-    typeof window !== "undefined" ? window.location.pathname : "/planning",
-  );
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "/planning";
+  const activeModule = planningActiveModuleFromPath(pathname);
+  const showFlowRail = FLOW_RAIL_ROUTES.has(pathname.replace(/\/+$/, "") || "/planning");
   const offset = collapsed ? DRAWER_W_CLOSED : DRAWER_W_OPEN;
 
   const onSignOut = () => {
@@ -173,6 +185,8 @@ export default function PlanningShell({ title, children }: Props) {
           </button>
         </div>
       </header>
+
+      {showFlowRail && <PlanFlowRail pathname={pathname} />}
 
       {showNotifs && supabaseClient && userId ? (
         <div style={{ padding: 24 }}>

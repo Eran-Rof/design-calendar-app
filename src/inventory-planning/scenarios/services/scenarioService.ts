@@ -50,6 +50,7 @@ import {
 import { monthOf, monthsBetween } from "../../compute/periods";
 import { scenarioRepo } from "./scenarioRepo";
 import { logChange } from "./auditLogService";
+import { currentUserEmail } from "../../governance/services/permissionService";
 
 // ── 1. clone base into scenario ───────────────────────────────────────────
 export async function cloneBaseIntoScenario(args: {
@@ -664,6 +665,30 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ rec
   }));
 
   await supplyRepo.replaceRecommendations(runId, rows);
+
+  // Record a run-level approval so the direct-run path is treated as
+  // finalized. The execution batch builder gates buy-plan batches on
+  // scenarioRepo.listApprovals({planning_run_id}) having a latest row with
+  // approval_status === 'approved' (approvals are ordered created_at desc, so
+  // this newest row is what the gate reads). Without it the planner would have
+  // to manually mark the run approved before Execution could build a batch —
+  // the whole point of "Finalize with my buys" is to skip that ceremony.
+  let approvedBy: string | null = null;
+  try {
+    const email = currentUserEmail();
+    approvedBy = email && email.trim() ? email : null;
+  } catch {
+    approvedBy = null;
+  }
+  await scenarioRepo.createApproval({
+    planning_run_id: runId,
+    scenario_id: null,
+    approval_status: "approved",
+    approved_by: approvedBy,
+    approved_at: new Date().toISOString(),
+    note: "auto-approved: planner buy plan pushed verbatim",
+  });
+
   const units = rows.reduce((s, r) => s + (r.recommendation_qty ?? 0), 0);
   return { recommendations: rows.length, units };
 }
