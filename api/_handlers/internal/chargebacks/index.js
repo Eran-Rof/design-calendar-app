@@ -16,7 +16,7 @@
 //     q = free text on item_num / customer_name
 //   Pagination: page (1-based), page_size (default 100, max 500).
 //   Sorting: sort in {cb_date,item_date,amount_cents,customer_name,disposition,
-//            report_month}, dir in {asc,desc}.
+//            report_month,item_num,reason,owner}, dir in {asc,desc}.
 //   Response: { rows, total, page, page_size, reason_codes }.
 //
 // Writes go through PATCH /api/internal/chargebacks/:id ([id].js).
@@ -27,7 +27,7 @@ import { authenticateInternalCaller } from "../../../_lib/auth.js";
 export const config = { maxDuration: 30 };
 
 export const DISPOSITIONS = ["open", "valid", "disputed", "recovered", "written_off"];
-const SORTS = ["cb_date", "item_date", "amount_cents", "customer_name", "disposition", "report_month"];
+const SORTS = ["cb_date", "item_date", "amount_cents", "customer_name", "disposition", "report_month", "item_num", "reason", "owner"];
 const ISO_MONTH_RE = /^\d{4}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
