@@ -21,15 +21,28 @@ Tangerine RBAC controls **who can do what, per module, per action** — laid on 
                  v_effective_permissions = role grants ∪ grant-overrides − revoke-overrides
 ```
 
-- **Module** — a feature area (Style Master, AR Invoices, Journal Entries, Bank Recon, User Access, …). ~32 of them.
+- **Module** — a feature area (Style Master, AR Invoices, Journal Entries, Bank Recon, User Access, …). The registry (`module_keys`) holds one row per Tangerine menu item plus a few cross-cutting capabilities — **~144 today**, kept in sync with the nav by `scripts/gen-module-keys.mjs` → `scripts/seed-module-keys.mjs`.
 - **Action** — one of five verbs: **read · write · post · void · export**. Not every module exposes all five (a report module is read/export only; only postable accounting modules expose post/void).
 - **Role** — a named bundle of (module, action) grants. Three seed roles ship:
-  - **admin** — every action on every module.
+  - **admin** — every action on every module. This is guaranteed **structurally**: the effective-permissions view derives the admin role's grants directly from the live `module_keys` registry, so a newly-added module is admin-covered automatically (see "Why admin can't be locked out" below).
   - **accountant** — read/export everywhere; write on accounting + procurement; post/void on the six core postable modules (JE, AR invoices, AP invoices, AP payments, bank recon, GL periods).
   - **viewer** — read-only everywhere.
 - **Override** — a per-user, per-cell exception layered on the role. `allowed=true` grants one extra cell; `allowed=false` revokes one cell. **A revoke beats a role grant** — handy to take one capability away from one person without inventing a whole role.
 
 > **Effective permission = role grants, plus grant-overrides, minus revoke-overrides.** That single rule is computed by the `v_effective_permissions` view and the `has_permission()` function in the database — the API and (later) the menu both read from it, so there's one source of truth.
+
+---
+
+## Why admin can't be locked out (the grant-sweep)
+
+The original P14 seed granted **admin** "every action on every module" with a one-time pass over the ~33 modules that existed then. As the app grew, each new menu item was registered in `module_keys` — but nothing re-granted it to the roles. Under `RBAC_MODE=enforce` that meant a freshly-added module was forbidden to **everyone, including the CEO**, until someone hand-granted it (this bit `cases`, and left 111 modules / 439 admin cells ungranted).
+
+Two changes close this for good:
+
+1. **A one-time backfill** re-applied the three seed roles' "everywhere" coverage bands across every current module: **admin** → all actions, **viewer** → read, **accountant** → read + export. (Accountant's write / post / void bands stay the curated accounting+procurement list — a brand-new module isn't assumed to be accounting-writable.)
+2. **Structural admin coverage** — `v_effective_permissions` now derives the **admin** role's grants from the live `module_keys` registry instead of stored rows. Any module registered in future is admin-covered the instant it exists; there is no seed step to forget. Per-user **revoke** overrides still apply on top, so an admin cell remains individually revocable.
+
+The seed script (`scripts/seed-module-keys.mjs`) also now attaches all three role bands whenever it upserts the module list, keeping viewer/accountant in sync as the nav changes.
 
 ---
 
@@ -120,6 +133,8 @@ Validation rejects unknown roles, non-members, unknown modules, and any action a
 
 - Schema + seed + backfill: `supabase/migrations/20260707000000_p14_chunk1_rbac_schema.sql`
 - Grant-table read-only lockdown: `supabase/migrations/20260707010000_p14_chunk3_rbac_grant_rls_lockdown.sql`
+- Admin-grant sweep + structural admin coverage: `supabase/migrations/20262340000000_rbac_admin_grant_sweep.sql` (guarded by `api/_lib/__tests__/rbac-admin-grant-sweep.test.js`)
+- Module registry sync (nav → `module_keys`, + role grants): `scripts/gen-module-keys.mjs`, `scripts/seed-module-keys.mjs`
 - Middleware + route→permission registry: `api/_lib/rbac/` (`index.js`, `routePermissions.js`)
 - Admin handlers: `api/_handlers/internal/users-access/` (`index.js`, `override.js`)
 - Panel: `src/tanda/InternalUserAccess.tsx` (P14-3b-2)

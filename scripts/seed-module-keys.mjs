@@ -29,6 +29,32 @@ ON CONFLICT (key) DO UPDATE SET
   group_name = EXCLUDED.group_name,
   sort_order = EXCLUDED.sort_order,
   available_actions = EXCLUDED.available_actions;
+
+-- Attach the three seed roles' "everywhere" coverage bands to EVERY module_key
+-- (idempotent). Without this, a newly-upserted module_key has a row but NO role
+-- grant, so under RBAC_MODE=enforce it is forbidden to everyone — including the
+-- admin (CEO) — until hand-granted. See migration 20262340000000. admin also has
+-- a structural fallback in v_effective_permissions, but seeding keeps the User
+-- Access grid's role-default columns truthful and covers viewer/accountant too.
+INSERT INTO role_permissions (role_id, module_key, action, allowed)
+SELECT r.id, mk.key, a, true
+FROM roles r CROSS JOIN module_keys mk CROSS JOIN LATERAL unnest(mk.available_actions) a
+WHERE r.name = 'admin'
+ON CONFLICT (role_id, module_key, action) DO NOTHING;
+
+INSERT INTO role_permissions (role_id, module_key, action, allowed)
+SELECT r.id, mk.key, 'read', true
+FROM roles r CROSS JOIN module_keys mk
+WHERE r.name = 'viewer' AND 'read' = ANY (mk.available_actions)
+ON CONFLICT (role_id, module_key, action) DO NOTHING;
+
+INSERT INTO role_permissions (role_id, module_key, action, allowed)
+SELECT r.id, mk.key, a.action, true
+FROM roles r CROSS JOIN module_keys mk
+CROSS JOIN LATERAL (VALUES ('read'), ('export')) AS a(action)
+WHERE r.name = 'accountant' AND a.action = ANY (mk.available_actions)
+ON CONFLICT (role_id, module_key, action) DO NOTHING;
+
 SELECT COUNT(*) AS module_keys_total FROM module_keys;`;
 
 if (process.argv.includes("--print")) { console.log(sql); process.exit(0); }

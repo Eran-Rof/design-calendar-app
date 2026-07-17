@@ -28,7 +28,13 @@ import {
   normalizeInvoicePayloadLines,
   composeExplodedLines,
   buildExplodedInvoiceLines,
+  resolveOrCreateSizeItems,
 } from "../xoro-mirror/ar-sizegrain.js";
+import {
+  deriveColorFromSku,
+  canonicalSize,
+  normalizeColorKey,
+} from "../sku-canon.js";
 
 const ENTITY_ID = "00000000-0000-0000-0000-000000000001";
 const OTHER_ENTITY_ID = "00000000-0000-0000-0000-0000000000ff";
@@ -39,7 +45,7 @@ const OTHER_ENTITY_ID = "00000000-0000-0000-0000-0000000000ff";
  * Build a mock supabase from a seed of { tableName: rows[] }.
  * Returns { sb, store, hooks } so tests can inject errors per table/op.
  */
-function makeSupabase(seed = {}) {
+function makeSupabase(seed = {}, { logicalUnique = false } = {}) {
   const store = {};
   for (const [k, v] of Object.entries(seed)) {
     store[k] = v.map((r) => ({ ...r }));
@@ -49,6 +55,27 @@ function makeSupabase(seed = {}) {
   let idSeq = 1000;
   function nextId() {
     return `aaaaaaaa-aaaa-aaaa-aaaa-${String(idSeq++).padStart(12, "0")}`;
+  }
+
+  // Simulate uq_ip_item_master_logical_sku (migration 20260724000000): UNIQUE on
+  // (style_code, COALESCE(color,''), canonical_size(size)) for SIZED rows only —
+  // faithful enough to prove the #1825 collision (two colours dropped to NULL land
+  // on the same key) and the colour-bearing-stub fix that avoids it. Returns the
+  // colliding row, or null. Uses style_code as the mock's style identity (the real
+  // index keys on style_id, which a trigger derives 1:1 from style_code).
+  function logicalKey(row) {
+    if (row.size == null || row.size === "") return null; // partial index skips unsized
+    return `${row.style_code || ""}|${row.color || ""}|${canonicalSize(row.size)}`;
+  }
+  function findLogicalCollision(table, row, pendingKeys) {
+    if (!logicalUnique || table !== "ip_item_master") return null;
+    const k = logicalKey(row);
+    if (k == null) return null;
+    if (pendingKeys && pendingKeys.has(k)) return { row, key: k };
+    for (const ex of store[table] || []) {
+      if (logicalKey(ex) === k) return { row: ex, key: k };
+    }
+    return null;
   }
 
   function tableBuilder(table) {
@@ -88,6 +115,20 @@ function makeSupabase(seed = {}) {
       }
       if (mode === "insert") {
         const rows = Array.isArray(toInsert) ? toInsert : [toInsert];
+        // Enforce the logical-unique index (opt-in). A batch aborts WHOLESALE on
+        // the first colliding row (Postgres semantics) — the exact behaviour the
+        // #1825 per-row fallback works around.
+        if (logicalUnique && table === "ip_item_master") {
+          const pending = new Set();
+          for (const r of rows) {
+            const hit = findLogicalCollision(table, r, pending);
+            if (hit) {
+              return { data: null, error: { code: "23505", message: `duplicate key value violates unique constraint "uq_ip_item_master_logical_sku" (${hit.key})` } };
+            }
+            const k = logicalKey(r);
+            if (k != null) pending.add(k);
+          }
+        }
         const inserted = rows.map((r) => ({ id: r.id || nextId(), ...r }));
         store[table] = (store[table] || []).concat(inserted);
         if (postSelect) {
@@ -858,5 +899,154 @@ describe("mirrorArForDate — size-grain explosion end to end", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].inventory_item_id).toBe("item-sc");
     expect(store.ar_invoices[0].total_amount_cents).toBe(10000);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Private-label colour resolution (#1825 residual — 1,595 skipped invoices)
+//
+// Fixtures come from the REAL Xoro sales-history payload encoding (verified live):
+// private-label ItemNumbers are dash-delimited style-colour-size, e.g.
+//   "100203712MN-Black Shadow GD-29"  (style 100203712MN, colour Black Shadow GD, size 29)
+// canonSku squishes whitespace → "100203712MN-BLACKSHADOWGD-29". The catalog stores
+// the same garment with a DASHED colour + populated colour column:
+//   sku_code "100203712MN-BLACK-SHADOW-GD-29", color "Black Shadow Gd".
+// ════════════════════════════════════════════════════════════════════════════
+
+describe("deriveColorFromSku (real PL encoding)", () => {
+  it("pulls the middle colour segment off a squished size SKU", () => {
+    expect(deriveColorFromSku("100203712MN-Black Shadow GD-29")).toBe("BLACKSHADOWGD");
+    expect(deriveColorFromSku("100203712MN-Simple Sage GD-40")).toBe("SIMPLESAGEGD");
+  });
+  it("handles parenthesised kids' sizes without swallowing them into the colour", () => {
+    expect(deriveColorFromSku("100206796GK-Millie Wash-L(14-16)")).toBe("MILLIEWASH");
+    expect(deriveColorFromSku("100206796GK-Millie Wash-XS(5-6)")).toBe("MILLIEWASH");
+  });
+  it("handles branded style-colour-size (non-numeric styles)", () => {
+    expect(deriveColorFromSku("PTYG0001H-Black-M")).toBe("BLACK");
+    expect(deriveColorFromSku("RYB059430-Island Breeze Lt Wash-30")).toBe("ISLANDBREEZELTWASH");
+  });
+  it("returns null when the SKU carries no colour segment (bare style / misc charge)", () => {
+    expect(deriveColorFromSku("100203712MN")).toBeNull();
+    expect(deriveColorFromSku("Miscellaneous Charge")).toBeNull();
+    expect(deriveColorFromSku("")).toBeNull();
+  });
+});
+
+describe("canonicalSize (JS mirror of SQL canonical_size)", () => {
+  it("collapses letter-size spelling variants", () => {
+    expect(canonicalSize("S")).toBe("SMALL");
+    expect(canonicalSize("SM")).toBe("SMALL");
+    expect(canonicalSize("SML")).toBe("SMALL");
+    expect(canonicalSize("L")).toBe("LARGE");
+    expect(canonicalSize("LRG")).toBe("LARGE");
+    expect(canonicalSize("XXL")).toBe("2XLARGE");
+  });
+  it("passes numeric waist sizes + unknown tokens through as upper(trim)", () => {
+    expect(canonicalSize("30")).toBe("30");
+    expect(canonicalSize(" 32 ")).toBe("32");
+    expect(canonicalSize("L(14-16)")).toBe("L(14-16)");
+  });
+  it("maps null/undefined to empty string", () => {
+    expect(canonicalSize(null)).toBe("");
+    expect(canonicalSize(undefined)).toBe("");
+  });
+});
+
+describe("normalizeColorKey", () => {
+  it("collapses spacing/punctuation variance of the same colour", () => {
+    expect(normalizeColorKey("Black Shadow Gd")).toBe("BLACKSHADOWGD");
+    expect(normalizeColorKey("BLACK-SHADOW-GD")).toBe("BLACKSHADOWGD");
+    expect(normalizeColorKey("BLACKSHADOWGD")).toBe("BLACKSHADOWGD");
+  });
+  it("is null-safe", () => {
+    expect(normalizeColorKey(null)).toBe("");
+    expect(normalizeColorKey(undefined)).toBe("");
+  });
+});
+
+describe("resolveOrCreateSizeItems — private-label colour resolution", () => {
+  it("reuses the exact sku_code row when present", async () => {
+    const { sb } = makeSupabase({ ip_item_master: [{ id: "x1", sku_code: "PTYG0001H-BLACK-M" }] });
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, ["PTYG0001H-BLACK-M"]);
+    expect(map.get("PTYG0001H-BLACK-M")).toBe("x1");
+  });
+
+  it("reuses the AUTHORITATIVE logical twin when the catalog stores the colour dashed", async () => {
+    // Catalog: dashed colour + populated color column. Payload canon: squished.
+    const { sb, store } = makeSupabase({
+      ip_item_master: [
+        { id: "cat30", sku_code: "100203712MN-BLACK-SHADOW-GD-30", style_code: "100203712MN", color: "Black Shadow Gd", size: "30" },
+      ],
+    });
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, ["100203712MN-BLACKSHADOWGD-30"]);
+    expect(map.get("100203712MN-BLACKSHADOWGD-30")).toBe("cat30");
+    // No new stub minted — twin reuse, not fragmentation.
+    expect(store.ip_item_master).toHaveLength(1);
+  });
+
+  it("reuses a twin whose colour lives only in the sku_code (color column NULL)", async () => {
+    const { sb, store } = makeSupabase({
+      ip_item_master: [
+        { id: "cat31", sku_code: "100203712MN-BLACKSHADOWGD-31", style_code: "100203712MN", color: null, size: "31" },
+      ],
+    });
+    // A different spacing of the same colour still resolves to the existing row.
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, ["100203712MN-BLACK-SHADOW-GD-31"]);
+    expect(map.get("100203712MN-BLACK-SHADOW-GD-31")).toBe("cat31");
+    expect(store.ip_item_master).toHaveLength(1);
+  });
+
+  it("does NOT reuse a twin that carries an inseam (can't reconstruct it from the SKU)", async () => {
+    const { sb, store } = makeSupabase({
+      ip_item_master: [
+        { id: "cat32", sku_code: "100203712MN-BLACK-SHADOW-GD-32", style_code: "100203712MN", color: "Black Shadow Gd", size: "32", inseam: "32" },
+      ],
+    });
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, ["100203712MN-BLACKSHADOWGD-32"]);
+    expect(map.get("100203712MN-BLACKSHADOWGD-32")).not.toBe("cat32");
+    expect(store.ip_item_master).toHaveLength(2); // a fresh stub was minted
+  });
+
+  it("mints a colour-bearing stub for a genuinely-new size SKU", async () => {
+    const { sb, store } = makeSupabase({ ip_item_master: [] });
+    // Inputs are already canonical (canonSku output from normalizeInvoicePayloadLines).
+    const canon = "100203712MN-SIMPLESAGEGD-33";
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, [canon]);
+    expect(map.get(canon)).toBeTruthy();
+    const row = store.ip_item_master.find((r) => r.sku_code === canon);
+    expect(row.color).toBe("SIMPLESAGEGD");
+    expect(row.style_code).toBe("100203712MN");
+    expect(row.size).toBe("33");
+    expect(row.entity_id).toBe(ENTITY_ID);
+  });
+
+  it("resolves TWO colours of the same style+size without colliding (the #1825 fix)", async () => {
+    // With the logical-unique index enforced, a null-colour batch would abort
+    // wholesale (proven by the control below). Colour-bearing stubs stay distinct.
+    const { sb, store } = makeSupabase({ ip_item_master: [] }, { logicalUnique: true });
+    const map = await resolveOrCreateSizeItems(sb, ENTITY_ID, [
+      "100203712MN-BLACKSHADOWGD-29",
+      "100203712MN-SIMPLESAGEGD-29",
+    ]);
+    const a = map.get("100203712MN-BLACKSHADOWGD-29");
+    const b = map.get("100203712MN-SIMPLESAGEGD-29");
+    expect(a).toBeTruthy();
+    expect(b).toBeTruthy();
+    expect(a).not.toBe(b);
+    expect(store.ip_item_master).toHaveLength(2);
+    const colours = store.ip_item_master.map((r) => r.color).sort();
+    expect(colours).toEqual(["BLACKSHADOWGD", "SIMPLESAGEGD"]);
+  });
+
+  it("CONTROL: the mock's logical-unique index really rejects two null-colour same-cell rows", async () => {
+    // Guards the test above: proves the constraint sim bites, so the fix's pass is real.
+    const { sb } = makeSupabase({ ip_item_master: [] }, { logicalUnique: true });
+    const { error } = await sb.from("ip_item_master").insert([
+      { sku_code: "S1-A-29", style_code: "S1", color: null, size: "29" },
+      { sku_code: "S1-B-29", style_code: "S1", color: null, size: "29" },
+    ]);
+    expect(error).toBeTruthy();
+    expect(error.code).toBe("23505");
   });
 });

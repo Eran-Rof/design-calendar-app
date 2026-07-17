@@ -17,7 +17,10 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../_lib/auth.js";
-import { aggregateDilution } from "../../../_lib/chargebackMatch.js";
+import { aggregateDilution, isFactorChurnChargeback } from "../../../_lib/chargebackMatch.js";
+
+const FACTOR_CHURN_GROUP = "__factor_churn__";
+const FACTOR_CHURN_LABEL = "Factor receivable churn (Manual Charge Back)";
 
 export const config = { maxDuration: 30 };
 
@@ -67,17 +70,21 @@ export default async function handler(req, res) {
   try {
     const cbs = await fetchAll(
       admin, "factor_chargebacks",
-      "id, customer_id, report_month, amount_cents, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
+      "id, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
     );
     const reasonCodes = await fetchAll(admin, "chargeback_reason_codes", "id, code, label, category");
     const reasonById = new Map(reasonCodes.map((r) => [r.id, r]));
 
-    // resolve customer + period per chargeback
+    // resolve customer + period per chargeback. `excluded` flags factor
+    // receivable churn (Rosenthal "Manual Charge Back" / code 610) — the factor
+    // recoursing the whole invoice back to us, NOT a customer deduction — so it
+    // is kept out of the dilution rate (tracked separately as excluded_cents).
     const resolved = cbs.map((r) => ({
       cid: r.customer_id || r.matched?.customer_id || null,
       ym: ym(r.report_month),
       amount_cents: Number(r.amount_cents) || 0,
       reason_code_id: r.reason_code_id || null,
+      excluded: isFactorChurnChargeback(r),
     }));
 
     const custIds = [...new Set(resolved.map((r) => r.cid).filter(Boolean))];
@@ -102,13 +109,13 @@ export default async function handler(req, res) {
 
     // ── by customer ──────────────────────────────────────────────────────────
     const byCustomer = aggregateDilution(
-      resolved.filter((r) => r.cid).map((r) => ({ group: r.cid, label: nameById.get(r.cid) || r.cid, amount_cents: r.amount_cents })),
+      resolved.filter((r) => r.cid).map((r) => ({ group: r.cid, label: nameById.get(r.cid) || r.cid, amount_cents: r.amount_cents, excluded: r.excluded })),
       grossByCustomer
     ).map((r) => ({ customer_id: r.group, customer_name: r.label, ...stripGroup(r) }));
 
     // ── by customer x month ──────────────────────────────────────────────────
     const byCustomerMonth = aggregateDilution(
-      resolved.filter((r) => r.cid && r.ym).map((r) => ({ group: `${r.cid}|${r.ym}`, label: nameById.get(r.cid) || r.cid, amount_cents: r.amount_cents })),
+      resolved.filter((r) => r.cid && r.ym).map((r) => ({ group: `${r.cid}|${r.ym}`, label: nameById.get(r.cid) || r.cid, amount_cents: r.amount_cents, excluded: r.excluded })),
       grossByCustomerMonth
     ).map((r) => {
       const [cid, mm] = r.group.split("|");
@@ -117,13 +124,17 @@ export default async function handler(req, res) {
 
     // ── by month ─────────────────────────────────────────────────────────────
     const byMonth = aggregateDilution(
-      resolved.filter((r) => r.ym).map((r) => ({ group: r.ym, label: r.ym, amount_cents: r.amount_cents })),
+      resolved.filter((r) => r.ym).map((r) => ({ group: r.ym, label: r.ym, amount_cents: r.amount_cents, excluded: r.excluded })),
       grossByMonth
     ).map((r) => ({ ym: r.group, ...stripGroup(r) })).sort((a, b) => (a.ym < b.ym ? -1 : 1));
 
     // ── by reason (% of total deductions, not of sales) ──────────────────────
+    // Factor-churn rows roll into their own visible "Factor receivable churn"
+    // line (chargeback_cents = 0, excluded_cents shown) so it stays honest but
+    // never inflates the deduction share.
     const reasonRows = aggregateDilution(
       resolved.map((r) => {
+        if (r.excluded) return { group: FACTOR_CHURN_GROUP, label: FACTOR_CHURN_LABEL, amount_cents: r.amount_cents, excluded: true };
         const rc = r.reason_code_id ? reasonById.get(r.reason_code_id) : null;
         return { group: rc ? rc.code : "__uncoded__", label: rc ? rc.label : "Un-coded", amount_cents: r.amount_cents };
       }),
@@ -141,11 +152,15 @@ export default async function handler(req, res) {
       };
     });
 
+    const cbTotal = resolved.reduce((a, r) => a + (r.excluded ? 0 : Math.max(0, r.amount_cents)), 0);
+    const creditTotal = resolved.reduce((a, r) => a + (r.excluded ? 0 : Math.min(0, r.amount_cents)), 0);
     const totals = {
-      chargeback_cents: resolved.reduce((a, r) => a + Math.max(0, r.amount_cents), 0),
-      creditback_cents: resolved.reduce((a, r) => a + Math.min(0, r.amount_cents), 0),
-      net_cents: resolved.reduce((a, r) => a + r.amount_cents, 0),
+      chargeback_cents: cbTotal,
+      creditback_cents: creditTotal,
+      excluded_cents: resolved.reduce((a, r) => a + (r.excluded ? r.amount_cents : 0), 0),
+      net_cents: cbTotal + creditTotal,
       count: resolved.length,
+      excluded_count: resolved.filter((r) => r.excluded).length,
       matched_count: cbs.filter((r) => r.customer_id || r.matched?.customer_id).length,
     };
 
@@ -159,6 +174,7 @@ function stripGroup(r) {
   return {
     chargeback_cents: r.chargeback_cents,
     creditback_cents: r.creditback_cents,
+    excluded_cents: r.excluded_cents,
     net_cents: r.net_cents,
     gross_sales_cents: r.gross_sales_cents,
     dilution_pct: r.dilution_pct,

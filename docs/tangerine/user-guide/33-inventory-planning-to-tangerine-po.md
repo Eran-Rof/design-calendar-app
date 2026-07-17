@@ -96,6 +96,17 @@ Then **Run reconciliation** on the Tangerine-source run to apply it.
 
 For the **Xoro/ATS** supply source, an open PO *is* the work-in-progress — its quantity is already counted as incoming supply, so there's no separate "WIP" number to add (adding one would double-count). What the Tanda milestones contribute is **timing**: each open PO's expected-arrival month is now taken from the ops-maintained **"In House / DDP"** milestone (the `days_before_ddp = 0` step — its actual date once entered, else its expected date), falling back to the Xoro PO date when there's no milestone. So when the Production team updates a PO's DDP in Tanda, that WIP lands in the right month in the planning projection on the next **Sync open POs** + reconcile. (Today this re-times 9 of 166 open POs, some across a month boundary.)
 
+## 33.9 Deleting a reconciliation run
+
+Pick a run in the **Reconciliation run** selector, then click **Delete run** (red button, at the right of the toolbar). You'll be asked to confirm.
+
+- **What it removes:** only *that* reconciliation run and its output — the projected inventory, buy recommendations, and supply exceptions it produced.
+- **What it keeps:** your **wholesale and ecom demand plans are separate runs and are not touched.** Deleting the reconciliation just throws away the supply-side computation; you can re-create a run and **Run reconciliation** again anytime to rebuild it from the same plans.
+- **It cannot be undone.**
+- **If a run won't delete** (message: *"this run has execution batches"*), an execution batch was already built from it. Delete that batch on the **Execution** screen first, then delete the run.
+
+The button appears only when a run is selected. (Runs the Supply dropdown doesn't show — e.g. saved-build or scenario runs — can still be removed from **Planning → Admin → Runs**, which lists every run.)
+
 ---
 
 *M31 now connects planning to Tangerine in both directions — buy-plan → PO (A) and Tangerine supply → planning (B) — and both are opt-in choices alongside the existing Xoro paths.*
