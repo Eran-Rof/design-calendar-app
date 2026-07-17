@@ -23,6 +23,7 @@ export const PLANNING_MODULES: NavModule[] = [
   { key: "reports",      label: "Reports",       emoji: "📊", group: "Reports" },
   { key: "data-quality", label: "Data Quality",  emoji: "🔍", group: "Reports" },
   // Setup.
+  { key: "vendors",      label: "Vendors",       emoji: "🏭", group: "Setup" },
   { key: "admin",        label: "Admin",         emoji: "⚙️", group: "Setup" },
 ];
 

@@ -443,6 +443,9 @@ import r_internal_planning_buy_plan_to_po from "./internal/planning/buy-plan-to-
 import r_internal_planning_link_planning_vendor from "./internal/planning/link-planning-vendor.js";
 import r_internal_planning_promote_style_color from "./internal/planning/promote-style-color.js";
 import r_internal_planning_sync_tangerine_supply from "./internal/planning/sync-tangerine-supply.js";
+import r_internal_planning_vendors_seed from "./internal/planning/vendors-seed.js";
+import r_internal_planning_vendors_tangerine_options from "./internal/planning/vendors-tangerine-options.js";
+import r_internal_planning_vendors from "./internal/planning/vendors.js";
 import r_internal_pos_id_messages from "./internal/pos/[id]/messages.js";
 import r_internal_preferred_vendors_index from "./internal/preferred-vendors/index.js";
 import r_internal_prepack_matrices_id from "./internal/prepack-matrices/[id].js";
@@ -825,6 +828,7 @@ export const ROUTES = [
   { pattern: "/api/internal/scf/requests/:id/fund", handler: r_internal_scf_requests_id_fund },
   { pattern: "/api/vendor/rfqs/:id/quotes/submit", handler: r_vendor_rfqs_id_quotes_submit },
   { pattern: "/api/vendor/rfqs/:id/quote/revise", handler: r_vendor_rfqs_id_quote_revise },
+  { pattern: "/api/internal/planning/vendors/tangerine-options", handler: r_internal_planning_vendors_tangerine_options },
   { pattern: "/api/internal/design/trend-brief/synthesize", handler: r_internal_design_trend_brief_synthesize },
   { pattern: "/api/internal/costing/rfq-compare/projects", handler: r_internal_costing_rfq_compare_projects_index },
   { pattern: "/api/internal/procurement/qc/dispositions", handler: r_internal_procurement_qc_dispositions },
@@ -845,6 +849,7 @@ export const ROUTES = [
   { pattern: "/api/internal/costing/search/colors", handler: r_internal_costing_search_colors },
   { pattern: "/api/internal/costing/search/scales", handler: r_internal_costing_search_scales },
   { pattern: "/api/internal/costing/search/styles", handler: r_internal_costing_search_styles },
+  { pattern: "/api/internal/planning/vendors/seed", handler: r_internal_planning_vendors_seed },
   { pattern: "/api/internal/scanner/events/batch", handler: r_internal_scanner_events_batch },
   { pattern: "/api/internal/users/me/preferences", handler: r_internal_users_me_preferences_index },
   { pattern: "/api/internal/users/me/menu-click", handler: r_internal_users_me_menu_click_index },
@@ -1123,6 +1128,7 @@ export const ROUTES = [
   { pattern: "/api/internal/insights/summary", handler: r_internal_insights_summary },
   { pattern: "/api/internal/pim/style-colors", handler: r_internal_pim_style_colors_index },
   { pattern: "/api/internal/pim/style-thumbs", handler: r_internal_pim_style_thumbs },
+  { pattern: "/api/internal/planning/vendors", handler: r_internal_planning_vendors },
   { pattern: "/api/internal/scanner/sessions", handler: r_internal_scanner_sessions_index },
   { pattern: "/api/internal/shopify/backfill", handler: r_internal_shopify_backfill },
   { pattern: "/api/internal/tax/calculations", handler: r_internal_tax_calculations },

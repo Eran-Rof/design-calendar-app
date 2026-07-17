@@ -126,11 +126,17 @@ export async function buildExecutionBatchFromRecommendations(args: BuildBatchInp
 
   // Map and insert actions.
   const openPoBySku = await loadOpenPosBySku(); // shared — keep Xoro PO lookup cheap
+  // Item-master vendor fallback: when a SKU has no open PO to inherit a vendor
+  // from, use ip_item_master.vendor_id so the buy action still carries a vendor
+  // (precedence resolved in the mapper: open-PO vendor → item-master vendor →
+  // null). Without this, fresh buy recs are vendor-less and skip at PO time.
+  const itemVendorBySku = await loadItemVendorBySku(relevant.map((r) => r.sku_id));
   const actionRows = mapRecommendationsToActions({
     execution_batch_id: batch.id,
     batch_type,
     recommendations: relevant,
     openPoBySku,
+    itemVendorBySku,
   });
   await executionRepo.insertActions(actionRows);
 
@@ -272,6 +278,25 @@ function actionTypeFilter(r: IpInventoryRecommendation, bt: IpExecutionBatchType
   return actionTypeToBatchType(at) === bt;
 }
 
+// Fetch ip_item_master.vendor_id for the given sku_ids (ip_item_master.id).
+// Returns a Map<sku_id, vendor_id|null>. Chunked to keep the PostgREST
+// column-IN URL under the length guard (mirrors the buy-plan handler's 100-id
+// batching).
+async function loadItemVendorBySku(skuIds: string[]): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  const ids = [...new Set(skuIds.filter(Boolean))];
+  if (!SB_URL || ids.length === 0) return map;
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const url = `${SB_URL}/rest/v1/ip_item_master?select=id,vendor_id&id=in.(${chunk.map(encodeURIComponent).join(",")})`;
+    const res = await fetch(url, { headers: SB_HEADERS });
+    if (!res.ok) continue;
+    const rows = (await res.json()) as Array<{ id: string; vendor_id: string | null }>;
+    for (const r of rows) map.set(r.id, r.vendor_id ?? null);
+  }
+  return map;
+}
+
 async function loadOpenPosBySku(): Promise<Map<string, { po_number: string; vendor_id: string | null; last_seen_at: string }>> {
   const pos = await wholesaleRepo.listOpenPos();
   const m = new Map<string, { po_number: string; vendor_id: string | null }>();
@@ -296,4 +321,4 @@ export type {
   IpPlanningRun,
   IpScenario,
 };
-void SB_HEADERS; void SB_URL; // keep imports in case future methods need a raw fetch
+// SB_HEADERS / SB_URL are used by loadItemVendorBySku above.

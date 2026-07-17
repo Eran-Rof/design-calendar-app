@@ -42,6 +42,12 @@ export interface MapRecommendationsInput {
   // Per-sku last known open PO — lets the mapper decide between
   // create_buy_request vs increase_po / expedite_po vs create-new.
   openPoBySku?: Map<string, { po_number: string; vendor_id: string | null }>;
+  // Per-sku item-master vendor_id (ip_item_master.vendor_id → ip_vendor_master).
+  // Vendor precedence: open-PO vendor → item-master vendor → null. This is the
+  // fallback that lets a fresh buy recommendation carry a vendor even when there
+  // is no open PO on the SKU — previously such actions were always vendor-less
+  // and skipped by buy-plan → PO with "no vendor".
+  itemVendorBySku?: Map<string, string | null>;
 }
 
 export function mapRecommendationsToActions(
@@ -84,6 +90,14 @@ export function mapRecommendationsToActions(
     } else if (baseType === "reduce_po" && !existingPo) {
       // No PO to reduce — skip. We'd have to log a warning; for MVP we just drop.
       continue;
+    }
+
+    // Vendor precedence: open-PO vendor → item-master vendor → null. When the
+    // PO branch left vendor_id null (no PO, or the PO carried no vendor), fall
+    // back to the SKU's item-master vendor so buy actions still route to a
+    // vendor. Still-null actions keep the validation warning downstream.
+    if (vendor_id == null) {
+      vendor_id = input.itemVendorBySku?.get(r.sku_id) ?? null;
     }
 
     out.push({
