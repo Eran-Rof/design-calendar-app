@@ -1,8 +1,13 @@
-// Tests for the always-visible top-bar universal search bar pure helpers:
-// substring highlight, group flattening, and result navigation.
+// @vitest-environment jsdom
+//
+// Tests for the always-visible top-bar universal search bar: pure helpers
+// (substring highlight, group flattening, result navigation) plus the unified
+// search UX (⌘K / Ctrl-K focus, Esc clears, hotkey hint).
 
+import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import {
+import { render, screen, fireEvent } from "@testing-library/react";
+import TopbarGlobalSearch, {
   highlightParts,
   flattenGroups,
   navigateToResult,
@@ -107,5 +112,43 @@ describe("navigateToResult", () => {
     );
     expect(assign).toHaveBeenCalledWith("/tanda?po=PO-9");
     expect(pushState).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Unified-bar UX (component render) ──────────────────────────────────────
+
+describe("TopbarGlobalSearch UX", () => {
+  const noopFetcher = () => Promise.resolve({ q: "", groups: [], total: 0 });
+
+  it("shows a hotkey hint when the input is empty", () => {
+    render(<TopbarGlobalSearch fetcher={noopFetcher} />);
+    const hint = screen.getByTestId("topbar-global-search-hotkey-hint");
+    expect(hint.textContent === "⌘K" || hint.textContent === "Ctrl K").toBe(true);
+  });
+
+  it("hides the hotkey hint once the operator types", () => {
+    render(<TopbarGlobalSearch fetcher={noopFetcher} />);
+    const input = screen.getByTestId("topbar-global-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "acme" } });
+    expect(screen.queryByTestId("topbar-global-search-hotkey-hint")).toBeNull();
+  });
+
+  it("⌘K / Ctrl-K focuses the input from anywhere (app-shell-level)", () => {
+    render(<TopbarGlobalSearch fetcher={noopFetcher} />);
+    const input = screen.getByTestId("topbar-global-search-input") as HTMLInputElement;
+    expect(document.activeElement).not.toBe(input);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("Esc clears the query and blurs the input", () => {
+    render(<TopbarGlobalSearch fetcher={noopFetcher} />);
+    const input = screen.getByTestId("topbar-global-search-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "acme" } });
+    input.focus();
+    expect(input.value).toBe("acme");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input.value).toBe("");
+    expect(document.activeElement).not.toBe(input);
   });
 });

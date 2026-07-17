@@ -8,11 +8,18 @@
 //   → { q, groups: [ { key, label, items: [ { entity_type, code, label,
 //         sublabel, nav: { module?, params?, href? } } ] } ], total }
 //
-// Distinct from /api/internal/search (the ⌘K full-text palette): this endpoint
-// does cheap indexed substring ILIKE (backed by the pg_trgm GIN indexes in
-// migration 20261300000000) so partial "any term" matches work, and returns a
-// grouped shape with Tangerine navigation targets (?m=<module>&q=<code>, or a
-// full href for entities that live in the PO WIP app).
+// This endpoint does cheap indexed substring ILIKE (backed by the pg_trgm GIN
+// indexes in migration 20261300000000) so partial "any term" matches work, and
+// returns a grouped shape with Tangerine navigation targets (?m=<module>&q=<code>,
+// or a full href for entities that live in the PO WIP app).
+//
+// It is the single search backend for the Tangerine shell (the ⌘K palette that
+// used /api/internal/search was retired here in favour of the always-visible
+// top bar — the palette + that FTS endpoint remain for the Design Calendar,
+// PO WIP and TechPack shells). Every entity the FTS palette covered but the top
+// bar previously missed (GL accounts, cases, sales reps, bank transactions) is
+// covered here via ILIKE — strictly better than the palette's token-boundary
+// FTS for partial-code matching.
 //
 // Auth: a Bearer JWT must be present (injected by installInternalApiAuth on the
 // client) — 401 otherwise. The actual reads use the service-role client so the
@@ -351,6 +358,86 @@ function buildGroupRunners(admin, q, limit, eid) {
           label: firstNonEmpty(r.display_name, r.email),
           sublabel: r.email && r.display_name ? r.email : null,
           nav: { module: "employees", params: { q: firstNonEmpty(r.code, r.display_name) || "" } },
+        })),
+      };
+    },
+    // GL / Chart of Accounts — coverage absorbed from the retired ⌘K palette
+    // (the FTS view exposed gl_account; the top bar previously did not). ILIKE
+    // on code+name so partial account numbers match, which the token-boundary
+    // FTS could not do.
+    async () => {
+      const { data } = await scoped(
+        admin.from("gl_accounts").select("id, code, name, account_type").or(orIlike(["code", "name"], q)).limit(limit),
+        true,
+      );
+      return {
+        key: "gl_accounts",
+        label: "GL Accounts",
+        items: (data || []).map((r) => ({
+          entity_type: "gl_account",
+          code: r.code || null,
+          label: r.name || null,
+          sublabel: r.account_type || null,
+          nav: { module: "gl_accounts", params: { q: r.code || "" } },
+        })),
+      };
+    },
+    // Cases (customer service) — coverage absorbed from the retired palette.
+    async () => {
+      const { data } = await scoped(
+        admin.from("cases").select("id, case_number, subject, status").or(orIlike(["case_number", "subject"], q)).limit(limit),
+        true,
+      );
+      return {
+        key: "cases",
+        label: "Cases",
+        items: (data || []).map((r) => ({
+          entity_type: "case",
+          code: r.case_number || null,
+          label: r.subject || null,
+          sublabel: r.status || null,
+          nav: { module: "cases", params: { q: r.case_number || "" } },
+        })),
+      };
+    },
+    // Sales reps — coverage absorbed from the retired palette. Reps are managed
+    // as Employees, so the nav lands on the employees module.
+    async () => {
+      const { data } = await scoped(
+        admin.from("sales_reps").select("id, display_name, email").or(orIlike(["display_name", "email"], q)).limit(limit),
+        true,
+      );
+      return {
+        key: "sales_reps",
+        label: "Sales Reps",
+        items: (data || []).map((r) => ({
+          entity_type: "sales_rep",
+          code: null,
+          label: r.display_name || null,
+          sublabel: r.email || null,
+          nav: { module: "employees", params: { q: r.display_name || "" } },
+        })),
+      };
+    },
+    // Bank transactions — coverage absorbed from the retired palette. No stable
+    // user-facing code, so nav lands on the Bank Reconciliation queue.
+    async () => {
+      const { data } = await scoped(
+        admin.from("bank_transactions").select("id, external_txn_id, merchant_name, description, amount_cents").or(orIlike(["merchant_name", "external_txn_id", "description"], q)).limit(limit),
+        true,
+      );
+      return {
+        key: "bank_transactions",
+        label: "Bank Transactions",
+        items: (data || []).map((r) => ({
+          entity_type: "bank_txn",
+          code: firstNonEmpty(r.external_txn_id, r.merchant_name),
+          label: firstNonEmpty(r.merchant_name, r.description),
+          sublabel:
+            typeof r.amount_cents === "number"
+              ? `$${(r.amount_cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : null,
+          nav: { module: "bank_reconciliation" },
         })),
       };
     },
