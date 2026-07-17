@@ -12,14 +12,43 @@ No Xoro involvement. The buy plan reads planning data; the POs are real native `
 
 ## 33.2 Running it (Execution screen)
 
+The screen is **guided** — a **NextStep banner** at the top of the batch detail always states the single next action and gives you the button for it, so you never have to guess the order. It walks the batch through: *Move to ready → Approve batch → Preview draft POs → Create draft POs → Issue in Procurement.* The banner is just a shortcut to the same buttons described below; nothing new happens through it.
+
+### The fast path (from the Wholesale workbench)
+
+You normally don't build the batch by hand. On the Wholesale workbench, **Push planner buys → plan** (§33.10) now approves the run and drops you straight onto the Execution screen with the buy-plan batch **already built and moved to `ready`**. The URL carries `?fromRunId=…&autoCreate=buy_plan`; the screen:
+
+- **reuses** an existing (non-archived) buy-plan batch for that run instead of making a duplicate,
+- toasts *"Buy plan batch ready — next: approve it below"* and selects it on the Detail tab,
+- if the run somehow isn't approved, opens the New-batch form prefilled with that run so you can approve/override explicitly,
+- if the run has no buy recommendations, tells you there's nothing to build.
+
+So the manual **+ New batch** modal is now the exception, not the rule.
+
+### Preview, then create
+
 On a batch that is **approved** (or exported / submitted / partially executed):
 
 1. **🔍 Preview POs** — a dry run. Nothing is written. You see exactly which vendors would get a PO, how many lines, the dollar total, and — importantly — **which actions would be skipped and why**. Always preview first.
-2. **🍊 Create Tangerine POs** — does it for real. Each `create_buy_request` action becomes a PO line; lines are grouped by vendor into one **draft** PO each.
+2. **🍊 Create Tangerine POs** — does it for real. Each `create_buy_request` action becomes a PO line; lines are grouped by vendor into one **draft** PO each. This is the primary (orange) button on the panel.
 
 Both buttons require the **`run_writeback`** planning permission (admin / operations_user roles). They are disabled with a tooltip if your role lacks it.
 
-After a real run, each created PO shows a **`open in Procurement →`** link, and every action in the table gets a persistent **Tangerine PO** chip (`draft 1a2b3c4d`) that deep-links to the PO panel — so the link survives a page refresh, not just the result banner.
+After a real run, each created PO shows a **`open in Procurement →`** link, and every action in the table gets a persistent **Tangerine PO** chip (`draft 1a2b3c4d`) that deep-links to the PO panel — so the link survives a page refresh, not just the result banner. Once POs exist, the NextStep banner flips to **"Done here — issue the draft POs in Procurement"**.
+
+### Legacy Xoro writeback is out of the way
+
+The old **Dry-run writeback** / **Submit writeback** buttons drove a legacy **Xoro** integration that has **nothing to do with the Tangerine PO path**. When every Xoro endpoint is disabled (the current state) they now collapse into a muted **"Legacy Xoro writeback (disabled)"** disclosure, and the Execution list banner reads *"Legacy Xoro writeback: disabled. (Does not affect Tangerine POs — those are live.)"* — so the old "dry-run only" copy no longer reads as if PO creation itself were a dry run. If any Xoro endpoint is ever enabled, the buttons return to the top level with a clear "partially enabled" note.
+
+### Fixing vendors inline
+
+If the preview skips lines for a vendor reason, the screen now surfaces the fix right where you are:
+
+- **no vendor on action** → an inline **assign vendor** select (yellow-bordered) appears in the new **Vendor** column of the Actions table. Pick a planning vendor and it's saved immediately — even on an already-approved batch. After the first pick, an **"Apply to all N unassigned lines of this style"** prompt lets you fan the same vendor across every unassigned colorway of that style in one click.
+- **vendor not linked to Tangerine** → use the **🔗 Link** suggestion chips (§33.6), or open **manage vendors →**.
+- **vendor not in planning master** → **manage vendors →** links to the planning-vendor screen (`/planning/vendors`).
+
+Re-preview after any fix and the corrected lines move into the eligible set.
 
 ## 33.3 How each line is built
 
@@ -113,13 +142,13 @@ The execution batch and buy-plan export don't read your grid directly — they r
 
 **Where:** on the Wholesale workbench, in the **Planning run** toolbar (next to *Build forecast*). It's shown for any live run (hidden on saved-build snapshots).
 
-**What it does:** takes the **Buy** column (`planned_buy_qty`) for the whole run, sums it per SKU and period, and writes it straight through as the run's buy recommendations — **supply reconciliation is skipped entirely.** It **replaces** any recommendations a prior reconciliation pass computed. Afterward the execution batch and buy-plan export reflect your numbers, not the system's shortage math.
+**What it does:** takes the **Buy** column (`planned_buy_qty`) for the whole run, sums it per SKU and period, and writes it straight through as the run's buy recommendations — **supply reconciliation is skipped entirely.** It **replaces** any recommendations a prior reconciliation pass computed. It also **approves the run** and hands you straight to the guided Execution flow. Afterward the execution batch and buy-plan export reflect your numbers, not the system's shortage math.
 
 Typical flow:
 
 1. Set your **Buy** quantities in the grid (type them, or use **Copy Final → Buy** to seed Buy from Final, then adjust).
 2. Click **Push planner buys → plan** and confirm.
-3. Build your execution batch on **Execution** — it now carries your buys verbatim.
+3. You land on **Execution** with the buy-plan batch **already built and in `ready`** (see §33.2, the fast path). Follow the **NextStep banner**: *Approve batch → Preview draft POs → Create draft POs → Issue in Procurement.* No modal, no guessing the order.
 
 Notes:
 
