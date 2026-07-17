@@ -84,15 +84,46 @@ export function matchChargeback(itemNum, index) {
   return null;
 }
 
+// Raw Rosenthal reason codes that are NOT a customer deduction but the factor
+// moving the FULL receivable back to us (recourse / credit-risk churn). See
+// isFactorChurnChargeback below.
+export const FACTOR_CHURN_REASON_CODES = new Set(["610"]);
+
+/**
+ * Is this factor row a "Manual Charge Back" (Rosenthal code 610) — i.e. the
+ * factor recoursing the WHOLE invoice back to us, not a customer deduction?
+ *
+ * PROVEN from PROD (#1832): every code-610 row is a full-invoice amount (some
+ * EXCEED the invoice), matched to an invoice the customer PAID IN FULL, and none
+ * is ever reversed. Counting these as "chargeback deductions" wildly overstated
+ * dilution (e.g. Macy's Backstage read 44% when its real customer dilution is
+ * ~0%). They are excluded from the dilution rate — never deleted or rewritten.
+ *
+ * @param {{reason_code?:string|number|null, reason?:string|null}} row
+ * @returns {boolean}
+ */
+export function isFactorChurnChargeback(row) {
+  if (!row) return false;
+  const code = row.reason_code == null ? "" : String(row.reason_code).trim();
+  if (FACTOR_CHURN_REASON_CODES.has(code)) return true;
+  const reason = row.reason == null ? "" : String(row.reason).toLowerCase();
+  return /manual\s*charge\s*back/.test(reason);
+}
+
 /**
  * Pure dilution aggregation. Given chargeback rows (each with a resolved
  * customer_id, a period key, and signed amount_cents where POSITIVE = a
  * chargeback deduction and NEGATIVE = a creditback/recovery) and a gross-sales
  * map, produce per-group metrics.
  *
- * @param {Array<{group:string, label?:string, amount_cents:number, item_type?:string}>} rows
+ * A row flagged `excluded: true` (factor receivable churn — see
+ * isFactorChurnChargeback) is NOT counted in chargeback/creditback/net or the
+ * dilution rate; its amount is tracked separately in `excluded_cents` so the UI
+ * can surface it honestly.
+ *
+ * @param {Array<{group:string, label?:string, amount_cents:number, excluded?:boolean}>} rows
  * @param {Record<string, number>} grossByGroup  group key → gross sales cents
- * @returns {Array<{group,label,chargeback_cents,creditback_cents,net_cents,gross_sales_cents,dilution_pct,count}>}
+ * @returns {Array<{group,label,chargeback_cents,creditback_cents,excluded_cents,net_cents,gross_sales_cents,dilution_pct,count}>}
  */
 export function aggregateDilution(rows, grossByGroup = {}) {
   const acc = new Map();
@@ -100,11 +131,17 @@ export function aggregateDilution(rows, grossByGroup = {}) {
     const g = r.group;
     if (g == null) continue;
     let a = acc.get(g);
-    if (!a) { a = { group: g, label: r.label ?? g, chargeback_cents: 0, creditback_cents: 0, net_cents: 0, count: 0 }; acc.set(g, a); }
+    if (!a) { a = { group: g, label: r.label ?? g, chargeback_cents: 0, creditback_cents: 0, excluded_cents: 0, net_cents: 0, count: 0 }; acc.set(g, a); }
     const amt = Number(r.amount_cents) || 0;
-    if (amt > 0) a.chargeback_cents += amt;
-    else if (amt < 0) a.creditback_cents += amt;
-    a.net_cents += amt;
+    if (r.excluded) {
+      a.excluded_cents += amt; // factor churn — recorded, not dilution
+    } else if (amt > 0) {
+      a.chargeback_cents += amt;
+      a.net_cents += amt;
+    } else if (amt < 0) {
+      a.creditback_cents += amt;
+      a.net_cents += amt;
+    }
     a.count += 1;
     if (r.label != null) a.label = r.label;
   }

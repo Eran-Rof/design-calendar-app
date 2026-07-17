@@ -6,6 +6,7 @@ import {
   buildInvoiceIndex,
   matchChargeback,
   aggregateDilution,
+  isFactorChurnChargeback,
 } from "../chargebackMatch.js";
 
 describe("normalizeAlnum", () => {
@@ -135,5 +136,38 @@ describe("aggregateDilution", () => {
   it("ignores rows with a null group", () => {
     const out = aggregateDilution([{ group: null, amount_cents: 999 }], {});
     expect(out).toHaveLength(0);
+  });
+
+  it("excludes factor-churn rows from chargeback/net/dilution, tracks excluded_cents", () => {
+    const churnRows = [
+      { group: "cust-1", label: "Backstage", amount_cents: 100_00 },                    // real deduction
+      { group: "cust-1", label: "Backstage", amount_cents: 2341200, excluded: true },   // 610 churn — full invoice
+      { group: "cust-1", label: "Backstage", amount_cents: -10_00 },                    // creditback
+    ];
+    const out = aggregateDilution(churnRows, { "cust-1": 1_000_00 });
+    const c1 = out.find((r) => r.group === "cust-1");
+    expect(c1.chargeback_cents).toBe(100_00);     // churn NOT counted
+    expect(c1.excluded_cents).toBe(2341200);      // tracked separately
+    expect(c1.creditback_cents).toBe(-10_00);
+    expect(c1.net_cents).toBe(90_00);             // churn NOT in net
+    expect(c1.dilution_pct).toBe(10);             // 100_00 / 1_000_00, churn-free
+    expect(c1.count).toBe(3);
+  });
+});
+
+describe("isFactorChurnChargeback", () => {
+  it("flags Rosenthal Manual Charge Back (code 610)", () => {
+    expect(isFactorChurnChargeback({ reason_code: "610", reason: "Manual Charge Back" })).toBe(true);
+    expect(isFactorChurnChargeback({ reason_code: 610 })).toBe(true);
+    expect(isFactorChurnChargeback({ reason_code: " 610 " })).toBe(true);
+  });
+  it("flags on the reason text alone (defensive)", () => {
+    expect(isFactorChurnChargeback({ reason_code: null, reason: "Manual Charge Back" })).toBe(true);
+    expect(isFactorChurnChargeback({ reason: "MANUAL CHARGEBACK" })).toBe(true);
+  });
+  it("does NOT flag ordinary customer deductions", () => {
+    expect(isFactorChurnChargeback({ reason_code: "597", reason: "Short Pay" })).toBe(false);
+    expect(isFactorChurnChargeback({ reason_code: null, reason: null })).toBe(false);
+    expect(isFactorChurnChargeback(null)).toBe(false);
   });
 });

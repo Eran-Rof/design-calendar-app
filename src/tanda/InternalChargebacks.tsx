@@ -80,6 +80,13 @@ function fmtMonth(iso: string | null | undefined): string {
 function fmtPct(p: number | null | undefined): string {
   return p == null ? "—" : `${p.toFixed(2)}%`;
 }
+// Mirrors isFactorChurnChargeback in api/_lib/chargebackMatch.js: Rosenthal
+// "Manual Charge Back" (code 610) recourses the whole invoice back to us — it is
+// NOT a customer deduction, so it is excluded from dilution.
+function isFactorChurn(r: { reason_code?: string | null; reason?: string | null }): boolean {
+  if ((r.reason_code ?? "").toString().trim() === "610") return true;
+  return /manual\s*charge\s*back/i.test(r.reason ?? "");
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type ReasonCode = { id: string; code: string; label: string; category: string; sort?: number };
@@ -116,11 +123,11 @@ type CBRow = {
   reason_ref: ReasonRef | null;
 };
 
-type DilutionCustomer = { customer_id: string; customer_name: string; chargeback_cents: number; creditback_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
-type DilutionReason = { code: string | null; label: string; category: string | null; chargeback_cents: number; creditback_cents: number; net_cents: number; count: number; pct_of_deductions: number | null };
-type DilutionMonth = { ym: string; chargeback_cents: number; creditback_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
+type DilutionCustomer = { customer_id: string; customer_name: string; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
+type DilutionReason = { code: string | null; label: string; category: string | null; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; count: number; pct_of_deductions: number | null };
+type DilutionMonth = { ym: string; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
 type DilutionSummary = {
-  totals: { chargeback_cents: number; creditback_cents: number; net_cents: number; count: number; matched_count: number };
+  totals: { chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; count: number; excluded_count: number; matched_count: number };
   by_customer: DilutionCustomer[];
   by_customer_month: Array<DilutionCustomer & { ym: string }>;
   by_month: DilutionMonth[];
@@ -167,6 +174,7 @@ const DILUTION_CUST_COLUMNS = [
   { key: "customer_name",     header: "Customer" },
   { key: "chargeback_cents",  header: "Chargebacks",  format: "currency_cents" },
   { key: "creditback_cents",  header: "Creditbacks",  format: "currency_cents" },
+  { key: "excluded_cents",    header: "Excluded (factor churn)", format: "currency_cents" },
   { key: "net_cents",         header: "Net",          format: "currency_cents" },
   { key: "gross_sales_cents", header: "Gross Sales",  format: "currency_cents" },
   { key: "dilution_pct_str",  header: "Dilution %" },
@@ -177,6 +185,7 @@ const DILUTION_REASON_COLUMNS = [
   { key: "label",             header: "Reason" },
   { key: "category",          header: "Category" },
   { key: "chargeback_cents",  header: "Chargebacks", format: "currency_cents" },
+  { key: "excluded_cents",    header: "Excluded (factor churn)", format: "currency_cents" },
   { key: "net_cents",         header: "Net",         format: "currency_cents" },
   { key: "count",             header: "Items" },
   { key: "pct_str",           header: "% of Deductions" },
@@ -259,6 +268,14 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
           <Field label="Batch">{row.batch || "—"}</Field>
           <Field label="Reason (raw)">{row.reason ? `${row.reason}${row.reason_code ? ` (${row.reason_code})` : ""}` : "—"}</Field>
           <Field label="Match Method">{row.match_method || "unmatched"}</Field>
+
+          {isFactorChurn(row) && (
+            <div style={{ gridColumn: "1 / -1", background: C.groupHeaderBg, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.textSub }}>
+              <strong style={{ color: C.text }}>Factor receivable churn.</strong> Rosenthal recoursed the whole invoice back
+              to us (Manual Charge Back) — this is not a customer deduction, so it is <em>excluded</em> from dilution
+              analytics. The ledger row is kept as-is.
+            </div>
+          )}
 
           <div style={{ gridColumn: "1 / -1", height: 1, background: C.cardBdr }} />
 
@@ -518,6 +535,11 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
                     <td style={td}>{fmtDate(r.cb_date)}</td>
                     <td style={{ ...td, fontSize: 12, whiteSpace: "normal", maxWidth: 200 }}>
                       {r.reason_ref?.label || <span style={{ color: C.textMuted }}>{r.reason || "—"}</span>}
+                      {isFactorChurn(r) && (
+                        <div style={{ color: C.textMuted, fontSize: 10, fontStyle: "italic", marginTop: 2 }}>
+                          Factor churn — excluded from dilution
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...tdNum, color: amt < 0 ? C.success : C.warn }}>{fmtCents(amt)}</td>
                     <td style={{ ...td, color: DISPOSITION_COLOR[r.disposition], fontWeight: 600 }}>{DISPOSITION_LABEL[r.disposition]}</td>
@@ -572,23 +594,30 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <Card label="Gross Chargebacks" value={fmtCents(t.chargeback_cents)} color={C.warn} />
         <Card label="Creditbacks / Recoveries" value={fmtCents(t.creditback_cents)} color={C.success} />
+        <Card label="Excluded (factor churn)" value={fmtCents(t.excluded_cents)} color={C.textMuted} />
         <Card label="Net" value={fmtCents(t.net_cents)} />
         <Card label="Items" value={t.count.toLocaleString()} />
         <Card label="Matched to invoice" value={`${t.matched_count.toLocaleString()} / ${t.count.toLocaleString()}`} color={C.primary} />
       </div>
+      <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginTop: -6 }}>
+        Gross Chargebacks and Dilution % exclude {t.excluded_count.toLocaleString()} factor receivable-churn item
+        {t.excluded_count === 1 ? "" : "s"} ({fmtCents(t.excluded_cents)}) — Rosenthal "Manual Charge Back" recourses the
+        whole invoice back to us; it is not a customer deduction.
+      </div>
 
       <DilutionTable
         title="Top offenders — dilution by customer"
-        note="Dilution % = gross chargeback deductions ÷ gross sales."
+        note="Dilution % = gross chargeback deductions ÷ gross sales. Factor receivable churn is excluded."
         rows={custRows}
         columns={DILUTION_CUST_COLUMNS}
         filename="chargeback-dilution-by-customer"
-        head={["Customer", "Chargebacks", "Creditbacks", "Net", "Gross Sales", "Dilution %", "Items"]}
-        sortKeys={["customer_name", "chargeback_cents", "creditback_cents", "net_cents", "gross_sales_cents", "dilution_pct", "count"]}
+        head={["Customer", "Chargebacks", "Creditbacks", "Excluded", "Net", "Gross Sales", "Dilution %", "Items"]}
+        sortKeys={["customer_name", "chargeback_cents", "creditback_cents", "excluded_cents", "net_cents", "gross_sales_cents", "dilution_pct", "count"]}
         render={(c) => [
           <span style={{ color: C.text }}>{String(c.customer_name)}</span>,
           <span style={{ color: C.warn }}>{fmtCents(c.chargeback_cents as number)}</span>,
           <span style={{ color: C.success }}>{fmtCents(c.creditback_cents as number)}</span>,
+          <span style={{ color: C.textMuted }}>{(c.excluded_cents as number) ? fmtCents(c.excluded_cents as number) : "—"}</span>,
           fmtCents(c.net_cents as number),
           fmtCents(c.gross_sales_cents as number),
           <strong style={{ color: (c.dilution_pct as number) >= 5 ? C.danger : C.textSub }}>{String(c.dilution_pct_str)}</strong>,
@@ -599,16 +628,17 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
 
       <DilutionTable
         title="By reason"
-        note="Share of total gross chargeback deductions."
+        note="Share of total gross chargeback deductions. Factor receivable churn is shown but excluded from the share."
         rows={reasonRows}
         columns={DILUTION_REASON_COLUMNS}
         filename="chargeback-dilution-by-reason"
-        head={["Reason", "Category", "Chargebacks", "Net", "Items", "% of Deductions"]}
-        sortKeys={["label", "category", "chargeback_cents", "net_cents", "count", "pct_of_deductions"]}
+        head={["Reason", "Category", "Chargebacks", "Excluded", "Net", "Items", "% of Deductions"]}
+        sortKeys={["label", "category", "chargeback_cents", "excluded_cents", "net_cents", "count", "pct_of_deductions"]}
         render={(r) => [
           <span style={{ color: C.text }}>{String(r.label)}</span>,
           <span style={{ color: C.textMuted }}>{r.category ? String(r.category) : "—"}</span>,
           <span style={{ color: C.warn }}>{fmtCents(r.chargeback_cents as number)}</span>,
+          <span style={{ color: C.textMuted }}>{(r.excluded_cents as number) ? fmtCents(r.excluded_cents as number) : "—"}</span>,
           fmtCents(r.net_cents as number),
           String(r.count),
           String(r.pct_str),
