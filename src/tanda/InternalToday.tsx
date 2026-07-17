@@ -120,7 +120,11 @@ export default function InternalToday() {
   // carrying its drill params so the panel opens filtered to the subset.
   const openTodo = useCallback((it: { panel?: string | null; href?: string; drill?: Record<string, string> | null }) => {
     if (it.panel) goToPanel(it.panel, it.drill);
-    else if (it.href) window.location.href = it.href;
+    // href to-dos point at OTHER same-origin apps (PO WIP /tanda, Planning
+    // /planning). Open a NEW TAB so Tangerine stays put and the operator keeps
+    // their place. No `noopener` — these are same-origin, and noopener drops
+    // the PLM session (see feedback_new_tab_noopener_drops_session).
+    else if (it.href) window.open(it.href, "_blank");
   }, []);
 
   // Follow a resolved alternative chip (or the confident match itself).

@@ -249,6 +249,8 @@ describe("real packs run against canned counts", () => {
     expect(byKey["accounting.close_not_started"].severity).toBe("info");
     expect(byKey["accounting.cron_errors_24h"].count).toBe(4);
     expect(byKey["po.portal_replies_unread"].count).toBe(3);
+    // Deep-links to the PO WIP Messages view, pre-filtered to unread replies.
+    expect(byKey["po.portal_replies_unread"].href).toBe("/tanda?view=messages&unread=1");
     expect(byKey["po.three_way_exceptions"].count).toBe(1);
     expect(byKey["po.receipts_due_7d"].count).toBe(6);
     expect(byKey["po.receipts_overdue"].count).toBe(12);

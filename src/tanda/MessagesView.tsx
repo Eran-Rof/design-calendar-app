@@ -3,6 +3,13 @@ import { TH } from "../utils/theme";
 import { SB_URL, SB_HEADERS, supabaseClient } from "../utils/supabase";
 import POMessageThread, { type Sender } from "../vendor/po/POMessageThread";
 
+/** Whether to open the Messages view pre-filtered to POs with unread vendor
+ *  replies. Seeded from the URL so Today's "Vendor replies unread" to-do
+ *  (which deep-links ?view=messages&unread=1) lands straight on the work. */
+export function initialOnlyUnread(search: string): boolean {
+  return new URLSearchParams(search).get("unread") === "1";
+}
+
 interface POSummary {
   uuid_id: string;
   po_number: string;
@@ -19,7 +26,7 @@ export default function MessagesView() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(() => initialOnlyUnread(window.location.search));
 
   const [sender] = useState<Sender>(() => {
     // plm_user is a JSON blob in sessionStorage ({id, name, role}). The

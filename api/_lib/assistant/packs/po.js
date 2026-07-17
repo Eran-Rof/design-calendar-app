@@ -29,7 +29,10 @@ const portalRepliesUnread = {
       detail: "Vendor messages on POs with no internal read",
       count: n,
       severity: "action",
-      href: "/tanda",
+      // Deep-link straight to the PO WIP Messages view, filtered to POs with
+      // unread vendor replies (MessagesView reads ?unread=1). ?view=messages
+      // lands the app on that view on load (TandA.tsx one-shot deep-link).
+      href: "/tanda?view=messages&unread=1",
       panel: null,
     }];
   },
