@@ -21,6 +21,35 @@ describe("normalizedNameKey", () => {
   });
 });
 
+describe("normalizedNameKey ⇄ SQL customer_name_key parity", () => {
+  // The DB-side backstop is the partial unique index customers_entity_name_key_uniq,
+  // built on public.customer_name_key(name) — defined in migration
+  // 20262500000000 as: regexp_replace(upper(COALESCE(name,'')), '[^A-Z0-9]', '', 'g').
+  // The two implementations MUST agree, or a name the importer guard lets through
+  // could still trip the unique index (or vice-versa). Each fixture's `sql` value
+  // is the exact string Postgres returns for customer_name_key(name); this test
+  // asserts the JS twin returns the same. Fixtures are limited to the realistic
+  // (ASCII / Latin-1) customer-name domain — upper() and JS toUpperCase() diverge
+  // only on exotic cases like 'ß' (JS→"SS", PG→""), which do not occur in the data.
+  const fixtures = [
+    { name: "D Moda", sql: "DMODA" },
+    { name: "Dmoda", sql: "DMODA" },
+    { name: "U.S. Apparel", sql: "USAPPAREL" },
+    { name: "US Apparel", sql: "USAPPAREL" },
+    { name: "Vet Inc", sql: "VETINC" },
+    { name: "Vet Inc.", sql: "VETINC" },
+    { name: "Amazon FBM", sql: "AMAZONFBM" },
+    { name: "Surf, Wind, and Fir", sql: "SURFWINDANDFIR" },
+    { name: "3M Company #2", sql: "3MCOMPANY2" },
+    { name: "  Trailing/Leading  ", sql: "TRAILINGLEADING" },
+    { name: "Café Röst", sql: "CAFRST" },
+    { name: "", sql: "" },
+  ];
+  it.each(fixtures)("normalizedNameKey($name) === SQL customer_name_key => $sql", ({ name, sql }) => {
+    expect(normalizedNameKey(name)).toBe(sql);
+  });
+});
+
 describe("resolveExistingCustomerId — importer dedup guard", () => {
   // A live keeper exists with a proper CUST code + mixed-case name; the sales
   // importer sees the ALL-CAPS variant with an EXCEL: code and must NOT fork.

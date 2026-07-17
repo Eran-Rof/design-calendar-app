@@ -462,7 +462,9 @@ Customers are also created **automatically** by the sales-history importers — 
 
 The importers now run a **normalized-name guard** (`api/_lib/customers/matchCustomer.js`) before creating anyone: they load the **live** customers (soft-deleted rows excluded, so a merged-away duplicate is never resurrected) and match an incoming customer in order of **bare code key → exact name → normalized name** (uppercase with **all** whitespace *and* punctuation stripped). On a match the sale attaches to the existing customer; only a genuinely new name creates a row. The response counts these as `duplicates_prevented`.
 
-> This is a code-level guard rather than a database unique index because a few pre-existing two-code duplicate pairs still need a manual FK-repoint merge (the #1816 tooling). Once those are merged, a partial unique index on the normalized name (per entity, `deleted_at IS NULL`) can be added as a hard safety net.
+The last three pre-existing two-code duplicate pairs — **D Moda / Dmoda**, **U.S. Apparel / US Apparel**, and **Vet Inc / Vet Inc.** — have now been **merged** (each loser's history was FK-repointed onto the keeper, then the loser was soft-deleted; the keeper is chosen by activity, tie-broken to the older `CUST-NNNNN` code). The loser's old name and code are preserved on the keeper (its `aliases` list plus an `attributes.merged_customers` note) for provenance and search.
+
+With those merged, a **database hard safety net** is now live: a partial **unique index** (`customers_entity_name_key_uniq`) on the normalized name per entity, over live rows only (`deleted_at IS NULL`). It is backed by the SQL function `customer_name_key(name)`, which is the exact twin of the importer's `normalizedNameKey` (uppercase + strip all non-alphanumerics). So even if a code path bypasses the importer guard, the database itself rejects a second live customer with the same normalized name in an entity. **Parity rule:** if you ever change one side of the normalization, change the other (`api/_lib/customers/customerCodeKey.js` and migration `20262500000000`), and update the parity unit test.
 
 ### Supporting documents (M29 / P2-6)
 
