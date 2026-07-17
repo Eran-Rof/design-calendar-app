@@ -33,7 +33,16 @@
 // nightly AR mirror additionally delete+reinserts all source='xoro_mirror'
 // lines each run, so re-running reproduces the same exploded set.
 
-import { canonSku, canonStyleColor, parseSizeSuffix, buildItemRow, parseStyleColor } from "../sku-canon.js";
+import { canonSku, canonStyleColor, parseSizeSuffix, buildItemRow, parseStyleColor, deriveColorFromSku, canonicalSize, normalizeColorKey } from "../sku-canon.js";
+
+/** Logical-twin key for a size-grain item: (style, canonical colour, canonical
+ *  size). Matches ip_item_master rows that are the SAME physical garment even
+ *  when their sku_code / colour text differ by spacing or punctuation. Inseam is
+ *  intentionally excluded — size-grain payload SKUs never encode it, so we only
+ *  ever reuse inseam-less rows (the caller filters those). */
+function twinKey(style, colorRaw, sizeRaw) {
+  return `${(style || "").toUpperCase()}||${normalizeColorKey(colorRaw)}||${canonicalSize(sizeRaw)}`;
+}
 
 /**
  * Integer largest-remainder allocation: split `total` (integer) across the
@@ -239,10 +248,18 @@ export async function loadSizeSourceFromRawPayloads(supabase, invoiceNumbers) {
 
 /**
  * Resolve (or create) size-grain ip_item_master ids for a set of canonical
- * size SKUs. Returns Map(canon_sku → id). Missing SKUs are inserted as minimal
- * stubs via buildItemRow (which parses + sets size). If a stub insert collides
- * with the logical-SKU unique constraint (a duplicate fragment of an existing
- * sized twin), we fall back to the existing row for that sku_code.
+ * size SKUs. Returns Map(canon_sku → id). Resolution order:
+ *   1. EXACT sku_code match (authoritative, existing item).
+ *   2. LOGICAL-TWIN reuse — an existing sized row that is the same garment under
+ *      a different sku_code/colour spelling ((style_code, canonical colour,
+ *      canonical size); inseam-less only). Prefers the catalog over a fresh stub,
+ *      so a payload's squished colour finds the catalog's spaced/dashed row.
+ *   3. STUB creation via buildItemRow — parses + sets size AND carries the colour
+ *      parsed from the SKU's own colour segment (deriveColorFromSku). The colour
+ *      is REQUIRED: without it, two private-label colours of one style+size both
+ *      key on (style, '', size) and collide on uq_ip_item_master_logical_sku —
+ *      the #1825 residual that skipped ~1.6k invoices. A batch that still collides
+ *      falls back to per-row inserts so one collision can't poison the rest.
  *
  * @param {object} supabase
  * @param {string} entity_id
@@ -260,12 +277,58 @@ export async function resolveOrCreateSizeItems(supabase, entity_id, canonSkus) {
     .in("sku_code", skus);
   for (const r of existing || []) map.set(r.sku_code, r.id);
 
-  const missing = skus.filter((s) => !map.has(s));
+  let missing = skus.filter((s) => !map.has(s));
   if (missing.length === 0) return map;
+
+  // LOGICAL-TWIN REUSE (authoritative). Before minting a stub, look for an
+  // EXISTING sized row that is the same logical item under a DIFFERENT sku_code
+  // — the catalog stores colours spaced/dashed ("100203712MN-BLACK-SHADOW-GD-30",
+  // colour "Black Shadow Gd") while a payload canonSku squishes them
+  // ("100203712MN-BLACKSHADOWGD-30"), so exact-sku_code lookup misses the real
+  // row and would fragment the master AND (worse) collide two payload colours on
+  // the logical-unique index. Match on (style_code, canonical colour, canonical
+  // size); prefer the row's stored colour, else its sku_code's colour segment.
+  // Skip rows carrying an inseam (we can't reconstruct it from the payload SKU).
+  const styleCodes = [...new Set(missing.map((s) => parseStyleColor(canonStyleColor(s)).style).filter(Boolean))];
+  if (styleCodes.length > 0) {
+    const twinIndex = new Map();
+    for (let i = 0; i < styleCodes.length; i += 100) {
+      const chunk = styleCodes.slice(i, i + 100);
+      const { data: cand } = await supabase
+        .from("ip_item_master")
+        .select("id, sku_code, style_code, color, size, inseam")
+        .in("style_code", chunk);
+      for (const r of cand || []) {
+        if (r.size == null || r.size === "") continue;      // unsized rollup — not a twin
+        if (r.inseam != null && r.inseam !== "") continue;   // inseam we can't match
+        const colorRaw = r.color && String(r.color).trim() ? r.color : deriveColorFromSku(r.sku_code);
+        const k = twinKey(r.style_code, colorRaw, r.size);
+        if (!twinIndex.has(k)) twinIndex.set(k, r.id);        // first row wins, stable
+      }
+    }
+    for (const s of missing) {
+      const k = twinKey(parseStyleColor(canonStyleColor(s)).style, deriveColorFromSku(s), parseSizeSuffix(s));
+      const id = twinIndex.get(k);
+      if (id) map.set(s, id);
+    }
+    missing = missing.filter((s) => !map.has(s));
+    if (missing.length === 0) return map;
+  }
 
   const rows = missing.map((s) => {
     const row = buildItemRow(s);
     if (entity_id) row.entity_id = entity_id;
+    // Populate COLOR from the SKU's own embedded colour segment. buildItemRow's
+    // minimal mode deliberately omits colour (so a sku_code UPSERT never clobbers
+    // an authoritative Item-Master colour) — but resolveOrCreateSizeItems only
+    // ever INSERTS genuinely-NEW sku_codes, so there's nothing to clobber, and a
+    // colour is REQUIRED here: without it, private-label size stubs that share a
+    // (style, size) but differ only by colour all collapse to
+    // (style_id, color='', size) and collide on uq_ip_item_master_logical_sku —
+    // the #1825 residual that skipped ~1.6k invoices. Distinct colours →
+    // distinct logical keys → the batch insert no longer aborts wholesale.
+    const color = deriveColorFromSku(s);
+    if (color) row.color = color;
     return row;
   });
   const { data: created, error } = await supabase

@@ -79,6 +79,55 @@ export function parseStyleColor(canonicalSku) {
   };
 }
 
+// Derive the COLOR token embedded in a full size-grain SKU — the middle
+// dash-segment between style and trailing size. Robust for multi-dash sizes:
+// we FIRST roll the SKU up to style+color grain (canonStyleColor strips the
+// trailing size token, incl. paren ranges like "-L(14-16)"), THEN split the
+// color off the front. Returns the uppercased, whitespace-stripped color token
+// (e.g. "BLACKSHADOWGD" from "100203712MN-Black Shadow GD-29") or null when the
+// SKU carries no color segment (no dash, e.g. a bare numeric style rollup).
+//
+// WHY (#1825 residual): private-label ItemNumbers are dash-delimited
+// style-color-size (Xoro's own authoritative encoding). Xoro carries no
+// separate per-line colour attribute, so this embedded segment IS the colour of
+// record. Size-grain stubs MUST carry it: without a colour, two different
+// colours of the same style+size (…-BLACKSHADOWGD-29 and …-SIMPLESAGEGD-29)
+// both land as (style_id, color='', size='29') and collide on
+// uq_ip_item_master_logical_sku — poisoning the whole invoice's explosion.
+export function deriveColorFromSku(rawSku) {
+  const { color } = parseStyleColor(canonStyleColor(rawSku));
+  return color || null;
+}
+
+// Collapse a size to its canonical form — a 1:1 JS MIRROR of the SQL
+// canonical_size() (migration 20260724000000) that keys uq_ip_item_master_
+// logical_sku. Keep the two in lock-step: any divergence lets a twin-reuse
+// match a row the DB then rejects (or miss one it would have merged). Numeric
+// waist sizes (30/32) and unknown tokens pass through as upper(trim). NULL → "".
+const _CANON_SIZE = {
+  XS: "XSMALL", XSM: "XSMALL",
+  S: "SMALL", SM: "SMALL", SML: "SMALL",
+  M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM",
+  L: "LARGE", LG: "LARGE", LRG: "LARGE",
+  XL: "XLARGE", XLG: "XLARGE",
+  XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE",
+  "3X": "3XLARGE", "3XL": "3XLARGE", XXXL: "3XLARGE",
+};
+export function canonicalSize(s) {
+  if (s == null) return "";
+  const u = String(s).trim().toUpperCase();
+  return _CANON_SIZE[u] || u;
+}
+
+// Normalize a colour to a comparison KEY: uppercase, strip every non-alphanumeric
+// character. Collapses the catalog's punctuation/spacing variance for the SAME
+// colour — "Black Shadow Gd", "BLACK-SHADOW-GD", "BLACKSHADOWGD" all → "BLACKSHADOWGD"
+// — so a size-grain payload SKU can find its authoritative logical twin already in
+// ip_item_master (whose colour may be stored spaced, dashed, or squished).
+export function normalizeColorKey(color) {
+  return (color == null ? "" : String(color)).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 // Build an ip_item_master row payload for a given SKU.
 //
 // Default mode (`minimal: true`) — for sync handlers (Xoro sales, TandA
