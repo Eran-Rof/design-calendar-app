@@ -85,6 +85,15 @@ export const executionRepo = {
   async deleteAction(id: string): Promise<void> {
     await sbDelete(`ip_execution_actions?id=eq.${id}`);
   },
+  // Assign (or reassign) the planning vendor on a single action. Intentionally a
+  // direct PATCH — unlike updateExecutionAction it does NOT honour the batch lock,
+  // because assigning a MISSING vendor is a fix affordance that must work even on
+  // an already-approved batch (that's precisely when the PO-preview skips surface).
+  async updateActionVendor(actionId: string, vendorId: string): Promise<IpExecutionAction> {
+    const [u] = await sbPatch<IpExecutionAction>(`ip_execution_actions?id=eq.${actionId}`, { vendor_id: vendorId });
+    if (!u) throw new Error(`updateActionVendor(${actionId}): no row returned from Supabase`);
+    return u;
+  },
 
   // audit
   async listAudit(batchId: string): Promise<IpExecutionAuditEntry[]> {

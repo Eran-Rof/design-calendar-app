@@ -1,6 +1,6 @@
 // Parent at /planning/execution. List batches + create new + detail.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IpCategory, IpItem } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
@@ -14,8 +14,10 @@ import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
 import {
   buildExecutionBatchFromRecommendations,
   executionRepo,
+  transitionBatch,
   type ExecutionExportNameMaps,
 } from "../services";
+import { supplyRepo } from "../../supply/services/supplyReconciliationRepo";
 import { scenarioRepo } from "../../scenarios/services/scenarioRepo";
 import type { IpScenario } from "../../scenarios/types/scenarios";
 import { confirmDialog } from "../../../shared/ui/warn";
@@ -69,9 +71,27 @@ export default function ExecutionBatchManager() {
   const [tab, setTab] = useState<"list" | "detail">("list");
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [newPrefillRunId, setNewPrefillRunId] = useState<string | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const { visibleColumns, toggleColumn, setAllVisible, resetToDefault } = useTablePrefs(TABLE_KEY, ALL_COLUMNS);
+
+  // Deep-link from WP1's "push planner buys": after a run is auto-approved the
+  // wholesale workbench navigates here as
+  //   /planning/execution?fromRunId=<uuid>&autoCreate=buy_plan
+  // We receive that, build (or re-open) the buy-plan batch with no modal, move
+  // it to 'ready', and land the planner on the Detail tab. Parsed once on mount.
+  const [autoReq] = useState<{ fromRunId: string; autoCreate: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const fromRunId = sp.get("fromRunId");
+      const autoCreate = sp.get("autoCreate");
+      if (fromRunId && autoCreate === "buy_plan") return { fromRunId, autoCreate };
+    } catch { /* ignore */ }
+    return null;
+  });
+  const autoHandledRef = useRef(false);
 
   const selected = useMemo(() => batches.find((b) => b.id === selectedId) ?? null, [batches, selectedId]);
   const selectedRun = useMemo(() => runs.find((r) => r.id === selected?.planning_run_id) ?? null, [runs, selected]);
@@ -146,8 +166,79 @@ export default function ExecutionBatchManager() {
     }
   }
 
+  // Strip the auto-create params so a refresh never re-triggers the build.
+  function stripAutoParams() {
+    if (typeof window === "undefined" || !window.history?.replaceState) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("fromRunId");
+      url.searchParams.delete("autoCreate");
+      window.history.replaceState({}, "", url.toString());
+    } catch { /* ignore */ }
+  }
+
+  const runAutoCreate = useCallback(async (fromRunId: string) => {
+    stripAutoParams();
+
+    // Idempotency: reuse a live buy-plan batch for this run instead of duplicating.
+    const existing = batches.find(
+      (b) => b.planning_run_id === fromRunId && b.batch_type === "buy_plan" && b.status !== "archived",
+    );
+    if (existing) {
+      setSelectedId(existing.id);
+      setTab("detail");
+      setToast({ text: "Opened existing buy-plan batch for this run", kind: "success" });
+      return;
+    }
+
+    // Nothing to build when the run carries no buy recommendations.
+    try {
+      const recs = await supplyRepo.listRecommendations(fromRunId);
+      if (recs.length === 0) {
+        setToast({ text: "Nothing to build — this run has no buy recommendations. Push planner buys first.", kind: "error" });
+        return;
+      }
+    } catch { /* if the check fails, fall through and let the build surface the real error */ }
+
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const b = await buildExecutionBatchFromRecommendations({
+        planning_run_id: fromRunId,
+        batch_type: "buy_plan",
+        batch_name: `Buy plan ${today}`,
+        allowUnapproved: false,
+      });
+      try {
+        await transitionBatch({ batch: b, to: "ready", message: "Auto-created from push planner buys" });
+      } catch { /* leave in draft — the NextStep banner will prompt Move to ready */ }
+      await refresh();
+      setSelectedId(b.id);
+      setTab("detail");
+      setToast({ text: "Buy plan batch ready — next: approve it below.", kind: "success" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/approv/i.test(msg)) {
+        // Approval gate tripped — open the modal prefilled with this run so the
+        // planner can approve the plan (or use the admin override) explicitly.
+        setNewPrefillRunId(fromRunId);
+        setShowNew(true);
+        setToast({ text: "This run isn't approved yet — approve it first, or use the admin override in the form.", kind: "error" });
+      } else {
+        setToast({ text: "Auto-create failed — " + msg, kind: "error" });
+      }
+    }
+  }, [batches, refresh]);
+
   useEffect(() => { void refresh(); /* eslint-disable-line */ }, []);
   useEffect(() => { void loadSelected(); /* eslint-disable-line */ }, [selectedId]);
+
+  // Fire the deep-link auto-create once the initial load has settled (so the
+  // idempotency check sees the current batch list and runs are available).
+  useEffect(() => {
+    if (!autoReq || loading || autoHandledRef.current) return;
+    autoHandledRef.current = true;
+    void runAutoCreate(autoReq.fromRunId);
+  }, [autoReq, loading, runAutoCreate]);
 
   return (
     <div style={S.app}>
@@ -173,11 +264,13 @@ export default function ExecutionBatchManager() {
             )}
           </div>
           <div style={{ color: PAL.textMuted, fontSize: 12 }}>
-            Export-first by default. Writeback is per-action and only hits enabled config rows (currently{" "}
-            <span style={{ color: writebackConfig.some((c) => c.enabled) ? PAL.green : PAL.textDim }}>
-              {writebackConfig.some((c) => c.enabled) ? "live endpoints enabled" : "all endpoints disabled — dry-run only"}
-            </span>
-            ).
+            {writebackConfig.some((c) => c.enabled) ? (
+              <span style={{ color: PAL.yellow }}>
+                Xoro writeback partially enabled — some legacy endpoints are live. (Separate from Tangerine POs.)
+              </span>
+            ) : (
+              <span>Legacy Xoro writeback: disabled. (Does not affect Tangerine POs — those are live.)</span>
+            )}
           </div>
         </div>
 
@@ -256,9 +349,11 @@ export default function ExecutionBatchManager() {
       {showNew && (
         <NewBatchModal
           runs={runs}
-          onClose={() => setShowNew(false)}
+          prefillRunId={newPrefillRunId}
+          onClose={() => { setShowNew(false); setNewPrefillRunId(null); }}
           onCreated={async (id) => {
             setShowNew(false);
+            setNewPrefillRunId(null);
             setSelectedId(id);
             setTab("detail");
             setToast({ text: "Batch created", kind: "success" });
@@ -296,8 +391,10 @@ function TabBtn({ active, onClick, disabled, children }: { active: boolean; onCl
 
 type BuildSource = "scenario" | "run";
 
-function NewBatchModal({ runs, onClose, onCreated, onToast }: {
+function NewBatchModal({ runs, prefillRunId, onClose, onCreated, onToast }: {
   runs: IpPlanningRun[];
+  // When set (deep-link approval fallback), force the run source + preselect it.
+  prefillRunId?: string | null;
   onClose: () => void;
   onCreated: (id: string) => Promise<void>;
   onToast: (t: ToastMessage) => void;
@@ -318,7 +415,7 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
 
   const [source, setSource] = useState<BuildSource>("run");
   const [scenarioId, setScenarioId] = useState("");
-  const [runId, setRunId] = useState(runs[0]?.id ?? "");
+  const [runId, setRunId] = useState(prefillRunId ?? runs[0]?.id ?? "");
   const [batchType, setBatchType] = useState<IpExecutionBatchType>("buy_plan");
   const [name, setName] = useState("");
   // Once the planner types a name we stop auto-rewriting it.
@@ -335,8 +432,10 @@ function NewBatchModal({ runs, onClose, onCreated, onToast }: {
         setScenarios(list);
         const firstApproved = list.find((s) => s.status === "approved");
         // Default to building from an approved scenario when one exists —
-        // that's what the planner expects after approving in Scenarios.
-        if (firstApproved) { setSource("scenario"); setScenarioId(firstApproved.id); }
+        // that's what the planner expects after approving in Scenarios. BUT when
+        // we were opened via the deep-link approval fallback (prefillRunId), keep
+        // the run source + preselected run the planner was sent here to fix.
+        if (firstApproved && !prefillRunId) { setSource("scenario"); setScenarioId(firstApproved.id); }
         setScenariosLoaded(true);
       })
       .catch(() => { if (alive) setScenariosLoaded(true); });

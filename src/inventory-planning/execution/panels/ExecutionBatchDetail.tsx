@@ -1,6 +1,6 @@
 // Batch detail: actions table + export/submit panel + validation.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { IpCategory, IpItem } from "../../types/entities";
 import type { IpPlanningRun } from "../../types/wholesale";
 import type {
@@ -13,6 +13,7 @@ import type {
 import {
   canBatchTransition,
   exportExecutionBatch,
+  executionRepo,
   isBatchLocked,
   markActionStatus,
   removeAction,
@@ -23,12 +24,16 @@ import {
   createTangerinePos,
   linkPlanningVendor,
 } from "../services";
-import type { TangerinePoResult, TangerineVendorSuggestion } from "../services/tangerinePoService";
+import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
+import type { TangerineVendorSuggestion } from "../services/tangerinePoService";
 import type { ExecutionExportNameMaps } from "../services";
-
-// Deep-link target for the Tangerine native PO panel (Procurement → Purchase
-// Orders). Planning runs at /planning, so created POs open in a new tab.
-const PO_PANEL_URL = "/tangerine?m=purchase_orders";
+import {
+  nextStepFor,
+  styleOf,
+  PO_PANEL_URL,
+  VENDORS_URL,
+  type NextStepActionKind,
+} from "./nextStep";
 
 const SKIP_LABEL: Record<string, string> = {
   already_linked: "already linked to a PO",
@@ -99,6 +104,34 @@ export default function ExecutionBatchDetail({
   const issues = useMemo(() => validateActions(actions), [actions]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const cfgByType = useMemo(() => new Map(writebackConfig.map((c) => [c.action_type, c])), [writebackConfig]);
+
+  // Legacy-Xoro writeback is demoted when every config row is disabled (the
+  // live state): the two Xoro buttons collapse into a disclosure and the banner
+  // reads "disabled". Some enabled → keep them top-level.
+  const allXoroDisabled = writebackConfig.length === 0 || writebackConfig.every((c) => !c.enabled);
+
+  // Planning-vendor list for the inline "assign vendor" selects on null-vendor rows.
+  const [vendors, setVendors] = useState<Array<{ id: string; vendor_code: string; name: string }>>([]);
+  useEffect(() => {
+    let alive = true;
+    wholesaleRepo.listVendors().then((v) => { if (alive) setVendors(v); }).catch(() => { /* selects stay empty */ });
+    return () => { alive = false; };
+  }, []);
+  const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors]);
+  const vendorOptions = useMemo(
+    () => vendors.map((v) => ({ value: v.id, label: v.vendor_code ? `${v.name} · ${v.vendor_code}` : v.name })),
+    [vendors],
+  );
+
+  // POs created for this batch survive a refresh via response_json.tangerine_po_id.
+  const posCreated = useMemo(
+    () => actions.some((a) => !!(a.response_json as { tangerine_po_id?: string } | null)?.tangerine_po_id),
+    [actions],
+  );
+
+  // After assigning a vendor to one null-vendor line we offer to apply it to the
+  // remaining unassigned lines of the same style.
+  const [applyAll, setApplyAll] = useState<{ vendorId: string; style: string; actionIds: string[]; vendorLabel: string } | null>(null);
 
   // Additive per-column sort over the actions list (rows keyed on a.id, so
   // re-ordering never disturbs the inline approved-qty editor or row actions).
@@ -256,6 +289,63 @@ export default function ExecutionBatchDetail({
     } finally { setBusy(false); }
   }
 
+  async function moveToReady() {
+    setBusy(true);
+    try {
+      await transitionBatch({ batch, to: "ready" });
+      await onChange();
+    } catch (e) {
+      onToast({ text: String(e instanceof Error ? e.message : e), kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  // Assign a planning vendor to a null-vendor action (direct PATCH, works even on
+  // a locked/approved batch — that's when the PO preview surfaces the skip).
+  async function assignVendor(action: IpExecutionAction, vendorId: string) {
+    if (!vendorId) return;
+    try {
+      await executionRepo.updateActionVendor(action.id, vendorId);
+      const style = styleOf(itemById.get(action.sku_id)?.sku_code ?? "");
+      const siblings = actions.filter(
+        (a) => a.id !== action.id && a.vendor_id == null && style !== "" &&
+          styleOf(itemById.get(a.sku_id)?.sku_code ?? "") === style,
+      );
+      setApplyAll(siblings.length > 0
+        ? { vendorId, style, actionIds: siblings.map((a) => a.id), vendorLabel: vendorById.get(vendorId)?.name ?? "vendor" }
+        : null);
+      onToast({ text: "Vendor assigned", kind: "success" });
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Assign vendor failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    }
+  }
+
+  async function applyVendorToAll() {
+    if (!applyAll) return;
+    setBusy(true);
+    try {
+      for (const id of applyAll.actionIds) {
+        await executionRepo.updateActionVendor(id, applyAll.vendorId);
+      }
+      onToast({ text: `Applied ${applyAll.vendorLabel} to ${applyAll.actionIds.length} line(s)`, kind: "success" });
+      setApplyAll(null);
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Apply failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally { setBusy(false); }
+  }
+
+  // The NextStep banner routes onto the existing handlers by action kind.
+  function runNextAction(kind: NextStepActionKind) {
+    switch (kind) {
+      case "moveReady": void moveToReady(); break;
+      case "approve":   void approveBatch(); break;
+      case "preview":   void previewPos(); break;
+      case "createPos": void createPos(); break;
+      case "issue":     if (typeof window !== "undefined") window.open(PO_PANEL_URL, "_blank", "noreferrer"); break;
+    }
+  }
+
   async function editApprovedQty(action: IpExecutionAction) {
     const current = action.approved_qty ?? action.suggested_qty;
     const raw = await promptDialog(`Approved qty for ${action.action_type}`, { title: "Approved qty", inputType: "number", defaultValue: String(current) });
@@ -299,8 +389,43 @@ export default function ExecutionBatchDetail({
   const blockingCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
 
+  const nextStep = nextStepFor(batch, poResult, { canApproveBatch, posCreated });
+  const nextTone = nextStep.tone === "done" ? PAL.green
+    : nextStep.tone === "blocked" ? PAL.yellow
+    : nextStep.tone === "muted" ? PAL.textMuted
+    : PAL.accent;
+
   return (
     <div>
+      {/* NextStep banner — always states the single next action for this batch */}
+      <div style={{ ...S.card, marginBottom: 12, borderLeft: `4px solid ${nextTone}`, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ color: PAL.text, fontWeight: 700, fontSize: 14 }}>{nextStep.title}</div>
+          {nextStep.detail && <div style={{ color: PAL.textMuted, fontSize: 12, marginTop: 3 }}>{nextStep.detail}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {nextStep.href && (
+            <a href={nextStep.href} target="_blank" rel="noreferrer"
+               style={{ ...S.btnPrimary, background: PAL.green, textDecoration: "none", display: "inline-block" }}>
+              Issue in Procurement →
+            </a>
+          )}
+          {nextStep.secondary && (
+            <button style={S.btnSecondary} disabled={busy} onClick={() => runNextAction(nextStep.secondary!.kind)}>
+              {nextStep.secondary.label}
+            </button>
+          )}
+          {nextStep.primary && (
+            <button
+              style={{ ...S.btnPrimary, ...(nextStep.primary.kind === "createPos" ? { background: "#EA580C" } : {}) }}
+              disabled={busy}
+              onClick={() => runNextAction(nextStep.primary!.kind)}>
+              {nextStep.primary.label}
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <div style={{ ...S.card, marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -312,8 +437,7 @@ export default function ExecutionBatchDetail({
 
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
             {batch.status === "draft" && (
-              <button style={S.btnSecondary} disabled={busy}
-                      onClick={async () => { await transitionBatch({ batch, to: "ready" }); await onChange(); }}>
+              <button style={S.btnSecondary} disabled={busy} onClick={moveToReady}>
                 Move to ready
               </button>
             )}
@@ -359,37 +483,60 @@ export default function ExecutionBatchDetail({
       {/* Export / Submit panel */}
       <div style={{ ...S.card, marginBottom: 12 }}>
         <h4 style={S.cardTitle}>Execute</h4>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <button style={S.btnSecondary} disabled={busy || batch.status === "draft" || !canExport} onClick={exportXlsx}
-                  title={canExport ? "" : "Missing permission: run_exports"}>
-            Export xlsx
-          </button>
-          <button style={S.btnSecondary} disabled={busy || !canWriteback} onClick={dryRun}
-                  title={canWriteback ? "" : "Missing permission: run_writeback"}>
-            Dry-run writeback
-          </button>
-          <button style={S.btnPrimary}
-                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported")}
-                  title={canWriteback ? "" : "Missing permission: run_writeback"}
-                  onClick={submit}>
-            Submit writeback
-          </button>
-          <button style={S.btnSecondary}
-                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
-                  title={canWriteback ? "Preview (dry-run) the draft POs this buy plan would create — no writes" : "Missing permission: run_writeback"}
-                  onClick={previewPos}>
-            Preview POs
-          </button>
-          <button style={{ ...S.btnPrimary, background: "#EA580C" }}
-                  disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed")}
-                  title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
-                  onClick={createPos}>
-            Create Tangerine POs
-          </button>
-          <div style={{ color: PAL.textMuted, fontSize: 12, marginLeft: "auto" }}>
-            Writeback is per-action (Xoro). <b>Create Tangerine POs</b> turns <code style={{ color: PAL.text }}>create_buy_request</code> actions into draft native POs, grouped by vendor.
-          </div>
-        </div>
+        {(() => {
+          const poDisabled = busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported" && batch.status !== "submitted" && batch.status !== "partially_executed");
+          const xoroButtons = (
+            <>
+              <button style={S.btnSecondary} disabled={busy || !canWriteback} onClick={dryRun}
+                      title={canWriteback ? "" : "Missing permission: run_writeback"}>
+                Dry-run writeback
+              </button>
+              <button style={S.btnSecondary}
+                      disabled={busy || !canWriteback || (batch.status !== "approved" && batch.status !== "exported")}
+                      title={canWriteback ? "" : "Missing permission: run_writeback"}
+                      onClick={submit}>
+                Submit writeback
+              </button>
+            </>
+          );
+          return (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <button style={S.btnSecondary} disabled={busy || batch.status === "draft" || !canExport} onClick={exportXlsx}
+                      title={canExport ? "" : "Missing permission: run_exports"}>
+                Export xlsx
+              </button>
+              <button style={S.btnSecondary} disabled={poDisabled}
+                      title={canWriteback ? "Preview (dry-run) the draft POs this buy plan would create — no writes" : "Missing permission: run_writeback"}
+                      onClick={previewPos}>
+                🔍 Preview POs
+              </button>
+              <button style={{ ...S.btnPrimary, background: "#EA580C", fontSize: 14, padding: "8px 18px" }}
+                      disabled={poDisabled}
+                      title={canWriteback ? "Create draft native Tangerine POs (one per vendor) from this buy plan" : "Missing permission: run_writeback"}
+                      onClick={createPos}>
+                🍊 Create Tangerine POs
+              </button>
+              {allXoroDisabled ? (
+                <details style={{ marginLeft: "auto" }}>
+                  <summary style={{ color: PAL.textMuted, fontSize: 12, cursor: "pointer", listStyle: "revert" }}>
+                    Legacy Xoro writeback (disabled)
+                  </summary>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                    {xoroButtons}
+                    <span style={{ color: PAL.textMuted, fontSize: 11 }}>
+                      All Xoro endpoints are disabled — these are dry-run only and do not affect Tangerine POs.
+                    </span>
+                  </div>
+                </details>
+              ) : (
+                <>
+                  {xoroButtons}
+                  <span style={{ color: PAL.yellow, fontSize: 11 }}>Xoro writeback partially enabled — live endpoints exist.</span>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {poResult && (
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -407,6 +554,28 @@ export default function ExecutionBatchDetail({
                 ))}
               </div>
             )}
+
+            {/* Vendor-skip fix hints — each of the three vendor skip reasons with
+                its fix affordance pointed at the right place. */}
+            {poResult.diagnostics && (() => {
+              const sb = poResult.diagnostics.skip_breakdown || {};
+              const rows: React.ReactNode[] = [];
+              if (sb.no_vendor) rows.push(
+                <div key="nv">{sb.no_vendor} line(s) have <b>no vendor</b> — assign one inline in the Actions table below (the yellow selects).</div>,
+              );
+              if (sb.vendor_unlinked) rows.push(
+                <div key="vu">{sb.vendor_unlinked} line(s) use a planning vendor <b>not linked to Tangerine</b> — use the 🔗 Link buttons below, or <a href={VENDORS_URL} style={{ color: PAL.accent, textDecoration: "underline" }}>manage vendors →</a>.</div>,
+              );
+              if (sb.vendor_missing) rows.push(
+                <div key="vm">{sb.vendor_missing} line(s) reference a vendor <b>not in the planning master</b> — <a href={VENDORS_URL} style={{ color: PAL.accent, textDecoration: "underline" }}>manage vendors →</a>.</div>,
+              );
+              if (rows.length === 0) return null;
+              return (
+                <div style={{ background: PAL.yellow + "14", color: PAL.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {rows}
+                </div>
+              );
+            })()}
 
             {poResult.created.map((c, i) => (
               <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 8 }}>
@@ -431,7 +600,8 @@ export default function ExecutionBatchDetail({
             ))}
             {poResult.vendor_suggestions.filter((s) => s.candidates.length === 0).map((s) => (
               <div key={"vsn" + s.planning_vendor_id} style={{ background: PAL.textMuted + "18", color: PAL.textMuted, padding: "6px 10px", borderRadius: 6, fontSize: 12 }}>
-                planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match — create/link it in Vendors, then set portal_vendor_id.
+                planning vendor <b>{s.vendor_code || s.name}</b> has no Tangerine match —{" "}
+                <a href={VENDORS_URL} style={{ color: PAL.accent, textDecoration: "underline" }}>manage vendors →</a>
               </div>
             ))}
 
@@ -469,12 +639,23 @@ export default function ExecutionBatchDetail({
       {/* Actions table */}
       <div style={S.card}>
         <h4 style={S.cardTitle}>Actions</h4>
+
+        {/* Apply-a-just-picked-vendor to every unassigned line of the same style. */}
+        {applyAll && (
+          <div style={{ background: PAL.accent + "18", color: PAL.text, padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>Apply <b>{applyAll.vendorLabel}</b> to all <b>{applyAll.actionIds.length}</b> unassigned line(s) of style <code style={{ color: PAL.text }}>{applyAll.style}</code>?</span>
+            <button style={S.btnPrimary} disabled={busy} onClick={applyVendorToAll}>Apply to all {applyAll.actionIds.length}</button>
+            <button style={S.btnGhost} disabled={busy} onClick={() => setApplyAll(null)}>Dismiss</button>
+          </div>
+        )}
+
         <div style={S.tableWrap}>
           <table style={S.table}>
             <thead>
               <tr>
                 <SortableTh label="Type" sortKey="type" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <SortableTh label="SKU" sortKey="sku" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
+                <th style={S.th}>Vendor</th>
                 <SortableTh label="Period" sortKey="period" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <SortableTh label="PO" sortKey="po" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={S.th} />
                 <th style={S.th}>Tangerine PO</th>
@@ -496,6 +677,21 @@ export default function ExecutionBatchDetail({
                     <td style={S.td}>{a.action_type.replace(/_/g, " ")}</td>
                     <td style={{ ...S.td, fontFamily: "monospace", color: PAL.accent }}>
                       {item?.sku_code ?? "—"}
+                    </td>
+                    <td style={S.td}>
+                      {a.vendor_id ? (
+                        <span style={{ color: PAL.textDim, fontSize: 12 }}>
+                          {vendorById.get(a.vendor_id)?.name ?? a.vendor_id.slice(0, 8)}
+                        </span>
+                      ) : (
+                        <SearchableSelect
+                          value={null}
+                          onChange={(v) => assignVendor(a, v)}
+                          placeholder="assign vendor"
+                          options={[{ value: "", label: "— assign vendor —" }, ...vendorOptions]}
+                          inputStyle={{ ...S.select, padding: "4px 8px", fontSize: 12, minWidth: 150, borderColor: PAL.yellow }}
+                        />
+                      )}
                     </td>
                     <td style={S.td}>{a.period_start ?? "–"}</td>
                     <td style={S.td}>{a.po_number ?? "–"}</td>
@@ -547,7 +743,7 @@ export default function ExecutionBatchDetail({
                 );
               })}
               {actions.length === 0 && (
-                <tr><td colSpan={11} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
+                <tr><td colSpan={12} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                   No actions in this batch.
                 </td></tr>
               )}
