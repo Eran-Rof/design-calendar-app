@@ -189,7 +189,6 @@ import InternalApiKeys                from "./tanda/InternalApiKeys";
 import { clearMsTokens, getMsAccessToken, loadMsTokens, msSignIn } from "./utils/msAuth";
 import { setCachedAuthUserId, setCachedAuthUserEmail, setCachedAuthUserName, setCachedAuthJwt } from "./utils/tangerineAuthUser";
 import { appConfig } from "./config/env";
-import { GlobalSearchPaletteAuto } from "./components/GlobalSearchPalette";
 import TopbarGlobalSearch from "./components/TopbarGlobalSearch";
 import { AskAIPanel } from "./ai/AskAIPanel";
 import { onAskAIRequest, publishScreenContext } from "./ai/askAIBridge";
@@ -807,9 +806,10 @@ export default function Tangerine() {
         {activeModule === "sync_health"            && <InternalSyncHealth />}
       </main>
       {/* EntitySwitcher + BrandChannelSwitcher moved to the slim top bar above. */}
-      {/* Cross-cutter T6-3 — ⌘K / Ctrl-K global search palette. Reachable
-          from any module; invisible until the hotkey fires. */}
-      <GlobalSearchPaletteAuto />
+      {/* Global search: the always-visible <TopbarGlobalSearch> bar (top bar)
+          is the single search UI for this shell. The old ⌘K palette was retired
+          here — ⌘K / Ctrl-K now focus the top-bar input (handled inside the
+          bar). The palette still serves the other shells (App / TandA / TechPack). */}
       {/* Cross-cutter T4-4 — auto-landing redirect toast (bottom-right). */}
       <AutoLandingToast landing={landing} />
 

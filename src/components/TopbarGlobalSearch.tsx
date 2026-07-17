@@ -17,10 +17,20 @@
 // Auth: every browser fetch to /api/internal/* picks up the bearer header via
 // installInternalApiAuth() (main.tsx), so no Authorization handling here.
 //
-// This is distinct from the ⌘K GlobalSearchPalette (full-text modal) — this bar
-// is ALWAYS visible and uses substring (ILIKE) matching for "any term".
+// This is the single global-search UI for the Tangerine shell. The old ⌘K
+// GlobalSearchPalette (full-text modal) was retired here; ⌘K / Ctrl-K now FOCUS
+// this always-visible bar (muscle memory preserved). The bar uses substring
+// (ILIKE) matching for "any term".
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// True on macOS-family platforms — used only to render the right hotkey glyph
+// in the placeholder hint (⌘K vs Ctrl K). Guarded for SSR / jsdom.
+function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const p = `${navigator.platform || ""} ${navigator.userAgent || ""}`;
+  return /Mac|iPhone|iPad|iPod/i.test(p);
+}
 
 // ─── Types (mirror the /api/internal/global-search response) ────────────────
 
@@ -174,6 +184,7 @@ export default function TopbarGlobalSearch({ fetcher, onNavigate }: TopbarGlobal
 
   const flat = useMemo(() => flattenGroups(groups), [groups]);
   const trimmed = q.trim();
+  const hotkeyHint = useMemo(() => (isMacPlatform() ? "⌘K" : "Ctrl K"), []);
 
   // Debounced fetch.
   useEffect(() => {
@@ -218,6 +229,27 @@ export default function TopbarGlobalSearch({ fetcher, onNavigate }: TopbarGlobal
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, []);
 
+  // App-shell-level ⌘K / Ctrl-K → focus this bar. The bar is mounted exactly
+  // once in the Tangerine top bar, so a single window listener here IS the
+  // shell-level handler (no per-panel duplication). preventDefault stops the
+  // browser's location-bar focus shortcut. This preserves the muscle memory of
+  // the retired ⌘K palette while routing to the unified search.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const el = inputRef.current;
+        if (el) {
+          el.focus();
+          el.select();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // Keep highlight in range as the list changes.
   useEffect(() => {
     if (highlight >= flat.length) setHighlight(0);
@@ -244,7 +276,10 @@ export default function TopbarGlobalSearch({ fetcher, onNavigate }: TopbarGlobal
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Escape") {
+        // Esc clears the query, closes the panel, and blurs the input.
         setOpen(false);
+        setQ("");
+        setGroups([]);
         (e.target as HTMLInputElement).blur();
         return;
       }
@@ -311,6 +346,27 @@ export default function TopbarGlobalSearch({ fetcher, onNavigate }: TopbarGlobal
             fontFamily: "inherit",
           }}
         />
+        {!loading && q.length === 0 && (
+          <span
+            aria-hidden
+            data-testid="topbar-global-search-hotkey-hint"
+            style={{
+              flexShrink: 0,
+              padding: "1px 5px",
+              borderRadius: 4,
+              border: "1px solid #334155",
+              background: "#1E293B",
+              color: "#64748B",
+              fontSize: 9.5,
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              lineHeight: 1.4,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {hotkeyHint}
+          </span>
+        )}
         {loading && (
           <span
             data-testid="topbar-global-search-spinner"
