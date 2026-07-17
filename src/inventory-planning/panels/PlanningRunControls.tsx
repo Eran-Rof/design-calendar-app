@@ -10,7 +10,7 @@ import { runForecastPass, BuildCancelledError, type BuildFilter, type BuildProgr
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
 import { scenarioRepo } from "../scenarios/services/scenarioRepo";
-import { cloneBaseIntoSavedBuild, deleteSavedBuild, generatePlannerBuyPlanForRun, type SaveBuildProgress } from "../scenarios/services/scenarioService";
+import { cloneBaseIntoSavedBuild, deleteSavedBuild, generatePlannerBuyPlanForRun, type SaveBuildProgress, type PlannerBuyPlanProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { confirmDialog } from "../../shared/ui/warn";
@@ -47,6 +47,10 @@ export default function PlanningRunControls({
   // modal (instead of a bare toast) that points the planner forward to the
   // Buy plan. Holds the finalized line/unit counts for the modal body.
   const [pushResult, setPushResult] = useState<{ lines: number; units: number; skippedTbdLines: number; skippedTbdUnits: number } | null>(null);
+  // Live progress for the "Finalize with my buys" push — drives the inline
+  // status bar next to the toolbar while pushingBuys is true. Separate from
+  // the build `progress` state so the two flows never stomp each other.
+  const [pushProgress, setPushProgress] = useState<PlannerBuyPlanProgress | null>(null);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
   const [wipeStage, setWipeStage] = useState<"choice" | "confirm">("choice");
@@ -262,8 +266,9 @@ export default function PlanningRunControls({
     );
     if (!ok) return;
     setPushingBuys(true);
+    setPushProgress({ stage: "Starting…" });
     try {
-      const r = await generatePlannerBuyPlanForRun(selected.id);
+      const r = await generatePlannerBuyPlanForRun(selected.id, (p) => setPushProgress(p));
       if (r.recommendations > 0) {
         // Forward-pointing success modal instead of a bare toast.
         setPushResult({ lines: r.recommendations, units: r.units, skippedTbdLines: r.skippedTbdLines, skippedTbdUnits: r.skippedTbdUnits });
@@ -284,6 +289,7 @@ export default function PlanningRunControls({
       onToast({ text: "Finalize with my buys failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
     } finally {
       setPushingBuys(false);
+      setPushProgress(null);
     }
   }
 
@@ -592,6 +598,9 @@ export default function PlanningRunControls({
       </div>
       {building && progress && (
         <BuildStatusBar progress={progress} onCancel={cancelBuild} />
+      )}
+      {pushingBuys && pushProgress && (
+        <FinalizeStatusBar progress={pushProgress} />
       )}
       {!collapsed && selected && (
         <div style={{ color: PAL.textMuted, fontSize: 12 }}>
@@ -909,6 +918,41 @@ function BuildStatusBar({ progress, onCancel }: { progress: BuildProgress; onCan
             background: PAL.accent,
             transition: "width 200ms ease",
             // When count is unknown, animate an indeterminate bar.
+            animation: pct == null ? "ipBuildPulse 1.4s ease-in-out infinite" : undefined,
+          }}
+        />
+      </div>
+      <style>{`@keyframes ipBuildPulse { 0% { margin-left: 0%; } 50% { margin-left: 70%; } 100% { margin-left: 0%; } }`}</style>
+    </div>
+  );
+}
+
+// Status bar for the "Finalize with my buys" push. Deliberately mirrors
+// BuildStatusBar's visual language (same surface, 4px accent track,
+// indeterminate pulse when there's no known count) so the two flows read as
+// one system. No Cancel button — the finalize push isn't abortable.
+function FinalizeStatusBar({ progress }: { progress: PlannerBuyPlanProgress }) {
+  const hasCount = progress.total != null && progress.total > 0;
+  const pct = hasCount ? Math.min(100, Math.round((100 * (progress.current ?? 0)) / progress.total!)) : null;
+  const countLabel = hasCount
+    ? ` · ${(progress.current ?? 0).toLocaleString()} / ${progress.total!.toLocaleString()}${pct != null ? ` (${pct}%)` : ""}`
+    : "";
+  const detail = progress.detail ? ` · ${progress.detail}` : "";
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: PAL.bg, borderRadius: 8, border: `1px solid ${PAL.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, color: PAL.text }}>
+          <span style={{ color: "#EA580C", fontWeight: 700, marginRight: 6 }}>Finalizing</span>
+          {progress.stage}{detail}{countLabel}
+        </div>
+      </div>
+      <div style={{ height: 4, background: PAL.border, borderRadius: 2, overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: pct != null ? `${pct}%` : "30%",
+            background: PAL.accent,
+            transition: "width 200ms ease",
             animation: pct == null ? "ipBuildPulse 1.4s ease-in-out infinite" : undefined,
           }}
         />

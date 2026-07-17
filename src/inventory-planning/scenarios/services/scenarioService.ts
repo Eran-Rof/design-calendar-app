@@ -616,20 +616,49 @@ export async function generatePlannerBuyRecommendations(scenarioId: string): Pro
   return generatePlannerBuyPlanForRun(scenario.planning_run_id);
 }
 
+// Progress callback shape for generatePlannerBuyPlanForRun. `stage` is the
+// human-readable step label; `detail` carries an optional count/summary; and
+// `current`/`total` drive a determinate bar when the step has a known size
+// (omit both for an indeterminate stage).
+export interface PlannerBuyPlanProgress {
+  stage: string;
+  detail?: string;
+  current?: number;
+  total?: number;
+}
+export type PlannerBuyPlanProgressFn = (p: PlannerBuyPlanProgress) => void;
+
 // Same as generatePlannerBuyRecommendations but keyed directly on a planning
 // run — so a live wholesale run (not just a scenario) can turn its typed buys
 // into the buy plan straight from the main workbench, skipping reconciliation.
-export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
+//
+// onProgress is optional and defaults to a no-op, so existing callers
+// (including generatePlannerBuyRecommendations) are unaffected. The main
+// workbench passes it to drive a status bar next to the "Finalize with my
+// buys" button. listForecast reads in cursor-paginated chunks internally but
+// does NOT expose a per-chunk callback on its public signature, so we emit
+// stage-level events around it rather than per-row counts for the read.
+export async function generatePlannerBuyPlanForRun(
+  runId: string,
+  onProgress: PlannerBuyPlanProgressFn = () => {},
+): Promise<{
   recommendations: number;
   units: number;
   skippedTbdLines: number;
   skippedTbdUnits: number;
 }> {
+  onProgress({ stage: "Reading typed buys…" });
   const [forecast, tbdRows, items] = await Promise.all([
     wholesaleRepo.listForecast(runId),
     wholesaleRepo.listTbdRows(runId),
     wholesaleRepo.listItems(),
   ]);
+  onProgress({
+    stage: "Reading typed buys…",
+    detail: `${forecast.length.toLocaleString()} forecast rows`,
+    current: forecast.length,
+    total: forecast.length,
+  });
   const categoryBySku = new Map(items.map((i) => [i.id, i.category_id]));
 
   // Aggregate planned_buy_qty to (sku, period) grain — recommendations are
@@ -671,11 +700,19 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
   // the "TONALGREYCAMO" sku suffix. Unresolvable rows (new colors not
   // yet promoted via "Add to DB") are counted and reported back so the
   // UI can tell the planner instead of silently shorting the plan.
+  onProgress({
+    stage: "Reading TBD stock-buy rows…",
+    detail: `${tbdRows.length.toLocaleString()} row${tbdRows.length === 1 ? "" : "s"}`,
+    current: tbdRows.length,
+    total: tbdRows.length,
+  });
   const normalizeSkuKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const itemByNormalizedCode = new Map<string, { id: string; category_id: string | null }>();
   for (const i of items) {
     if (i.sku_code) itemByNormalizedCode.set(normalizeSkuKey(i.sku_code), { id: i.id, category_id: i.category_id ?? null });
   }
+  onProgress({ stage: "Resolving TBD rows to SKUs…", current: 0, total: tbdRows.length });
+  let resolvedTbdLines = 0;
   let skippedTbdLines = 0;
   let skippedTbdUnits = 0;
   for (const t of tbdRows) {
@@ -687,6 +724,7 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
       skippedTbdUnits += qty;
       continue;
     }
+    resolvedTbdLines += 1;
     addBuy({
       sku_id: match.id,
       category_id: match.category_id,
@@ -696,6 +734,12 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
       qty,
     });
   }
+  onProgress({
+    stage: "Resolving TBD rows to SKUs…",
+    detail: `${resolvedTbdLines.toLocaleString()} resolved · ${skippedTbdLines.toLocaleString()} skipped`,
+    current: tbdRows.length,
+    total: tbdRows.length,
+  });
 
   // True no-op when there is nothing to push: don't wipe existing
   // recommendations and — critically — don't record an approval for an
@@ -720,6 +764,7 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
     service_risk_flag: false,
   }));
 
+  onProgress({ stage: `Writing buy plan… (${rows.length.toLocaleString()} lines)`, current: 0, total: rows.length });
   await supplyRepo.replaceRecommendations(runId, rows);
 
   // Record a run-level approval so the direct-run path is treated as
@@ -729,6 +774,7 @@ export async function generatePlannerBuyPlanForRun(runId: string): Promise<{
   // this newest row is what the gate reads). Without it the planner would have
   // to manually mark the run approved before Execution could build a batch —
   // the whole point of "Finalize with my buys" is to skip that ceremony.
+  onProgress({ stage: "Approving run…" });
   let approvedBy: string | null = null;
   try {
     const email = currentUserEmail();
