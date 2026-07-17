@@ -55,6 +55,7 @@ const shipDue7d = {
       count: n,
       severity: "action",
       panel: "sales_allocations",
+      drill: { focus: "ship_due" },
     }];
   },
 };
@@ -77,6 +78,7 @@ const shipOverdue = {
       count: n,
       severity: "warn",
       panel: "sales_allocations",
+      drill: { focus: "ship_overdue" },
     }];
   },
 };
@@ -103,6 +105,7 @@ const factorNotSubmitted = {
       count: n,
       severity: "warn",
       panel: "sales_allocations",
+      drill: { focus: "factor_gate" },
     }];
   },
 };

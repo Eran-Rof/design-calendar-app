@@ -15,6 +15,8 @@ import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/Ta
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog } from "../shared/ui/warn";
+import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
+import { filterAllocationFocus, isAllocationFocus, allocationFocusLabel, type AllocationFocus } from "./todayDrillFilters";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -87,6 +89,15 @@ export default function InternalAllocations() {
   const [err, setErr] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [onlyShort, setOnlyShort] = useState(false);
+  // Today drill (?focus=ship_due|ship_overdue|factor_gate): narrow the workbench
+  // to the demand subset the owning to-do counts. One-shot — consumed on mount.
+  const [focusMode, setFocusMode] = useState<AllocationFocus | "">(() => {
+    const f = readDrillParam("focus");
+    return isAllocationFocus(f) ? f : "";
+  });
+  // "Today" as a single UTC calendar date, matching the pack's ctx.todayISO.
+  const focusToday = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  useEffect(() => { consumeDrillParams(["focus"]); }, []);
   // PART 40 — SO→allocation auto-open. A Sales Order opens Allocations via
   // ?m=sales_allocations&so=<so_number>; seed the search with that SO so the
   // workbench lands pre-filtered to it. Read once on mount.
@@ -291,9 +302,16 @@ export default function InternalAllocations() {
 
   // Build the SO → lines tree. One group per sales order; its demand rows are
   // listed under a single sub-header (customer · start-ship · cancel).
+  // Today drill focus narrows the demand universe the workbench builds from
+  // (grid, export, select-all) without touching per-line lookups (undo/preview).
+  const focusedDemand = useMemo(
+    () => (focusMode ? filterAllocationFocus(demand, focusMode, focusToday) : demand),
+    [demand, focusMode, focusToday],
+  );
+
   const soGroups = useMemo<SoGroup[]>(() => {
     const bySo = new Map<string, SoGroup>();
-    for (const d of demand) {
+    for (const d of focusedDemand) {
       let g = bySo_get(bySo, d);
       g.lines.push(d);
       g.demand += n(d.open_qty);
@@ -316,7 +334,7 @@ export default function InternalAllocations() {
       a.tier - b.tier ||
       String(a.requested_ship_date || "9999").localeCompare(String(b.requested_ship_date || "9999")) ||
       String(a.so_number || "~").localeCompare(String(b.so_number || "~")));
-  }, [demand, avail]);
+  }, [focusedDemand, avail]);
 
   const demandByLine = useMemo(() => new Map(demand.map((d) => [d.line_id, d])), [demand]);
 
@@ -348,7 +366,7 @@ export default function InternalAllocations() {
 
   // Batch — set/clear the allocation on every checked line.
   function toggleSelect(lineId: string) { setSelected((p) => { const c = new Set(p); if (c.has(lineId)) c.delete(lineId); else c.add(lineId); return c; }); }
-  function selectAllVisible() { setSelected(new Set(demand.map((d) => d.line_id))); }
+  function selectAllVisible() { setSelected(new Set(focusedDemand.map((d) => d.line_id))); }
   async function batchApply(qty: number) {
     const ids = [...selected];
     if (ids.length === 0) return;
@@ -418,7 +436,7 @@ export default function InternalAllocations() {
   }
 
   const exportRows = useMemo(() => {
-    const body = demand.map((d) => ({
+    const body = focusedDemand.map((d) => ({
       so_number: d.so_number || "(draft)", customer: d.customer_name || d.customer_id,
       style: d.description || "", color: d.color || "", size: d.size || "", sku_code: d.sku_code || "",
       priority: TIER_BADGE[tierOf(d)].label, start_ship: d.requested_ship_date || "", cancel: d.cancel_date || "",
@@ -438,7 +456,7 @@ export default function InternalAllocations() {
       });
     }
     return body;
-  }, [demand, avail]);
+  }, [focusedDemand, avail]);
 
   // First column is the SKU·Size descriptor (always shown); the rest follow COLUMNS.
   const colSpan = 1 + ["tier", "ordered", "allocated", "open"].filter(isVisible).length;
@@ -453,7 +471,7 @@ export default function InternalAllocations() {
             <button style={{ ...btnSecondary, color: C.warn, borderColor: C.warn }} disabled={previewBusy} onClick={() => void undoLast()}
               title={`Revert: ${lastUndo.label}`}>Undo last</button>
           )}
-          <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || loading || demand.length === 0}
+          <button style={{ ...btnPrimary, background: C.violet }} disabled={previewBusy || loading || focusedDemand.length === 0}
             onClick={() => void runAutoAllocate([], "all visible demand")} title="Preview, choose the rule (priority / fair-share / capped %), then apply — across all visible demand">
             {previewBusy ? "…" : "Auto-allocate all"}
           </button>
@@ -485,6 +503,24 @@ export default function InternalAllocations() {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
+      {/* Today drill (?focus=…) — the workbench is narrowed to the subset the
+          owning to-do counts. Blue banner names it with a ✕ Clear. */}
+      {focusMode && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>{allocationFocusLabel(focusMode, focusedDemand.length)}</span>
+          <button
+            onClick={() => setFocusMode("")}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
+
       {/* PART 40 — when opened from a Sales Order, the workbench lands focused on
           that SO (its number seeded into the search). Show + offer to clear it. */}
       {focusSo && search === focusSo && (
@@ -504,7 +540,7 @@ export default function InternalAllocations() {
       {/* Batch bar — check lines (☑ in the SO column) then set or clear their
           allocation together. */}
       <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
-        <button style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={selectAllVisible} disabled={demand.length === 0}>Select all ({demand.length})</button>
+        <button style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={selectAllVisible} disabled={focusedDemand.length === 0}>Select all ({focusedDemand.length})</button>
         {selected.size > 0 && <button style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => setSelected(new Set())}>Clear selection</button>}
         {selected.size > 0 && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "4px 10px", border: `1px solid ${C.primary}`, borderRadius: 6 }}>

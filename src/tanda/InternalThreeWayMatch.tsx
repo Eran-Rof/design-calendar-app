@@ -31,7 +31,8 @@ import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { useSeqGuard } from "./hooks/useSeqGuard";
 import DateRangePresets from "./components/DateRangePresets";
-import { drillToModule } from "./scorecardDrill";
+import { drillToModule, readDrillParam, consumeDrillParams } from "./scorecardDrill";
+import { filterThreeWayExceptions } from "./todayDrillFilters";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -553,7 +554,10 @@ function TolerancesModal({ onClose }: { onClose: () => void }) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function InternalThreeWayMatch() {
-  const [tab, setTab] = useState<"audit" | "drafts">("audit");
+  // Today drill (?tw=exceptions) lands on the Vendor Invoice Drafts tab, filtered
+  // to the variance/exception drafts the "3-way match exceptions" to-do counts.
+  const [tab, setTab] = useState<"audit" | "drafts">(() =>
+    readDrillParam("tw") === "exceptions" ? "drafts" : "audit");
   const tabBtn = (active: boolean): React.CSSProperties => ({
     background: active ? C.primary : "transparent",
     color: active ? "white" : C.textSub,
@@ -586,6 +590,10 @@ function VendorInvoiceDraftsTab() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // Today drill (?tw=exceptions): narrow the loaded drafts to just the
+  // variance/exception (exception-grade) ones. One-shot — consumed on mount.
+  const [exceptionsMode, setExceptionsMode] = useState(() => readDrillParam("tw") === "exceptions");
+  useEffect(() => { consumeDrillParams(["tw"]); }, []);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -633,11 +641,37 @@ function VendorInvoiceDraftsTab() {
     return [...base, totalRow];
   }, [rows]);
 
+  // The exceptions drill narrows the loaded drafts client-side to variance +
+  // exception; otherwise the sorted list renders as-is.
+  const visibleRows = useMemo(
+    () => (exceptionsMode ? filterThreeWayExceptions(sorted) : sorted),
+    [sorted, exceptionsMode],
+  );
+
   return (
     <div style={{ color: C.text }}>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <button style={btnPrimary} onClick={() => { setCreating(true); setEditingId(null); setModalOpen(true); }}>+ New vendor invoice</button>
       </div>
+
+      {exceptionsMode && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>
+            Showing {visibleRows.length.toLocaleString()} exception{visibleRows.length === 1 ? "" : "s"} to resolve
+          </span>
+          <span style={{ color: C.textMuted }}>— vendor invoices out of tolerance vs PO / receipt (variance or exception).</span>
+          <button
+            onClick={() => setExceptionsMode(false)}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <SearchableSelect value={statusFilter || null} onChange={(v) => setStatusFilter(v)} inputStyle={{ ...inputStyle, width: 200 }}
@@ -665,8 +699,8 @@ function VendorInvoiceDraftsTab() {
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={6}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>No vendor invoice drafts.</td></tr>}
-            {sorted.map((r) => (
+            {!loading && visibleRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={6}>{exceptionsMode ? "No exception-grade drafts — nothing out of tolerance." : "No vendor invoice drafts."}</td></tr>}
+            {visibleRows.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setCreating(false); setEditingId(r.id); setModalOpen(true); }}>
                 <td style={td}>{r.vendor_name || <span style={{ color: C.textMuted }}>(vendor)</span>}</td>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.vendor_invoice_number}</td>

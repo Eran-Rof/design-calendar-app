@@ -19,6 +19,7 @@ import type { ExportColumn } from "./exports/useTableExport";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
+import { addDaysISO } from "./todayDrillFilters";
 import RowHistory from "./components/RowHistory";
 import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
@@ -223,6 +224,14 @@ export default function InternalPurchaseOrders() {
   const [dateField, setDateField] = useState<"order_date" | "expected_date">("order_date");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Today drill (?due=overdue|week): show the open-PO "due to receive" worklist —
+  // live (non-draft) POs whose expected date is past (overdue) or within the next
+  // 7 days (week). Client-side over the loaded rows; one-shot, consumed on mount.
+  const [dueMode, setDueMode] = useState<"overdue" | "week" | "">(() => {
+    const d = readDrillParam("due");
+    return d === "overdue" || d === "week" ? d : "";
+  });
+  const dueToday = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   // Margin visibility/export gate (permission-driven; fails open until enforced).
   const { canView: canViewMargins, canExport: canExportMargins } = useCanSeeMargins();
@@ -252,10 +261,20 @@ export default function InternalPurchaseOrders() {
 
   // Apply the date-range window client-side on the selected date field. A row
   // with no value on that field is dropped while a bound is set (can't place it).
+  const dueWeekEnd = useMemo(() => addDaysISO(dueToday, 7), [dueToday]);
   const filteredRows = useMemo(() => {
-    if (!dateFrom && !dateTo && !inTransitOnly) return rows;
+    if (!dateFrom && !dateTo && !inTransitOnly && !dueMode) return rows;
     return rows.filter((po) => {
       if (inTransitOnly && !po.in_transit) return false; // in-transit overlay is a client-side filter (not a status)
+      if (dueMode) {
+        // Open-to-receive worklist: skip drafts (not yet issued), require an
+        // expected date, then window on overdue / next-7-days.
+        if (po.status === "draft") return false;
+        const ed = (po.expected_date || "").slice(0, 10);
+        if (!ed) return false;
+        if (dueMode === "overdue" && !(ed < dueToday)) return false;
+        if (dueMode === "week" && !(ed >= dueToday && ed <= dueWeekEnd)) return false;
+      }
       if (dateFrom || dateTo) {
         const v = (po[dateField] || "") as string;
         if (!v) return false;
@@ -265,7 +284,7 @@ export default function InternalPurchaseOrders() {
       }
       return true;
     });
-  }, [rows, dateField, dateFrom, dateTo, inTransitOnly]);
+  }, [rows, dateField, dateFrom, dateTo, inTransitOnly, dueMode, dueToday, dueWeekEnd]);
 
   // Universal per-column sort (tri-state asc → desc → off, persisted). Computed
   // columns (vendor name, margin) read through accessors; the rest map 1:1.
@@ -380,13 +399,13 @@ export default function InternalPurchaseOrders() {
     } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
     finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
-  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo || inTransitOnly);
-  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); setInTransitOnly(false); }
+  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo || inTransitOnly || dueMode);
+  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); setInTransitOnly(false); setDueMode(""); }
   // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
   // initializers above seeded from them, so leaving and returning to this panel
   // starts unfiltered instead of silently re-applying a stale search that can
   // hide the whole PO list. Runs once on mount.
-  useEffect(() => { consumeDrillParams(["q", "vendor", "style"]); }, []);
+  useEffect(() => { consumeDrillParams(["q", "vendor", "style", "due"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
@@ -519,6 +538,27 @@ export default function InternalPurchaseOrders() {
       </div>
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{err}</div>}
+
+      {/* Today drill (?due=…) — open-PO "due to receive" worklist. Blue banner
+          names the window with a ✕ Clear. */}
+      {dueMode && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
+          background: "rgba(59,130,246,0.12)", border: `1px solid ${C.primary}`,
+          borderRadius: 8, padding: "8px 12px", fontSize: 13, color: C.text,
+        }}>
+          <span style={{ fontWeight: 600 }}>
+            Showing {filteredRows.length.toLocaleString()} open purchase order{filteredRows.length === 1 ? "" : "s"} {dueMode === "overdue" ? "past their expected receipt date" : "due to receive in the next 7 days"}
+          </span>
+          <span style={{ color: C.textMuted }}>— by expected date, across the live PO statuses loaded below.</span>
+          <button
+            onClick={() => setDueMode("")}
+            style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${C.cardBdr}`, color: C.textSub, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
+          >
+            ✕ Clear filter
+          </button>
+        </div>
+      )}
 
       {/* Result count + cap notice — prevents mistaking the page cap for the total. */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>

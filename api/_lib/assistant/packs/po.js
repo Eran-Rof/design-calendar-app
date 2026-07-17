@@ -52,6 +52,9 @@ const threeWayExceptions = {
       count: n,
       severity: "action",
       panel: "three_way_match",
+      // 3-Way Match opens on its Vendor Invoice Drafts tab, filtered to just the
+      // variance/exception drafts this count refers to.
+      drill: { tw: "exceptions" },
     }];
   },
 };
@@ -75,7 +78,10 @@ const receiptsDue7d = {
       detail: "Open PO lines with expected date in the next 7 days",
       count: n,
       severity: "info",
-      panel: "receiving",
+      // Purchase Orders shows open POs with expected dates; Receiving only lists
+      // receipts already made. Land on the open-PO worklist due this week.
+      panel: "purchase_orders",
+      drill: { due: "week" },
     }];
   },
 };
@@ -97,7 +103,10 @@ const receiptsOverdue = {
       detail: "Open quantity with an expected date already behind us",
       count: n,
       severity: "warn",
-      panel: "receiving",
+      // Purchase Orders shows open POs with expected dates; Receiving only lists
+      // receipts already made. Land on the past-due open-PO worklist.
+      panel: "purchase_orders",
+      drill: { due: "overdue" },
     }];
   },
 };
@@ -162,7 +171,8 @@ const suggestChaseOverdue = {
     return [{
       key: "po.suggest_chase_overdue",
       text: "Overdue PO lines usually mean a stale expected date or a vendor slip — update dates from the vendor portal thread before they distort planning supply.",
-      panel: "receiving",
+      panel: "purchase_orders",
+      drill: { due: "overdue" },
     }];
   },
 };

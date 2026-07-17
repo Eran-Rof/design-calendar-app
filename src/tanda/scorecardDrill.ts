@@ -73,6 +73,9 @@ export const DRILL_PARAM_KEYS = [
   "vendor", "customer", "q", "so", "style_id", "review",
   "scale", "needed", "cb_disposition", "cb_month",
   "status", "month", "unread", "assignee", "due",
+  // Today drill-to-subset params (#1826 follow-up):
+  "tw",     // 3-Way Match → exception-grade drafts (?tw=exceptions)
+  "focus",  // Allocations Workbench → ship_due | ship_overdue | factor_gate
 ] as const;
 
 /**
