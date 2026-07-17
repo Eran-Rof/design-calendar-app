@@ -10,7 +10,7 @@ import { runForecastPass, BuildCancelledError, type BuildFilter, type BuildProgr
 import { S, PAL, formatDate } from "../components/styles";
 import type { ToastMessage } from "../components/Toast";
 import { scenarioRepo } from "../scenarios/services/scenarioRepo";
-import { cloneBaseIntoSavedBuild, deleteSavedBuild, type SaveBuildProgress } from "../scenarios/services/scenarioService";
+import { cloneBaseIntoSavedBuild, deleteSavedBuild, generatePlannerBuyPlanForRun, type SaveBuildProgress } from "../scenarios/services/scenarioService";
 import type { IpScenario } from "../scenarios/types/scenarios";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import { confirmDialog } from "../../shared/ui/warn";
@@ -42,6 +42,7 @@ export default function PlanningRunControls({
   const [showNew, setShowNew] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [pushingBuys, setPushingBuys] = useState(false);
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [pendingRebuildConfirm, setPendingRebuildConfirm] = useState(false);
   const [wipeStage, setWipeStage] = useState<"choice" | "confirm">("choice");
@@ -225,6 +226,38 @@ export default function PlanningRunControls({
     }
   }
 
+  // Turn the planner's own typed buys (the Buy column, planned_buy_qty) into
+  // this run's buy plan directly — BYPASSING supply reconciliation. Writes one
+  // `buy` recommendation per (sku, period), REPLACING any recs a reconciliation
+  // pass computed. The execution batch + buy-plan export read recommendations,
+  // so afterwards they reflect the planner's numbers, not the system's shortage
+  // math. (Same action as the Scenario screen's "Push planner buys → plan",
+  // exposed here so a live run doesn't have to route through a scenario.)
+  async function pushPlannerBuys() {
+    if (!selected) return;
+    const ok = await confirmDialog(
+      `Use the planner-typed buy quantities (the Buy column) as the buy plan for "${selected.name}"?\n\n` +
+      `This REPLACES any reconciliation-computed recommendations for this run with your typed buys — ` +
+      `supply netting is skipped. The execution batch and buy-plan export then reflect your numbers.`,
+      { title: "Push planner buys → plan", confirmText: "Use my buys" },
+    );
+    if (!ok) return;
+    setPushingBuys(true);
+    try {
+      const r = await generatePlannerBuyPlanForRun(selected.id);
+      onToast({
+        text: r.recommendations > 0
+          ? `Buy plan set from planner buys — ${r.recommendations} lines · ${r.units.toLocaleString()} units`
+          : "No typed buys found (the Buy column is empty for this run) — nothing to push.",
+        kind: r.recommendations > 0 ? "success" : "info",
+      });
+    } catch (e) {
+      onToast({ text: "Push planner buys failed — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setPushingBuys(false);
+    }
+  }
+
   // Load the saved-build list once on mount and again after any
   // mutation (save / fork / delete). Filtered to scenario_type
   // 'saved_build' so what-if/promo scenarios stay on their own page.
@@ -401,6 +434,18 @@ export default function PlanningRunControls({
                   : "Build forecast for every (customer, sku) pair in the run"}
               >
                 {building ? "Building…" : (filterActive ? "Build (filtered)" : "Build forecast")}
+              </button>
+            )}
+            {/* Turn the typed Buy column into the run's buy plan directly,
+                skipping reconciliation. Hidden on saved-build snapshots. */}
+            {!selectedSavedBuild && (
+              <button
+                style={S.btnSecondary}
+                onClick={() => { void pushPlannerBuys(); }}
+                disabled={building || pushingBuys}
+                title="Use your typed Buy quantities as this run's buy plan (skips supply reconciliation). The execution batch and buy-plan export then reflect your numbers."
+              >
+                {pushingBuys ? "Pushing…" : "Push planner buys → plan"}
               </button>
             )}
             {/* Save / Fork — capture the current build (including planner

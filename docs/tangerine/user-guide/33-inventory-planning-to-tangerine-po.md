@@ -107,6 +107,26 @@ Pick a run in the **Reconciliation run** selector, then click **Delete run** (re
 
 The button appears only when a run is selected. (Runs the Supply dropdown doesn't show — e.g. saved-build or scenario runs — can still be removed from **Planning → Admin → Runs**, which lists every run.)
 
+## 33.10 Finalizing the buy plan from your own numbers (skip reconciliation)
+
+The execution batch and buy-plan export don't read your grid directly — they read the run's **buy recommendations**. Those recommendations are normally produced by **Run reconciliation**, which applies the system's shortage math and can therefore recommend buying *more* than you typed (to cover a projected shortfall). If you want the buy plan to be **exactly your own typed buys, with no reconciliation additions**, use the **Push planner buys → plan** button.
+
+**Where:** on the Wholesale workbench, in the **Planning run** toolbar (next to *Build forecast*). It's shown for any live run (hidden on saved-build snapshots).
+
+**What it does:** takes the **Buy** column (`planned_buy_qty`) for the whole run, sums it per SKU and period, and writes it straight through as the run's buy recommendations — **supply reconciliation is skipped entirely.** It **replaces** any recommendations a prior reconciliation pass computed. Afterward the execution batch and buy-plan export reflect your numbers, not the system's shortage math.
+
+Typical flow:
+
+1. Set your **Buy** quantities in the grid (type them, or use **Copy Final → Buy** to seed Buy from Final, then adjust).
+2. Click **Push planner buys → plan** and confirm.
+3. Build your execution batch on **Execution** — it now carries your buys verbatim.
+
+Notes:
+
+- If the Buy column is empty for the run, nothing is pushed and you'll get an *"nothing to push"* message — type some buys first.
+- This is the same action as the Scenario screen's **Push planner buys → plan**; it's exposed on the main workbench so a live run doesn't have to be routed through a scenario.
+- Prefer the **middle ground?** If you still want reconciliation to run but *not* to stack extra buys on top of what you planned, leave this alone and instead tick **"Count planned wholesale buys as inbound supply"** on the Supply screen before reconciling — your typed buys then count as incoming supply, so the recommended top-up shrinks toward zero.
+
 ---
 
 *M31 now connects planning to Tangerine in both directions — buy-plan → PO (A) and Tangerine supply → planning (B) — and both are opt-in choices alongside the existing Xoro paths.*

@@ -612,8 +612,13 @@ export async function recomputeScenarioOutputs(scenarioId: string): Promise<{
 export async function generatePlannerBuyRecommendations(scenarioId: string): Promise<{ recommendations: number; units: number }> {
   const scenario = await scenarioRepo.getScenario(scenarioId);
   if (!scenario) throw new Error("Scenario not found");
-  const runId = scenario.planning_run_id;
+  return generatePlannerBuyPlanForRun(scenario.planning_run_id);
+}
 
+// Same as generatePlannerBuyRecommendations but keyed directly on a planning
+// run — so a live wholesale run (not just a scenario) can turn its typed buys
+// into the buy plan straight from the main workbench, skipping reconciliation.
+export async function generatePlannerBuyPlanForRun(runId: string): Promise<{ recommendations: number; units: number }> {
   const [forecast, items] = await Promise.all([
     wholesaleRepo.listForecast(runId),
     wholesaleRepo.listItems(),
