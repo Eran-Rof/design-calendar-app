@@ -116,6 +116,49 @@ describe("mapRecommendationsToActions", () => {
   });
 });
 
+describe("mapRecommendationsToActions — item-master vendor fallback", () => {
+  it("uses item-master vendor when no open PO exists (create_buy_request)", () => {
+    const out = mapRecommendationsToActions({
+      execution_batch_id: "b", batch_type: "buy_plan",
+      recommendations: [rec({ recommendation_type: "buy", sku_id: "sku-a" })],
+      itemVendorBySku: new Map([["sku-a", "vm-item"]]),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].action_type).toBe("create_buy_request");
+    expect(out[0].vendor_id).toBe("vm-item");
+  });
+
+  it("prefers the open-PO vendor over the item-master vendor", () => {
+    const out = mapRecommendationsToActions({
+      execution_batch_id: "b", batch_type: "buy_plan",
+      recommendations: [rec({ recommendation_type: "buy", sku_id: "sku-a" })],
+      openPoBySku: new Map([["sku-a", { po_number: "PO-1", vendor_id: "vm-po" }]]),
+      itemVendorBySku: new Map([["sku-a", "vm-item"]]),
+    });
+    expect(out[0].action_type).toBe("increase_po");
+    expect(out[0].vendor_id).toBe("vm-po");
+  });
+
+  it("falls back to item-master vendor when the open PO carries no vendor", () => {
+    const out = mapRecommendationsToActions({
+      execution_batch_id: "b", batch_type: "buy_plan",
+      recommendations: [rec({ recommendation_type: "buy", sku_id: "sku-a" })],
+      openPoBySku: new Map([["sku-a", { po_number: "PO-1", vendor_id: null }]]),
+      itemVendorBySku: new Map([["sku-a", "vm-item"]]),
+    });
+    expect(out[0].vendor_id).toBe("vm-item");
+  });
+
+  it("leaves vendor_id null when neither PO nor item-master has a vendor", () => {
+    const out = mapRecommendationsToActions({
+      execution_batch_id: "b", batch_type: "buy_plan",
+      recommendations: [rec({ recommendation_type: "buy", sku_id: "sku-a" })],
+      itemVendorBySku: new Map([["sku-b", "vm-item"]]), // different sku
+    });
+    expect(out[0].vendor_id).toBeNull();
+  });
+});
+
 describe("mapActionToXoroPayload", () => {
   it("create_buy_request shapes the vendor + qty + period", () => {
     const p = mapActionToXoroPayload(action({ action_type: "create_buy_request", vendor_id: "v-1", approved_qty: 80 }));
