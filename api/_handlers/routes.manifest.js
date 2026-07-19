@@ -438,6 +438,7 @@ export default [
   ["/api/internal/style-orders"                              , "./internal/style-orders/index.js"],
   ["/api/internal/upc-items"                                 , "./internal/upc-items/index.js"],
   ["/api/internal/planning/buy-plan-to-po"                   , "./internal/planning/buy-plan-to-po.js"],
+  ["/api/internal/planning/cost-trace"                       , "./internal/planning/cost-trace.js"],
   ["/api/internal/planning/link-planning-vendor"             , "./internal/planning/link-planning-vendor.js"],
   ["/api/internal/planning/promote-style-color"              , "./internal/planning/promote-style-color.js"],
   ["/api/internal/planning/sync-tangerine-supply"            , "./internal/planning/sync-tangerine-supply.js"],

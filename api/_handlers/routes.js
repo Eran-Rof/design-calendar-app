@@ -443,6 +443,7 @@ import r_internal_pim_styles_style_id_images_index from "./internal/pim/styles/[
 import r_internal_pim_styles_style_id_link_shopify from "./internal/pim/styles/[style_id]/link-shopify.js";
 import r_internal_pim_styles_style_id_pull_shopify_images from "./internal/pim/styles/[style_id]/pull-shopify-images.js";
 import r_internal_planning_buy_plan_to_po from "./internal/planning/buy-plan-to-po.js";
+import r_internal_planning_cost_trace from "./internal/planning/cost-trace.js";
 import r_internal_planning_link_planning_vendor from "./internal/planning/link-planning-vendor.js";
 import r_internal_planning_promote_style_color from "./internal/planning/promote-style-color.js";
 import r_internal_planning_sync_tangerine_supply from "./internal/planning/sync-tangerine-supply.js";
@@ -1093,6 +1094,7 @@ export const ROUTES = [
   { pattern: "/api/internal/crm/pipeline-report", handler: r_internal_crm_pipeline_report_index },
   { pattern: "/api/internal/fixed-assets/tieout", handler: r_internal_fixed_assets_tieout },
   { pattern: "/api/internal/marketplace/inquire", handler: r_internal_marketplace_inquire },
+  { pattern: "/api/internal/planning/cost-trace", handler: r_internal_planning_cost_trace },
   { pattern: "/api/internal/recon/run-inventory", handler: r_internal_recon_run_inventory },
   { pattern: "/api/internal/rfqs/messages-inbox", handler: r_internal_rfqs_messages_inbox_index },
   { pattern: "/api/internal/scorecards/generate", handler: r_internal_scorecards_generate },
