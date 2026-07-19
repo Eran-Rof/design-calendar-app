@@ -92,6 +92,9 @@ export interface PlanningGridRowProps {
   promotedTbdKeys?: Set<string>;
   onUpdateSystemOverride: (forecastId: string, qty: number | null) => Promise<void>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
+  // Fan a Unit Cost out to every child of an aggregate row (single rows
+  // save directly). Used by the editable Unit Cost cell on ALL rows.
+  saveAggUnitCost: (row: IpPlanningGridRow, cost: number | null) => Promise<void>;
   saveAggBuyerOrOverride: (
     row: IpPlanningGridRow,
     qty: number,
@@ -141,6 +144,7 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
     promotedTbdKeys,
     onUpdateSystemOverride,
     onUpdateUnitCost,
+    saveAggUnitCost,
     saveAggBuyerOrOverride,
     saveAggBuy,
     openSummaryCtx,
@@ -501,9 +505,15 @@ export function PlanningGridRow(props: PlanningGridRowProps) {
       </td>
       <td style={{ ...S.tdNum, padding: "0 4px", ...colHide("unitCost") }} onClick={(e) => e.stopPropagation()}>
         {r.is_aggregate ? (
-          <span style={{ fontFamily: "monospace", color: r.unit_cost != null ? PAL.accent2 : PAL.textMuted }}>
-            {r.unit_cost != null ? `$${r.unit_cost.toFixed(2)}` : "—"}
-          </span>
+          // Editable on collapsed/aggregate rows too: fans the typed cost
+          // out to every child of the bucket (saveAggUnitCost). The grid
+          // is normally used collapsed by style/all-colors, so this is the
+          // primary entry point for manual unit-cost entry.
+          <UnitCostCell
+            value={r.unit_cost}
+            overridden={false}
+            onSave={(cost) => saveAggUnitCost(r, cost)}
+          />
         ) : (
           <UnitCostCell
             value={r.unit_cost}

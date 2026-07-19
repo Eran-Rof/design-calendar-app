@@ -55,6 +55,12 @@ function checkAbort(signal: AbortSignal | undefined): void {
 
 import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
+import {
+  buildPoEachCostByBaseColor,
+  poFallbackCostForRow,
+  resolvePackSize,
+  type PoCostRow,
+} from "../utils/poCostFallback";
 
 // Trim history to the forecast lookback window. Default 13 months so the
 // LY ±1 buffer (months 11/12/13 before snapshot — see baselineForPairLy)
@@ -806,7 +812,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // back here (they exist for audit/archival from the forecast pass).
   // Removing the read eliminates a 1k-row paginated query that timed
   // out (PostgREST 57014) once a run accumulated thousands of recs.
-  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku, tbdRows, supplyPlaceholderId] = await Promise.all([
+  const [items, customers, categories, forecast, sales, inv, pos, openSos, receipts, atsCostBySku, avgCostBySku, tbdRows, supplyPlaceholderId, prepackUnitsPerPack] = await Promise.all([
     wholesaleRepo.listItems(),
     wholesaleRepo.listCustomers(),
     wholesaleRepo.listCategories(),
@@ -825,6 +831,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     wholesaleRepo.listItemAvgCostBySku(),
     wholesaleRepo.listTbdRows(run.id),
     wholesaleRepo.ensureSupplyPlaceholderCustomer(),
+    wholesaleRepo.listPrepackUnitsPerPack(),
   ]);
 
   const itemById = new Map(items.map((i) => [i.id, i]));
@@ -1046,6 +1053,29 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const it = itemById.get(skuId);
     if (it?.sku_code) openPoCostsBySkuCode.set(it.sku_code, [avgCost]);
   }
+  // ── Grain-aware open-PO cost FALLBACK (BUG: RYB0412PPK blank cost) ─────
+  // The exact-sku open-PO step in resolveCost never reaches a style's
+  // each-grain rows when the PO sits on the pack-grain PPK sibling
+  // (RYB0412PPK-<color>), and a PPK PO price is per-PACK, not per-each.
+  // Build a per-each open-PO cost keyed by BASE-COLOR (size + PPK token
+  // stripped) so a PO on RYB0412PPK-BLACK reaches the RYB0412-BLACK row.
+  // Per-each = poUnitCost / poPackSize; a row re-grains it back up by its
+  // own pack size (each-grain → per-each; pack-grain → pack price). This
+  // is applied ONLY when the direct+sibling avg cascade came up empty
+  // (see the row map below) — a PO price never overrides an avg cost.
+  const poCostRowsForFallback: PoCostRow[] = pos
+    .map((p) => {
+      const it = itemById.get(p.sku_id);
+      const skuCode = it?.sku_code ?? "";
+      return {
+        sku_code: skuCode,
+        unit_cost: typeof p.unit_cost === "number" ? p.unit_cost : null,
+        qty_open: typeof p.qty_open === "number" ? p.qty_open : null,
+        pack_size: resolvePackSize(skuCode, it?.pack_size ?? null, prepackUnitsPerPack),
+      };
+    })
+    .filter((r) => r.sku_code);
+  const poEachCostByBaseColor = buildPoEachCostByBaseColor(poCostRowsForFallback);
 
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
@@ -1085,7 +1115,17 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
           openPoCostsBySku: openPoCostsBySkuCode,
         })
       : { cost: null as number | null, source: "unknown" as const };
-    const resolvedCost = resolved.cost;
+    // FALLBACK ONLY: the direct-avg → sibling-avg cascade (resolveCost)
+    // wins whenever it produced a value. Only when it comes up empty do we
+    // fill from the grain-aware open-PO cost, re-grained to THIS row's pack
+    // size. Covers PPK styles whose PO sits on the pack sibling AND the
+    // plain-each case (packSize 1 on both sides → poUnitCost as-is).
+    let resolvedCost = resolved.cost;
+    if (resolvedCost == null && item?.sku_code) {
+      const rowPackSize = resolvePackSize(item.sku_code, item.pack_size ?? null, prepackUnitsPerPack);
+      const poFb = poFallbackCostForRow(item.sku_code, rowPackSize, poEachCostByBaseColor);
+      if (poFb != null) resolvedCost = poFb;
+    }
     // Period-specific Hist T3 (trailing quarter through this month's LY).
     const t3 = t3ForPeriod(f.customer_id, f.sku_id, f.period_start);
     // Always derive avail/shortage/excess from the rolling supply so that
