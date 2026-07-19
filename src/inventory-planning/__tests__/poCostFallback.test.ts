@@ -4,9 +4,11 @@
 import { describe, it, expect } from "vitest";
 import {
   baseColorKey,
+  styleKey,
   ppkStyleKeyOf,
   resolvePackSize,
   buildPoEachCostByBaseColor,
+  buildPoEachCostByStyle,
   poFallbackCostForRow,
   resolvePlanningRowCost,
   type PoCostRow,
@@ -31,6 +33,33 @@ describe("baseColorKey", () => {
   });
   it("normalizes surrounding/internal whitespace and case", () => {
     expect(baseColorKey("  ryb0412ppk-black  ")).toBe("RYB0412-BLACK");
+  });
+});
+
+describe("styleKey", () => {
+  it("strips the color segment, keeping the base style", () => {
+    expect(styleKey("RYB0412-BLACK")).toBe("RYB0412");
+    expect(styleKey("RYB0412-NAVY")).toBe("RYB0412");
+  });
+  it("strips a glued PPK token AND the color (PPK glued form)", () => {
+    expect(styleKey("RYB0412PPK-BLACK")).toBe("RYB0412");
+  });
+  it("strips a bare glued PPK style with no color", () => {
+    expect(styleKey("RYB0412PPK")).toBe("RYB0412");
+    expect(styleKey("RYB0412")).toBe("RYB0412");
+  });
+  it("strips a -PPK<n> size suffix then the color", () => {
+    expect(styleKey("RYB0412-BLACK-PPK24")).toBe("RYB0412");
+  });
+  it("strips a trailing numeric/letter size then the color", () => {
+    expect(styleKey("RYB0412-BLACK-M")).toBe("RYB0412");
+  });
+  it("normalizes surrounding/internal whitespace and case", () => {
+    expect(styleKey("  ryb0412ppk-black  ")).toBe("RYB0412");
+  });
+  it("returns empty string for empty input", () => {
+    expect(styleKey("")).toBe("");
+    expect(styleKey(null)).toBe("");
   });
 });
 
@@ -113,6 +142,86 @@ describe("buildPoEachCostByBaseColor + poFallbackCostForRow", () => {
   it("(e) returns null when there is no PO for the row's base-color", () => {
     const map = buildPoEachCostByBaseColor([]);
     expect(poFallbackCostForRow("RYB0412-BLACK", 1, map)).toBeNull();
+  });
+});
+
+describe("buildPoEachCostByStyle", () => {
+  it("weights per-each cost by qty_open ACROSS colors of the style", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0412PPK-BLACK", unit_cost: 240, qty_open: 10, pack_size: 24 }, // 10/each, w=10
+      { sku_code: "RYB0412-NAVY", unit_cost: 12, qty_open: 30, pack_size: 1 },        // 12/each, w=30
+    ];
+    const map = buildPoEachCostByStyle(pos);
+    // both colors collapse into the single style bucket RYB0412:
+    // (10*10 + 12*30) / (10+30) = (100 + 360)/40 = 11.5
+    expect(map.get("RYB0412")).toBeCloseTo(11.5, 6);
+    expect(map.has("RYB0412-BLACK")).toBe(false); // keyed by style, not base-color
+  });
+
+  it("skips POs with non-positive cost or qty", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "ABC-BLUE", unit_cost: 0, qty_open: 100, pack_size: 1 },
+      { sku_code: "ABC-RED", unit_cost: 5, qty_open: 0, pack_size: 1 },
+      { sku_code: "ABC-GREEN", unit_cost: null, qty_open: 10, pack_size: 1 },
+    ];
+    const map = buildPoEachCostByStyle(pos);
+    expect(map.has("ABC")).toBe(false);
+  });
+});
+
+describe("poFallbackCostForRow — base-color then style tiering", () => {
+  // (a) the row's own color has a PO → uses the color-specific cost, NOT the
+  //     style-wide average, even when a style map is supplied.
+  it("(a) prefers the exact base-color PO over the style tier", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0412-BLACK", unit_cost: 10, qty_open: 5, pack_size: 1 },  // BLACK color PO
+      { sku_code: "RYB0412-NAVY", unit_cost: 20, qty_open: 5, pack_size: 1 },   // NAVY color PO
+    ];
+    const byColor = buildPoEachCostByBaseColor(pos);
+    const byStyle = buildPoEachCostByStyle(pos); // style avg = (10+20)/2 = 15
+    // BLACK row resolves to its own PO (10), not the style average (15).
+    expect(poFallbackCostForRow("RYB0412-BLACK", 1, byColor, byStyle)).toBeCloseTo(10, 6);
+  });
+
+  // (b) the row's color has NO PO but a sibling color does → uses the style tier.
+  it("(b) falls back to the style tier when the color has no PO of its own", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0412-BLACK", unit_cost: 10, qty_open: 5, pack_size: 1 },
+    ];
+    const byColor = buildPoEachCostByBaseColor(pos);
+    const byStyle = buildPoEachCostByStyle(pos);
+    // NAVY has no PO of its own; base-color tier misses, style tier (10) hits.
+    expect(poFallbackCostForRow("RYB0412-NAVY", 1, byColor, byStyle)).toBeCloseTo(10, 6);
+  });
+
+  // (c) re-graining on the STYLE tier respects the row's grain.
+  it("(c) re-grains the style-tier per-each cost by the row's pack size", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0412PPK-BLACK", unit_cost: 240, qty_open: 10, pack_size: 24 }, // 10/each
+    ];
+    const byColor = buildPoEachCostByBaseColor(pos);
+    const byStyle = buildPoEachCostByStyle(pos); // style per-each = 10
+    // NAVY (no color PO): each-grain row shows per-each 10; pack-grain shows 240.
+    expect(poFallbackCostForRow("RYB0412-NAVY", 1, byColor, byStyle)).toBeCloseTo(10, 6);
+    expect(poFallbackCostForRow("RYB0412PPK-NAVY", 24, byColor, byStyle)).toBeCloseTo(240, 6);
+  });
+
+  // (d) neither tier has a cost → null.
+  it("(d) returns null when neither base-color nor style has a PO", () => {
+    const byColor = buildPoEachCostByBaseColor([]);
+    const byStyle = buildPoEachCostByStyle([]);
+    expect(poFallbackCostForRow("RYB0412-NAVY", 1, byColor, byStyle)).toBeNull();
+  });
+
+  // 3-arg (base-color-only) call sites keep working with no style tier.
+  it("stays base-color-only when no style map is passed (existing callers)", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0412-BLACK", unit_cost: 10, qty_open: 5, pack_size: 1 },
+    ];
+    const byColor = buildPoEachCostByBaseColor(pos);
+    // NAVY has no color PO and no style map → null (no sibling inheritance).
+    expect(poFallbackCostForRow("RYB0412-NAVY", 1, byColor)).toBeNull();
+    expect(poFallbackCostForRow("RYB0412-BLACK", 1, byColor)).toBeCloseTo(10, 6);
   });
 });
 
