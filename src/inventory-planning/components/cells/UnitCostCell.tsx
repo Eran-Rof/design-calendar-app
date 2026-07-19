@@ -54,7 +54,17 @@ export function UnitCostCell({ value, overridden, onSave }: {
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditing(true); } }}
         title={title}
         style={{
-          display: "inline-block",
+          // Fill the whole cell so a click ANYWHERE in the cell — not just
+          // precisely on the "$5.00" / "—" glyph — enters edit mode. Flex
+          // right-justifies + vertically centers to match the Avg Cost / Buy $
+          // numeric columns, and minHeight keeps an empty "—" cell a
+          // full-height click target.
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          width: "100%",
+          minHeight: 24,
+          boxSizing: "border-box",
           fontFamily: "monospace",
           fontSize: 13,
           color: colorRaw,
