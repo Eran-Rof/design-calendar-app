@@ -10,7 +10,6 @@ import type {
   IpCustomer,
   IpInventorySnapshot,
   IpItem,
-  IpItemAvgCost,
   IpOpenPoRow,
   IpOpenSoRow,
   IpReceiptRow,
@@ -122,6 +121,65 @@ async function withRetryOn57014<T>(label: string, fn: () => Promise<T>): Promise
     }
   }
   throw lastErr;
+}
+
+// Broader than withRetryOn57014, which retries statement-timeouts ONLY.
+// A one-off Supabase 5xx / connection blip is NOT a 57014, so it slipped
+// past the retry and — because the avg-cost loaders used to
+// `catch { return new Map() }` — silently blanked EVERY grid unit cost
+// (the avg-cost map is the primary input to the whole cost cascade).
+export function isTransientDbError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  const lower = msg.toLowerCase();
+  return msg.includes("57014")
+    || lower.includes("statement timeout")
+    || lower.includes("canceling statement")
+    || msg.includes(" 500 ") || lower.includes("internal server error")
+    || msg.includes(" 502 ") || msg.includes(" 503 ") || msg.includes(" 504 ")
+    || lower.includes("bad gateway") || lower.includes("service unavailable")
+    || lower.includes("gateway timeout") || lower.includes("fetch failed")
+    || lower.includes("network") || lower.includes("econnreset")
+    || lower.includes("timeout");
+}
+
+// Pure: canonical sku_code → avg_cost, dropping blank/zero/non-numeric.
+export function avgCostRowsToMap(rows: Array<{ sku_code?: string | null; avg_cost?: number | null }>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
+      out.set(r.sku_code, r.avg_cost);
+    }
+  }
+  return out;
+}
+
+// Load a sku_code → avg_cost map with transient-resilient retries.
+// CRITICAL: a failed load must NOT masquerade as an empty table. The
+// avg-cost map feeds every grid unit cost, so a silent empty here blanks
+// EVERY cost with no signal (this exact silent catch caused an
+// all-costs-blank production incident on 2026-07-19). On a hard/final
+// failure we log LOUDLY (visible in Vercel logs) and return empty so the
+// grid still renders — but the failure is now observable, not invisible.
+async function loadAvgCostMap(table: string, label: string): Promise<Map<string, number>> {
+  const delays = [250, 1000, 3000];
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const rows = await sbGet<{ sku_code: string; avg_cost: number }>(
+        `${table}?select=sku_code,avg_cost&limit=50000`,
+      );
+      return avgCostRowsToMap(rows);
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientDbError(e) || attempt === delays.length) break;
+      // eslint-disable-next-line no-console
+      console.warn(`[planning-repo] ${label} transient load error (attempt ${attempt + 1} of ${delays.length + 1}); retrying in ${delays[attempt]}ms`);
+      await new Promise((res) => setTimeout(res, delays[attempt]));
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.error(`[planning-repo] ${label} FAILED to load ${table} after retries — grid unit costs blank this build:`, lastErr);
+  return new Map();
 }
 
 async function sbDelete(path: string): Promise<void> {
@@ -338,18 +396,7 @@ export const wholesaleRepo = {
   // not currently in ATS inventory. Returns an empty map (not an error)
   // when the table is empty or the migration hasn't been applied yet.
   async listItemAvgCostBySku(): Promise<Map<string, number>> {
-    try {
-      const rows = await sbGet<IpItemAvgCost>("ip_item_avg_cost?select=sku_code,avg_cost&limit=50000");
-      const out = new Map<string, number>();
-      for (const r of rows) {
-        if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
-          out.set(r.sku_code, r.avg_cost);
-        }
-      }
-      return out;
-    } catch {
-      return new Map();
-    }
+    return loadAvgCostMap("ip_item_avg_cost", "listItemAvgCostBySku");
   },
   // Avg unit cost per SKU from the materialized ip_ats_avg_cost table
   // (canonicalized at write time by useExcelUpload.upsertAtsAvgCost or
@@ -361,20 +408,7 @@ export const wholesaleRepo = {
   // hit. The new table stores canonical sku_code, so matches actually
   // land. Used as a fallback when ip_item_avg_cost has no row for a SKU.
   async listAtsAvgCostBySku(): Promise<Map<string, number>> {
-    try {
-      const rows = await sbGet<{ sku_code: string; avg_cost: number }>(
-        "ip_ats_avg_cost?select=sku_code,avg_cost&limit=50000",
-      );
-      const out = new Map<string, number>();
-      for (const r of rows) {
-        if (r.sku_code && typeof r.avg_cost === "number" && r.avg_cost > 0) {
-          out.set(r.sku_code, r.avg_cost);
-        }
-      }
-      return out;
-    } catch {
-      return new Map();
-    }
+    return loadAvgCostMap("ip_ats_avg_cost", "listAtsAvgCostBySku");
   },
   async listWholesaleSales(sinceIso: string): Promise<IpSalesWholesaleRow[]> {
     // Trimmed select — drops the unused order_number / invoice_number
