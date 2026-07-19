@@ -775,6 +775,8 @@ export default [
   ["/api/internal/factor/chargebacks/:id"                    , "./internal/factor/chargebacks/[id].js"],
   // Chargeback Management module (#1744) — managed worklist + dilution.
   ["/api/internal/chargebacks/dilution-summary"              , "./internal/chargebacks/dilution-summary.js"],
+  ["/api/internal/chargebacks/drill"                         , "./internal/chargebacks/drill.js"],
+  ["/api/internal/chargebacks/:id/origin"                    , "./internal/chargebacks/[id]/origin.js"],
   ["/api/internal/chargebacks"                               , "./internal/chargebacks/index.js"],
   ["/api/internal/chargebacks/:id"                           , "./internal/chargebacks/[id].js"],
   ["/api/internal/three-way-match/matches"                   , "./internal/three-way-match/matches.js"],

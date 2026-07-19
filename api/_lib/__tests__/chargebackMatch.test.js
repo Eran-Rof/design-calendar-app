@@ -7,6 +7,10 @@ import {
   matchChargeback,
   aggregateDilution,
   isFactorChurnChargeback,
+  resolveDrillRow,
+  drillRowInGroup,
+  drillRowInMeasure,
+  drillMeasureCents,
 } from "../chargebackMatch.js";
 
 describe("normalizeAlnum", () => {
@@ -169,5 +173,97 @@ describe("isFactorChurnChargeback", () => {
     expect(isFactorChurnChargeback({ reason_code: "597", reason: "Short Pay" })).toBe(false);
     expect(isFactorChurnChargeback({ reason_code: null, reason: null })).toBe(false);
     expect(isFactorChurnChargeback(null)).toBe(false);
+  });
+});
+
+// ── Drill-through helpers (#1744 audit drill) ────────────────────────────────
+describe("resolveDrillRow", () => {
+  const reasonById = new Map([["rc-short", { id: "rc-short", code: "shortpay" }]]);
+
+  it("resolves the effective customer, period, reason group and churn flag", () => {
+    const rr = resolveDrillRow(
+      { id: "cb-1", customer_id: "cust-1", report_month: "2026-03-01", amount_cents: 100_00, reason_code_id: "rc-short" },
+      reasonById,
+    );
+    expect(rr).toEqual({ id: "cb-1", cid: "cust-1", period: "2026-03", amount: 100_00, excluded: false, reason_group: "shortpay" });
+  });
+
+  it("falls back to the matched invoice's customer when the row has none", () => {
+    const rr = resolveDrillRow(
+      { id: "cb-2", customer_id: null, matched: { customer_id: "cust-9" }, report_month: "2026-04-01", amount_cents: -5_00 },
+      reasonById,
+    );
+    expect(rr.cid).toBe("cust-9");
+    expect(rr.period).toBe("2026-04");
+    expect(rr.reason_group).toBe("__uncoded__");
+  });
+
+  it("flags factor churn with the dedicated reason group", () => {
+    const rr = resolveDrillRow(
+      { id: "cb-3", customer_id: "cust-1", report_month: "2026-04-01", amount_cents: 900_00, reason_code: "610" },
+      reasonById,
+    );
+    expect(rr.excluded).toBe(true);
+    expect(rr.reason_group).toBe("__factor_churn__");
+  });
+});
+
+describe("drillRowInGroup", () => {
+  const rr = { id: "x", cid: "cust-1", period: "2026-03", amount: 10, excluded: false, reason_group: "shortpay" };
+  it("matches each facet on its key", () => {
+    expect(drillRowInGroup(rr, "total", "")).toBe(true);
+    expect(drillRowInGroup(rr, "customer", "cust-1")).toBe(true);
+    expect(drillRowInGroup(rr, "customer", "cust-2")).toBe(false);
+    expect(drillRowInGroup(rr, "customer_month", "cust-1|2026-03")).toBe(true);
+    expect(drillRowInGroup(rr, "customer_month", "cust-1|2026-04")).toBe(false);
+    expect(drillRowInGroup(rr, "month", "2026-03")).toBe(true);
+    expect(drillRowInGroup(rr, "reason", "shortpay")).toBe(true);
+    expect(drillRowInGroup(rr, "reason", "freight")).toBe(false);
+  });
+  it("a null-customer row never joins a customer facet", () => {
+    expect(drillRowInGroup({ ...rr, cid: null }, "customer", "cust-1")).toBe(false);
+  });
+});
+
+describe("drill measure reconciliation", () => {
+  // A realistic mixed set for one customer/month, mirroring dilution semantics.
+  const resolved = [
+    { id: "a", cid: "c1", period: "2026-03", amount: 100_00, excluded: false, reason_group: "shortpay" },
+    { id: "b", cid: "c1", period: "2026-03", amount: 20_00, excluded: false, reason_group: "shortpay" },
+    { id: "c", cid: "c1", period: "2026-03", amount: -40_00, excluded: false, reason_group: "__uncoded__" },
+    { id: "d", cid: "c1", period: "2026-03", amount: 900_00, excluded: true, reason_group: "__factor_churn__" },
+  ];
+  const sumFor = (measure) =>
+    resolved.filter((r) => drillRowInGroup(r, "customer", "c1") && drillRowInMeasure(r, measure))
+      .reduce((acc, r) => acc + drillMeasureCents(r, measure), 0);
+  const countFor = (measure) =>
+    resolved.filter((r) => drillRowInGroup(r, "customer", "c1") && drillRowInMeasure(r, measure)).length;
+
+  it("chargeback measure sums the positive non-excluded rows (= aggregateDilution chargeback_cents)", () => {
+    const agg = aggregateDilution(resolved.map((r) => ({ group: r.cid, amount_cents: r.amount, excluded: r.excluded })), {})[0];
+    expect(sumFor("chargeback")).toBe(120_00);
+    expect(sumFor("chargeback")).toBe(agg.chargeback_cents);
+    expect(countFor("chargeback")).toBe(2);
+  });
+  it("creditback measure sums the negative non-excluded rows", () => {
+    expect(sumFor("creditback")).toBe(-40_00);
+    expect(countFor("creditback")).toBe(1);
+  });
+  it("excluded measure sums only the factor-churn rows", () => {
+    expect(sumFor("excluded")).toBe(900_00);
+    expect(countFor("excluded")).toBe(1);
+  });
+  it("net measure sums all non-excluded rows (chargeback + creditback)", () => {
+    expect(sumFor("net")).toBe(80_00);
+    expect(countFor("net")).toBe(3);
+  });
+  it("dilution measure reuses the chargeback numerator", () => {
+    expect(sumFor("dilution")).toBe(sumFor("chargeback"));
+  });
+  it("count measure includes every row; matched requires a resolved customer", () => {
+    expect(countFor("count")).toBe(4);
+    const withUnmatched = [...resolved, { id: "e", cid: null, period: "2026-03", amount: 5_00, excluded: false, reason_group: "__uncoded__" }];
+    const matched = withUnmatched.filter((r) => drillRowInMeasure(r, "matched")).length;
+    expect(matched).toBe(4);
   });
 });

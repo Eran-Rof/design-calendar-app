@@ -29,6 +29,8 @@ import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
 import { drillToModule, readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { promptDialog, notify } from "../shared/ui/warn";
+import JEDetailModal, { type JEDetailSeed } from "./components/JEDetailModal";
+import SourceDocumentModal, { type SourceDocOpen } from "./components/SourceDocumentModal";
 
 const C = {
   bg: "#0b1220", card: "#1E293B", cardBdr: "#334155",
@@ -208,6 +210,7 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
   saving: boolean;
 }) {
+  const [origin, setOrigin] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -242,6 +245,7 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
   );
 
   return (
+    <>
     <div
       onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}
@@ -294,6 +298,12 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
           </Field>
           <Field label="Invoice Total">{row.matched ? fmtCents(row.matched.total_amount_cents) : "—"}</Field>
 
+          <Field label="Origin trace">
+            <span onClick={() => setOrigin(true)} style={{ color: C.primary, fontWeight: 600, cursor: "pointer" }} title="Trace this chargeback to its matched invoice and the journal entries that posted it">
+              Trace → invoice → JE
+            </span>
+          </Field>
+
           <label style={labelStyle}>
             Reason code
             <select
@@ -336,6 +346,8 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
         </div>
       </div>
     </div>
+    {origin && <OriginChainModal chargebackId={row.id} itemNum={row.item_num} onClose={() => setOrigin(false)} />}
+    </>
   );
 }
 
@@ -567,6 +579,7 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
 
 // ── Dilution tab ─────────────────────────────────────────────────────────────
 function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null; loading: boolean; err: string | null }) {
+  const [drill, setDrill] = useState<DrillFacet | null>(null);
   const custRows = useMemo(() => (dilution?.by_customer || []).map((c) => ({
     ...c, dilution_pct_str: fmtPct(c.dilution_pct),
   })) as unknown as Array<Record<string, unknown>>, [dilution]);
@@ -582,22 +595,75 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
   if (!dilution) return null;
 
   const t = dilution.totals;
-  const Card = ({ label, value, color }: { label: string; value: string; color?: string }) => (
-    <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px", minWidth: 160 }}>
+  const totalFacet = (measure: string, title: string, clicked: string): DrillFacet => ({ by: "total", key: "", measure, title, clicked });
+  const Card = ({ label, value, color, facet }: { label: string; value: string; color?: string; facet?: DrillFacet }) => (
+    <div
+      onClick={facet ? () => setDrill(facet) : undefined}
+      role={facet ? "button" : undefined}
+      tabIndex={facet ? 0 : undefined}
+      onKeyDown={facet ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrill(facet); } } : undefined}
+      title={facet ? "Drill to the constituent rows → invoice → journal entries" : undefined}
+      style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, padding: "12px 16px", minWidth: 160, cursor: facet ? "pointer" : "default" }}
+    >
       <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: color || C.text, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || C.text, marginTop: 4, fontVariantNumeric: "tabular-nums", textDecoration: facet ? "underline" : undefined, textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>{value}</div>
     </div>
   );
+
+  // ── Per-table cell → drill facet builders ──────────────────────────────────
+  const custCellFacet = (row: Record<string, unknown>, ci: number): DrillFacet | null => {
+    const cid = String(row.customer_id || "");
+    const name = String(row.customer_name || "customer");
+    if (!cid) return null;
+    const f = (measure: string, clicked: unknown): DrillFacet => ({ by: "customer", key: cid, measure, title: name, clicked: String(clicked) });
+    switch (ci) {
+      case 1: return f("chargeback", fmtCents(row.chargeback_cents as number));
+      case 2: return f("creditback", fmtCents(row.creditback_cents as number));
+      case 3: return (row.excluded_cents as number) ? f("excluded", fmtCents(row.excluded_cents as number)) : null;
+      case 4: return f("net", fmtCents(row.net_cents as number));
+      case 5: return (row.gross_sales_cents as number) ? f("gross_sales", fmtCents(row.gross_sales_cents as number)) : null;
+      case 6: return row.dilution_pct != null ? f("dilution", String(row.dilution_pct_str)) : null;
+      case 7: return f("count", row.count);
+      default: return null;
+    }
+  };
+  const reasonCellFacet = (row: Record<string, unknown>, ci: number): DrillFacet | null => {
+    const key = row.code == null ? "__uncoded__" : String(row.code);
+    const name = String(row.label || "reason");
+    const f = (measure: string, clicked: unknown): DrillFacet => ({ by: "reason", key, measure, title: name, clicked: String(clicked) });
+    switch (ci) {
+      case 2: return (row.chargeback_cents as number) ? f("chargeback", fmtCents(row.chargeback_cents as number)) : null;
+      case 3: return (row.excluded_cents as number) ? f("excluded", fmtCents(row.excluded_cents as number)) : null;
+      case 4: return f("net", fmtCents(row.net_cents as number));
+      case 5: return f("count", row.count);
+      case 6: return (row.chargeback_cents as number) ? f("chargeback", String(row.pct_str)) : null;
+      default: return null;
+    }
+  };
+  const monthCellFacet = (row: Record<string, unknown>, ci: number): DrillFacet | null => {
+    const ym = String(row.ym || "");
+    const name = String(row.month_label || ym);
+    if (!ym) return null;
+    const f = (measure: string, clicked: unknown): DrillFacet => ({ by: "month", key: ym, measure, title: name, clicked: String(clicked) });
+    switch (ci) {
+      case 1: return f("chargeback", fmtCents(row.chargeback_cents as number));
+      case 2: return f("creditback", fmtCents(row.creditback_cents as number));
+      case 3: return f("net", fmtCents(row.net_cents as number));
+      case 4: return (row.gross_sales_cents as number) ? f("gross_sales", fmtCents(row.gross_sales_cents as number)) : null;
+      case 5: return row.dilution_pct != null ? f("dilution", String(row.dilution_pct_str)) : null;
+      default: return null;
+    }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <Card label="Gross Chargebacks" value={fmtCents(t.chargeback_cents)} color={C.warn} />
-        <Card label="Creditbacks / Recoveries" value={fmtCents(t.creditback_cents)} color={C.success} />
-        <Card label="Excluded (factor churn)" value={fmtCents(t.excluded_cents)} color={C.textMuted} />
-        <Card label="Net" value={fmtCents(t.net_cents)} />
-        <Card label="Items" value={t.count.toLocaleString()} />
-        <Card label="Matched to invoice" value={`${t.matched_count.toLocaleString()} / ${t.count.toLocaleString()}`} color={C.primary} />
+        <Card label="Gross Chargebacks" value={fmtCents(t.chargeback_cents)} color={C.warn} facet={totalFacet("chargeback", "All chargebacks", fmtCents(t.chargeback_cents))} />
+        <Card label="Creditbacks / Recoveries" value={fmtCents(t.creditback_cents)} color={C.success} facet={totalFacet("creditback", "All creditbacks / recoveries", fmtCents(t.creditback_cents))} />
+        <Card label="Excluded (factor churn)" value={fmtCents(t.excluded_cents)} color={C.textMuted} facet={t.excluded_cents ? totalFacet("excluded", "All excluded (factor churn)", fmtCents(t.excluded_cents)) : undefined} />
+        <Card label="Net" value={fmtCents(t.net_cents)} facet={totalFacet("net", "All net deductions", fmtCents(t.net_cents))} />
+        <Card label="Items" value={t.count.toLocaleString()} facet={totalFacet("count", "All chargeback items", t.count.toLocaleString())} />
+        <Card label="Matched to invoice" value={`${t.matched_count.toLocaleString()} / ${t.count.toLocaleString()}`} color={C.primary} facet={totalFacet("matched", "Matched to a customer", t.matched_count.toLocaleString())} />
       </div>
       <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginTop: -6 }}>
         Gross Chargebacks and Dilution % exclude {t.excluded_count.toLocaleString()} factor receivable-churn item
@@ -624,6 +690,8 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
           String(c.count),
         ]}
         numericFrom={1}
+        cellFacet={custCellFacet}
+        onCellDrill={setDrill}
       />
 
       <DilutionTable
@@ -644,6 +712,8 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
           String(r.pct_str),
         ]}
         numericFrom={2}
+        cellFacet={reasonCellFacet}
+        onCellDrill={setDrill}
       />
 
       <DilutionTable
@@ -663,7 +733,11 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
           <strong style={{ color: C.textSub }}>{String(m.dilution_pct_str)}</strong>,
         ]}
         numericFrom={1}
+        cellFacet={monthCellFacet}
+        onCellDrill={setDrill}
       />
+
+      {drill && <DrillModal facet={drill} onClose={() => setDrill(null)} />}
     </div>
   );
 }
@@ -679,11 +753,13 @@ function cmpVals(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b), undefined, { numeric: true });
 }
 
-function DilutionTable({ title, note, rows, columns, filename, head, sortKeys, render, numericFrom }: {
+function DilutionTable({ title, note, rows, columns, filename, head, sortKeys, render, numericFrom, cellFacet, onCellDrill }: {
   title: string; note: string; rows: Array<Record<string, unknown>>;
   columns: ExportColumn<Record<string, unknown>>[]; filename: string;
   head: string[]; sortKeys: Array<string | null>;
   render: (r: Record<string, unknown>) => React.ReactNode[]; numericFrom: number;
+  cellFacet?: (row: Record<string, unknown>, colIndex: number) => DrillFacet | null;
+  onCellDrill?: (f: DrillFacet) => void;
 }) {
   const [sortIdx, setSortIdx] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -735,13 +811,389 @@ function DilutionTable({ title, note, rows, columns, filename, head, sortKeys, r
             <tbody>
               {sorted.map((r, ri) => (
                 <tr key={ri}>
-                  {render(r).map((cell, ci) => <td key={ci} style={ci >= numericFrom ? tdNum : td}>{cell}</td>)}
+                  {render(r).map((cell, ci) => {
+                    const facet = cellFacet && onCellDrill ? cellFacet(r, ci) : null;
+                    return (
+                      <td key={ci} style={ci >= numericFrom ? tdNum : td}>
+                        {facet ? (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => onCellDrill!(facet)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCellDrill!(facet); } }}
+                            style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}
+                            title="Drill to the constituent rows → invoice → journal entries"
+                          >
+                            {cell}
+                          </span>
+                        ) : cell}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Drill-through (audit trace) ──────────────────────────────────────────────
+// Every dilution figure is clickable. A click opens DrillModal with the exact
+// constituent rows that sum to it (they reconcile to the number); a row click
+// opens OriginChainModal, tracing chargeback → matched AR invoice → the GL
+// journal entries that posted it (JE lines via the shared JEDetailModal).
+
+type DrillFacet = { by: string; key: string; measure: string; title: string; clicked: string };
+
+const MEASURE_LABEL: Record<string, string> = {
+  chargeback: "Gross chargebacks",
+  creditback: "Creditbacks / recoveries",
+  excluded: "Excluded (factor churn)",
+  net: "Net",
+  count: "Items",
+  matched: "Matched to a customer",
+  dilution: "Gross chargebacks (dilution numerator)",
+  gross_sales: "Gross sales",
+};
+
+type DrillInvoiceRow = {
+  id: string; invoice_number: string; invoice_date: string | null;
+  total_amount_cents: number | string; customer_id: string | null; customer_name: string | null;
+};
+type DrillResp = {
+  kind: "chargebacks" | "invoices";
+  by: string; key: string; measure: string;
+  count: number; sum_cents: number;
+  rows: CBRow[] | DrillInvoiceRow[];
+  truncated: boolean; limit: number;
+};
+
+const DRILL_EXPORT_COLUMNS = [
+  { key: "month_label",     header: "Month" },
+  { key: "customer_name",   header: "Customer (Factor)" },
+  { key: "item_num",        header: "Item / Invoice" },
+  { key: "matched_invoice", header: "Matched Invoice" },
+  { key: "cb_date_us",      header: "C/B Date" },
+  { key: "reason_label",    header: "Reason" },
+  { key: "amount_cents",    header: "Amount", format: "currency_cents" },
+  { key: "disposition_label", header: "Disposition" },
+] as ExportColumn<Record<string, unknown>>[];
+
+function Breadcrumb({ parts }: { parts: string[] }) {
+  return (
+    <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {parts.map((p, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <span style={{ color: C.cardBdr }}>›</span>}
+          <span style={{ color: i === parts.length - 1 ? C.textSub : C.textMuted }}>{p}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void }) {
+  const [data, setData] = useState<DrillResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [origin, setOrigin] = useState<CBRow | null>(null);
+  const [doc, setDoc] = useState<SourceDocOpen | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const p = new URLSearchParams();
+        p.set("by", facet.by);
+        if (facet.key) p.set("key", facet.key);
+        p.set("measure", facet.measure);
+        const r = await fetch(`/api/internal/chargebacks/drill?${p}`);
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
+        const j = await r.json();
+        if (!cancelled) setData(j);
+      } catch (e: unknown) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [facet.by, facet.key, facet.measure]);
+
+  const isCount = facet.measure === "count" || facet.measure === "matched";
+  const cbRows = (data?.kind === "chargebacks" ? (data.rows as CBRow[]) : []);
+  const invRows = (data?.kind === "invoices" ? (data.rows as DrillInvoiceRow[]) : []);
+
+  const exportRows = cbRows.map((r) => ({
+    ...r,
+    month_label: fmtMonth(r.report_month),
+    cb_date_us: fmtDate(r.cb_date),
+    matched_invoice: r.matched?.invoice_number || "",
+    reason_label: r.reason_ref?.label || r.reason || "",
+    disposition_label: DISPOSITION_LABEL[r.disposition] || r.disposition,
+  })) as unknown as Array<Record<string, unknown>>;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1000, paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 12, width: "min(900px, 96vw)", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+      >
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.cardBdr}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <Breadcrumb parts={["Dilution", facet.title, MEASURE_LABEL[facet.measure] || facet.measure]} />
+              <div style={{ fontWeight: 700, color: C.text, fontSize: 15 }}>{facet.title}</div>
+            </div>
+            <button onClick={onClose} style={{ background: "transparent", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer" }} title="Close">✕</button>
+          </div>
+          {data && (
+            <div style={{ marginTop: 8, fontSize: 12, color: C.textSub, background: C.groupHeaderBg, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
+              {isCount ? (
+                <>Constituents: <strong style={{ color: C.text }}>{data.count.toLocaleString()}</strong> {data.kind === "invoices" ? "invoice" : "chargeback"}{data.count === 1 ? "" : "s"} — reconciles to the clicked figure <strong style={{ color: C.text }}>{facet.clicked}</strong>.</>
+              ) : (
+                <>{data.count.toLocaleString()} {data.kind === "invoices" ? "invoice" : "row"}{data.count === 1 ? "" : "s"} summing to <strong style={{ color: C.text }}>{fmtCents(data.sum_cents)}</strong> — ties to the clicked figure <strong style={{ color: C.text }}>{facet.clicked}</strong>.</>
+              )}
+              {data.truncated && <span style={{ color: C.textMuted }}> Showing the {data.rows.length} most recent; the sum covers all {data.count}.</span>}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: 0, overflow: "auto", flex: 1 }}>
+          {loading ? (
+            <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
+          ) : err ? (
+            <div style={{ margin: 16, background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6 }}>Error: {err}</div>
+          ) : data?.kind === "invoices" ? (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Invoice</th>
+                  <th style={th}>Date</th>
+                  <th style={th}>Customer</th>
+                  <th style={thNum}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invRows.length === 0 ? (
+                  <tr><td colSpan={4} style={{ ...td, textAlign: "center", color: C.textMuted }}>No invoices.</td></tr>
+                ) : invRows.map((r) => (
+                  <tr key={r.id} onClick={() => setDoc({ docType: "ar", id: r.id, number: r.invoice_number, party: r.customer_name, module: "ar_invoices" })} style={{ cursor: "pointer" }} title="Open the invoice → its journal entries">
+                    <td style={{ ...td, fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{r.invoice_number}</td>
+                    <td style={td}>{fmtDate(r.invoice_date)}</td>
+                    <td style={{ ...td, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>{r.customer_name || "—"}</td>
+                    <td style={tdNum}>{fmtCents(r.total_amount_cents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Item / Invoice</th>
+                  <th style={th}>Customer</th>
+                  <th style={th}>Matched Invoice</th>
+                  <th style={th}>C/B Date</th>
+                  <th style={th}>Reason</th>
+                  <th style={thNum}>Amount</th>
+                  <th style={th}>Disposition</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cbRows.length === 0 ? (
+                  <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: C.textMuted }}>No chargebacks.</td></tr>
+                ) : cbRows.map((r) => {
+                  const amt = Number(r.amount_cents || 0);
+                  return (
+                    <tr key={r.id} onClick={() => setOrigin(r)} style={{ cursor: "pointer" }} title="Trace this chargeback to its invoice & journal entries">
+                      <td style={{ ...td, fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{r.item_num}</td>
+                      <td style={{ ...td, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{r.customer_name}</td>
+                      <td style={{ ...td, fontFamily: "monospace", color: r.matched ? C.textSub : C.textMuted }}>{r.matched?.invoice_number || "—"}</td>
+                      <td style={td}>{fmtDate(r.cb_date)}</td>
+                      <td style={{ ...td, fontSize: 12, whiteSpace: "normal", maxWidth: 200 }}>{r.reason_ref?.label || <span style={{ color: C.textMuted }}>{r.reason || "—"}</span>}</td>
+                      <td style={{ ...tdNum, color: amt < 0 ? C.success : C.warn }}>{fmtCents(amt)}</td>
+                      <td style={{ ...td, color: DISPOSITION_COLOR[r.disposition], fontWeight: 600 }}>{DISPOSITION_LABEL[r.disposition]}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div style={{ padding: "10px 18px", borderTop: `1px solid ${C.cardBdr}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          {data?.kind === "chargebacks" && cbRows.length > 0 && (
+            <ExportButton rows={exportRows} filename="chargeback-drill" sheetName="Constituents" columns={DRILL_EXPORT_COLUMNS} />
+          )}
+          <button onClick={onClose} style={{ background: C.cardBdr, color: C.text, border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>Close</button>
+        </div>
+      </div>
+
+      {origin && <OriginChainModal chargebackId={origin.id} itemNum={origin.item_num} onClose={() => setOrigin(null)} />}
+      {doc && <SourceDocumentModal doc={doc} onClose={() => setDoc(null)} />}
+    </div>
+  );
+}
+
+type OriginResp = {
+  chargeback: {
+    id: string; item_num: string; customer_name: string; client_customer: string | null;
+    amount_cents: number | string; item_type: string; cb_date: string | null; report_month: string;
+    reason: string | null; reason_code: string | null; reason_ref: ReasonRef | null;
+    disposition: string; match_method: string | null;
+  };
+  invoice: { id: string; invoice_number: string; invoice_date: string | null; total_amount_cents: number | string; customer_id: string | null; customer_name: string | null } | null;
+  jes: Array<{ id: string; je_number: string | null; basis: string; journal_type: string; posting_date: string | null; status: string; description: string | null; leg: string | null; total_debit_cents: number }>;
+  note: string;
+};
+
+function OriginChainModal({ chargebackId, itemNum, onClose }: { chargebackId: string; itemNum: string; onClose: () => void }) {
+  const [data, setData] = useState<OriginResp | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [doc, setDoc] = useState<SourceDocOpen | null>(null);
+  const [jeSeed, setJeSeed] = useState<JEDetailSeed | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setErr(null);
+      try {
+        const r = await fetch(`/api/internal/chargebacks/${chargebackId}/origin`);
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
+        const j = await r.json();
+        if (!cancelled) setData(j);
+      } catch (e: unknown) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [chargebackId]);
+
+  const cb = data?.chargeback;
+  const inv = data?.invoice || null;
+  const amt = Number(cb?.amount_cents || 0);
+
+  const SectionTitle = ({ children }: { children: React.ReactNode }) => (
+    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 6px" }}>{children}</div>
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1050, paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 12, width: "min(760px, 96vw)", maxHeight: "88vh", overflowY: "auto", padding: 18, boxSizing: "border-box" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <Breadcrumb parts={["Chargeback", itemNum, "Origin trace", "Journal entries"]} />
+            <div style={{ fontWeight: 700, color: C.text, fontSize: 15 }}>
+              Origin trace — <span style={{ fontFamily: "monospace" }}>{itemNum}</span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: C.textMuted, fontSize: 20, cursor: "pointer" }} title="Close">✕</button>
+        </div>
+
+        {loading && <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>}
+        {err && <div style={{ margin: "12px 0", background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6 }}>Error: {err}</div>}
+
+        {cb && (
+          <>
+            <SectionTitle>Chargeback</SectionTitle>
+            <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, fontSize: 13 }}>
+              <div><div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase" }}>Amount</div><span style={{ color: amt < 0 ? C.success : C.warn, fontWeight: 600 }}>{fmtCents(amt)}</span></div>
+              <div><div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase" }}>C/B Date</div>{fmtDate(cb.cb_date)}</div>
+              <div><div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase" }}>Disposition</div><span style={{ color: DISPOSITION_COLOR[cb.disposition], fontWeight: 600 }}>{DISPOSITION_LABEL[cb.disposition] || cb.disposition}</span></div>
+              <div style={{ gridColumn: "1 / -1" }}><div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase" }}>Customer / Reason</div>{cb.customer_name}{cb.reason_ref?.label ? ` · ${cb.reason_ref.label}` : cb.reason ? ` · ${cb.reason}` : ""}</div>
+            </div>
+
+            <SectionTitle>Matched AR invoice (source document)</SectionTitle>
+            {inv ? (
+              <div
+                onClick={() => setDoc({ docType: "ar", id: inv.id, number: inv.invoice_number, party: inv.customer_name, module: "ar_invoices" })}
+                style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "10px 12px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                title="Open the invoice document"
+              >
+                <div>
+                  <span style={{ color: C.primary, fontWeight: 600, fontFamily: "monospace" }}>{inv.invoice_number}</span>
+                  <span style={{ color: C.textMuted, fontSize: 12, marginLeft: 8 }}>{inv.customer_name || "—"} · {fmtDate(inv.invoice_date)}</span>
+                </div>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCents(inv.total_amount_cents)}</span>
+              </div>
+            ) : (
+              <div style={{ color: C.textMuted, fontSize: 13, fontStyle: "italic" }}>Not matched — no source document.</div>
+            )}
+
+            <SectionTitle>Journal entries (posted to GL)</SectionTitle>
+            {data && data.jes.length > 0 ? (
+              <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>JE #</th>
+                      <th style={th}>Basis / Leg</th>
+                      <th style={th}>Posting Date</th>
+                      <th style={th}>Status</th>
+                      <th style={thNum}>Debits</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.jes.map((je) => (
+                      <tr key={je.id} onClick={() => setJeSeed({ id: je.id, je_number: je.je_number, description: je.description, status: je.status as JEDetailSeed["status"] })} style={{ cursor: "pointer" }} title="Open the journal entry and its lines">
+                        <td style={{ ...td, fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{je.je_number || "JE"}</td>
+                        <td style={td}>{je.basis}{je.leg ? ` · ${je.leg}` : ""}</td>
+                        <td style={td}>{fmtDate(je.posting_date)}</td>
+                        <td style={td}>{je.status}</td>
+                        <td style={tdNum}>{fmtCents(je.total_debit_cents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ color: C.textMuted, fontSize: 13, fontStyle: "italic" }}>No journal entries on this chain.</div>
+            )}
+
+            {data?.note && (
+              <div style={{ marginTop: 14, fontSize: 12, color: C.textSub, background: C.groupHeaderBg, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
+                {data.note}
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: C.cardBdr, color: C.text, border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>Close</button>
+        </div>
+      </div>
+
+      {doc && <SourceDocumentModal doc={doc} onClose={() => setDoc(null)} />}
+      {jeSeed && <JEDetailModal je={jeSeed} onClose={() => setJeSeed(null)} onReversed={() => {}} />}
     </div>
   );
 }
