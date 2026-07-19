@@ -71,6 +71,7 @@ function defaultProps(over: Partial<PlanningGridRowProps> = {}): PlanningGridRow
     onDeleteTbdRow: vi.fn(async () => {}),
     onUpdateSystemOverride: vi.fn(async () => {}),
     onUpdateUnitCost: vi.fn(async () => {}),
+    saveAggUnitCost: vi.fn(async () => {}),
     saveAggBuyerOrOverride: vi.fn(async () => {}),
     saveAggBuy: vi.fn(async () => {}),
     openSummaryCtx: vi.fn(),

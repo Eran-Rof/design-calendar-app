@@ -25,6 +25,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { promoteStyleColor } from "../services/promoteStyleColorService";
 import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
+import { collectUnitCostBucketTargets } from "../utils/bucketUnitCost";
 import { planBuyerShiftBackForCustomers } from "./wholesale-planning/shiftBuyerBackOneMonth";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
@@ -2293,6 +2294,75 @@ export default function WholesalePlanningWorkbench() {
     }
   }
 
+  // Fan a Unit Cost typed into a collapsed/aggregate row out to EVERY
+  // child of the bucket. Real forecast children get an
+  // unit_cost_override PATCH; TBD stock-buy children route through the
+  // TBD path (saveTbdField) exactly as saveUnitCost distinguishes.
+  // Passing null clears the override on every child → each reverts to
+  // its own auto-fill on the next rebuild. Falls back to the single-row
+  // path when the row isn't actually an aggregate.
+  async function saveUnitCostBucket(row: IpPlanningGridRow, cost: number | null) {
+    const run = selectedRun;
+    if (!run) return;
+    const byId = new Map(rows.map((r) => [r.forecast_id, r] as const));
+    const targets = collectUnitCostBucketTargets(row, byId);
+    if (!targets) {
+      // Not an aggregate (or no underlying ids) — single-row behavior.
+      await saveUnitCost(row.forecast_id, cost);
+      return;
+    }
+    const { forecastIds, tbdRows } = targets;
+    const affected = new Set<string>([...forecastIds, ...tbdRows.map((t) => t.forecast_id)]);
+    if (affected.size === 0) return;
+    // Optimistic: stamp every affected child (and, via re-aggregation on
+    // render, the displayed aggregate unit_cost) before the writes land.
+    setRows((prev) => prev.map((r) => {
+      if (!affected.has(r.forecast_id)) return r;
+      const effective = cost ?? r.avg_cost ?? r.ats_avg_cost ?? r.item_cost ?? null;
+      return { ...r, unit_cost_override: cost, unit_cost: effective };
+    }));
+    try {
+      // Batch the forecast writes in bounded chunks so a wide bucket
+      // doesn't fire hundreds of requests at once (mirrors the buy-plan
+      // fan-out). patchForecastUnitCostOverride already wraps each PATCH
+      // in withRetryOn57014.
+      const CHUNK = 25;
+      for (let i = 0; i < forecastIds.length; i += CHUNK) {
+        const chunk = forecastIds.slice(i, i + CHUNK);
+        await Promise.all(chunk.map((id) => wholesaleRepo.patchForecastUnitCostOverride(id, cost)));
+      }
+      // TBD writes are sequential — saveTbdField may upsert and mutate
+      // rows state (stamping a new tbd_id), which must settle in order.
+      for (const t of tbdRows) {
+        await saveTbdField(t, { unit_cost: cost });
+      }
+      const n = affected.size;
+      setToast({
+        text: cost != null
+          ? `$${cost.toFixed(2)} applied to ${n} SKU${n === 1 ? "" : "s"}`
+          : `Unit cost reset to auto-fill on ${n} SKU${n === 1 ? "" : "s"}`,
+        kind: "success",
+      });
+      const seq = ++rebuildSeq.current;
+      void (async () => {
+        try {
+          const refreshed = await buildGridRows(run);
+          if (seq !== rebuildSeq.current) return;
+          setRows(refreshed);
+        } catch (e) { console.warn("[ip rebuild]", e); }
+      })();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });
+      const seq = ++rebuildSeq.current;
+      try {
+        const refreshed = await buildGridRows(run);
+        if (seq !== rebuildSeq.current) return;
+        setRows(refreshed);
+      } catch (e) { console.warn("[ip rebuild]", e); }
+    }
+  }
+
   async function saveOverride(args: { override_qty: number; reason_code: IpOverrideReasonCode; note: string | null }) {
     if (!selectedRow) return;
     const run = selectedRun;
@@ -2480,6 +2550,7 @@ export default function WholesalePlanningWorkbench() {
               onUpdateBuyQty={saveBuyQty}
               onUpdateBucketBuy={saveBucketBuy}
               onUpdateUnitCost={saveUnitCost}
+              onUpdateUnitCostBucket={saveUnitCostBucket}
               onUpdateBuyerRequest={saveBuyerRequest}
               onShiftBuyerBack={shiftBuyerBack}
               onUpdateOverride={saveOverrideQty}

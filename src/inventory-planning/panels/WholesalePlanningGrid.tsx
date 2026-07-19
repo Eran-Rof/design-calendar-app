@@ -207,6 +207,9 @@ export interface WholesalePlanningGridProps {
   // rows' planned_buy_qty for display.
   bucketBuys?: Map<string, number>;
   onUpdateUnitCost: (forecastId: string, cost: number | null) => Promise<void>;
+  // Fan a Unit Cost out to every child of a collapsed/aggregate row. The
+  // grid routes aggregate cells here; single rows keep onUpdateUnitCost.
+  onUpdateUnitCostBucket: (row: IpPlanningGridRow, cost: number | null) => Promise<void>;
   onUpdateBuyerRequest: (forecastId: string, qty: number) => Promise<void>;
   // Bulk toolbar action: shift the Buyer qty of the selected customers' TBD
   // stock-buy rows to the prior month (Apr → Mar). The picker next to the
@@ -269,7 +272,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, focusBatch, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateUnitCostBucket, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, focusBatch, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -1180,6 +1183,19 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
     const target = qty == null ? null : Math.max(0, qty - restSum);
     if (target === (tbdRow.planned_buy_qty ?? null)) return;
     await onUpdateBuyQty(tbdRow.forecast_id, target);
+  }
+
+  // Aggregate Unit Cost save handler. Unlike Buy/Buyer (which subtract the
+  // rest of the bucket so the SUM hits the typed total), a unit cost is the
+  // SAME per-each value for every child, so it fans the typed cost out to
+  // ALL underlying rows. The workbench splits TBD vs. forecast children and
+  // batches the writes. Non-aggregate rows save directly.
+  async function saveAggUnitCost(r: IpPlanningGridRow, cost: number | null): Promise<void> {
+    if (!r.is_aggregate || !r.aggregate_underlying_ids) {
+      await onUpdateUnitCost(r.forecast_id, cost);
+      return;
+    }
+    await onUpdateUnitCostBucket(r, cost);
   }
 
   // Aggregate Buyer / Override save handler. Top-level edits represent
@@ -2944,6 +2960,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
                   promotedTbdKeys={promotedTbdKeys}
                   onUpdateSystemOverride={onUpdateSystemOverride}
                   onUpdateUnitCost={onUpdateUnitCost}
+                  saveAggUnitCost={saveAggUnitCost}
                   saveAggBuyerOrOverride={saveAggBuyerOrOverride}
                   saveAggBuy={saveAggBuy}
                   openSummaryCtx={openSummaryCtx}
