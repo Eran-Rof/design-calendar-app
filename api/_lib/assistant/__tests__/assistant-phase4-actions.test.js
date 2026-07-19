@@ -220,6 +220,119 @@ describe("draft_chargeback_match commit", () => {
   });
 });
 
+// ── bulk_code_chargebacks (preview + commit) ──────────────────────────────
+
+const bulkAction = actionByName("bulk_code_chargebacks");
+const RC_ID = "66666666-6666-6666-6666-666666666666";
+const BULK1 = "77777777-7777-7777-7777-777777777777";
+const BULK2 = "88888888-8888-8888-8888-888888888888";
+const NORMAL_ROW = { id: BULK1, reason: "Short Pay (Inv/Ck Difference)", reason_code: "597" };
+const CHURN_ROW = { id: BULK2, reason: "Manual Charge Back", reason_code: "610" };
+
+function bulkAdmin({ reasonCode = undefined, rows = [], updateRows = undefined }, log) {
+  return fakeAdmin((state) => {
+    if (state.table === "chargeback_reason_codes") return { data: reasonCode ? [reasonCode] : [] };
+    if (state.table === "factor_chargebacks") {
+      if (state.op === "update") return { data: updateRows === undefined ? rows.map((r) => ({ id: r.id })) : updateRows };
+      return { data: rows };
+    }
+    throw new Error(`unexpected table ${state.table}`);
+  }, log);
+}
+
+describe("bulk_code_chargebacks registration", () => {
+  it("is a resolvable write_confirm action", () => {
+    expect(allActionNames()).toContain("bulk_code_chargebacks");
+    expect(bulkAction.mode).toBe("write_confirm");
+  });
+});
+
+describe("bulk_code_chargebacks preview", () => {
+  it("proposes coding the found, non-churn rows (commit_payload present)", async () => {
+    const admin = bulkAdmin({ reasonCode: { id: RC_ID, label: "Short Pay (Invoice/Check Difference)" }, rows: [NORMAL_ROW] });
+    const out = await bulkAction.preview(admin, { ids: [BULK1], reason_code_id: RC_ID }, {});
+    expect(out.commit_payload).toEqual({ ids: [BULK1], reason_code_id: RC_ID });
+    expect(out.summary).toContain("Code 1 chargeback");
+    expect(out.summary).toContain("Short Pay (Invoice/Check Difference)");
+  });
+
+  it("notes skipped factor-churn rows and still proposes the codeable ones", async () => {
+    const admin = bulkAdmin({ reasonCode: { id: RC_ID, label: "Freight" }, rows: [NORMAL_ROW, CHURN_ROW] });
+    const out = await bulkAction.preview(admin, { ids: [BULK1, BULK2], reason_code_id: RC_ID }, {});
+    expect(out.commit_payload).toEqual({ ids: [BULK1, BULK2], reason_code_id: RC_ID });
+    expect(out.summary).toContain("Code 1 chargeback");
+    expect(out.summary).toMatch(/1 factor-churn row will be skipped/);
+  });
+
+  it("declines when every selected row is factor churn", async () => {
+    const admin = bulkAdmin({ reasonCode: { id: RC_ID, label: "Freight" }, rows: [CHURN_ROW] });
+    const out = await bulkAction.preview(admin, { ids: [BULK2], reason_code_id: RC_ID }, {});
+    expect(out.commit_payload).toBeUndefined();
+    expect(out.warnings).toContain("nothing_to_code");
+  });
+
+  it("rejects a bad input without querying", async () => {
+    const admin = fakeAdmin(() => { throw new Error("should not query"); });
+    const out = await bulkAction.preview(admin, { ids: [], reason_code_id: RC_ID }, {});
+    expect(out.commit_payload).toBeUndefined();
+    expect(out.warnings).toContain("bad_input");
+  });
+
+  it("declines when the reason code is not found", async () => {
+    const admin = bulkAdmin({ reasonCode: undefined, rows: [NORMAL_ROW] });
+    const out = await bulkAction.preview(admin, { ids: [BULK1], reason_code_id: RC_ID }, {});
+    expect(out.commit_payload).toBeUndefined();
+    expect(out.warnings).toContain("reason_code_not_found");
+  });
+
+  it("previews an un-code request (null reason, no churn filter)", async () => {
+    const admin = bulkAdmin({ rows: [NORMAL_ROW, CHURN_ROW] });
+    const out = await bulkAction.preview(admin, { ids: [BULK1, BULK2], reason_code_id: null }, {});
+    expect(out.commit_payload).toEqual({ ids: [BULK1, BULK2], reason_code_id: null });
+    expect(out.summary).toContain("un-coded");
+  });
+});
+
+describe("bulk_code_chargebacks commit", () => {
+  it("writes the code to every selected row and returns the count", async () => {
+    const log = [];
+    const admin = bulkAdmin({ reasonCode: { id: RC_ID, label: "Freight" }, updateRows: [{ id: BULK1 }] }, log);
+    const out = await bulkAction.commit(admin, { ids: [BULK1, BULK2], reason_code_id: RC_ID }, { userId: USER });
+    expect(out.status).toBe(200);
+    expect(out.body).toMatchObject({ ok: true, updated: 1 });
+    const upd = log.find((l) => l.table === "factor_chargebacks" && l.op === "update");
+    expect(upd.payload.reason_code_id).toBe(RC_ID);
+    expect(upd.payload.updated_by).toBe(USER);
+    // churn guard present when coding
+    expect(upd.filters.some(([o, c, , v]) => o === "not" && c === "reason_code" && v === "610")).toBe(true);
+  });
+
+  it("rejects a bad commit payload", async () => {
+    const admin = fakeAdmin(() => { throw new Error("should not query"); });
+    const out = await bulkAction.commit(admin, { ids: [], reason_code_id: RC_ID }, { userId: USER });
+    expect(out.status).toBe(400);
+    expect(out.body.error).toBe("bad_commit_payload");
+  });
+
+  it("guards a reason code that no longer exists", async () => {
+    const admin = bulkAdmin({ reasonCode: undefined });
+    const out = await bulkAction.commit(admin, { ids: [BULK1], reason_code_id: RC_ID }, { userId: USER });
+    expect(out.status).toBe(400);
+    expect(out.body.error).toBe("reason_code_not_found");
+  });
+
+  it("un-codes without the churn filter", async () => {
+    const log = [];
+    const admin = bulkAdmin({ updateRows: [{ id: BULK1 }, { id: BULK2 }] }, log);
+    const out = await bulkAction.commit(admin, { ids: [BULK1, BULK2], reason_code_id: null }, { userId: USER });
+    expect(out.status).toBe(200);
+    expect(out.body.updated).toBe(2);
+    const upd = log.find((l) => l.table === "factor_chargebacks" && l.op === "update");
+    expect(upd.payload.reason_code_id).toBeNull();
+    expect(upd.filters.some(([o]) => o === "not")).toBe(false);
+  });
+});
+
 // ── compose email actions (read-mode, no write) ───────────────────────────
 
 describe("email composers", () => {

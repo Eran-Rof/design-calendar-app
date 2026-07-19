@@ -452,11 +452,42 @@ export function parseChargebackReport(text) {
   return { report_month, details, tradestyle_total_cents, summary, ts_total_cents, reason_codes };
 }
 
+// Normalize an identifier to an uppercased alphanumeric key ("ROF-I007539" →
+// "ROFI007539"). Empty / meaningless tokens ("GLOBAL") are dropped by callers.
+function normalizeRefKey(s) {
+  if (s == null) return "";
+  return String(s).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+// Whitespace-split a summary reference ("GLOBAL 0711250030") into normalized
+// tokens, dropping empties and the generic "GLOBAL" placeholder that names no
+// single item.
+function referenceTokens(ref) {
+  if (ref == null) return [];
+  return String(ref)
+    .split(/\s+/)
+    .map((t) => normalizeRefKey(t))
+    .filter((t) => t && t !== "GLOBAL");
+}
+
+// The identifiers a detail row can be referenced by: its item/chargeback number
+// and its batch number.
+function detailRefKeys(d) {
+  const keys = [];
+  for (const v of [d.item_num, d.batch]) {
+    const k = normalizeRefKey(v);
+    if (k) keys.push(k);
+  }
+  return keys;
+}
+
 /**
  * Best-effort reason attachment: summary rows are (date, customer, reason,
- * amount) — sometimes merged across items ("GLOBAL"). Per (customer, C/B
- * date) group: a single distinct reason applies to every detail row; else an
- * exact unique amount match wins; else the reason stays null.
+ * reference, amount) — sometimes merged across items ("GLOBAL"). Per (customer,
+ * C/B date) group, in order: a single distinct reason applies to every detail
+ * row; else an exact unique amount match wins; else a summary whose REFERENCE
+ * number names this detail row's item/chargeback number or batch wins; else the
+ * reason stays null.
  * Mutates `details` (adds reason / reason_code / reference).
  */
 export function attachChargebackReasons(details, summary, reasonCodes = {}) {
@@ -476,7 +507,18 @@ export function attachChargebackReasons(details, summary, reasonCodes = {}) {
       pick = g[0];
     } else {
       const exact = g.filter((s) => s.amount_cents === d.amount_cents);
-      if (new Set(exact.map((s) => s.reason)).size === 1) pick = exact[0];
+      if (new Set(exact.map((s) => s.reason)).size === 1 && exact.length) pick = exact[0];
+      // Ambiguous by reason AND by amount: fall back to the reference number.
+      // A summary row whose reference token equals this detail's item/batch key
+      // uniquely identifies it — but only when the reference-matched rows agree
+      // on a single reason (else stay null: a wrong reason is worse than none).
+      if (!pick) {
+        const dKeys = detailRefKeys(d);
+        if (dKeys.length) {
+          const refMatch = g.filter((s) => referenceTokens(s.reference).some((t) => dKeys.includes(t)));
+          if (refMatch.length && new Set(refMatch.map((s) => s.reason)).size === 1) pick = refMatch[0];
+        }
+      }
     }
     if (pick) {
       d.reason = pick.reason;

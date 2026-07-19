@@ -644,6 +644,70 @@ describe("parseChargebackReport", () => {
   });
 });
 
+// ── attachChargebackReasons: reference-number disambiguation ─────────────────
+// When a (customer, C/B date) group is ambiguous by BOTH reason and amount, a
+// summary row whose reference number names a detail row's item/batch key
+// uniquely attaches its reason. Exact single-reason groups and exact-amount
+// matches keep working identically (covered above).
+describe("attachChargebackReasons — reference-number fallback", () => {
+  it("attaches reasons via the summary reference when reason AND amount are ambiguous", () => {
+    const details = [
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "ROF-I100", batch: "0707250144", amount_cents: 10000 },
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "ROF-I200", batch: "0707250145", amount_cents: 10000 },
+    ];
+    const summary = [
+      // Same customer+date+amount → not separable by amount; references disambiguate.
+      { customer_name: "ACME", date: "2025-07-07", reason: "Freight", reference: "ROF-I100", amount_cents: 10000 },
+      { customer_name: "ACME", date: "2025-07-07", reason: "Packing Violation", reference: "ROF-I200", amount_cents: 10000 },
+    ];
+    const n = attachChargebackReasons(details, summary, { Freight: "080", "Packing Violation": "070" });
+    expect(n).toBe(2);
+    expect(details[0]).toMatchObject({ reason: "Freight", reason_code: "080" });
+    expect(details[1]).toMatchObject({ reason: "Packing Violation", reason_code: "070" });
+  });
+
+  it("matches a reference against the detail BATCH / chargeback number too", () => {
+    const details = [
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "X1", batch: "Z1172547559", amount_cents: 5000 },
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "X2", batch: "Z9990001111", amount_cents: 5000 },
+    ];
+    const summary = [
+      { customer_name: "ACME", date: "2025-07-07", reason: "Freight", reference: "GLOBAL Z1172547559", amount_cents: 5000 },
+      { customer_name: "ACME", date: "2025-07-07", reason: "Miscellaneous", reference: "Z9990001111", amount_cents: 5000 },
+    ];
+    const n = attachChargebackReasons(details, summary, {});
+    expect(n).toBe(2);
+    expect(details[0].reason).toBe("Freight");
+    expect(details[1].reason).toBe("Miscellaneous");
+  });
+
+  it("ignores GLOBAL references and leaves genuinely ambiguous rows null", () => {
+    const details = [
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "ROF-I100", batch: "B1", amount_cents: 10000 },
+    ];
+    const summary = [
+      { customer_name: "ACME", date: "2025-07-07", reason: "Freight", reference: "GLOBAL", amount_cents: 5000 },
+      { customer_name: "ACME", date: "2025-07-07", reason: "Packing Violation", reference: "GLOBAL", amount_cents: 5000 },
+    ];
+    const n = attachChargebackReasons(details, summary, {});
+    expect(n).toBe(0);
+    expect(details[0].reason).toBeUndefined();
+  });
+
+  it("stays null when reference-matched summaries disagree on the reason", () => {
+    const details = [
+      { customer_name: "ACME", cb_date: "2025-07-07", item_num: "ROF-I100", batch: "ROF-I100", amount_cents: 10000 },
+    ];
+    const summary = [
+      { customer_name: "ACME", date: "2025-07-07", reason: "Freight", reference: "ROF-I100", amount_cents: 4000 },
+      { customer_name: "ACME", date: "2025-07-07", reason: "Packing Violation", reference: "ROF-I100", amount_cents: 6000 },
+    ];
+    const n = attachChargebackReasons(details, summary, {});
+    expect(n).toBe(0);
+    expect(details[0].reason).toBeUndefined();
+  });
+});
+
 describe("detectReportType", () => {
   it("sniffs all three report types", () => {
     expect(detectReportType(AR_FIXTURE)).toBe("ar_detail");

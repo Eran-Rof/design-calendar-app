@@ -31,6 +31,7 @@ import { drillToModule, readDrillParam, consumeDrillParams } from "./scorecardDr
 import { promptDialog, notify } from "../shared/ui/warn";
 import JEDetailModal, { type JEDetailSeed } from "./components/JEDetailModal";
 import SourceDocumentModal, { type SourceDocOpen } from "./components/SourceDocumentModal";
+import SearchableSelect from "./components/SearchableSelect";
 
 const C = {
   bg: "#0b1220", card: "#1E293B", cardBdr: "#334155",
@@ -352,7 +353,11 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
 }
 
 // ── Worklist tab ─────────────────────────────────────────────────────────────
-function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
+function Worklist({ dilution, initialReason, onConsumeInitialReason }: {
+  dilution: DilutionSummary | null;
+  initialReason?: string;
+  onConsumeInitialReason?: () => void;
+}) {
   const [rows, setRows] = useState<CBRow[]>([]);
   const [reasonCodes, setReasonCodes] = useState<ReasonCode[]>([]);
   const [total, setTotal] = useState(0);
@@ -362,12 +367,16 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<CBRow | null>(null);
+  // Multi-select for bulk reason-coding (checkbox column + select-all-on-page).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkReason, setBulkReason] = useState("");
 
   // Seed disposition/month from a one-shot drill (e.g. the Month-End Close
   // "Chargebacks reviewed → Review" link seeds cb_disposition=open & cb_month).
   const [fDisposition, setFDisposition] = useState(() => readDrillParam("cb_disposition"));
   const [fCustomer, setFCustomer] = useState("");
-  const [fReason, setFReason] = useState("");
+  // A one-shot jump from the Dilution tab's "Un-coded" line seeds reason=none.
+  const [fReason, setFReason] = useState(() => initialReason || "");
   const [fMonth, setFMonth] = useState(() => readDrillParam("cb_month"));
   const [fMatched, setFMatched] = useState("");
   const [fType, setFType] = useState("");
@@ -400,6 +409,7 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
       setReasonCodes(data.reason_codes || []);
       setTotal(data.total || 0);
       setPage(data.page || goPage);
+      setSelected(new Set()); // a new page/filter clears the multi-select
     } catch (e: unknown) {
       if (seqGuard.isCurrent(seq)) { setErr(e instanceof Error ? e.message : String(e)); setRows([]); }
     } finally {
@@ -409,7 +419,11 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
   }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, q, sortKey, sortDir]);
 
   useEffect(() => { void load(1); }, [fDisposition, fCustomer, fReason, fMonth, fMatched, fType, sortKey, sortDir]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(1); consumeDrillParams(["cb_disposition", "cb_month"]); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load(1);
+    consumeDrillParams(["cb_disposition", "cb_month"]);
+    if (initialReason) onConsumeInitialReason?.(); // one-shot: clear so a later manual visit isn't pre-filtered
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function patchRow(id: string, patch: Record<string, unknown>) {
     setSaving(true);
@@ -428,6 +442,40 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
       setSaving(false);
     }
   }
+
+  async function bulkCode() {
+    if (!selected.size || !bulkReason) return;
+    const reason_code_id = bulkReason === "none" ? null : bulkReason;
+    setSaving(true);
+    try {
+      const r = await fetch("/api/internal/chargebacks/bulk", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selected], reason_code_id }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
+      const data = await r.json();
+      notify(`Coded ${data.updated} chargeback${data.updated === 1 ? "" : "s"}.`, "success");
+      setBulkReason("");
+      await load(page);
+    } catch (e: unknown) {
+      notify(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const allOnPageSelected = rows.length > 0 && rows.every((row) => selected.has(row.id));
+  function toggleAllOnPage() {
+    setSelected(() => (allOnPageSelected ? new Set() : new Set(rows.map((row) => row.id))));
+  }
+  function toggleOne(id: string) {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  const bulkReasonOptions = [
+    { value: "none", label: "— Un-code (clear reason) —" },
+    ...reasonCodes.map((rc) => ({ value: rc.id, label: rc.label, keywords: rc.code })),
+  ];
 
   const months = dilution?.by_month.map((m) => m.ym) || [];
   const customers = dilution?.by_customer || [];
@@ -515,6 +563,36 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
 
       {err && <div style={{ background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6, marginBottom: 12 }}>Error: {err}</div>}
 
+      {selected.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 12px", background: C.groupHeaderBg, border: `1px solid ${C.primary}`, borderRadius: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{selected.size} selected</span>
+          <span style={{ fontSize: 12, color: C.textMuted }}>Code as</span>
+          <div style={{ minWidth: 240 }}>
+            <SearchableSelect
+              value={bulkReason || null}
+              onChange={setBulkReason}
+              options={bulkReasonOptions}
+              placeholder="Choose a reason code…"
+              disabled={saving}
+            />
+          </div>
+          <button
+            onClick={() => void bulkCode()}
+            disabled={saving || !bulkReason}
+            style={{ background: bulkReason && !saving ? C.primary : C.cardBdr, color: "white", border: "none", padding: "7px 16px", borderRadius: 6, cursor: bulkReason && !saving ? "pointer" : "default", fontSize: 13, fontWeight: 600, opacity: bulkReason && !saving ? 1 : 0.6 }}
+          >
+            Apply to {selected.size}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            disabled={saving}
+            style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.cardBdr}`, padding: "7px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, maxHeight: "calc(100vh - 320px)", overflow: "auto" }}>
         {loading ? (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
@@ -524,6 +602,15 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={{ ...th, width: 34, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    onChange={toggleAllOnPage}
+                    title="Select all on this page"
+                    style={{ cursor: "pointer" }}
+                  />
+                </th>
                 <SortTh label="Item / Invoice" k="item_num" />
                 <SortTh label="Customer" k="customer_name" />
                 <th style={th}>Matched Invoice</th>
@@ -538,7 +625,16 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
               {rows.map((r) => {
                 const amt = Number(r.amount_cents || 0);
                 return (
-                  <tr key={r.id} onClick={() => setDetail(r)} style={{ cursor: "pointer" }} title="Open detail">
+                  <tr key={r.id} onClick={() => setDetail(r)} style={{ cursor: "pointer", background: selected.has(r.id) ? C.groupHeaderBg : undefined }} title="Open detail">
+                    <td style={{ ...td, textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleOne(r.id)}
+                        title="Select for bulk coding"
+                        style={{ cursor: "pointer" }}
+                      />
+                    </td>
                     <td style={{ ...td, fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{r.item_num}</td>
                     <td style={{ ...td, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{r.customer_name}</td>
                     <td style={{ ...td, fontFamily: "monospace", color: r.matched ? C.textSub : C.textMuted }}>
@@ -578,7 +674,7 @@ function Worklist({ dilution }: { dilution: DilutionSummary | null }) {
 }
 
 // ── Dilution tab ─────────────────────────────────────────────────────────────
-function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null; loading: boolean; err: string | null }) {
+function Dilution({ dilution, loading, err, onJumpUncoded }: { dilution: DilutionSummary | null; loading: boolean; err: string | null; onJumpUncoded: () => void }) {
   const [drill, setDrill] = useState<DrillFacet | null>(null);
   const custRows = useMemo(() => (dilution?.by_customer || []).map((c) => ({
     ...c, dilution_pct_str: fmtPct(c.dilution_pct),
@@ -670,6 +766,33 @@ function Dilution({ dilution, loading, err }: { dilution: DilutionSummary | null
         {t.excluded_count === 1 ? "" : "s"} ({fmtCents(t.excluded_cents)}) — Rosenthal "Manual Charge Back" recourses the
         whole invoice back to us; it is not a customer deduction.
       </div>
+
+      {(() => {
+        const uncoded = dilution.by_reason.find((r) => r.code === null);
+        if (!uncoded || !uncoded.chargeback_cents) return null;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", background: C.groupHeaderBg, border: `1px solid ${C.warn}`, borderRadius: 8, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Un-coded</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.warn, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtCents(uncoded.chargeback_cents)}</div>
+            </div>
+            <div style={{ fontSize: 12, color: C.textSub }}>
+              <strong style={{ color: C.warn }}>{fmtPct(uncoded.pct_of_deductions)}</strong> of book still to classify
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                {uncoded.count.toLocaleString()} chargeback{uncoded.count === 1 ? "" : "s"} carry no governed reason code.
+              </div>
+            </div>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={onJumpUncoded}
+              style={{ background: C.warn, color: "#1E293B", border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+              title="Open the worklist filtered to un-coded chargebacks"
+            >
+              Review un-coded →
+            </button>
+          </div>
+        );
+      })()}
 
       <DilutionTable
         title="Top offenders — dilution by customer"
@@ -1201,6 +1324,10 @@ function OriginChainModal({ chargebackId, itemNum, onClose }: { chargebackId: st
 // ── Main panel ───────────────────────────────────────────────────────────────
 export default function InternalChargebacks() {
   const [tab, setTab] = useState<"worklist" | "dilution">("worklist");
+  // One-shot reason seed for the Worklist when jumping from the Dilution tab's
+  // "Un-coded" line (mirrors the drill-param pattern, but same-component).
+  const [pendingReason, setPendingReason] = useState("");
+  const jumpToUncoded = () => { setPendingReason("none"); setTab("worklist"); };
   const [dilution, setDilution] = useState<DilutionSummary | null>(null);
   const [dLoading, setDLoading] = useState(true);
   const [dErr, setDErr] = useState<string | null>(null);
@@ -1246,7 +1373,9 @@ export default function InternalChargebacks() {
         <button onClick={() => setTab("dilution")} style={tabBtn("dilution", "Dilution")}>Dilution</button>
       </div>
 
-      {tab === "worklist" ? <Worklist dilution={dilution} /> : <Dilution dilution={dilution} loading={dLoading} err={dErr} />}
+      {tab === "worklist"
+        ? <Worklist dilution={dilution} initialReason={pendingReason} onConsumeInitialReason={() => setPendingReason("")} />
+        : <Dilution dilution={dilution} loading={dLoading} err={dErr} onJumpUncoded={jumpToUncoded} />}
     </div>
   );
 }

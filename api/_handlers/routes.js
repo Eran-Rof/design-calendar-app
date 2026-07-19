@@ -191,6 +191,7 @@ import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
 import r_internal_chargebacks_id from "./internal/chargebacks/[id].js";
 import r_internal_chargebacks_id_origin from "./internal/chargebacks/[id]/origin.js";
+import r_internal_chargebacks_bulk from "./internal/chargebacks/bulk.js";
 import r_internal_chargebacks_dilution_summary from "./internal/chargebacks/dilution-summary.js";
 import r_internal_chargebacks_drill from "./internal/chargebacks/drill.js";
 import r_internal_chargebacks_index from "./internal/chargebacks/index.js";
@@ -1127,6 +1128,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/marketplace/listing", handler: r_vendor_marketplace_listing_index },
   { pattern: "/api/vendor/rfqs/messages-inbox", handler: r_vendor_rfqs_messages_inbox_index },
   { pattern: "/api/xoro/writeback/expedite-po", handler: r_xoro_writeback_expedite_po },
+  { pattern: "/api/internal/chargebacks/bulk", handler: r_internal_chargebacks_bulk },
   { pattern: "/api/internal/costing/projects", handler: r_internal_costing_projects_index },
   { pattern: "/api/internal/fba/sync-returns", handler: r_internal_fba_sync_returns },
   { pattern: "/api/internal/insights/summary", handler: r_internal_insights_summary },

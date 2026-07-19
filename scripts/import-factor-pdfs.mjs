@@ -37,6 +37,8 @@ import {
   attachChargebackReasons,
   detectReportType,
 } from "../api/_lib/factor/parseFactorPdfText.js";
+import { mapReasonToCode } from "../api/_lib/chargebackReasonCode.js";
+import { isFactorChurnChargeback } from "../api/_lib/chargebackMatch.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -281,6 +283,38 @@ async function main() {
       .upsert(rows, { onConflict: "report_month,item_num,cb_date,batch,amount_cents,dup_seq" });
     if (error) throw new Error(`factor_chargebacks upsert ${cb.report_month}: ${error.message}`);
     console.log(`↑ factor_chargebacks ${cb.report_month}: ${rows.length} rows upserted`);
+  }
+
+  // ── Pattern-based auto-coding: set reason_code_id on NEW/uncoded rows ──
+  // reason_code_id is a management column (the manual PATCH & bulk endpoint own
+  // it), so this only writes where it is still NULL — never clobbering an
+  // operator's coding on re-import. Factor churn (610 / "Manual Charge Back") is
+  // never coded. Maps each raw reason to a governed code via chargebackReasonCode.
+  if (chargebacks.length) {
+    const { data: rcRows, error: rcErr } = await sb.from("chargeback_reason_codes").select("id, code");
+    if (rcErr) throw new Error(`chargeback_reason_codes read: ${rcErr.message}`);
+    const codeToId = new Map(rcRows.map((r) => [r.code, r.id]));
+    let coded = 0;
+    for (const cb of chargebacks) {
+      const seen = new Set();
+      for (const r of cb.details) {
+        if (!r.reason || seen.has(r.reason)) continue;
+        seen.add(r.reason);
+        if (isFactorChurnChargeback({ reason: r.reason, reason_code: r.reason_code })) continue;
+        const code = mapReasonToCode(r.reason, r.reason_code);
+        const codeId = code ? codeToId.get(code) : null;
+        if (!codeId) continue;
+        const { data, error } = await sb.from("factor_chargebacks")
+          .update({ reason_code_id: codeId })
+          .eq("report_month", cb.report_month)
+          .eq("reason", r.reason)
+          .is("reason_code_id", null)
+          .select("id");
+        if (error) throw new Error(`factor_chargebacks auto-code ${cb.report_month}: ${error.message}`);
+        coded += (data || []).length;
+      }
+    }
+    console.log(`↑ auto-coded ${coded} previously un-coded chargeback row(s) by reason pattern`);
   }
 
   // ── Verify chargebacks from the DB: Σ amount per month vs TradeStyle total ──
