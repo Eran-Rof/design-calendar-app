@@ -129,8 +129,13 @@ type CBRow = {
 type DilutionCustomer = { customer_id: string; customer_name: string; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
 type DilutionReason = { code: string | null; label: string; category: string | null; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; count: number; pct_of_deductions: number | null };
 type DilutionMonth = { ym: string; chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; gross_sales_cents: number; dilution_pct: number | null; count: number };
+// True un-coded exposure: per-document netting (gross deductions − credits on
+// the same document number). Gross alone overstates exposure — most of it is
+// same-doc chargeback/creditback churn Rosenthal reverses later.
+type UncodedNetOpen = { gross_cents: number; credit_cents: number; offset_cents: number; net_open_cents: number; doc_count: number; open_doc_count: number };
 type DilutionSummary = {
   totals: { chargeback_cents: number; creditback_cents: number; excluded_cents: number; net_cents: number; count: number; excluded_count: number; matched_count: number };
+  uncoded_net_open?: UncodedNetOpen;
   by_customer: DilutionCustomer[];
   by_customer_month: Array<DilutionCustomer & { ym: string }>;
   by_month: DilutionMonth[];
@@ -353,10 +358,12 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
 }
 
 // ── Worklist tab ─────────────────────────────────────────────────────────────
-function Worklist({ dilution, initialReason, onConsumeInitialReason }: {
+function Worklist({ dilution, initialReason, onConsumeInitialReason, initialQ, onConsumeInitialQ }: {
   dilution: DilutionSummary | null;
   initialReason?: string;
   onConsumeInitialReason?: () => void;
+  initialQ?: string;
+  onConsumeInitialQ?: () => void;
 }) {
   const [rows, setRows] = useState<CBRow[]>([]);
   const [reasonCodes, setReasonCodes] = useState<ReasonCode[]>([]);
@@ -380,7 +387,9 @@ function Worklist({ dilution, initialReason, onConsumeInitialReason }: {
   const [fMonth, setFMonth] = useState(() => readDrillParam("cb_month"));
   const [fMatched, setFMatched] = useState("");
   const [fType, setFType] = useState("");
-  const [q, setQ] = useState("");
+  // A one-shot jump from a net-open document drill seeds the search box with
+  // that document number (worklist `q` matches item_num).
+  const [q, setQ] = useState(() => initialQ || "");
   const [sortKey, setSortKey] = useState<WorklistSortKey>("cb_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const seqGuard = useSeqGuard();
@@ -423,6 +432,7 @@ function Worklist({ dilution, initialReason, onConsumeInitialReason }: {
     void load(1);
     consumeDrillParams(["cb_disposition", "cb_month"]);
     if (initialReason) onConsumeInitialReason?.(); // one-shot: clear so a later manual visit isn't pre-filtered
+    if (initialQ) onConsumeInitialQ?.();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function patchRow(id: string, patch: Record<string, unknown>) {
@@ -674,7 +684,7 @@ function Worklist({ dilution, initialReason, onConsumeInitialReason }: {
 }
 
 // ── Dilution tab ─────────────────────────────────────────────────────────────
-function Dilution({ dilution, loading, err, onJumpUncoded }: { dilution: DilutionSummary | null; loading: boolean; err: string | null; onJumpUncoded: () => void }) {
+function Dilution({ dilution, loading, err, onJumpUncoded, onJumpDoc }: { dilution: DilutionSummary | null; loading: boolean; err: string | null; onJumpUncoded: () => void; onJumpDoc: (doc: string) => void }) {
   const [drill, setDrill] = useState<DrillFacet | null>(null);
   const custRows = useMemo(() => (dilution?.by_customer || []).map((c) => ({
     ...c, dilution_pct_str: fmtPct(c.dilution_pct),
@@ -770,16 +780,34 @@ function Dilution({ dilution, loading, err, onJumpUncoded }: { dilution: Dilutio
       {(() => {
         const uncoded = dilution.by_reason.find((r) => r.code === null);
         if (!uncoded || !uncoded.chargeback_cents) return null;
+        const no = dilution.uncoded_net_open;
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", background: C.groupHeaderBg, border: `1px solid ${C.warn}`, borderRadius: 8, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Un-coded</div>
+              <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>Un-coded (gross)</div>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.warn, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{fmtCents(uncoded.chargeback_cents)}</div>
             </div>
+            {no && (
+              <div
+                onClick={() => setDrill({ by: "reason", key: "__uncoded__", measure: "net_open", title: "Un-coded", clicked: fmtCents(no.net_open_cents) })}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrill({ by: "reason", key: "__uncoded__", measure: "net_open", title: "Un-coded", clicked: fmtCents(no.net_open_cents) }); } }}
+                title="Drill to the still-open documents (gross deductions − credits on the same document)"
+                style={{ cursor: "pointer" }}
+              >
+                <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>True open (net of same-doc credits)</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.danger, marginTop: 2, fontVariantNumeric: "tabular-nums", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 }}>
+                  {fmtCents(no.net_open_cents)}
+                  <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted, marginLeft: 6 }}>across {no.open_doc_count.toLocaleString()} doc{no.open_doc_count === 1 ? "" : "s"}</span>
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: C.textSub }}>
               <strong style={{ color: C.warn }}>{fmtPct(uncoded.pct_of_deductions)}</strong> of book still to classify
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
                 {uncoded.count.toLocaleString()} chargeback{uncoded.count === 1 ? "" : "s"} carry no governed reason code.
+                {no && no.offset_cents > 0 && <> {fmtCents(no.offset_cents)} of the gross is already cancelled by same-document credits.</>}
               </div>
             </div>
             <div style={{ flex: 1 }} />
@@ -860,7 +888,7 @@ function Dilution({ dilution, loading, err, onJumpUncoded }: { dilution: Dilutio
         onCellDrill={setDrill}
       />
 
-      {drill && <DrillModal facet={drill} onClose={() => setDrill(null)} />}
+      {drill && <DrillModal facet={drill} onClose={() => setDrill(null)} onJumpDoc={onJumpDoc} />}
     </div>
   );
 }
@@ -980,17 +1008,24 @@ const MEASURE_LABEL: Record<string, string> = {
   matched: "Matched to a customer",
   dilution: "Gross chargebacks (dilution numerator)",
   gross_sales: "Gross sales",
+  net_open: "Net open by document",
 };
 
 type DrillInvoiceRow = {
   id: string; invoice_number: string; invoice_date: string | null;
   total_amount_cents: number | string; customer_id: string | null; customer_name: string | null;
 };
+// measure=net_open — one row per still-open document (gross − same-doc credits > 0).
+type DrillDocRow = {
+  doc: string; gross_cents: number; credit_cents: number; net_cents: number;
+  count: number; first_date: string | null; last_date: string | null;
+};
 type DrillResp = {
-  kind: "chargebacks" | "invoices";
+  kind: "chargebacks" | "invoices" | "documents";
   by: string; key: string; measure: string;
   count: number; sum_cents: number;
-  rows: CBRow[] | DrillInvoiceRow[];
+  gross_cents?: number; offset_cents?: number; doc_count?: number;
+  rows: CBRow[] | DrillInvoiceRow[] | DrillDocRow[];
   truncated: boolean; limit: number;
 };
 
@@ -1003,6 +1038,16 @@ const DRILL_EXPORT_COLUMNS = [
   { key: "reason_label",    header: "Reason" },
   { key: "amount_cents",    header: "Amount", format: "currency_cents" },
   { key: "disposition_label", header: "Disposition" },
+] as ExportColumn<Record<string, unknown>>[];
+
+const DRILL_DOC_EXPORT_COLUMNS = [
+  { key: "doc",           header: "Document" },
+  { key: "count",         header: "Rows" },
+  { key: "gross_cents",   header: "Gross", format: "currency_cents" },
+  { key: "credit_cents",  header: "Credits", format: "currency_cents" },
+  { key: "net_cents",     header: "Net Open", format: "currency_cents" },
+  { key: "first_date_us", header: "First C/B" },
+  { key: "last_date_us",  header: "Last C/B" },
 ] as ExportColumn<Record<string, unknown>>[];
 
 function Breadcrumb({ parts }: { parts: string[] }) {
@@ -1018,7 +1063,7 @@ function Breadcrumb({ parts }: { parts: string[] }) {
   );
 }
 
-function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void }) {
+function DrillModal({ facet, onClose, onJumpDoc }: { facet: DrillFacet; onClose: () => void; onJumpDoc?: (doc: string) => void }) {
   const [data, setData] = useState<DrillResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -1056,6 +1101,7 @@ function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void
   const isCount = facet.measure === "count" || facet.measure === "matched";
   const cbRows = (data?.kind === "chargebacks" ? (data.rows as CBRow[]) : []);
   const invRows = (data?.kind === "invoices" ? (data.rows as DrillInvoiceRow[]) : []);
+  const docRows = (data?.kind === "documents" ? (data.rows as DrillDocRow[]) : []);
 
   const exportRows = cbRows.map((r) => ({
     ...r,
@@ -1064,6 +1110,12 @@ function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void
     matched_invoice: r.matched?.invoice_number || "",
     reason_label: r.reason_ref?.label || r.reason || "",
     disposition_label: DISPOSITION_LABEL[r.disposition] || r.disposition,
+  })) as unknown as Array<Record<string, unknown>>;
+
+  const docExportRows = docRows.map((r) => ({
+    ...r,
+    first_date_us: fmtDate(r.first_date),
+    last_date_us: fmtDate(r.last_date),
   })) as unknown as Array<Record<string, unknown>>;
 
   return (
@@ -1085,7 +1137,15 @@ function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void
           </div>
           {data && (
             <div style={{ marginTop: 8, fontSize: 12, color: C.textSub, background: C.groupHeaderBg, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
-              {isCount ? (
+              {data.kind === "documents" ? (
+                <>
+                  <strong style={{ color: C.text }}>{data.count.toLocaleString()}</strong> still-open document{data.count === 1 ? "" : "s"} netting to{" "}
+                  <strong style={{ color: C.text }}>{fmtCents(data.sum_cents)}</strong> — ties to the clicked figure <strong style={{ color: C.text }}>{facet.clicked}</strong>.
+                  {data.gross_cents != null && data.offset_cents != null && (
+                    <span style={{ color: C.textMuted }}> Gross {fmtCents(data.gross_cents)}; {fmtCents(data.offset_cents)} already cancelled by credits on the same document.</span>
+                  )}
+                </>
+              ) : isCount ? (
                 <>Constituents: <strong style={{ color: C.text }}>{data.count.toLocaleString()}</strong> {data.kind === "invoices" ? "invoice" : "chargeback"}{data.count === 1 ? "" : "s"} — reconciles to the clicked figure <strong style={{ color: C.text }}>{facet.clicked}</strong>.</>
               ) : (
                 <>{data.count.toLocaleString()} {data.kind === "invoices" ? "invoice" : "row"}{data.count === 1 ? "" : "s"} summing to <strong style={{ color: C.text }}>{fmtCents(data.sum_cents)}</strong> — ties to the clicked figure <strong style={{ color: C.text }}>{facet.clicked}</strong>.</>
@@ -1100,6 +1160,40 @@ function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void
             <div style={{ padding: 20, textAlign: "center", color: C.textMuted }}>Loading…</div>
           ) : err ? (
             <div style={{ margin: 16, background: "#7f1d1d", color: "white", padding: "8px 12px", borderRadius: 6 }}>Error: {err}</div>
+          ) : data?.kind === "documents" ? (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={th}>Document</th>
+                  <th style={thNum}>Rows</th>
+                  <th style={thNum}>Gross</th>
+                  <th style={thNum}>Credits</th>
+                  <th style={thNum}>Net Open</th>
+                  <th style={th}>C/B Dates</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docRows.length === 0 ? (
+                  <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: C.textMuted }}>No still-open documents — every document nets to zero or better.</td></tr>
+                ) : docRows.map((r) => (
+                  <tr
+                    key={r.doc}
+                    onClick={onJumpDoc ? () => onJumpDoc(r.doc) : undefined}
+                    style={{ cursor: onJumpDoc ? "pointer" : "default" }}
+                    title={onJumpDoc ? "Open the worklist filtered to this document's rows" : undefined}
+                  >
+                    <td style={{ ...td, fontFamily: "monospace", color: C.primary, fontWeight: 600 }}>{r.doc}</td>
+                    <td style={tdNum}>{r.count}</td>
+                    <td style={{ ...tdNum, color: C.warn }}>{fmtCents(r.gross_cents)}</td>
+                    <td style={{ ...tdNum, color: r.credit_cents ? C.success : C.textMuted }}>{r.credit_cents ? fmtCents(r.credit_cents) : "—"}</td>
+                    <td style={{ ...tdNum, color: C.danger, fontWeight: 700 }}>{fmtCents(r.net_cents)}</td>
+                    <td style={{ ...td, fontSize: 12, color: C.textMuted }}>
+                      {r.first_date === r.last_date ? fmtDate(r.first_date) : `${fmtDate(r.first_date)} → ${fmtDate(r.last_date)}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : data?.kind === "invoices" ? (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -1161,6 +1255,9 @@ function DrillModal({ facet, onClose }: { facet: DrillFacet; onClose: () => void
         <div style={{ padding: "10px 18px", borderTop: `1px solid ${C.cardBdr}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
           {data?.kind === "chargebacks" && cbRows.length > 0 && (
             <ExportButton rows={exportRows} filename="chargeback-drill" sheetName="Constituents" columns={DRILL_EXPORT_COLUMNS} />
+          )}
+          {data?.kind === "documents" && docRows.length > 0 && (
+            <ExportButton rows={docExportRows} filename="chargeback-net-open-docs" sheetName="Net Open Docs" columns={DRILL_DOC_EXPORT_COLUMNS} />
           )}
           <button onClick={onClose} style={{ background: C.cardBdr, color: C.text, border: "none", padding: "8px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>Close</button>
         </div>
@@ -1328,6 +1425,10 @@ export default function InternalChargebacks() {
   // "Un-coded" line (mirrors the drill-param pattern, but same-component).
   const [pendingReason, setPendingReason] = useState("");
   const jumpToUncoded = () => { setPendingReason("none"); setTab("worklist"); };
+  // One-shot search seed for the Worklist when clicking a still-open document
+  // in the net-open drill (q matches item_num server-side).
+  const [pendingQ, setPendingQ] = useState("");
+  const jumpToDoc = (doc: string) => { setPendingQ(doc); setTab("worklist"); };
   const [dilution, setDilution] = useState<DilutionSummary | null>(null);
   const [dLoading, setDLoading] = useState(true);
   const [dErr, setDErr] = useState<string | null>(null);
@@ -1374,8 +1475,8 @@ export default function InternalChargebacks() {
       </div>
 
       {tab === "worklist"
-        ? <Worklist dilution={dilution} initialReason={pendingReason} onConsumeInitialReason={() => setPendingReason("")} />
-        : <Dilution dilution={dilution} loading={dLoading} err={dErr} onJumpUncoded={jumpToUncoded} />}
+        ? <Worklist dilution={dilution} initialReason={pendingReason} onConsumeInitialReason={() => setPendingReason("")} initialQ={pendingQ} onConsumeInitialQ={() => setPendingQ("")} />
+        : <Dilution dilution={dilution} loading={dLoading} err={dErr} onJumpUncoded={jumpToUncoded} onJumpDoc={jumpToDoc} />}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   drillRowInGroup,
   drillRowInMeasure,
   drillMeasureCents,
+  netOpenByDocument,
 } from "../chargebackMatch.js";
 
 describe("normalizeAlnum", () => {
@@ -265,5 +266,77 @@ describe("drill measure reconciliation", () => {
     const withUnmatched = [...resolved, { id: "e", cid: null, period: "2026-03", amount: 5_00, excluded: false, reason_group: "__uncoded__" }];
     const matched = withUnmatched.filter((r) => drillRowInMeasure(r, "matched")).length;
     expect(matched).toBe(4);
+  });
+});
+
+describe("netOpenByDocument", () => {
+  it("a fully reversed document (same-doc credit) contributes offset, not net-open", () => {
+    // PROD pattern: doc 573164 debited then re-credited identically.
+    const out = netOpenByDocument([
+      { item_num: "573164", amount_cents: 191_560_00, cb_date: "2025-09-25" },
+      { item_num: "573164", amount_cents: -191_560_00, cb_date: "2025-10-30" },
+    ]);
+    expect(out.gross_cents).toBe(191_560_00);
+    expect(out.offset_cents).toBe(191_560_00);
+    expect(out.net_open_cents).toBe(0);
+    expect(out.open_doc_count).toBe(0);
+    expect(out.doc_count).toBe(1);
+    expect(out.docs).toEqual([]);
+  });
+
+  it("a partially credited document stays open for the remainder", () => {
+    const out = netOpenByDocument([
+      { item_num: "150100", amount_cents: 37_910_00, cb_date: "2025-11-18" },
+      { item_num: "150100", amount_cents: -10_000_00, cb_date: "2025-12-05" },
+    ]);
+    expect(out.offset_cents).toBe(10_000_00);
+    expect(out.net_open_cents).toBe(27_910_00);
+    expect(out.docs).toHaveLength(1);
+    expect(out.docs[0]).toMatchObject({
+      doc: "150100", gross_cents: 37_910_00, credit_cents: -10_000_00, net_cents: 27_910_00,
+      count: 2, first_date: "2025-11-18", last_date: "2025-12-05",
+    });
+  });
+
+  it("credits never net ACROSS documents (invariant: gross = offset + net_open)", () => {
+    const out = netOpenByDocument([
+      { item_num: "A", amount_cents: 100_00 },
+      { item_num: "B", amount_cents: -100_00 }, // over-credited doc: cannot cancel A
+    ]);
+    expect(out.net_open_cents).toBe(100_00);
+    expect(out.offset_cents).toBe(0);
+    expect(out.gross_cents).toBe(out.offset_cents + out.net_open_cents);
+  });
+
+  it("distinct zero-padded document numbers are DIFFERENT documents", () => {
+    const out = netOpenByDocument([
+      { item_num: "00000017565", amount_cents: 50_00 },
+      { item_num: "17565", amount_cents: -50_00 },
+    ]);
+    expect(out.doc_count).toBe(2);
+    expect(out.net_open_cents).toBe(50_00); // the credit belongs to the other doc
+  });
+
+  it("skips factor-churn rows entirely and sorts open docs largest first", () => {
+    const out = netOpenByDocument([
+      { item_num: "BIG", amount_cents: 500_00 },
+      { item_num: "SMALL", amount_cents: 100_00 },
+      { item_num: "CHURN", amount_cents: 999_00, excluded: true },
+    ]);
+    expect(out.doc_count).toBe(2);
+    expect(out.docs.map((d) => d.doc)).toEqual(["BIG", "SMALL"]);
+    expect(out.net_open_cents).toBe(600_00);
+  });
+
+  it("handles blank/null item_num as one '(blank)' bucket and empty input", () => {
+    const out = netOpenByDocument([
+      { item_num: null, amount_cents: 10_00 },
+      { item_num: "  ", amount_cents: 5_00 },
+    ]);
+    expect(out.doc_count).toBe(1);
+    expect(out.docs[0].doc).toBe("(blank)");
+    expect(out.docs[0].net_cents).toBe(15_00);
+    expect(netOpenByDocument([])).toMatchObject({ docs: [], doc_count: 0, net_open_cents: 0 });
+    expect(netOpenByDocument(null)).toMatchObject({ docs: [], doc_count: 0, net_open_cents: 0 });
   });
 });
