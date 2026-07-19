@@ -52,6 +52,20 @@ export function baseColorKey(sku: string | null | undefined): string {
   return s;
 }
 
+// Canonical STYLE key: the base style with the COLOR segment stripped
+// (one tier above baseColorKey). Derived by taking baseColorKey's
+// `<style>-<color>` and dropping everything from the first dash onward,
+// so the size suffix + glued/dashed PPK token are already gone. Groups a
+// PO on ANY color of a style (RYB0412PPK-BLACK, RYB0412-NAVY-M, …) onto
+// the single style bucket `RYB0412`, letting a color with no PO of its
+// own inherit a sibling color's PO cost.
+export function styleKey(sku: string | null | undefined): string {
+  const base = baseColorKey(sku);
+  if (!base) return base;
+  const dash = base.indexOf("-");
+  return dash > 0 ? base.slice(0, dash) : base;
+}
+
 // The prepack-matrix lookup key for a SKU: the style portion (everything
 // before the first dash, or the whole SKU when there is no dash),
 // lowercased — matches listPrepackUnitsPerPack()'s lowercased
@@ -113,19 +127,62 @@ export function buildPoEachCostByBaseColor(rows: PoCostRow[]): Map<string, numbe
   return out;
 }
 
-// Re-grain a BASE-COLOR per-each cost to a specific grid row. Returns null
-// when there is no PO cost for the row's base-color bucket.
+// Weighted-average PER-EACH open-PO cost keyed by STYLE (color stripped).
+// Identical per-each math and POSITIVE guards to buildPoEachCostByBaseColor,
+// but aggregated ACROSS all colors of a style so a color with no PO of its
+// own can inherit a sibling color's PO cost. This is a strictly-lower tier
+// than the base-color map (see poFallbackCostForRow).
+export function buildPoEachCostByStyle(rows: PoCostRow[]): Map<string, number> {
+  const acc = new Map<string, { num: number; den: number }>();
+  for (const r of rows) {
+    if (!POSITIVE(r.unit_cost)) continue;
+    const qty = typeof r.qty_open === "number" ? r.qty_open : 0;
+    if (!POSITIVE(qty)) continue;
+    const packSize = POSITIVE(r.pack_size) ? r.pack_size : 1;
+    const perEach = r.unit_cost / packSize;
+    if (!POSITIVE(perEach)) continue;
+    const key = styleKey(r.sku_code);
+    if (!key) continue;
+    const a = acc.get(key) ?? { num: 0, den: 0 };
+    a.num += perEach * qty;
+    a.den += qty;
+    acc.set(key, a);
+  }
+  const out = new Map<string, number>();
+  for (const [k, { num, den }] of acc) {
+    if (den > 0) out.set(k, num / den);
+  }
+  return out;
+}
+
+// Re-grain an open-PO per-each cost to a specific grid row, trying tiers in
+// order of specificity: (1) the row's exact BASE-COLOR bucket (this color's
+// own PO), then (2) the row's STYLE bucket (any color of the style) when a
+// style-level map is supplied. Whichever tier hits, the per-each cost is
+// re-grained by the row's pack size (each-grain → per-each; pack-grain →
+// pack price). Returns null when neither tier has a cost. The style map is
+// an optional 4th arg so existing 3-arg callers keep the base-color-only
+// behavior.
 export function poFallbackCostForRow(
   rowSku: string | null | undefined,
   rowPackSize: number | null | undefined,
   poEachByBaseColor: Map<string, number>,
+  poEachByStyle?: Map<string, number> | null,
 ): number | null {
-  const key = baseColorKey(rowSku);
-  if (!key) return null;
-  const perEach = poEachByBaseColor.get(key);
-  if (!POSITIVE(perEach)) return null;
   const packSize = POSITIVE(rowPackSize) ? rowPackSize : 1;
-  return perEach * packSize;
+  const colorKey = baseColorKey(rowSku);
+  if (colorKey) {
+    const perEach = poEachByBaseColor.get(colorKey);
+    if (POSITIVE(perEach)) return perEach * packSize;
+  }
+  if (poEachByStyle) {
+    const sKey = styleKey(rowSku);
+    if (sKey) {
+      const perEach = poEachByStyle.get(sKey);
+      if (POSITIVE(perEach)) return perEach * packSize;
+    }
+  }
+  return null;
 }
 
 // Precedence helper: a direct/sibling avg cost always wins; the PO

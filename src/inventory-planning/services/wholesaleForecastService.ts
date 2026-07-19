@@ -57,6 +57,7 @@ import { readGender, readGroupName, readSubCategoryName } from "../types/itemAtt
 import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
 import {
   buildPoEachCostByBaseColor,
+  buildPoEachCostByStyle,
   poFallbackCostForRow,
   resolvePackSize,
   type PoCostRow,
@@ -1076,6 +1077,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     })
     .filter((r) => r.sku_code);
   const poEachCostByBaseColor = buildPoEachCostByBaseColor(poCostRowsForFallback);
+  // STYLE-level tier (color stripped): a color with no PO of its own inherits
+  // its style's per-each PO cost across sibling colors. Strictly BELOW the
+  // base-color tier — see poFallbackCostForRow — and still only fires after
+  // the direct+sibling avg cascade comes up empty (the row map below).
+  const poEachCostByStyle = buildPoEachCostByStyle(poCostRowsForFallback);
 
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
@@ -1123,7 +1129,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     let resolvedCost = resolved.cost;
     if (resolvedCost == null && item?.sku_code) {
       const rowPackSize = resolvePackSize(item.sku_code, item.pack_size ?? null, prepackUnitsPerPack);
-      const poFb = poFallbackCostForRow(item.sku_code, rowPackSize, poEachCostByBaseColor);
+      const poFb = poFallbackCostForRow(item.sku_code, rowPackSize, poEachCostByBaseColor, poEachCostByStyle);
       if (poFb != null) resolvedCost = poFb;
     }
     // Period-specific Hist T3 (trailing quarter through this month's LY).
