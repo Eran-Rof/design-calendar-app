@@ -190,7 +190,9 @@ import r_internal_cash_flow_index from "./internal/cash-flow/index.js";
 import r_internal_categories_index from "./internal/categories/index.js";
 import r_internal_channels_index from "./internal/channels/index.js";
 import r_internal_chargebacks_id from "./internal/chargebacks/[id].js";
+import r_internal_chargebacks_id_origin from "./internal/chargebacks/[id]/origin.js";
 import r_internal_chargebacks_dilution_summary from "./internal/chargebacks/dilution-summary.js";
+import r_internal_chargebacks_drill from "./internal/chargebacks/drill.js";
 import r_internal_chargebacks_index from "./internal/chargebacks/index.js";
 import r_internal_client_errors from "./internal/client-errors.js";
 import r_internal_colors_id from "./internal/colors/[id].js";
@@ -922,6 +924,7 @@ export const ROUTES = [
   { pattern: "/api/internal/build-orders/:id/reopen", handler: r_internal_build_orders_reopen },
   { pattern: "/api/internal/edi/:vendor_id/messages", handler: r_internal_edi_vendor_id_messages },
   { pattern: "/api/internal/build-orders/:id/issue", handler: r_internal_build_orders_issue },
+  { pattern: "/api/internal/chargebacks/:id/origin", handler: r_internal_chargebacks_id_origin },
   { pattern: "/api/internal/contracts/:id/versions", handler: r_internal_contracts_id_versions },
   { pattern: "/api/internal/costing/lines/:line_id", handler: r_internal_costing_lines_line_id_index },
   { pattern: "/api/internal/factor/chargebacks/:id", handler: r_internal_factor_chargebacks_id },
@@ -1114,6 +1117,7 @@ export const ROUTES = [
   { pattern: "/api/internal/allocations/rules", handler: r_internal_allocations_rules },
   { pattern: "/api/internal/assistant/dismiss", handler: r_internal_assistant_dismiss },
   { pattern: "/api/internal/audit/row-history", handler: r_internal_audit_row_history },
+  { pattern: "/api/internal/chargebacks/drill", handler: r_internal_chargebacks_drill },
   { pattern: "/api/internal/crm/opportunities", handler: r_internal_crm_opportunities_index },
   { pattern: "/api/internal/factor/open-items", handler: r_internal_factor_open_items },
   { pattern: "/api/internal/factor/statements", handler: r_internal_factor_statements },

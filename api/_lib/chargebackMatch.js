@@ -159,3 +159,88 @@ export function aggregateDilution(rows, grossByGroup = {}) {
   out.sort((x, y) => y.chargeback_cents - x.chargeback_cents);
   return out;
 }
+
+// ── Drill-through facets (#1744 audit drill) ────────────────────────────────
+// Every dilution number is a sum over the SAME resolved chargeback set that
+// dilution-summary aggregates. These pure helpers let the drill endpoint
+// reproduce, for any aggregate cell, EXACTLY the constituent rows that sum to
+// it — so any on-screen figure reconciles to the rows behind it, which in turn
+// trace to their AR invoice and the GL journal entries that posted them.
+
+// Aggregate dimensions the dilution tables render (a clickable row/cell).
+export const DRILL_FACETS = ["total", "customer", "customer_month", "month", "reason"];
+// The specific measure a clicked cell represents. `dilution` drills into the
+// numerator (gross chargeback deductions); `gross_sales` drills to the AR
+// invoices in the denominator (handled invoice-side by the endpoint).
+export const DRILL_MEASURES = [
+  "chargeback", "creditback", "excluded", "net", "count", "matched", "dilution", "gross_sales",
+];
+
+/**
+ * Resolve one raw factor_chargebacks row to the grouping keys the dilution
+ * aggregation uses: the effective customer (own customer_id, else the matched
+ * invoice's), the YYYY-MM period, the governed reason group, the churn flag and
+ * the signed amount. `reasonById` maps reason_code_id → { code }.
+ *
+ * @returns {{ id:string, cid:string|null, period:string|null, amount:number, excluded:boolean, reason_group:string }}
+ */
+export function resolveDrillRow(r, reasonById) {
+  const excluded = isFactorChurnChargeback(r);
+  const cid = r.customer_id || (r.matched && r.matched.customer_id) || null;
+  const period = r.report_month ? String(r.report_month).slice(0, 7) : null;
+  const amount = Number(r.amount_cents) || 0;
+  const rc = r.reason_code_id && reasonById ? reasonById.get(r.reason_code_id) : null;
+  const reason_group = excluded ? "__factor_churn__" : rc ? rc.code : "__uncoded__";
+  return { id: r.id, cid, period, amount, excluded, reason_group };
+}
+
+/** Does a resolved row belong to the aggregate group (by, key)? */
+export function drillRowInGroup(rr, by, key) {
+  switch (by) {
+    case "total": return true;
+    case "customer": return rr.cid != null && rr.cid === key;
+    case "customer_month": {
+      const s = String(key);
+      const i = s.indexOf("|");
+      if (i < 0) return false;
+      return rr.cid === s.slice(0, i) && rr.period === s.slice(i + 1);
+    }
+    case "month": return rr.period === key;
+    case "reason": return rr.reason_group === key;
+    default: return false;
+  }
+}
+
+/**
+ * Does a resolved row contribute to the clicked measure? Mirrors exactly the
+ * sign/exclusion rules aggregateDilution applies, so the constituent list ties
+ * to the number. `dilution` reuses the chargeback (numerator) rule.
+ */
+export function drillRowInMeasure(rr, measure) {
+  switch (measure) {
+    case "chargeback":
+    case "dilution": return !rr.excluded && rr.amount > 0;
+    case "creditback": return !rr.excluded && rr.amount < 0;
+    case "excluded": return rr.excluded;
+    case "net": return !rr.excluded;
+    case "matched": return rr.cid != null;
+    case "count": return true;
+    default: return true;
+  }
+}
+
+/**
+ * Signed cents a row adds to the measure's reconciling sum. Returns 0 for
+ * count/matched (which reconcile by row-count) and gross_sales (summed from the
+ * AR invoices, not the chargeback rows).
+ */
+export function drillMeasureCents(rr, measure) {
+  switch (measure) {
+    case "chargeback":
+    case "dilution": return !rr.excluded && rr.amount > 0 ? rr.amount : 0;
+    case "creditback": return !rr.excluded && rr.amount < 0 ? rr.amount : 0;
+    case "excluded": return rr.excluded ? rr.amount : 0;
+    case "net": return rr.excluded ? 0 : rr.amount;
+    default: return 0;
+  }
+}
