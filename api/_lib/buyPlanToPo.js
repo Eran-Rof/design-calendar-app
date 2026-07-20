@@ -29,13 +29,19 @@ export const SKIP_CODES = {
 // available cost sources so a missing ip_item_master.unit_cost doesn't
 // silently produce a $0 line. This mirrors the wholesale grid's shared
 // cascade (PR #1852) so a pushed PO line costs the same as the grid shows.
-// Order: item-master unit_cost → last-known average cost → standard unit
-// price → sibling-color avg → grain-aware open-PO fallback → 0 (caller
-// hard-blocks the line). The last two tiers are pre-resolved dollar
-// candidates the caller derives from the pre-built lookup maps
-// (extra.siblingAvgDollars, extra.poFallbackDollars) — this stays pure.
+//
+// When the buy plan's run has a VENDOR selected (build_vendor_id), two
+// vendor-first tiers are tried BEFORE anything else so a pushed line costs the
+// same as the vendor-first grid (CEO ask, #1855): vendor OPEN-PO cost, then
+// vendor most-recent RECEIVED-PO cost. After those:
+//   item-master unit_cost → avg → standard price → sibling-color avg →
+//   grain-aware any-vendor open-PO fallback → 0 (caller hard-blocks the line).
+// All vendor / sibling / po_fallback tiers are pre-resolved dollar candidates
+// the caller derives from the pre-built lookup maps — this stays pure.
 export function resolveUnitCostCents(im, avgRow, extra = {}) {
   const tries = [
+    [extra.vendorOpenDollars, "vendor_open_po"],
+    [extra.vendorRecvDollars, "vendor_received_po"],
     [im && im.unit_cost, "item_master"],
     [avgRow && avgRow.avg_cost, "avg_cost"],
     [avgRow && avgRow.standard_unit_price, "standard_price"],
@@ -91,8 +97,13 @@ export function matchTangerineVendor(vm, tangerineVendors) {
 //
 // Returns { byVendor: Map<portal_vendor_id, group>, skipped, warnings,
 //           referencedVendors: Map<vm.id, vm>, diagnostics }.
+// vendorOpen* / vendorRecv* (all optional) are the vendor-first tiers built
+// from the run's selected vendor's PO lines (open weighted-avg per-each,
+// received most-recent per-each). When present, a line tries them before every
+// other cost source. Absent (no vendor on the run) => behavior is unchanged.
 export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds,
-  poEachByBaseColor, poEachByStyle, prepackUnitsPerPack } = {}) {
+  poEachByBaseColor, poEachByStyle, prepackUnitsPerPack,
+  vendorOpenByBaseColor, vendorOpenByStyle, vendorRecvByBaseColor, vendorRecvByStyle } = {}) {
   const skipped = [];
   const warnings = [];
   const byVendor = new Map();
@@ -159,8 +170,11 @@ export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoId
     const siblingAvgDollars = sKey ? siblingAvgByStyle.get(sKey) : null;
     const packSize = resolvePackSize(im.sku_code, im.pack_size, prepackUnitsPerPack);
     const poFallbackDollars = poFallbackCostForRow(im.sku_code, packSize, poEachByBaseColor, poEachByStyle);
+    // Vendor-first tiers (only populated when the run has a vendor selected).
+    const vendorOpenDollars = poFallbackCostForRow(im.sku_code, packSize, vendorOpenByBaseColor, vendorOpenByStyle);
+    const vendorRecvDollars = poFallbackCostForRow(im.sku_code, packSize, vendorRecvByBaseColor, vendorRecvByStyle);
     const { cents: unitCostCents, source: costSource } =
-      resolveUnitCostCents(im, avgBySku && avgBySku.get(im.sku_code), { siblingAvgDollars, poFallbackDollars });
+      resolveUnitCostCents(im, avgBySku && avgBySku.get(im.sku_code), { vendorOpenDollars, vendorRecvDollars, siblingAvgDollars, poFallbackDollars });
     if (unitCostCents <= 0) {
       // Hard block: never push a $0-cost line. Skip it (coded) so the rest of
       // the buy still creates its POs, and surface the SKU in the diagnostics.

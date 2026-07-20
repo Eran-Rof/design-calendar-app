@@ -106,6 +106,41 @@ export function buildPoEachCostByStyle(rows) {
   return buildPoEachCost(rows, styleKey);
 }
 
+// Vendor-first cost tier support (mirrors
+// src/inventory-planning/utils/vendorCostCascade.ts). The received "price
+// guide" tier is the MOST RECENT per-each cost per key, NOT a weighted average.
+// Each row is { sku_code, unit_cost, pack_size, order_date } where order_date is
+// an ISO date (or null; "" sorts oldest so a dated row always beats an undated
+// one, and the latest ISO date wins). Rows with a non-positive cost are skipped.
+function buildMostRecentPoEachBy(rows, keyFn) {
+  const best = new Map();
+  for (const r of rows || []) {
+    if (!POSITIVE(r.unit_cost)) continue;
+    const packSize = POSITIVE(r.pack_size) ? r.pack_size : 1;
+    const perEach = r.unit_cost / packSize;
+    if (!POSITIVE(perEach)) continue;
+    const key = keyFn(r.sku_code);
+    if (!key) continue;
+    const date = r.order_date || "";
+    const cur = best.get(key);
+    if (!cur || date >= cur.date) best.set(key, { date, perEach });
+  }
+  const out = new Map();
+  for (const [k, { perEach }] of best) out.set(k, perEach);
+  return out;
+}
+
+// Most-recent PER-EACH received-PO cost keyed by BASE-COLOR (tier 2 price guide).
+export function buildRecvPoEachByBaseColor(rows) {
+  return buildMostRecentPoEachBy(rows, baseColorKey);
+}
+
+// Most-recent PER-EACH received-PO cost keyed by STYLE (color stripped) — the
+// sibling-color tier of the received price guide.
+export function buildRecvPoEachByStyle(rows) {
+  return buildMostRecentPoEachBy(rows, styleKey);
+}
+
 // Re-grain an open-PO per-each cost to a specific line, trying tiers in order
 // of specificity: (1) the line's exact BASE-COLOR bucket (this color's own
 // PO), then (2) the line's STYLE bucket (any color of the style) when a

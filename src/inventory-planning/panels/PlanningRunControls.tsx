@@ -57,6 +57,44 @@ export default function PlanningRunControls({
   const [wipeTyped, setWipeTyped] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
+  // Build-stage vendor selection (CEO ask: same style, multiple vendors at
+  // different true costs). The list is vendors that actually have POs
+  // (ip_po_vendors). Selecting one persists build_vendor_id on the run so the
+  // wholesale grid resolves costs vendor-first (open POs → most-recent received
+  // → avg → any-vendor PO). Vendor cost is a wholesale-grid feature, so the
+  // selector is hidden on the ecom workbench.
+  const showVendorSelect = scope !== "ecom";
+  const [poVendors, setPoVendors] = useState<Array<{ vendor_id: string; vendor_name: string; vendor_code: string | null }>>([]);
+  const [savingVendor, setSavingVendor] = useState(false);
+  useEffect(() => {
+    if (!showVendorSelect) return;
+    let live = true;
+    wholesaleRepo.listPoVendors()
+      .then((vs) => { if (live) setPoVendors(vs); })
+      .catch((e) => { if (live) onToast({ text: "Couldn't load vendors for cost selection: " + (e instanceof Error ? e.message : String(e)), kind: "error" }); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVendorSelect]);
+  async function onVendorChange(vendorId: string) {
+    if (!selected) { onToast({ text: "Pick a run first", kind: "error" }); return; }
+    setSavingVendor(true);
+    try {
+      await wholesaleRepo.updatePlanningRun(selected.id, { build_vendor_id: vendorId || null });
+      const name = poVendors.find((v) => v.vendor_id === vendorId)?.vendor_name;
+      onToast({
+        text: vendorId
+          ? `Vendor cost source set to ${name ?? "selected vendor"} — rebuild or reload to apply vendor-first costs.`
+          : "Vendor cost source cleared — costs use the standard cascade (any vendor).",
+        kind: "success",
+      });
+      await onChange();
+    } catch (e) {
+      onToast({ text: "Couldn't set vendor — " + (e instanceof Error ? e.message : String(e)), kind: "error" });
+    } finally {
+      setSavingVendor(false);
+    }
+  }
+
   // Saved builds — snapshots of a planning run captured by the
   // planner. The list lives in ip_scenarios with type='saved_build';
   // the underlying state lives in a fresh planning_run that the
@@ -410,6 +448,9 @@ export default function PlanningRunControls({
         {collapsed && selected && (
           <span style={{ color: PAL.textDim, fontSize: 12 }}>
             {selected.name} · {selected.status}
+            {selected.build_vendor_id
+              ? ` · vendor cost: ${poVendors.find((v) => v.vendor_id === selected.build_vendor_id)?.vendor_name ?? "selected"}`
+              : ""}
           </span>
         )}
         {!collapsed && (<>
@@ -441,6 +482,41 @@ export default function PlanningRunControls({
         {selected && !savedBuilds.some((s) => s.planning_run_id === selected.id) && (
           <button style={{ ...S.btnSecondary, color: PAL.red, borderColor: PAL.red }} onClick={deleteRun}
                   title="Permanently delete this planning run and all its data">Delete run</button>
+        )}
+        {selected && showVendorSelect && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: PAL.textDim, fontSize: 12 }}>Vendor:</span>
+            <div style={{ minWidth: 210 }}>
+              <SearchableSelect
+                value={selected.build_vendor_id ?? ""}
+                onChange={(v) => void onVendorChange(v)}
+                disabled={savingVendor}
+                inputStyle={S.select}
+                placeholder="— Any vendor —"
+                options={[
+                  { value: "", label: "— Any vendor —" },
+                  ...poVendors.map((v) => ({
+                    value: v.vendor_id,
+                    label: v.vendor_code ? `${v.vendor_name} (${v.vendor_code})` : v.vendor_name,
+                  })),
+                ]}
+              />
+            </div>
+            {selected.build_vendor_id && (
+              <span
+                title="Unit costs on this build are sourced from this vendor first: open POs, then the most-recent received PO for the style/color; otherwise the standard average + any-vendor PO cascade. Rebuild or reload to apply."
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: 11, fontWeight: 600, color: "#F1F5F9",
+                  background: "#1E293B", border: "1px solid #334155",
+                  borderRadius: 8, padding: "4px 9px", whiteSpace: "nowrap",
+                }}
+              >
+                <span aria-hidden style={{ color: PAL.accent, fontSize: 13, lineHeight: 1 }}>&#9679;</span>
+                Vendor cost: {poVendors.find((v) => v.vendor_id === selected.build_vendor_id)?.vendor_name ?? "selected vendor"}
+              </span>
+            )}
+          </div>
         )}
         {selected && (
           <>

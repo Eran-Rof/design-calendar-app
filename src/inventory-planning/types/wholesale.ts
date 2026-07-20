@@ -77,6 +77,13 @@ export interface IpPlanningRun {
   // planned_buy_qty (per sku, per period) as committed inbound supply.
   // Persistent on the run so the recon is reproducible.
   recon_include_planned_buys: boolean;
+  // Optional vendor (portal vendors.id) chosen at the build stage. When set,
+  // the wholesale grid resolves unit costs vendor-first: tier 1 = this
+  // vendor's open POs, tier 2 = this vendor's most-recent received POs, then
+  // the existing avg + any-vendor open-PO cascade. NULL = any vendor (the
+  // post-#1852 cascade, byte-identical). DB column is nullable with no
+  // default; persisted on the run so grid rebuilds/reloads keep using it.
+  build_vendor_id?: string | null;
   note: string | null;
   created_by: string | null;
   created_at: IpIsoDateTime;

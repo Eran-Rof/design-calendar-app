@@ -201,6 +201,51 @@ export const wholesaleRepo = {
       "ip_vendor_master?select=id,vendor_code,name&order=name.asc&limit=5000",
     );
   },
+  // Vendors that actually have usable (non-cancelled, cost-bearing) native
+  // POs — the build-stage vendor selector. Sourced from the ip_po_vendors view
+  // (over purchase_orders + purchase_order_lines + vendors) because that is
+  // where PO vendor identity lives: ip_open_purchase_orders.vendor_id is 100%
+  // NULL and ip_vendor_master is empty in prod. Returns portal vendors.id +
+  // name/code (never a UUID is shown to the planner). See migration
+  // 20263000000000_planning_vendor_selection_and_po_costs.sql.
+  async listPoVendors(): Promise<Array<{ vendor_id: string; vendor_name: string; vendor_code: string | null }>> {
+    return sbGet<{ vendor_id: string; vendor_name: string; vendor_code: string | null }>(
+      "ip_po_vendors?select=vendor_id,vendor_name,vendor_code&order=vendor_name.asc&limit=5000",
+    );
+  },
+  // Vendor-scoped per-line PO costs feeding the grid's vendor-first cost tiers
+  // (tier 1 open PO, tier 2 most-recent received PO). Reads the ip_vendor_po_costs
+  // view filtered to one vendor. unit_cost is in DOLLARS at the SKU's native
+  // grain; pack_size is the item-master value (the service re-resolves it via
+  // the prepack matrix). Numeric columns arrive as strings over PostgREST, so
+  // coerce to number here. Returns [] when the vendor has no POs — the cascade
+  // simply falls through (never blocks the build).
+  async listVendorPoCostRows(vendorId: string): Promise<Array<{
+    sku_code: string; unit_cost: number | null; qty_open: number | null;
+    qty_received: number | null; pack_size: number | null; is_open: boolean;
+    is_received: boolean; order_date: string | null;
+  }>> {
+    if (!vendorId) return [];
+    const rows = await sbGetAll<{
+      sku_code: string; unit_cost: string | number | null; qty_open: string | number | null;
+      qty_received: string | number | null; pack_size: string | number | null;
+      is_open: boolean; is_received: boolean; order_date: string | null;
+    }>(
+      `ip_vendor_po_costs?select=sku_code,unit_cost,qty_open,qty_received,pack_size,is_open,is_received,order_date&vendor_id=eq.${vendorId}`,
+    );
+    const num = (v: string | number | null): number | null =>
+      v == null ? null : (typeof v === "number" ? v : Number(v));
+    return rows.map((r) => ({
+      sku_code: r.sku_code,
+      unit_cost: num(r.unit_cost),
+      qty_open: num(r.qty_open),
+      qty_received: num(r.qty_received),
+      pack_size: num(r.pack_size),
+      is_open: !!r.is_open,
+      is_received: !!r.is_received,
+      order_date: r.order_date ?? null,
+    }));
+  },
   // Placeholder customer for "supply only" forecast rows — items with
   // open POs or on-SO but no sales-history pair show up under this
   // customer in the grid so the planner can see incoming inventory.
