@@ -236,16 +236,26 @@ export default async function handler(req, res) {
   // grid shows — tier 1 vendor open PO, tier 2 vendor most-recent received PO,
   // then the existing tiers. Best-effort; a lookup failure leaves the vendor
   // maps undefined and the cascade unchanged.
+  //
+  // #1857 (CEO ask): the SAME build vendor also becomes the CREATED PO's vendor.
+  // buildVendorId (a native vendors.id) + its name are threaded into the pure
+  // core so every eligible line groups under the build vendor and no
+  // planning-vendor link is required. Absent (no build vendor) => the PO vendor
+  // still comes from the buy action's planning-vendor link, unchanged.
   let vendorMaps = {};
+  let buildVendorId = null, buildVendorName = null;
   if (batch.planning_run_id) {
     try {
       const { data: run } = await admin.from("ip_planning_runs")
         .select("build_vendor_id").eq("id", batch.planning_run_id).maybeSingle();
       if (run && run.build_vendor_id) {
-        vendorMaps = await fetchVendorPoEachMaps(admin, run.build_vendor_id, prepackUnitsPerPack);
+        buildVendorId = run.build_vendor_id;
+        const { data: bv } = await admin.from("vendors").select("name").eq("id", buildVendorId).maybeSingle();
+        buildVendorName = bv && bv.name ? bv.name : null;
+        vendorMaps = await fetchVendorPoEachMaps(admin, buildVendorId, prepackUnitsPerPack);
       }
     } catch (e) {
-      console.warn(`[h601] vendor cost tier lookup failed for run ${batch.planning_run_id}:`, e && e.message ? e.message : e);
+      console.warn(`[h601] build vendor lookup failed for run ${batch.planning_run_id}:`, e && e.message ? e.message : e);
     }
   }
 
@@ -258,7 +268,7 @@ export default async function handler(req, res) {
   }
 
   const { byVendor, skipped, warnings, referencedVendors, diagnostics } =
-    planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds, poEachByBaseColor, poEachByStyle, prepackUnitsPerPack, ...vendorMaps });
+    planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds, poEachByBaseColor, poEachByStyle, prepackUnitsPerPack, buildVendorId, buildVendorName, ...vendorMaps });
 
   // ── Vendor link suggestions for unlinked referenced vendors ─────────────
   let vendor_suggestions = [];
@@ -294,7 +304,7 @@ export default async function handler(req, res) {
     const expected = g.period_starts.length ? g.period_starts.slice().sort()[0] : null;
 
     if (dryRun) {
-      created.push({ vendor_id: vendorId, vendor_name: g.vendor_name, line_count: lineRows.length, total_cents: subtotal, expected_date: expected, preview: true });
+      created.push({ vendor_id: vendorId, vendor_name: g.vendor_name, vendor_source: g.from_build_vendor ? "build" : "action", line_count: lineRows.length, total_cents: subtotal, expected_date: expected, preview: true });
       continue;
     }
 
@@ -323,7 +333,7 @@ export default async function handler(req, res) {
         response_json: { tangerine_po_id: header.id, created_at: stamp, target: "tangerine_native_po" },
       }).eq("id", l.action_id);
     }
-    created.push({ vendor_id: vendorId, vendor_name: g.vendor_name, po_id: header.id, po_status: header.status, line_count: lineRows.length, total_cents: subtotal, expected_date: expected });
+    created.push({ vendor_id: vendorId, vendor_name: g.vendor_name, vendor_source: g.from_build_vendor ? "build" : "action", po_id: header.id, po_status: header.status, line_count: lineRows.length, total_cents: subtotal, expected_date: expected });
   }
 
   // ── Notify the Production Manager: these drafts need sign-off before issue ─

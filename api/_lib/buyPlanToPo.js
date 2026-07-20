@@ -95,15 +95,26 @@ export function matchTangerineVendor(vm, tangerineVendors) {
 // The last three feed the grain-aware open-PO cost tier — see
 // api/_lib/poCostFallback.js. All are pre-built maps (this stays pure/IO-free).
 //
-// Returns { byVendor: Map<portal_vendor_id, group>, skipped, warnings,
+// Returns { byVendor: Map<vendorId, group>, skipped, warnings,
 //           referencedVendors: Map<vm.id, vm>, diagnostics }.
 // vendorOpen* / vendorRecv* (all optional) are the vendor-first tiers built
 // from the run's selected vendor's PO lines (open weighted-avg per-each,
 // received most-recent per-each). When present, a line tries them before every
 // other cost source. Absent (no vendor on the run) => behavior is unchanged.
+//
+// buildVendorId / buildVendorName (optional) — the vendor selected at the
+// planning BUILD stage (ip_planning_runs.build_vendor_id, a native vendors.id;
+// #1857, CEO ask "add build stage vendor to become the PO vendor"). When set,
+// that build vendor WINS: every eligible line groups under it (one draft PO for
+// the build vendor) and the action's own planning-vendor link is NO LONGER
+// required — a run with a build vendor never skips a line for no/unlinked
+// vendor, and no vendor-link suggestion is emitted. When absent, the PO vendor
+// comes from the buy action's ip_vendor_master.portal_vendor_id exactly as
+// before (behavior unchanged).
 export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds,
   poEachByBaseColor, poEachByStyle, prepackUnitsPerPack,
-  vendorOpenByBaseColor, vendorOpenByStyle, vendorRecvByBaseColor, vendorRecvByStyle } = {}) {
+  vendorOpenByBaseColor, vendorOpenByStyle, vendorRecvByBaseColor, vendorRecvByStyle,
+  buildVendorId, buildVendorName } = {}) {
   const skipped = [];
   const warnings = [];
   const byVendor = new Map();
@@ -144,22 +155,34 @@ export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoId
       skipped.push({ action_id: a.id, code: SKIP_CODES.NO_SKU, reason: "SKU not found in item master" });
       continue;
     }
-    if (!a.vendor_id) {
-      skipped.push({ action_id: a.id, code: SKIP_CODES.NO_VENDOR, reason: "no vendor on this buy action (assign a vendor in the buy plan, or populate ip_vendor_master)" });
-      continue;
-    }
-    const vm = vmById.get(a.vendor_id);
-    if (!vm) {
-      skipped.push({ action_id: a.id, code: SKIP_CODES.VENDOR_MISSING, reason: `vendor ${a.vendor_id} not found in ip_vendor_master` });
-      continue;
-    }
-    referencedVendors.set(vm.id, vm);
-    if (!vm.portal_vendor_id) {
-      skipped.push({
-        action_id: a.id, code: SKIP_CODES.VENDOR_UNLINKED, planning_vendor_id: vm.id,
-        reason: `planning vendor "${vm.vendor_code || vm.name}" is not linked to a Tangerine vendor (set its Tangerine link)`,
-      });
-      continue;
+    // Vendor for the created PO. Build vendor (if the run had one selected)
+    // wins over the buy action's planning-vendor link — see the header note.
+    let groupKey, groupName, planningVendorId = null, fromBuild = false;
+    if (buildVendorId) {
+      groupKey = buildVendorId;
+      groupName = buildVendorName || "selected build vendor";
+      fromBuild = true;
+    } else {
+      if (!a.vendor_id) {
+        skipped.push({ action_id: a.id, code: SKIP_CODES.NO_VENDOR, reason: "no vendor on this buy action (assign a vendor in the buy plan, or populate ip_vendor_master)" });
+        continue;
+      }
+      const vm = vmById.get(a.vendor_id);
+      if (!vm) {
+        skipped.push({ action_id: a.id, code: SKIP_CODES.VENDOR_MISSING, reason: `vendor ${a.vendor_id} not found in ip_vendor_master` });
+        continue;
+      }
+      referencedVendors.set(vm.id, vm);
+      if (!vm.portal_vendor_id) {
+        skipped.push({
+          action_id: a.id, code: SKIP_CODES.VENDOR_UNLINKED, planning_vendor_id: vm.id,
+          reason: `planning vendor "${vm.vendor_code || vm.name}" is not linked to a Tangerine vendor (set its Tangerine link)`,
+        });
+        continue;
+      }
+      groupKey = vm.portal_vendor_id;
+      groupName = vm.name;
+      planningVendorId = vm.id;
     }
     const im = imById.get(a.sku_id);
     // Shared cost cascade (mirrors the wholesale grid, PR #1852): direct
@@ -185,10 +208,10 @@ export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoId
       continue;
     }
 
-    const g = byVendor.get(vm.portal_vendor_id) || { vendor_name: vm.name, planning_vendor_id: vm.id, period_starts: [], lines: [] };
+    const g = byVendor.get(groupKey) || { vendor_name: groupName, planning_vendor_id: planningVendorId, from_build_vendor: fromBuild, period_starts: [], lines: [] };
     g.lines.push({ action_id: a.id, inventory_item_id: a.sku_id, sku_code: im.sku_code, qty, unit_cost_cents: unitCostCents, cost_source: costSource });
     if (a.period_start) g.period_starts.push(a.period_start);
-    byVendor.set(vm.portal_vendor_id, g);
+    byVendor.set(groupKey, g);
   }
 
   const skip_breakdown = {};

@@ -258,6 +258,66 @@ describe("planBuyPlanPos vendor-first tiers (#1855)", () => {
   });
 });
 
+describe("planBuyPlanPos build-stage vendor (#1857)", () => {
+  const BUILD_VENDOR = { buildVendorId: "bv9", buildVendorName: "Build House Ltd" };
+
+  it("groups every line under the build vendor and carries it (name + from_build flag)", () => {
+    const actions = [action({ id: "a1", vendor_id: "vm1" }), action({ id: "a2", vendor_id: "vm1" })];
+    const { byVendor, skipped } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), ...BUILD_VENDOR });
+    expect(byVendor.size).toBe(1);
+    expect(byVendor.has("bv9")).toBe(true);       // keyed by the native build vendor id
+    expect(byVendor.has("tv1")).toBe(false);      // NOT the action's planning-vendor link
+    const g = byVendor.get("bv9");
+    expect(g.vendor_name).toBe("Build House Ltd");
+    expect(g.from_build_vendor).toBe(true);
+    expect(g.planning_vendor_id).toBeNull();
+    expect(g.lines).toHaveLength(2);
+    expect(skipped).toHaveLength(0);
+  });
+
+  it("passes eligibility with NO planning-vendor link (unlinked vm never skips)", () => {
+    const actions = [action({ id: "a1", vendor_id: "vm2" })]; // vm2 has portal_vendor_id: null
+    const { byVendor, skipped, referencedVendors } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), ...BUILD_VENDOR });
+    expect(byVendor.get("bv9").lines).toHaveLength(1);
+    expect(skipped).toHaveLength(0);                       // would be VENDOR_UNLINKED without a build vendor
+    expect(referencedVendors.size).toBe(0);               // no link suggestion emitted
+  });
+
+  it("passes eligibility with NO vendor on the action at all", () => {
+    const actions = [action({ id: "a1", vendor_id: null })];
+    const { byVendor, skipped } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), ...BUILD_VENDOR });
+    expect(byVendor.get("bv9").lines).toHaveLength(1);
+    expect(skipped).toHaveLength(0);                       // would be NO_VENDOR without a build vendor
+  });
+
+  it("build vendor WINS over a present-and-linked action vendor link", () => {
+    const actions = [action({ id: "a1", vendor_id: "vm1" })]; // vm1 links to tv1
+    const { byVendor } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), ...BUILD_VENDOR });
+    expect(byVendor.has("bv9")).toBe(true);
+    expect(byVendor.has("tv1")).toBe(false);
+    expect(byVendor.get("bv9").from_build_vendor).toBe(true);
+  });
+
+  it("still enforces the non-vendor skips under a build vendor (zero-qty, no-sku, cost)", () => {
+    const actions = [
+      action({ id: "a1", vendor_id: "vm1", approved_qty: 0 }),   // ZERO_QTY
+      action({ id: "a2", vendor_id: "vm1", sku_id: "ghost" }),   // NO_SKU
+      action({ id: "a3", vendor_id: "vm1", sku_id: "sku2" }),    // $0 cost, no avg → NO_COST_SIGNAL
+    ];
+    const { byVendor, skipped } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), avgBySku: new Map(), ...BUILD_VENDOR });
+    expect(byVendor.size).toBe(0);
+    const codes = skipped.map((s) => s.code).sort();
+    expect(codes).toEqual([SKIP_CODES.NO_COST_SIGNAL, SKIP_CODES.NO_SKU, SKIP_CODES.ZERO_QTY].sort());
+  });
+
+  it("null build vendor → behavior unchanged (falls back to the action's planning-vendor link)", () => {
+    const actions = [action({ id: "a1", vendor_id: "vm1" })];
+    const { byVendor } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), buildVendorId: null, buildVendorName: null });
+    expect(byVendor.has("tv1")).toBe(true);               // exactly as today
+    expect(byVendor.get("tv1").from_build_vendor).toBe(false);
+  });
+});
+
 describe("matchTangerineVendor", () => {
   const tvs = [
     { id: "t1", name: "Acme Mfg", code: "ACME", aliases: ["acme manufacturing"] },
