@@ -23,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../_lib/auth.js";
+import { attachChurnTwins } from "../../../_lib/chargebackChurnTwins.js";
 
 export const config = { maxDuration: 30 };
 
@@ -32,7 +33,7 @@ const ISO_MONTH_RE = /^\d{4}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SELECT =
-  "id, report_month, factor_customer_no, customer_name, client_customer, item_num, item_date, cb_date, batch, amount_cents, item_type, reason, reason_code, status, notes, customer_id, matched_ar_invoice_id, match_method, disposition, disposition_reason, owner, disposition_at, reason_code_id, updated_by, updated_at, matched:ar_invoices!matched_ar_invoice_id(id, invoice_number, invoice_date, total_amount_cents, customer_id), reason_ref:chargeback_reason_codes!reason_code_id(code, label, category)";
+  "id, report_month, factor_customer_no, customer_name, client_customer, item_num, item_date, cb_date, batch, amount_cents, item_type, reason, reason_code, status, notes, customer_id, matched_ar_invoice_id, match_method, disposition, disposition_reason, owner, disposition_at, reason_code_id, is_factor_churn, churn_kind, churn_pair_id, updated_by, updated_at, matched:ar_invoices!matched_ar_invoice_id(id, invoice_number, invoice_date, total_amount_cents, customer_id), reason_ref:chargeback_reason_codes!reason_code_id(code, label, category)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -125,6 +126,9 @@ export default async function handler(req, res) {
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) return res.status(500).json({ error: error.message });
+
+    // Attach the reversing/reversed twin to offset-pair churn rows for labeling.
+    await attachChurnTwins(admin, data || []);
 
     const { data: reasonCodes } = await admin
       .from("chargeback_reason_codes")

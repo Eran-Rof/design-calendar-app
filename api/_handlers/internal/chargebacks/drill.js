@@ -41,6 +41,7 @@ import {
   drillMeasureCents,
   netOpenByDocument,
 } from "../../../_lib/chargebackMatch.js";
+import { attachChurnTwins } from "../../../_lib/chargebackChurnTwins.js";
 
 export const config = { maxDuration: 30 };
 
@@ -52,11 +53,12 @@ const MAX_LIMIT = 1000;
 // Full worklist-shape select — the drawer renders the same columns the Worklist
 // tab does, and each row opens the same detail / origin trace.
 const FULL_SELECT =
-  "id, report_month, factor_customer_no, customer_name, client_customer, item_num, item_date, cb_date, batch, amount_cents, item_type, reason, reason_code, status, notes, customer_id, matched_ar_invoice_id, match_method, disposition, disposition_reason, owner, disposition_at, reason_code_id, updated_by, updated_at, matched:ar_invoices!matched_ar_invoice_id(id, invoice_number, invoice_date, total_amount_cents, customer_id), reason_ref:chargeback_reason_codes!reason_code_id(code, label, category)";
+  "id, report_month, factor_customer_no, customer_name, client_customer, item_num, item_date, cb_date, batch, amount_cents, item_type, reason, reason_code, status, notes, customer_id, matched_ar_invoice_id, match_method, disposition, disposition_reason, owner, disposition_at, reason_code_id, is_factor_churn, churn_kind, churn_pair_id, updated_by, updated_at, matched:ar_invoices!matched_ar_invoice_id(id, invoice_number, invoice_date, total_amount_cents, customer_id), reason_ref:chargeback_reason_codes!reason_code_id(code, label, category)";
 // Minimal select used only to resolve group membership + reconciling sums.
-// item_num rides along for the measure=net_open per-document netting.
+// item_num rides along for the measure=net_open per-document netting;
+// is_factor_churn lets resolveDrillRow prefer the persisted churn flag.
 const RESOLVE_SELECT =
-  "id, cb_date, item_num, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)";
+  "id, cb_date, item_num, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, is_factor_churn, matched:ar_invoices!matched_ar_invoice_id(customer_id)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -179,6 +181,7 @@ export default async function handler(req, res) {
     const keepIds = ordered.slice(0, limit).map((rr) => rr.id);
     const fullById = await fetchFullRows(admin, keepIds);
     const rows = keepIds.map((id) => fullById.get(id)).filter(Boolean);
+    await attachChurnTwins(admin, rows);
 
     return res.status(200).json({
       kind: "chargebacks",
