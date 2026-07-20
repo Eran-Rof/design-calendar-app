@@ -30,7 +30,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { checkPermission } from "../../../_lib/ip-permissions.js";
 import { planBuyPlanPos, matchTangerineVendor } from "../../../_lib/buyPlanToPo.js";
-import { buildPoEachCostByBaseColor, buildPoEachCostByStyle, resolvePackSize } from "../../../_lib/poCostFallback.js";
+import { buildPoEachCostByBaseColor, buildPoEachCostByStyle, buildRecvPoEachByBaseColor, buildRecvPoEachByStyle, resolvePackSize } from "../../../_lib/poCostFallback.js";
 import { notifyProductionManager } from "../../../_lib/notifyProductionManager.js";
 
 export const config = { maxDuration: 30 };
@@ -141,6 +141,38 @@ async function fetchOpenPoCostRows(admin, styleCodes, prepackUnitsPerPack) {
   return rows;
 }
 
+// Vendor-first cost tiers for the run's selected vendor (#1855). Reads the
+// ip_vendor_po_costs view (native purchase_orders — the only place PO vendor
+// identity is populated) filtered to one vendor, and splits the lines into an
+// OPEN set (tier 1: qty-weighted per-each) and a RECEIVED set (tier 2:
+// most-recent per-each). Pack size is re-resolved via the prepack matrix so the
+// per-each math matches the grid. Returns {} when no vendor / no rows, so the
+// caller passes undefined vendor maps and the cascade is unchanged.
+async function fetchVendorPoEachMaps(admin, vendorId, prepackUnitsPerPack) {
+  if (!vendorId) return {};
+  const rows = await fetchAllPaged(() => admin.from("ip_vendor_po_costs")
+    .select("sku_code, unit_cost, qty_open, qty_received, pack_size, is_open, is_received, order_date")
+    .eq("vendor_id", vendorId));
+  if (!rows.length) return {};
+  const shaped = rows.filter((r) => r.sku_code).map((r) => ({
+    sku_code: r.sku_code,
+    unit_cost: r.unit_cost == null ? null : Number(r.unit_cost),
+    qty_open: r.qty_open == null ? null : Number(r.qty_open),
+    order_date: r.order_date || null,
+    is_open: !!r.is_open,
+    is_received: !!r.is_received,
+    pack_size: resolvePackSize(r.sku_code, r.pack_size == null ? null : Number(r.pack_size), prepackUnitsPerPack),
+  }));
+  const openRows = shaped.filter((r) => r.is_open);
+  const recvRows = shaped.filter((r) => r.is_received);
+  return {
+    vendorOpenByBaseColor: buildPoEachCostByBaseColor(openRows),
+    vendorOpenByStyle: buildPoEachCostByStyle(openRows),
+    vendorRecvByBaseColor: buildRecvPoEachByBaseColor(recvRows),
+    vendorRecvByStyle: buildRecvPoEachByStyle(recvRows),
+  };
+}
+
 const READY_BATCH_STATUSES = ["approved", "exported", "submitted", "partially_executed"];
 
 export default async function handler(req, res) {
@@ -167,7 +199,7 @@ export default async function handler(req, res) {
   const pusherEmail = (req.headers["x-user-email"] || "").toString().trim() || null;
 
   // ── Batch + actions ─────────────────────────────────────────────────────
-  const { data: batch } = await admin.from("ip_execution_batches").select("id, batch_name, status").eq("id", batchId).maybeSingle();
+  const { data: batch } = await admin.from("ip_execution_batches").select("id, batch_name, status, planning_run_id").eq("id", batchId).maybeSingle();
   if (!batch) return res.status(404).json({ error: "Execution batch not found" });
   if (!READY_BATCH_STATUSES.includes(batch.status)) {
     return res.status(409).json({ error: `Batch must be approved before creating POs (status is ${batch.status}).` });
@@ -199,6 +231,24 @@ export default async function handler(req, res) {
   const poEachByBaseColor = buildPoEachCostByBaseColor(poCostRows);
   const poEachByStyle = buildPoEachCostByStyle(poCostRows);
 
+  // Vendor-first cost tiers (#1855): if the buy plan's run has a vendor selected
+  // at build time, pushed PO line costs use the SAME vendor-first ordering the
+  // grid shows — tier 1 vendor open PO, tier 2 vendor most-recent received PO,
+  // then the existing tiers. Best-effort; a lookup failure leaves the vendor
+  // maps undefined and the cascade unchanged.
+  let vendorMaps = {};
+  if (batch.planning_run_id) {
+    try {
+      const { data: run } = await admin.from("ip_planning_runs")
+        .select("build_vendor_id").eq("id", batch.planning_run_id).maybeSingle();
+      if (run && run.build_vendor_id) {
+        vendorMaps = await fetchVendorPoEachMaps(admin, run.build_vendor_id, prepackUnitsPerPack);
+      }
+    } catch (e) {
+      console.warn(`[h601] vendor cost tier lookup failed for run ${batch.planning_run_id}:`, e && e.message ? e.message : e);
+    }
+  }
+
   // Idempotency re-check: which previously-linked PO ids still exist.
   const linkedPoIds = [...new Set(actions.map((a) => a.response_json && a.response_json.tangerine_po_id).filter(Boolean))];
   let existingPoIds;
@@ -208,7 +258,7 @@ export default async function handler(req, res) {
   }
 
   const { byVendor, skipped, warnings, referencedVendors, diagnostics } =
-    planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds, poEachByBaseColor, poEachByStyle, prepackUnitsPerPack });
+    planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds, poEachByBaseColor, poEachByStyle, prepackUnitsPerPack, ...vendorMaps });
 
   // ── Vendor link suggestions for unlinked referenced vendors ─────────────
   let vendor_suggestions = [];

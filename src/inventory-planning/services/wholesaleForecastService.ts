@@ -58,11 +58,16 @@ import { buildSiblingMap } from "../../shared/costResolution";
 import {
   buildPoEachCostByBaseColor,
   buildPoEachCostByStyle,
-  cascadePlanningCostForItem,
   resolvePackSize,
   type PlanningCostMaps,
   type PoCostRow,
 } from "../utils/poCostFallback";
+import {
+  buildVendorCostMaps,
+  cascadeVendorAwareCostForItem,
+  type VendorCostMaps,
+  type VendorPoCostRow,
+} from "../utils/vendorCostCascade";
 
 // Trim history to the forecast lookback window. Default 13 months so the
 // LY ±1 buffer (months 11/12/13 before snapshot — see baselineForPairLy)
@@ -1085,7 +1090,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const poEachCostByStyle = buildPoEachCostByStyle(poCostRowsForFallback);
   // ONE bundle of cascade inputs shared by BOTH row families below —
   // regular forecast rows and TBD stock-buy rows resolve through the
-  // identical cascadePlanningCostForItem so they can never disagree.
+  // identical cascadeVendorAwareCostForItem so they can never disagree.
   const costMaps: PlanningCostMaps = {
     avgCostMap: avgCostBySku,
     siblingsBySku,
@@ -1094,6 +1099,40 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     poEachCostByStyle,
     prepackUnitsPerPack,
   };
+
+  // ── Vendor-first cost tiers (CEO ask: same style, multiple vendors) ───────
+  // When the run has a vendor selected at build time, resolve unit costs
+  // vendor-first: tier 1 = this vendor's OPEN POs (qty-weighted per-each), tier
+  // 2 = this vendor's MOST-RECENT RECEIVED PO (price guide), then fall through
+  // to the existing avg + any-vendor open-PO cascade. Vendor PO cost lines come
+  // from the ip_vendor_po_costs view (native purchase_orders, the only place PO
+  // vendor identity is populated). Pack size is re-resolved via the prepack
+  // matrix so the per-each math matches the rest of the grid. NULL vendor =>
+  // vendorMaps stays null and every cost call is byte-identical to today.
+  let vendorMaps: VendorCostMaps | null = null;
+  if (run.build_vendor_id) {
+    try {
+      const vendorCostRows = await wholesaleRepo.listVendorPoCostRows(run.build_vendor_id);
+      const vRows: VendorPoCostRow[] = vendorCostRows
+        .filter((r) => r.sku_code)
+        .map((r) => ({
+          sku_code: r.sku_code,
+          unit_cost: r.unit_cost,
+          qty_open: r.qty_open,
+          qty_received: r.qty_received,
+          pack_size: resolvePackSize(r.sku_code, r.pack_size, prepackUnitsPerPack),
+          is_open: r.is_open,
+          is_received: r.is_received,
+          order_date: r.order_date,
+        }));
+      vendorMaps = buildVendorCostMaps(vRows);
+    } catch (e) {
+      // Never block the grid on a vendor-cost fetch failure — fall back to the
+      // existing cascade (vendorMaps stays null).
+      console.warn(`[planning] vendor PO cost fetch failed for vendor ${run.build_vendor_id}`, e);
+      vendorMaps = null;
+    }
+  }
 
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
@@ -1130,7 +1169,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // sibling-avg cascade comes up empty — a PO price never overrides an
     // avg cost. Covers PPK styles whose PO sits on the pack sibling AND
     // the plain-each case (packSize 1 on both sides → poUnitCost as-is).
-    const resolvedCost = cascadePlanningCostForItem(item, costMaps);
+    const resolvedCost = cascadeVendorAwareCostForItem(item, costMaps, vendorMaps);
     // Period-specific Hist T3 (trailing quarter through this month's LY).
     const t3 = t3ForPeriod(f.customer_id, f.sku_id, f.period_start);
     // Always derive avail/shortage/excess from the rolling supply so that
@@ -1392,7 +1431,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // real SKU. Previously TBD rows hard-coded `unit_cost ?? null` and a
     // stock buy on any style without a typed cost showed a blank Unit
     // Cost / Buy $ (bug: RYB0185PPK).
-    const synResolvedCost = cascadePlanningCostForItem(synSkuId ? itemById.get(synSkuId) : null, costMaps);
+    const synResolvedCost = cascadeVendorAwareCostForItem(synSkuId ? itemById.get(synSkuId) : null, costMaps, vendorMaps);
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.
     tbdGridRows.push({
@@ -1488,7 +1527,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       const tReceipts = tSkuId ? (receiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
       const tHistRecv = tSkuId ? (historicalReceiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
       // Same cost cascade the forecast rows run — see synResolvedCost above.
-      const tResolvedCost = cascadePlanningCostForItem(tSkuId ? itemById.get(tSkuId) : null, costMaps);
+      const tResolvedCost = cascadeVendorAwareCostForItem(tSkuId ? itemById.get(tSkuId) : null, costMaps, vendorMaps);
       tbdGridRows.push({
         forecast_id: `tbd:${t.id}`,
         planning_run_id: run.id,

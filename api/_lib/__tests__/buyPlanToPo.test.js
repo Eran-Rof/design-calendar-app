@@ -48,6 +48,18 @@ describe("resolveUnitCostCents", () => {
     expect(resolveUnitCostCents({ unit_cost: 0 }, null, { poFallbackDollars: 9 }))
       .toEqual({ cents: 900, source: "po_fallback" });
   });
+  it("vendor OPEN-PO tier wins over item-master (vendor-first, #1855)", () => {
+    expect(resolveUnitCostCents({ unit_cost: 4.5 }, { avg_cost: 9 }, { vendorOpenDollars: 122.16 }))
+      .toEqual({ cents: 12216, source: "vendor_open_po" });
+  });
+  it("vendor RECEIVED tier wins over item-master when there's no vendor open PO", () => {
+    expect(resolveUnitCostCents({ unit_cost: 4.5 }, { avg_cost: 9 }, { vendorRecvDollars: 118 }))
+      .toEqual({ cents: 11800, source: "vendor_received_po" });
+  });
+  it("vendor OPEN beats vendor RECEIVED when both present", () => {
+    expect(resolveUnitCostCents({ unit_cost: 0 }, null, { vendorOpenDollars: 122.16, vendorRecvDollars: 118 }))
+      .toEqual({ cents: 12216, source: "vendor_open_po" });
+  });
 });
 
 describe("planBuyPlanPos grouping", () => {
@@ -204,6 +216,45 @@ describe("planBuyPlanPos cost cascade — sibling + open-PO tiers", () => {
     });
     expect(byVendor.size).toBe(0);
     expect(skipped[0].code).toBe(SKIP_CODES.NO_COST_SIGNAL);
+  });
+});
+
+describe("planBuyPlanPos vendor-first tiers (#1855)", () => {
+  const IM_BLUE = { id: "skuB", sku_code: "STY9-BLUE-M", style_code: "STY9", unit_cost: 4, pack_size: 1 };
+  function imById() { return new Map([["skuB", IM_BLUE]]); }
+  const blueAction = action({ id: "a1", sku_id: "skuB", vendor_id: "vm1" });
+
+  it("vendor OPEN-PO cost wins even when item-master unit_cost is set", () => {
+    const vOpen = [{ sku_code: "STY9-BLUE-M", unit_cost: 12.5, qty_open: 50, pack_size: 1 }];
+    const { byVendor } = planBuyPlanPos({
+      actions: [blueAction], vmById: vmMap(), imById: imById(), avgBySku: new Map(),
+      vendorOpenByBaseColor: buildPoEachCostByBaseColor(vOpen), vendorOpenByStyle: buildPoEachCostByStyle(vOpen),
+    });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.cost_source).toBe("vendor_open_po");
+    expect(line.unit_cost_cents).toBe(1250);
+  });
+
+  it("vendor RECEIVED price guide fills when the vendor has no open PO for the style", () => {
+    // Received tier maps are most-recent per-each, pre-built by the handler; a
+    // plain base-color map with the latest cost stands in here.
+    const vRecvBase = new Map([["STY9-BLUE", 9.75]]);
+    const { byVendor } = planBuyPlanPos({
+      actions: [blueAction], vmById: vmMap(), imById: imById(), avgBySku: new Map(),
+      vendorRecvByBaseColor: vRecvBase, vendorRecvByStyle: new Map(),
+    });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.cost_source).toBe("vendor_received_po");
+    expect(line.unit_cost_cents).toBe(975);
+  });
+
+  it("no vendor maps → behavior is unchanged (item-master wins)", () => {
+    const { byVendor } = planBuyPlanPos({
+      actions: [blueAction], vmById: vmMap(), imById: imById(), avgBySku: new Map(),
+    });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.cost_source).toBe("item_master");
+    expect(line.unit_cost_cents).toBe(400);
   });
 });
 
