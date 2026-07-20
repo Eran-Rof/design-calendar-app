@@ -380,7 +380,10 @@ function Worklist({ dilution, initialReason, onConsumeInitialReason, initialQ, o
 
   // Seed disposition/month from a one-shot drill (e.g. the Month-End Close
   // "Chargebacks reviewed → Review" link seeds cb_disposition=open & cb_month).
-  const [fDisposition, setFDisposition] = useState(() => readDrillParam("cb_disposition"));
+  // Defaults to the actionable queue (Open) since the pre-2026 ledger was
+  // bulk-signed-off Valid (#1854); "All" remains one click away. A drill param
+  // still wins (e.g. the Month-End Close review link).
+  const [fDisposition, setFDisposition] = useState(() => readDrillParam("cb_disposition") || "open");
   const [fCustomer, setFCustomer] = useState("");
   // A one-shot jump from the Dilution tab's "Un-coded" line seeds reason=none.
   const [fReason, setFReason] = useState(() => initialReason || "");
