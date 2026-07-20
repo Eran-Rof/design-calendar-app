@@ -57,10 +57,10 @@ Re-preview after any fix and the corrected lines move into the eligible set.
 | Line item (`inventory_item_id`) | action `sku_id` = `ip_item_master.id` (direct, no lookup) |
 | Quantity | `approved_qty` if set, else `suggested_qty` (must be > 0) |
 | Vendor | `ip_vendor_master.portal_vendor_id` → Tangerine `vendors.id` |
-| Unit cost | `ip_item_master.unit_cost` → **fallback** `ip_item_avg_cost.avg_cost` → `standard_unit_price` → $0 |
+| Unit cost | `ip_item_master.unit_cost` → `ip_item_avg_cost.avg_cost` → `standard_unit_price` → **sibling-color avg** → **grain-aware open-PO fallback** → *(skip, never $0)* |
 | Expected date | earliest action `period_start` in the group |
 
-**Cost fallback (new):** if the item master has no `unit_cost`, the line uses the last-known average cost, then the standard unit price, before giving up. Only a line that resolves to $0 from *every* source raises a cost warning — edit it before issuing.
+**Cost cascade:** the push costs each line through the **same cascade the wholesale planning grid uses**, so a pushed PO line costs what the grid shows. If the item master has no `unit_cost`, the line falls back to the last-known average cost, then the standard unit price, then another **color of the same style** with a usable average, then a **grain-aware open-PO cost** (per-each cost from an open PO on the same color — or any color of the style — re-grained to this line's pack size, preferring the active prepack matrix's units-per-pack). A line that still resolves to **$0 from every source is skipped, never pushed at $0** — it is listed by SKU in the preview/result diagnostics (`no resolvable cost`). Add a cost (item master, avg cost, or an open PO) and re-run to include it.
 
 The POs are created **`status='draft'`**: no PO number, no open commitments. Issuing them in Procurement (chapter 28) is what assigns the number and opens commitments — that step is deliberately yours.
 
@@ -76,6 +76,7 @@ The preview / result shows a coded breakdown. The common ones:
 | **SKU not in item master** | the action's `sku_id` isn't an `ip_item_master` row |
 | **zero approved qty** | set an approved qty > 0 |
 | **cancelled action** | the action was cancelled |
+| **no resolvable cost** | no cost in *any* source (item master / avg / sibling color / open PO) — the line is skipped rather than pushed at $0. Add a cost, then re-run. |
 | **already linked to a PO** | idempotency — this action already created a PO. (If you deleted that draft in Procurement, the next run re-creates it.) |
 
 Skips never block the other actions — eligible lines still create their POs.

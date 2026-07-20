@@ -17,7 +17,7 @@ export interface TangerinePoCreated {
   expected_date?: string | null;
   preview?: boolean;
 }
-export interface TangerinePoSkipped { action_id: string; reason: string; code?: string; planning_vendor_id?: string; po_id?: string }
+export interface TangerinePoSkipped { action_id: string; reason: string; code?: string; planning_vendor_id?: string; po_id?: string; sku_code?: string }
 export interface TangerinePoWarning { action_id: string; message: string }
 export interface TangerineVendorCandidate { id: string; name: string; code?: string | null; match_on: string }
 export interface TangerineVendorSuggestion {
