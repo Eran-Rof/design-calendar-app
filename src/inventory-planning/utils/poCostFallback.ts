@@ -29,6 +29,7 @@
 // overrides an existing avg cost.
 
 import { canonSku, SIZE_SUFFIX_RE } from "./skuCanon";
+import { resolveCost } from "../../shared/costResolution";
 
 const POSITIVE = (n: number | null | undefined): n is number =>
   typeof n === "number" && Number.isFinite(n) && n > 0;
@@ -195,4 +196,50 @@ export function resolvePlanningRowCost(
 ): number | null {
   if (avgCascadeCost != null) return avgCascadeCost;
   return poFallbackCost ?? null;
+}
+
+// The pre-built lookup maps the planning grid's cost cascade consumes.
+// buildGridRows assembles these ONCE per grid load; every row — regular
+// forecast rows AND planner-added TBD stock-buy rows — resolves through
+// the same maps so the two row families can never disagree on cost.
+export interface PlanningCostMaps {
+  /** sku_code → avg_cost (ip_item_avg_cost). */
+  avgCostMap: Map<string, number>;
+  /** sku_code → sibling sku_codes in the same style (buildSiblingMap). */
+  siblingsBySku: Map<string, string[]>;
+  /** sku_code → weighted-avg open-PO unit costs (exact-sku step). */
+  openPoCostsBySku: Map<string, number[]>;
+  /** BASE-COLOR key → per-each open-PO cost (grain-aware fallback). */
+  poEachCostByBaseColor: Map<string, number>;
+  /** STYLE key → per-each open-PO cost (sibling-color fallback tier). */
+  poEachCostByStyle: Map<string, number>;
+  /** lowercased ppk style code → units/pack (active prepack matrices). */
+  prepackUnitsPerPack: Map<string, number> | null;
+}
+
+// THE planning-grid cost cascade for one resolved item-master row:
+//   direct avg → sibling avg → exact-sku open-PO   (shared resolveCost)
+//   → grain-aware open-PO fallback                  (poFallbackCostForRow)
+// Returns the cost at the item's NATIVE grain (per-pack for a PPK sku);
+// the grid's explode-PPK transform re-grains for display. Null when the
+// item is missing/unresolved or every tier came up empty.
+//
+// Extracted (bug: RYB0185PPK TBD rows blank) so the TBD row builders call
+// the IDENTICAL cascade the forecast rows use instead of hard-coding
+// `t.unit_cost ?? null` — a planner-added TBD row on a style with any
+// cost signal (sibling color avg, open PO) now costs like its forecast
+// twin would.
+export function cascadePlanningCostForItem(
+  item: { sku_code?: string | null; pack_size?: number | null } | null | undefined,
+  maps: PlanningCostMaps,
+): number | null {
+  if (!item?.sku_code) return null;
+  const resolved = resolveCost(item.sku_code, {
+    avgCostMap: maps.avgCostMap,
+    siblingsBySku: maps.siblingsBySku,
+    openPoCostsBySku: maps.openPoCostsBySku,
+  });
+  if (resolved.cost != null) return resolved.cost;
+  const rowPackSize = resolvePackSize(item.sku_code, item.pack_size ?? null, maps.prepackUnitsPerPack);
+  return poFallbackCostForRow(item.sku_code, rowPackSize, maps.poEachCostByBaseColor, maps.poEachCostByStyle);
 }
