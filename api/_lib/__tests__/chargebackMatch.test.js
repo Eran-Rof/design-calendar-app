@@ -12,6 +12,8 @@ import {
   drillRowInMeasure,
   drillMeasureCents,
   netOpenByDocument,
+  pairingToken,
+  classifyChurn,
 } from "../chargebackMatch.js";
 
 describe("normalizeAlnum", () => {
@@ -338,5 +340,136 @@ describe("netOpenByDocument", () => {
     expect(out.docs[0].net_cents).toBe(15_00);
     expect(netOpenByDocument([])).toMatchObject({ docs: [], doc_count: 0, net_open_cents: 0 });
     expect(netOpenByDocument(null)).toMatchObject({ docs: [], doc_count: 0, net_open_cents: 0 });
+  });
+});
+
+// ── Factor-churn classification: pairing token + classifyChurn ───────────────
+describe("pairingToken", () => {
+  it("uppercases, strips non-alnum, and strips leading zeros on all-numeric tokens", () => {
+    expect(pairingToken("00000150100")).toBe("150100");
+    expect(pairingToken("150100")).toBe("150100");            // pairs the zero-padded variant
+    expect(pairingToken("ROF-I012509")).toBe("ROFI012509");
+    expect(pairingToken("ROFI012509")).toBe("ROFI012509");    // dashless variant pairs too
+    expect(pairingToken("407267_1447867")).toBe("4072671447867");
+  });
+  it("keeps leading zeros only via stripping — an all-numeric token never stays padded", () => {
+    expect(pairingToken("00009393692")).toBe("9393692");
+  });
+  it("differs from netOpenByDocument's exact key: '00000017565' pairs with '17565'", () => {
+    // (net-open keeps them distinct; pairing intentionally unifies the receivable)
+    expect(pairingToken("00000017565")).toBe(pairingToken("17565"));
+  });
+  it("handles blank/null", () => {
+    expect(pairingToken(null)).toBeNull();
+    expect(pairingToken("")).toBeNull();
+    expect(pairingToken("---")).toBeNull();
+  });
+});
+
+describe("classifyChurn", () => {
+  it("pairs a chargeback with its equal-and-opposite creditback across leading-zero variants", () => {
+    const rows = [
+      { id: "cb", item_num: "150100", amount_cents: 3790960, reason_code: null, cb_date: "2025-11-18" },
+      { id: "cr", item_num: "00000150100", amount_cents: -3790960, reason_code: "204", cb_date: "2025-12-18" },
+    ];
+    const m = classifyChurn(rows);
+    expect(m.get("cb").kind).toBe("offset_pair");
+    expect(m.get("cr").kind).toBe("offset_pair");
+    // both legs share a stable pair_key (sorted member ids)
+    expect(m.get("cb").pair_key).toBe(m.get("cr").pair_key);
+    expect(m.get("cb").pair_key).toBe(["cb", "cr"].sort().join(":"));
+    // twins point at each other
+    expect(m.get("cb").twin_id).toBe("cr");
+    expect(m.get("cr").twin_id).toBe("cb");
+    expect(m.get("cb").twin_item_num).toBe("00000150100");
+  });
+
+  it("offset_pair takes precedence over a code-based kind (a 610 leg that is also paired)", () => {
+    const rows = [
+      { id: "a", item_num: "ROF-I012509", amount_cents: 764800, reason_code: "610", cb_date: "2025-09-02" },
+      { id: "b", item_num: "ROFI012509", amount_cents: -764800, reason_code: "200", cb_date: "2025-10-03" },
+    ];
+    const m = classifyChurn(rows);
+    expect(m.get("a").kind).toBe("offset_pair");
+    expect(m.get("b").kind).toBe("offset_pair");
+  });
+
+  it("greedy 1:1 pairing — 2 chargebacks + 1 creditback of the same token/amount pairs exactly one", () => {
+    const rows = [
+      { id: "c1", item_num: "555", amount_cents: 100_00, reason_code: null, cb_date: "2025-01-01" },
+      { id: "c2", item_num: "555", amount_cents: 100_00, reason_code: null, cb_date: "2025-02-01" },
+      { id: "r1", item_num: "555", amount_cents: -100_00, reason_code: null, cb_date: "2025-03-01" },
+    ];
+    const m = classifyChurn(rows);
+    // earliest chargeback (c1) pairs with the credit; c2 stays unclassified
+    expect(m.get("c1").kind).toBe("offset_pair");
+    expect(m.get("r1").kind).toBe("offset_pair");
+    expect(m.get("c1").twin_id).toBe("r1");
+    expect(m.has("c2")).toBe(false);
+  });
+
+  it("does NOT pair across different tokens or unequal amounts", () => {
+    const rows = [
+      { id: "a", item_num: "111", amount_cents: 100_00, reason_code: null },
+      { id: "b", item_num: "222", amount_cents: -100_00, reason_code: null }, // different token
+      { id: "c", item_num: "333", amount_cents: 100_00, reason_code: null },
+      { id: "d", item_num: "333", amount_cents: -90_00, reason_code: null },  // unequal amount
+    ];
+    const m = classifyChurn(rows);
+    expect(m.size).toBe(0);
+  });
+
+  it("classifies factor admin codes (200/202/204) and recourse 610 when unpaired", () => {
+    const rows = [
+      { id: "a", item_num: "4622377", amount_cents: -22236285, reason_code: "200" },
+      { id: "b", item_num: "ROFI145993", amount_cents: -3093720, reason_code: "202" },
+      { id: "c", item_num: "CBR2574871", amount_cents: -2657458, reason_code: "204" },
+      { id: "d", item_num: "ROF-I999", amount_cents: 500000, reason_code: "610" },
+      { id: "e", item_num: "ROF-I998", amount_cents: 12345, reason_code: "597" }, // real deduction — NOT churn
+      { id: "f", item_num: "ROF-I997", amount_cents: 6789, reason_code: "201" },  // 201 is NOT churn
+    ];
+    const m = classifyChurn(rows);
+    expect(m.get("a").kind).toBe("factor_admin_code");
+    expect(m.get("b").kind).toBe("factor_admin_code");
+    expect(m.get("c").kind).toBe("factor_admin_code");
+    expect(m.get("d").kind).toBe("recourse_610");
+    expect(m.has("e")).toBe(false);
+    expect(m.has("f")).toBe(false);
+  });
+
+  it("is deterministic across row order (same pair_key regardless of input order)", () => {
+    const a = [
+      { id: "x", item_num: "77", amount_cents: 50_00, reason_code: null, cb_date: "2025-05-01" },
+      { id: "y", item_num: "77", amount_cents: -50_00, reason_code: null, cb_date: "2025-06-01" },
+    ];
+    const m1 = classifyChurn(a);
+    const m2 = classifyChurn([a[1], a[0]]);
+    expect(m1.get("x").pair_key).toBe(m2.get("x").pair_key);
+  });
+});
+
+describe("resolveDrillRow prefers the persisted churn flag", () => {
+  const reasonById = new Map();
+  it("uses is_factor_churn when present, ignoring the raw code", () => {
+    // A raw 610 that has been persisted as NOT churn (edge) → follows the flag.
+    const rr = resolveDrillRow(
+      { id: "z", customer_id: "c1", report_month: "2026-03-01", amount_cents: 100_00, reason_code: "610", is_factor_churn: false },
+      reasonById,
+    );
+    expect(rr.excluded).toBe(false);
+    // An offset-pair leg (no churn-y raw code) persisted as churn → excluded.
+    const rr2 = resolveDrillRow(
+      { id: "w", customer_id: "c1", report_month: "2026-03-01", amount_cents: -100_00, reason_code: "200", is_factor_churn: true },
+      reasonById,
+    );
+    expect(rr2.excluded).toBe(true);
+    expect(rr2.reason_group).toBe("__factor_churn__");
+  });
+  it("falls back to the code predicate when is_factor_churn is absent", () => {
+    const rr = resolveDrillRow(
+      { id: "v", customer_id: "c1", report_month: "2026-03-01", amount_cents: 100_00, reason_code: "610" },
+      reasonById,
+    );
+    expect(rr.excluded).toBe(true);
   });
 });

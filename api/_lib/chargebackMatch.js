@@ -89,6 +89,18 @@ export function matchChargeback(itemNum, index) {
 // isFactorChurnChargeback below.
 export const FACTOR_CHURN_REASON_CODES = new Set(["610"]);
 
+// Factor ADMINISTRATIVE credit/debit codes that move money between the factor
+// and us, not a customer deduction:
+//   200 "Against previous chargeback", 202 "Non-factored Invoice (credit)", 204.
+// PROVEN on prod (2026-07-20): the large unpaired credits under these codes
+// (e.g. item 4622377 -$222,362.85, the ROFI14599x series) have NO counted
+// opposite deduction anywhere, so they were inflating "recoveries" — they are
+// factor churn, excluded from dilution. (610 stays its own recourse_610 kind.)
+export const FACTOR_ADMIN_REASON_CODES = new Set(["200", "202", "204"]);
+
+// The three factor-churn kinds persisted on factor_chargebacks.churn_kind.
+export const CHURN_KINDS = ["recourse_610", "offset_pair", "factor_admin_code"];
+
 /**
  * Is this factor row a "Manual Charge Back" (Rosenthal code 610) — i.e. the
  * factor recoursing the WHOLE invoice back to us, not a customer deduction?
@@ -108,6 +120,107 @@ export function isFactorChurnChargeback(row) {
   if (FACTOR_CHURN_REASON_CODES.has(code)) return true;
   const reason = row.reason == null ? "" : String(row.reason).toLowerCase();
   return /manual\s*charge\s*back/.test(reason);
+}
+
+/**
+ * Normalize an item token for OFFSET PAIRING: uppercase, strip every
+ * non-alphanumeric character, and — when the result is ALL DIGITS — strip
+ * leading zeros. "00000150100" -> "150100"; "ROF-I012509" -> "ROFI012509";
+ * "407267_1447867" -> "4072671447867". Returns null for an empty/blank token.
+ *
+ * NOTE: this DELIBERATELY differs from netOpenByDocument()'s exact trimmed
+ * item_num key. Doc-netting (#1848) treats "150100" and "00000150100" as
+ * DIFFERENT Rosenthal documents; pairing treats them as the SAME receivable so a
+ * reversal booked under a zero-padded variant still neutralizes its charge. A
+ * paired row becomes is_factor_churn, so netOpenByDocument then skips it (its
+ * `excluded` guard) — the two stay consistent: pairs never count as open
+ * exposure.
+ */
+export function pairingToken(itemNum) {
+  const alnum = normalizeAlnum(itemNum);
+  if (!alnum) return null;
+  if (/^[0-9]+$/.test(alnum)) {
+    const stripped = alnum.replace(/^0+/, "");
+    return stripped === "" ? "0" : stripped;
+  }
+  return alnum;
+}
+
+// Deterministic ordering of legs within a pairing bucket so greedy pairing is
+// reproducible across runs (idempotent classification): by cb_date, then id.
+function cmpLeg(a, b) {
+  const ad = a.cb_date || "";
+  const bd = b.cb_date || "";
+  if (ad !== bd) return ad < bd ? -1 : 1;
+  return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0;
+}
+
+/**
+ * Classify factor-churn for a WHOLE set of chargeback rows and greedily pair
+ * offsets. Returns a Map keyed by row id for every CHURN row only:
+ *   { kind: 'offset_pair'|'recourse_610'|'factor_admin_code',
+ *     pair_key?, twin_id?, twin_item_num?, twin_cb_date?, twin_item_type? }
+ * A row not in the Map is NOT churn.
+ *
+ * Precedence: offset_pair (a matched, equal-and-opposite reversal — the
+ * strongest, most specific evidence, and it carries a twin for the UI) wins over
+ * the code-based kinds. So a 610 or a 200/202/204 leg that is also paired is
+ * reported as offset_pair (still excluded either way).
+ *
+ * Pairing rule: same pairingToken(item_num), EXACTLY opposite amount_cents,
+ * greedy 1:1 (one creditback reverses one chargeback). pair_key is the two
+ * member ids sorted and joined — a stable string the caller maps to a uuid
+ * (churn_pair_id) deterministically, so re-imports keep the same pair id.
+ *
+ * @param {Array<{id, item_num, amount_cents, reason_code, reason, cb_date, item_type}>} rows
+ */
+export function classifyChurn(rows) {
+  const result = new Map();
+
+  // 1) Greedy offset pairing over the whole set.
+  const byToken = new Map();
+  for (const r of rows || []) {
+    const amt = Number(r.amount_cents) || 0;
+    if (amt === 0) continue;
+    const tok = pairingToken(r.item_num);
+    if (!tok) continue;
+    if (!byToken.has(tok)) byToken.set(tok, []);
+    byToken.get(tok).push({ id: r.id, amt, item_num: r.item_num, cb_date: r.cb_date || null, item_type: r.item_type || (amt < 0 ? "creditback" : "chargeback") });
+  }
+  for (const list of byToken.values()) {
+    const byAbs = new Map();
+    for (const x of list) {
+      const k = Math.abs(x.amt);
+      if (!byAbs.has(k)) byAbs.set(k, { pos: [], neg: [] });
+      (x.amt > 0 ? byAbs.get(k).pos : byAbs.get(k).neg).push(x);
+    }
+    for (const { pos, neg } of byAbs.values()) {
+      pos.sort(cmpLeg);
+      neg.sort(cmpLeg);
+      const n = Math.min(pos.length, neg.length);
+      for (let i = 0; i < n; i++) {
+        const a = pos[i];
+        const b = neg[i];
+        const pair_key = [a.id, b.id].sort().join(":");
+        result.set(a.id, { kind: "offset_pair", pair_key, twin_id: b.id, twin_item_num: b.item_num, twin_cb_date: b.cb_date, twin_item_type: b.item_type });
+        result.set(b.id, { kind: "offset_pair", pair_key, twin_id: a.id, twin_item_num: a.item_num, twin_cb_date: a.cb_date, twin_item_type: a.item_type });
+      }
+    }
+  }
+
+  // 2) Code-based kinds, only where a row was not already paired.
+  for (const r of rows || []) {
+    if (result.has(r.id)) continue;
+    if (isFactorChurnChargeback(r)) {
+      result.set(r.id, { kind: "recourse_610" });
+      continue;
+    }
+    const code = r.reason_code == null ? "" : String(r.reason_code).trim();
+    if (FACTOR_ADMIN_REASON_CODES.has(code)) {
+      result.set(r.id, { kind: "factor_admin_code" });
+    }
+  }
+  return result;
 }
 
 /**
@@ -185,7 +298,10 @@ export const DRILL_MEASURES = [
  * @returns {{ id:string, cid:string|null, period:string|null, amount:number, excluded:boolean, reason_group:string }}
  */
 export function resolveDrillRow(r, reasonById) {
-  const excluded = isFactorChurnChargeback(r);
+  // Prefer the persisted classification (is_factor_churn) once swept; fall back
+  // to the code-only predicate for any not-yet-swept row (offset pairs can only
+  // be seen with the whole set, so the endpoint layers classifyChurn on top).
+  const excluded = r.is_factor_churn != null ? !!r.is_factor_churn : isFactorChurnChargeback(r);
   const cid = r.customer_id || (r.matched && r.matched.customer_id) || null;
   const period = r.report_month ? String(r.report_month).slice(0, 7) : null;
   const amount = Number(r.amount_cents) || 0;

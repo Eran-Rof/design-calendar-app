@@ -83,12 +83,42 @@ function fmtMonth(iso: string | null | undefined): string {
 function fmtPct(p: number | null | undefined): string {
   return p == null ? "—" : `${p.toFixed(2)}%`;
 }
-// Mirrors isFactorChurnChargeback in api/_lib/chargebackMatch.js: Rosenthal
-// "Manual Charge Back" (code 610) recourses the whole invoice back to us — it is
-// NOT a customer deduction, so it is excluded from dilution.
-function isFactorChurn(r: { reason_code?: string | null; reason?: string | null }): boolean {
+// Factor receivable churn = things the FACTOR moves that are NOT a customer
+// deduction, so they are excluded from dilution (kept in the ledger as-is).
+// Prefer the persisted classification (is_factor_churn, set by the importer /
+// backfill via chargebackChurnSweep); fall back to the code-only predicate for a
+// not-yet-swept row (mirrors api/_lib/chargebackMatch.js).
+function isFactorChurn(r: { is_factor_churn?: boolean | null; reason_code?: string | null; reason?: string | null }): boolean {
+  if (r.is_factor_churn != null) return r.is_factor_churn;
   if ((r.reason_code ?? "").toString().trim() === "610") return true;
   return /manual\s*charge\s*back/i.test(r.reason ?? "");
+}
+
+// Short worklist tag for a churn row, by kind.
+function churnTag(r: CBRow): string {
+  switch (r.churn_kind) {
+    case "offset_pair": return "Offset pair — excluded from dilution";
+    case "factor_admin_code": return "Factor admin code — excluded from dilution";
+    case "recourse_610": return "Factor recourse (610) — excluded from dilution";
+    default: return "Factor churn — excluded from dilution";
+  }
+}
+
+// Full sentence for the detail drawer, by kind (offset pairs name the twin).
+function churnDescription(r: CBRow): string {
+  const twinNum = r.churn_twin?.item_num;
+  const twinDate = r.churn_twin?.cb_date ? fmtDate(r.churn_twin.cb_date) : null;
+  if (r.churn_kind === "offset_pair") {
+    const reversedByCredit = (r.item_type || "").toLowerCase() !== "creditback";
+    const who = reversedByCredit
+      ? `reversed by a creditback${twinDate ? ` ${twinDate}` : ""}`
+      : `reverses a chargeback${twinDate ? ` ${twinDate}` : ""}`;
+    return `Offset pair — ${who}${twinNum ? ` (item #${twinNum})` : ""}. The chargeback and its equal-and-opposite creditback net to zero, so both legs are excluded from dilution.`;
+  }
+  if (r.churn_kind === "factor_admin_code") {
+    return "Factor admin code (200/202/204) — a factor administrative credit/debit, not a customer deduction, so it is excluded from dilution.";
+  }
+  return "Factor receivable churn — Rosenthal recoursed the whole invoice back to us (Manual Charge Back, code 610); not a customer deduction, so it is excluded from dilution.";
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -120,6 +150,10 @@ type CBRow = {
   owner: string | null;
   disposition_at: string | null;
   reason_code_id: string | null;
+  is_factor_churn: boolean | null;
+  churn_kind: string | null;
+  churn_pair_id: string | null;
+  churn_twin: { id: string; item_num: string; cb_date: string | null; item_type: string; amount_cents: number | string } | null;
   updated_by: string | null;
   updated_at: string | null;
   matched: MatchedInvoice | null;
@@ -281,9 +315,7 @@ function DetailModal({ row, reasonCodes, onClose, onPatch, saving }: {
 
           {isFactorChurn(row) && (
             <div style={{ gridColumn: "1 / -1", background: C.groupHeaderBg, border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: C.textSub }}>
-              <strong style={{ color: C.text }}>Factor receivable churn.</strong> Rosenthal recoursed the whole invoice back
-              to us (Manual Charge Back) — this is not a customer deduction, so it is <em>excluded</em> from dilution
-              analytics. The ledger row is kept as-is.
+              <strong style={{ color: C.text }}>Factor receivable churn.</strong> {churnDescription(row)} The ledger row is kept as-is.
             </div>
           )}
 
@@ -658,7 +690,7 @@ function Worklist({ dilution, initialReason, onConsumeInitialReason, initialQ, o
                       {r.reason_ref?.label || <span style={{ color: C.textMuted }}>{r.reason || "—"}</span>}
                       {isFactorChurn(r) && (
                         <div style={{ color: C.textMuted, fontSize: 10, fontStyle: "italic", marginTop: 2 }}>
-                          Factor churn — excluded from dilution
+                          {churnTag(r)}
                         </div>
                       )}
                     </td>
@@ -776,8 +808,9 @@ function Dilution({ dilution, loading, err, onJumpUncoded, onJumpDoc }: { diluti
       </div>
       <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", marginTop: -6 }}>
         Gross Chargebacks and Dilution % exclude {t.excluded_count.toLocaleString()} factor receivable-churn item
-        {t.excluded_count === 1 ? "" : "s"} ({fmtCents(t.excluded_cents)}) — Rosenthal "Manual Charge Back" recourses the
-        whole invoice back to us; it is not a customer deduction.
+        {t.excluded_count === 1 ? "" : "s"} ({fmtCents(t.excluded_cents)}) — recourse (Manual Charge Back, 610), offset
+        pairs (a chargeback reversed by an equal-and-opposite creditback), and factor admin codes (200/202/204). These
+        are factor movements, not customer deductions.
       </div>
 
       {(() => {

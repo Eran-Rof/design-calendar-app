@@ -17,10 +17,10 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../_lib/auth.js";
-import { aggregateDilution, isFactorChurnChargeback, netOpenByDocument } from "../../../_lib/chargebackMatch.js";
+import { aggregateDilution, netOpenByDocument, classifyChurn } from "../../../_lib/chargebackMatch.js";
 
 const FACTOR_CHURN_GROUP = "__factor_churn__";
-const FACTOR_CHURN_LABEL = "Factor receivable churn (Manual Charge Back)";
+const FACTOR_CHURN_LABEL = "Factor receivable churn (recourse / offset pairs / admin codes)";
 
 export const config = { maxDuration: 30 };
 
@@ -70,21 +70,28 @@ export default async function handler(req, res) {
   try {
     const cbs = await fetchAll(
       admin, "factor_chargebacks",
-      "id, customer_id, report_month, item_num, cb_date, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
+      "id, customer_id, report_month, item_num, cb_date, amount_cents, item_type, reason, reason_code, reason_code_id, is_factor_churn, churn_kind, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
     );
     const reasonCodes = await fetchAll(admin, "chargeback_reason_codes", "id, code, label, category");
     const reasonById = new Map(reasonCodes.map((r) => [r.id, r]));
 
-    // resolve customer + period per chargeback. `excluded` flags factor
-    // receivable churn (Rosenthal "Manual Charge Back" / code 610) — the factor
-    // recoursing the whole invoice back to us, NOT a customer deduction — so it
+    // `excluded` flags factor receivable churn — NOT a customer deduction, so it
     // is kept out of the dilution rate (tracked separately as excluded_cents).
+    // Prefer the PERSISTED classification (is_factor_churn, set by the importer /
+    // the churn backfill via chargebackChurnSweep). For any not-yet-swept row,
+    // fall back to classifyChurn() over the WHOLE fetched set so offset pairs
+    // (which can only be seen with both legs) are still caught. Kinds:
+    // recourse_610 / offset_pair / factor_admin_code (#1832 + this change).
+    const churnFallback = classifyChurn(cbs);
+    const isChurn = (r) => (r.is_factor_churn != null ? !!r.is_factor_churn : churnFallback.has(r.id));
+
+    // resolve customer + period per chargeback.
     const resolved = cbs.map((r) => ({
       cid: r.customer_id || r.matched?.customer_id || null,
       ym: ym(r.report_month),
       amount_cents: Number(r.amount_cents) || 0,
       reason_code_id: r.reason_code_id || null,
-      excluded: isFactorChurnChargeback(r),
+      excluded: isChurn(r),
     }));
 
     const custIds = [...new Set(resolved.map((r) => r.cid).filter(Boolean))];
@@ -158,9 +165,13 @@ export default async function handler(req, res) {
     // (gross deductions − credits on that same doc number) and sum the docs
     // still net-positive. Full doc list drills via
     // /api/internal/chargebacks/drill?by=reason&key=__uncoded__&measure=net_open.
+    // Churn (recourse_610 / offset_pair / factor_admin_code) is excluded here
+    // too, so a same-receivable reversal never shows as open exposure — this
+    // keeps the metric consistent with the offset-pair exclusion (a paired
+    // leading-zero variant that doc-netting alone could not net out).
     const uncodedNetOpen = netOpenByDocument(
       cbs
-        .filter((r) => !r.reason_code_id && !isFactorChurnChargeback(r))
+        .filter((r) => !r.reason_code_id && !isChurn(r))
         .map((r) => ({ item_num: r.item_num, amount_cents: r.amount_cents, cb_date: r.cb_date }))
     );
     const uncoded_net_open = {
