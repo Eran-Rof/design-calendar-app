@@ -17,7 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { authenticateInternalCaller } from "../../../_lib/auth.js";
-import { aggregateDilution, isFactorChurnChargeback } from "../../../_lib/chargebackMatch.js";
+import { aggregateDilution, isFactorChurnChargeback, netOpenByDocument } from "../../../_lib/chargebackMatch.js";
 
 const FACTOR_CHURN_GROUP = "__factor_churn__";
 const FACTOR_CHURN_LABEL = "Factor receivable churn (Manual Charge Back)";
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
   try {
     const cbs = await fetchAll(
       admin, "factor_chargebacks",
-      "id, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
+      "id, customer_id, report_month, item_num, cb_date, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)"
     );
     const reasonCodes = await fetchAll(admin, "chargeback_reason_codes", "id, code, label, category");
     const reasonById = new Map(reasonCodes.map((r) => [r.id, r]));
@@ -152,6 +152,26 @@ export default async function handler(req, res) {
       };
     });
 
+    // ── un-coded TRUE exposure: net open by document ─────────────────────────
+    // Gross un-coded overstates real exposure (~3× in prod): most of it is
+    // same-document chargeback/creditback churn. Net each un-coded document
+    // (gross deductions − credits on that same doc number) and sum the docs
+    // still net-positive. Full doc list drills via
+    // /api/internal/chargebacks/drill?by=reason&key=__uncoded__&measure=net_open.
+    const uncodedNetOpen = netOpenByDocument(
+      cbs
+        .filter((r) => !r.reason_code_id && !isFactorChurnChargeback(r))
+        .map((r) => ({ item_num: r.item_num, amount_cents: r.amount_cents, cb_date: r.cb_date }))
+    );
+    const uncoded_net_open = {
+      gross_cents: uncodedNetOpen.gross_cents,
+      credit_cents: uncodedNetOpen.credit_cents,
+      offset_cents: uncodedNetOpen.offset_cents,
+      net_open_cents: uncodedNetOpen.net_open_cents,
+      doc_count: uncodedNetOpen.doc_count,
+      open_doc_count: uncodedNetOpen.open_doc_count,
+    };
+
     const cbTotal = resolved.reduce((a, r) => a + (r.excluded ? 0 : Math.max(0, r.amount_cents)), 0);
     const creditTotal = resolved.reduce((a, r) => a + (r.excluded ? 0 : Math.min(0, r.amount_cents)), 0);
     const totals = {
@@ -164,7 +184,7 @@ export default async function handler(req, res) {
       matched_count: cbs.filter((r) => r.customer_id || r.matched?.customer_id).length,
     };
 
-    return res.status(200).json({ totals, by_customer: byCustomer, by_customer_month: byCustomerMonth, by_month: byMonth, by_reason: byReason });
+    return res.status(200).json({ totals, uncoded_net_open, by_customer: byCustomer, by_customer_month: byCustomerMonth, by_month: byMonth, by_reason: byReason });
   } catch (e) {
     return res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

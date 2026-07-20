@@ -14,7 +14,7 @@
 //                month           → YYYY-MM
 //                reason          → reason code | __uncoded__ | __factor_churn__
 //   measure  = chargeback | creditback | excluded | net | count | matched |
-//              dilution | gross_sales                          (default: net)
+//              dilution | gross_sales | net_open               (default: net)
 //   limit    = max rows returned (default 500, max 1000)
 //
 // Reconciliation is EXACT: `sum_cents` / `count` are computed over ALL matching
@@ -23,6 +23,11 @@
 //
 //   measure=gross_sales → kind:'invoices' — the AR invoices in the dilution
 //     denominator for the group (each opens its source document → its JE).
+//   measure=net_open    → kind:'documents' — per-document netting (gross
+//     deductions − same-doc credits) for the group's non-churn rows; only
+//     still-net-positive docs are listed, largest first; `sum_cents` is the
+//     total net-open exposure (ties to dilution-summary uncoded_net_open when
+//     by=reason & key=__uncoded__).
 //   everything else      → kind:'chargebacks' — full worklist-shape rows.
 
 import { createClient } from "@supabase/supabase-js";
@@ -34,6 +39,7 @@ import {
   drillRowInGroup,
   drillRowInMeasure,
   drillMeasureCents,
+  netOpenByDocument,
 } from "../../../_lib/chargebackMatch.js";
 
 export const config = { maxDuration: 30 };
@@ -48,8 +54,9 @@ const MAX_LIMIT = 1000;
 const FULL_SELECT =
   "id, report_month, factor_customer_no, customer_name, client_customer, item_num, item_date, cb_date, batch, amount_cents, item_type, reason, reason_code, status, notes, customer_id, matched_ar_invoice_id, match_method, disposition, disposition_reason, owner, disposition_at, reason_code_id, updated_by, updated_at, matched:ar_invoices!matched_ar_invoice_id(id, invoice_number, invoice_date, total_amount_cents, customer_id), reason_ref:chargeback_reason_codes!reason_code_id(code, label, category)";
 // Minimal select used only to resolve group membership + reconciling sums.
+// item_num rides along for the measure=net_open per-document netting.
 const RESOLVE_SELECT =
-  "id, cb_date, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)";
+  "id, cb_date, item_num, customer_id, report_month, amount_cents, reason, reason_code, reason_code_id, matched:ar_invoices!matched_ar_invoice_id(customer_id)";
 
 function corsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -117,8 +124,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `by must be one of ${DRILL_FACETS.join(", ")}` });
   }
   const measure = (p.get("measure") || "net").trim();
-  if (!DRILL_MEASURES.includes(measure)) {
-    return res.status(400).json({ error: `measure must be one of ${DRILL_MEASURES.join(", ")}` });
+  if (measure !== "net_open" && !DRILL_MEASURES.includes(measure)) {
+    return res.status(400).json({ error: `measure must be one of ${[...DRILL_MEASURES, "net_open"].join(", ")}` });
   }
   const key = (p.get("key") || "").trim();
   const keyErr = validateKey(by, key);
@@ -133,10 +140,31 @@ export default async function handler(req, res) {
     const cbs = await fetchAll(admin, "factor_chargebacks", RESOLVE_SELECT);
     const reasonCodes = await fetchAll(admin, "chargeback_reason_codes", "id, code");
     const reasonById = new Map(reasonCodes.map((r) => [r.id, r]));
-    const resolved = cbs.map((r) => ({ ...resolveDrillRow(r, reasonById), cb_date: r.cb_date || null }));
+    const resolved = cbs.map((r) => ({ ...resolveDrillRow(r, reasonById), cb_date: r.cb_date || null, item_num: r.item_num ?? null }));
 
     if (measure === "gross_sales") {
       return await grossSalesDrill(admin, res, { by, key, resolved, limit });
+    }
+
+    if (measure === "net_open") {
+      // Per-document netting over the group's rows. Churn is skipped inside
+      // netOpenByDocument via the excluded flag, mirroring aggregateDilution.
+      const inGroup = resolved.filter((rr) => drillRowInGroup(rr, by, key));
+      const agg = netOpenByDocument(
+        inGroup.map((rr) => ({ item_num: rr.item_num, amount_cents: rr.amount, cb_date: rr.cb_date, excluded: rr.excluded }))
+      );
+      return res.status(200).json({
+        kind: "documents",
+        by, key, measure,
+        count: agg.open_doc_count,
+        sum_cents: agg.net_open_cents,
+        gross_cents: agg.gross_cents,
+        offset_cents: agg.offset_cents,
+        doc_count: agg.doc_count,
+        rows: agg.docs.slice(0, limit),
+        truncated: agg.open_doc_count > limit,
+        limit,
+      });
     }
 
     // Constituent rows: in the group AND contributing to the clicked measure.

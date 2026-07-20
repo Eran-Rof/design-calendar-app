@@ -244,3 +244,69 @@ export function drillMeasureCents(rr, measure) {
     default: return 0;
   }
 }
+
+// ── Net-open-by-document (#1848 true-exposure metric) ───────────────────────
+// PROVEN from PROD (2026-07-19): 69% of the "Un-coded" gross chargeback figure
+// was same-document chargeback/creditback churn — Rosenthal debits a document
+// and re-credits the identical document number later (e.g. doc 573164:
+// +$191,560 then −$191,560). Gross therefore overstates real exposure ~3×. The
+// number worth managing is NET OPEN BY DOCUMENT: per document, gross deductions
+// minus the credits posted against that same document, summed over documents
+// still net-positive.
+
+/**
+ * Pure net-open-by-document aggregation. Groups rows by their exact trimmed
+ * document number (`item_num` — no zero-stripping: "00000017565" and "17565"
+ * are DIFFERENT Rosenthal documents) and nets signed amounts within each.
+ *
+ * Rows flagged `excluded: true` (factor receivable churn — see
+ * isFactorChurnChargeback) are skipped entirely, mirroring aggregateDilution.
+ *
+ * @param {Array<{item_num?:string|null, amount_cents:number|string|null, cb_date?:string|null, excluded?:boolean}>} rows
+ * @returns {{
+ *   docs: Array<{doc:string, gross_cents:number, credit_cents:number, net_cents:number, count:number, first_date:string|null, last_date:string|null}>,
+ *   doc_count:number, open_doc_count:number,
+ *   gross_cents:number, credit_cents:number, offset_cents:number, net_open_cents:number,
+ * }}  `docs` holds only net-positive (still-open) documents, largest first.
+ *     gross = Σ positive amounts; credit = Σ negative amounts (signed);
+ *     offset = Σ per-doc min(gross, |credits|) — the part of gross already
+ *     cancelled by same-doc credits; net_open = Σ per-doc max(0, net).
+ *     Invariant: gross_cents === offset_cents + net_open_cents (credits are
+ *     never netted ACROSS documents — a credit only offsets its own doc).
+ */
+export function netOpenByDocument(rows) {
+  const byDoc = new Map();
+  for (const r of rows || []) {
+    if (r && r.excluded) continue;
+    const doc = String(r?.item_num ?? "").trim() || "(blank)";
+    let d = byDoc.get(doc);
+    if (!d) {
+      d = { doc, gross_cents: 0, credit_cents: 0, net_cents: 0, count: 0, first_date: null, last_date: null };
+      byDoc.set(doc, d);
+    }
+    const amt = Number(r?.amount_cents) || 0;
+    if (amt > 0) d.gross_cents += amt;
+    else if (amt < 0) d.credit_cents += amt;
+    d.net_cents += amt;
+    d.count += 1;
+    const dt = r?.cb_date ? String(r.cb_date) : null;
+    if (dt) {
+      if (!d.first_date || dt < d.first_date) d.first_date = dt;
+      if (!d.last_date || dt > d.last_date) d.last_date = dt;
+    }
+  }
+  let gross_cents = 0, credit_cents = 0, offset_cents = 0, net_open_cents = 0, open_doc_count = 0;
+  const open = [];
+  for (const d of byDoc.values()) {
+    gross_cents += d.gross_cents;
+    credit_cents += d.credit_cents;
+    offset_cents += Math.min(d.gross_cents, -d.credit_cents);
+    if (d.net_cents > 0) {
+      net_open_cents += d.net_cents;
+      open_doc_count += 1;
+      open.push(d);
+    }
+  }
+  open.sort((a, b) => b.net_cents - a.net_cents);
+  return { docs: open, doc_count: byDoc.size, open_doc_count, gross_cents, credit_cents, offset_cents, net_open_cents };
+}
