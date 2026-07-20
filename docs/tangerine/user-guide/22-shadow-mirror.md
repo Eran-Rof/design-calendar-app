@@ -213,6 +213,15 @@ The bridge's historical failure mode was **silence**: the 2026-07-07 audit found
    - the **Sync Health panel** — Tangerine → Admin → **Sync Health** (`?m=sync_health`), red/green per feed + xlsx export;
    - the **CLI** — `npm run sync-health` (add `--bad` to exit non-zero when anything is stale, for scripting).
 
+### 22.12.1 Weekends off — Mon–Fri schedules + weekend-aware staleness (2026-07-20)
+
+There are no weekend transactions to move the feeds, so every night Sat/Sun the numbers sit unchanged — and the daily monitor still fired a "drift"/stale email each weekend morning about data that simply hadn't changed. Two coordinated changes stop the noise **without** blinding the monitor on weekdays:
+
+1. **The REST/Xoro crons now run Mon–Fri only.** In `vercel.json` the day-of-week field is `1-5` for `xoro-feed-health-alert`, `inventory-onhand-check`, `xoro-mirror-nightly`, `ar-payload-ingest`, `xoro-ap-sync`, `ar-receipts-reconcile`, and `inventory-cost-backfill`; and the Windows **`RofXoroDailyFetch`** task (the 21:00 local fetch) is set to weekly Mon–Fri. (The `ap-paid-delta-watcher` and the high-frequency backfill/notify workers still run daily.)
+2. **`v_xoro_feed_health` staleness is now weekend-aware** (migration `20262700000000`). Instead of raw hours-since, it computes **`business_hours_since` = raw hours − 24h for each Saturday/Sunday spanned** and applies the same **30h** threshold to that. So a normal Friday-night → Monday-morning gap collapses to a few business-hours (**ok**), while a genuine weekday miss (e.g. a feed dead Tuesday, seen Wednesday) still exceeds 30h and **alerts**. Weekday sensitivity is unchanged; the panel/CLI now also show `business_hours_since` alongside the raw age.
+
+Net effect: no weekend emails, Monday mornings read green when everything is merely quiet, and a real break on any business day still screams the same as before.
+
 ---
 
 ## 22.13 App-wide error tracking + security hardening (2026-07-07)
