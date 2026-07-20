@@ -580,7 +580,7 @@ export default function ExecutionBatchDetail({
 
             {poResult.created.map((c, i) => (
               <div key={(c.po_id || "preview") + i} style={{ background: PAL.green + "22", color: PAL.green, padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{c.preview ? "[preview] " : "✓ "}{c.vendor_name || "—"} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO (draft)` : ""}</span>
+                <span>{c.preview ? "[preview] " : "✓ "}{c.vendor_name || "—"}{c.vendor_source === "build" ? " (from build)" : ""} · {c.line_count} line(s) · ${(c.total_cents / 100).toFixed(2)}{c.po_id ? ` · PO (draft)` : ""}</span>
                 {c.po_id && (
                   <a href={PO_PANEL_URL} target="_blank" rel="noreferrer" style={{ color: PAL.accent, textDecoration: "underline" }}>open in Procurement →</a>
                 )}

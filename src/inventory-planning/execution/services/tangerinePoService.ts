@@ -10,6 +10,10 @@ import { currentUserEmail } from "../../governance/services/permissionService";
 export interface TangerinePoCreated {
   vendor_id: string;
   vendor_name?: string | null;
+  // "build" when the PO vendor came from the planning build-stage selection
+  // (ip_planning_runs.build_vendor_id, #1857); "action" when it came from the
+  // buy action's planning-vendor link.
+  vendor_source?: "build" | "action";
   po_id?: string;
   po_status?: string;
   line_count: number;
