@@ -54,12 +54,13 @@ function checkAbort(signal: AbortSignal | undefined): void {
 }
 
 import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
-import { resolveCost, buildSiblingMap } from "../../shared/costResolution";
+import { buildSiblingMap } from "../../shared/costResolution";
 import {
   buildPoEachCostByBaseColor,
   buildPoEachCostByStyle,
-  poFallbackCostForRow,
+  cascadePlanningCostForItem,
   resolvePackSize,
+  type PlanningCostMaps,
   type PoCostRow,
 } from "../utils/poCostFallback";
 
@@ -1082,6 +1083,17 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // base-color tier — see poFallbackCostForRow — and still only fires after
   // the direct+sibling avg cascade comes up empty (the row map below).
   const poEachCostByStyle = buildPoEachCostByStyle(poCostRowsForFallback);
+  // ONE bundle of cascade inputs shared by BOTH row families below —
+  // regular forecast rows and TBD stock-buy rows resolve through the
+  // identical cascadePlanningCostForItem so they can never disagree.
+  const costMaps: PlanningCostMaps = {
+    avgCostMap: avgCostBySku,
+    siblingsBySku,
+    openPoCostsBySku: openPoCostsBySkuCode,
+    poEachCostByBaseColor,
+    poEachCostByStyle,
+    prepackUnitsPerPack,
+  };
 
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
@@ -1114,24 +1126,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // ATS Excel snapshot remains available via the `ats_avg_cost` row
     // field below as audit data even though it's no longer in the
     // cascade — operators can compare side-by-side.
-    const resolved = item?.sku_code
-      ? resolveCost(item.sku_code, {
-          avgCostMap: avgCostBySku,
-          siblingsBySku,
-          openPoCostsBySku: openPoCostsBySkuCode,
-        })
-      : { cost: null as number | null, source: "unknown" as const };
-    // FALLBACK ONLY: the direct-avg → sibling-avg cascade (resolveCost)
-    // wins whenever it produced a value. Only when it comes up empty do we
-    // fill from the grain-aware open-PO cost, re-grained to THIS row's pack
-    // size. Covers PPK styles whose PO sits on the pack sibling AND the
-    // plain-each case (packSize 1 on both sides → poUnitCost as-is).
-    let resolvedCost = resolved.cost;
-    if (resolvedCost == null && item?.sku_code) {
-      const rowPackSize = resolvePackSize(item.sku_code, item.pack_size ?? null, prepackUnitsPerPack);
-      const poFb = poFallbackCostForRow(item.sku_code, rowPackSize, poEachCostByBaseColor, poEachCostByStyle);
-      if (poFb != null) resolvedCost = poFb;
-    }
+    // The grain-aware open-PO fallback fires ONLY when the direct-avg →
+    // sibling-avg cascade comes up empty — a PO price never overrides an
+    // avg cost. Covers PPK styles whose PO sits on the pack sibling AND
+    // the plain-each case (packSize 1 on both sides → poUnitCost as-is).
+    const resolvedCost = cascadePlanningCostForItem(item, costMaps);
     // Period-specific Hist T3 (trailing quarter through this month's LY).
     const t3 = t3ForPeriod(f.customer_id, f.sku_id, f.period_start);
     // Always derive avail/shortage/excess from the rolling supply so that
@@ -1388,6 +1387,12 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const synOnHand = synSkuId ? (onHand.get(synSkuId) ?? 0) : 0;
     const synReceipts = synSkuId ? (receiptsBySkuPeriod.get(`${synSkuId}:${sp.period_start}`) ?? 0) : 0;
     const synHistRecv = synSkuId ? (historicalReceiptsBySkuPeriod.get(`${synSkuId}:${sp.period_start}`) ?? 0) : 0;
+    // Same cost cascade the forecast rows run (direct avg → sibling avg →
+    // open-PO, then the grain-aware PO fallback), keyed off the resolved
+    // real SKU. Previously TBD rows hard-coded `unit_cost ?? null` and a
+    // stock buy on any style without a typed cost showed a blank Unit
+    // Cost / Buy $ (bug: RYB0185PPK).
+    const synResolvedCost = cascadePlanningCostForItem(synSkuId ? itemById.get(synSkuId) : null, costMaps);
     // Synthetic (Supply Only) TBD line — always rendered; overlays
     // persisted qty/cost when supplyTbd exists.
     tbdGridRows.push({
@@ -1449,9 +1454,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       historical_margin_pct: null,
       item_cost: null,
       ats_avg_cost: null,
-      avg_cost: supplyTbd?.unit_cost ?? null,
-      unit_cost_override: null,
-      unit_cost: supplyTbd?.unit_cost ?? null,
+      // Forecast-row convention: avg_cost = the cascade result at the
+      // SKU's native grain; a planner-typed TBD cost rides
+      // unit_cost_override (display grain — the explode transform never
+      // re-divides an override) and wins in unit_cost.
+      avg_cost: synResolvedCost,
+      unit_cost_override: supplyTbd?.unit_cost ?? null,
+      unit_cost: supplyTbd?.unit_cost ?? synResolvedCost,
       planned_buy_qty: supplyTbd?.planned_buy_qty ?? null,
       on_hand_qty: synOnHand,
       on_so_qty: 0,
@@ -1478,6 +1487,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       const tOnHand = tSkuId ? (onHand.get(tSkuId) ?? 0) : 0;
       const tReceipts = tSkuId ? (receiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
       const tHistRecv = tSkuId ? (historicalReceiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
+      // Same cost cascade the forecast rows run — see synResolvedCost above.
+      const tResolvedCost = cascadePlanningCostForItem(tSkuId ? itemById.get(tSkuId) : null, costMaps);
       tbdGridRows.push({
         forecast_id: `tbd:${t.id}`,
         planning_run_id: run.id,
@@ -1524,9 +1535,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         ly_reference_qty: null,
         item_cost: null,
         ats_avg_cost: null,
-        avg_cost: t.unit_cost ?? null,
-        unit_cost_override: null,
-        unit_cost: t.unit_cost ?? null,
+        // Forecast-row convention (see the synthetic row above): cascade
+        // cost in avg_cost/unit_cost, planner-typed cost as the override.
+        avg_cost: tResolvedCost,
+        unit_cost_override: t.unit_cost ?? null,
+        unit_cost: t.unit_cost ?? tResolvedCost,
         planned_buy_qty: t.planned_buy_qty ?? null,
         on_hand_qty: tOnHand,
         on_so_qty: 0,
