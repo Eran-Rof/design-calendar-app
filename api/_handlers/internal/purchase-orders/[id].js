@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeHeader } from "./index.js";
 import { notifyVendor } from "../../../_lib/phase-notifications.js";
 import { seedProvisionalForPo } from "../../../_lib/pricing/provisionalPrices.js";
+import { resolveProductionManager } from "../../../_lib/internal-recipients.js";
 
 export const config = { maxDuration: 20 };
 
@@ -144,7 +145,17 @@ export default async function handler(req, res, params) {
         part_parent_id: p?.parent_part_id ?? null, part_size: p?.size ?? null };
     });
     const rollup = await computeLogisticsRollup(admin, lines || []);
-    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup });
+    // When this PO is awaiting production approval, tell the client who may act
+    // on it, so the Approve/Reject controls show only for the Production Manager
+    // (the server still enforces this on the decision itself).
+    let production_manager_emails;
+    if (po.requires_production_approval && po.production_approval_status === "pending") {
+      try {
+        const pm = await resolveProductionManager(admin);
+        production_manager_emails = pm.emails || [];
+      } catch { production_manager_emails = []; }
+    }
+    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup, production_manager_emails });
   }
 
   if (req.method === "DELETE") {
@@ -158,6 +169,64 @@ export default async function handler(req, res, params) {
     let body = req.body;
     if (typeof body === "string") { try { body = JSON.parse(body); } catch { return res.status(400).json({ error: "Invalid JSON" }); } }
     body = body || {};
+
+    // ── Production-Manager approval decision (approve / reject) ──────────────
+    // Folded into PATCH as a dedicated verb so it needs no separate route.
+    // Authorized to the resolved Production Manager (by caller email), which is
+    // independent of general PO-edit access.
+    if (body.production_decision === "approve" || body.production_decision === "reject") {
+      const decision = body.production_decision;
+      if (!po.requires_production_approval) {
+        return res.status(409).json({ error: "This purchase order does not require production approval." });
+      }
+      if (po.production_approval_status !== "pending") {
+        return res.status(409).json({ error: `This purchase order is already ${po.production_approval_status}.` });
+      }
+      const note = (body.production_note || "").toString().trim();
+      if (decision === "reject" && !note) {
+        return res.status(400).json({ error: "A reason is required to reject a purchase order." });
+      }
+      const caller = (req.headers["x-user-email"] || "").toString().trim().toLowerCase();
+      const pm = await resolveProductionManager(admin);
+      const pmEmails = (pm.emails || []).map((e) => e.toLowerCase());
+      // Fail-open ONLY when no Production Manager is configured (so a mis-set
+      // title can't permanently brick issuing); otherwise the caller must be it.
+      if (pmEmails.length > 0 && (!caller || !pmEmails.includes(caller))) {
+        return res.status(403).json({ error: "Only the Production Manager can approve or reject this purchase order." });
+      }
+      const nowIso = new Date().toISOString();
+      const { data: decided, error: dErr } = await admin.from("purchase_orders").update({
+        production_approval_status: decision === "approve" ? "approved" : "rejected",
+        production_approval_by: caller || null,
+        production_approval_at: nowIso,
+        production_approval_note: note || null,
+      }).eq("id", id).select("*").single();
+      if (dErr) return res.status(500).json({ error: dErr.message });
+
+      // Notify the planner who pushed the PO of the outcome (best-effort).
+      if (po.production_requested_by) {
+        const origin = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : null);
+        const label = decided.po_number || `draft ${String(id).slice(0, 8)}`;
+        try {
+          await fetch(`${origin}/api/send-notification`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event_type: `po_production_${decision === "approve" ? "approved" : "rejected"}`,
+              title: `Purchase order ${label} ${decision === "approve" ? "approved" : "rejected"}`,
+              body: decision === "approve"
+                ? `Your planning purchase order ${label} was approved by the Production Manager and can now be issued.`
+                : `Your planning purchase order ${label} was rejected by the Production Manager. Reason: ${note}`,
+              link: "/tangerine?m=purchase_orders",
+              metadata: { po_id: id, po_number: decided.po_number || null, decision },
+              recipient: { email: po.production_requested_by },
+              email: true,
+              dedupe_key: `po_production_${decision}_${id}`,
+            }),
+          });
+        } catch { /* non-blocking */ }
+      }
+      return res.status(200).json(decided);
+    }
 
     const patch = {};
     const nz = (k) => (body[k] && UUID_RE.test(String(body[k])) ? body[k] : null);
@@ -187,6 +256,16 @@ export default async function handler(req, res, params) {
       // real, GL'd receipt. (in_transit stays a manual logistics flag.)
       if (body.status === "received" && po.status !== "received") {
         return res.status(409).json({ error: "Mark a PO received by posting a goods receipt in Receiving — not by a manual status change." });
+      }
+      // Planning-pushed POs can't be issued until the Production Manager signs
+      // off (see the buy-plan-to-po push + the production_decision branch above).
+      if (body.status === "issued" && po.status === "draft"
+          && po.requires_production_approval && po.production_approval_status !== "approved") {
+        return res.status(409).json({
+          error: po.production_approval_status === "rejected"
+            ? "This planning purchase order was rejected by the Production Manager and can't be issued — revisit it in the planning buy plan."
+            : "This planning purchase order needs Production Manager approval before it can be issued.",
+        });
       }
       patch.status = body.status;
       // Assign the immutable PO number when first issued (po_number is immutable once set).

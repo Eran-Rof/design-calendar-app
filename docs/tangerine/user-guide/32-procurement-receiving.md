@@ -62,6 +62,8 @@ P13 moves purchasing **into** Tangerine so Xoro's PO side can eventually be reti
 ## 32.1 Purchase Orders (recap)
 Create a PO (vendor, dates, lines with style/qty/unit cost), then **Issue** it — issuing assigns the immutable `PO-YYYY-NNNNN` number and records an **open commitment** per line (visible to the future Open-Commitments report). Status flow: draft → issued → in_transit → received → cancelled. **A PO reaches `received` only when a goods receipt is posted here in Receiving** (it bumps each line's `qty_received`, flips fully-received lines to `received`, and sets the header to `received` when everything's in, `in_transit` on a partial) — there is no manual "mark received". An issued PO can also be revised in place via the PO modal's **✎ Edit** (which notifies the vendor portal when connected) instead of cancel-and-recreate — see [chapter 28 §28.5](28-purchase-orders-and-size-matrix.md).
 
+> **Planning-pushed POs need Production Manager sign-off before Issue.** A PO created from an Inventory-Planning buy plan is marked *Awaiting production approval*; its **Issue** button stays disabled until the Production Manager **Approve**s it (Approve/Reject live in the PO footer, visible only to the Production Manager). Filter the list with **⏳ Pending production approval** to see what's waiting. Full details in [chapter 33 §33.11](33-inventory-planning-to-tangerine-po.md). Manually-created POs are unaffected.
+
 ## 32.2 Receiving (`Procurement → 📥 Receiving`)
 Records goods arriving against an **issued / in-transit** PO.
 1. **+ New receipt** → pick the PO. Its lines load with received = accepted = ordered qty (edit as needed); enter **rejected** qty for anything you won't stock.

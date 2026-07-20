@@ -28,6 +28,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { checkPermission } from "../../../_lib/ip-permissions.js";
 import { planBuyPlanPos, matchTangerineVendor } from "../../../_lib/buyPlanToPo.js";
+import { notifyProductionManager } from "../../../_lib/notifyProductionManager.js";
 
 export const config = { maxDuration: 30 };
 
@@ -80,6 +81,11 @@ export default async function handler(req, res) {
   const batchId = body.batch_id;
   const dryRun = body.dry_run === true || body.dry_run === "1";
   if (!batchId) return res.status(400).json({ error: "batch_id required" });
+
+  // The planner who is pushing — recorded on each PO so the approve/reject
+  // outcome can be routed back to them. Trusted from the header the same way
+  // the planning permission check reads it (checkPermission above).
+  const pusherEmail = (req.headers["x-user-email"] || "").toString().trim() || null;
 
   // ── Batch + actions ─────────────────────────────────────────────────────
   const { data: batch } = await admin.from("ip_execution_batches").select("id, batch_name, status").eq("id", batchId).maybeSingle();
@@ -156,6 +162,12 @@ export default async function handler(req, res) {
       entity_id: entity.id, vendor_id: vendorId, order_date: today, expected_date: expected,
       status: "draft", currency: "USD", subtotal_cents: subtotal, total_cents: subtotal,
       notes: `From planning buy plan "${batch.batch_name}" (${batch.id})`,
+      // Planning-pushed PO → needs Production Manager sign-off before it can be
+      // issued (gated in purchase-orders/[id].js). Manually-created POs default
+      // requires_production_approval=false and are unaffected.
+      requires_production_approval: true,
+      production_approval_status: "pending",
+      production_requested_by: pusherEmail,
     }).select("id, status").single();
     if (hErr) { return res.status(500).json({ error: `PO header insert failed for vendor ${vendorId}: ${hErr.message}`, created, skipped }); }
 
@@ -174,8 +186,26 @@ export default async function handler(req, res) {
     created.push({ vendor_id: vendorId, vendor_name: g.vendor_name, po_id: header.id, po_status: header.status, line_count: lineRows.length, total_cents: subtotal, expected_date: expected });
   }
 
+  // ── Notify the Production Manager: these drafts need sign-off before issue ─
+  // Best-effort; never fails the push. One summary notification per push,
+  // deep-linked to the pending-approval worklist.
+  let production_manager_notified = null;
+  const madePos = created.filter((c) => c.po_id);
+  if (!dryRun && madePos.length > 0) {
+    const origin = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : null);
+    const n = madePos.length;
+    production_manager_notified = await notifyProductionManager(admin, origin, {
+      event_type: "po_production_approval_requested",
+      title: `${n} purchase order${n === 1 ? "" : "s"} need${n === 1 ? "s" : ""} your approval`,
+      body: `${n} draft purchase order${n === 1 ? "" : "s"} from the planning buy plan "${batch.batch_name}" ${n === 1 ? "is" : "are"} waiting for Production Manager approval before ${n === 1 ? "it" : "they"} can be issued. Review in Tangerine → Procurement → Purchase Orders.`,
+      link: "/tangerine?m=purchase_orders&approval=pending",
+      metadata: { batch_id: batch.id, batch_name: batch.batch_name, po_ids: madePos.map((c) => c.po_id) },
+      dedupe_key: `po_production_approval_${batch.id}`,
+    });
+  }
+
   return res.status(dryRun ? 200 : 201).json({
-    dry_run: dryRun, created, skipped, warnings, vendor_suggestions, diagnostics,
+    dry_run: dryRun, created, skipped, warnings, vendor_suggestions, diagnostics, production_manager_notified,
     message: dryRun
       ? `Preview: ${created.length} draft PO(s) across ${created.length} vendor(s), ${skipped.length} action(s) skipped.`
       : `Created ${created.length} draft Tangerine PO(s); review + issue them in Procurement → Purchase Orders. ${skipped.length} action(s) skipped.`,

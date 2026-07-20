@@ -41,7 +41,8 @@ const PO_HEADER_COLS =
   "ship_to_location_id, bill_to_entity_id, ship_method, freight_forwarder, season, channel_id, department_category_id, sales_order_id";
 const SELECT_COLS =
   "id, entity_id, brand_id, vendor_id, po_number, order_date, expected_date, status, " +
-  "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " + PO_HEADER_COLS;
+  "currency, payment_terms_id, notes, subtotal_cents, total_cents, created_at, updated_at, " +
+  "requires_production_approval, production_approval_status, " + PO_HEADER_COLS;
 
 // Enum guards mirror the CHECK constraints in 20260863000000 / 20260954000000.
 const PO_TYPES = ["stock", "replenishment", "made_to_order", "sample", "drop_ship", "manufacturing_part"];
