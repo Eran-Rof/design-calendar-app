@@ -9,6 +9,7 @@ import {
   resolvePackSize,
   buildPoEachCostByBaseColor,
   buildPoEachCostByStyle,
+  cascadePlanningCostForItem,
   poFallbackCostForRow,
   resolvePlanningRowCost,
   type PoCostRow,
@@ -235,5 +236,89 @@ describe("resolvePlanningRowCost — precedence", () => {
   });
   it("returns null when both are empty", () => {
     expect(resolvePlanningRowCost(null, null)).toBeNull();
+  });
+});
+
+
+// ── cascadePlanningCostForItem — the ONE cascade both row families use ──
+// Models the RYB0185PPK bug: a planner-added TBD stock-buy row on a PPK
+// style whose Charcoal colorway has NO direct avg cost must still resolve
+// via (a) a sibling color avg, else (b) its own open-PO line, exactly like
+// the equivalent forecast row would.
+describe("cascadePlanningCostForItem", () => {
+  const packMap = new Map<string, number>([["ryb0185ppk", 24]]);
+  const emptyMaps = {
+    avgCostMap: new Map<string, number>(),
+    siblingsBySku: new Map<string, string[]>(),
+    openPoCostsBySku: new Map<string, number[]>(),
+    poEachCostByBaseColor: new Map<string, number>(),
+    poEachCostByStyle: new Map<string, number>(),
+    prepackUnitsPerPack: packMap,
+  };
+
+  it("null item / missing sku_code resolves null", () => {
+    expect(cascadePlanningCostForItem(null, emptyMaps)).toBeNull();
+    expect(cascadePlanningCostForItem({ sku_code: null, pack_size: 1 }, emptyMaps)).toBeNull();
+  });
+
+  it("direct avg wins", () => {
+    const maps = { ...emptyMaps, avgCostMap: new Map([["RYB0185PPK-CHARCOAL", 121.2]]) };
+    expect(cascadePlanningCostForItem({ sku_code: "RYB0185PPK-CHARCOAL", pack_size: 1 }, maps)).toBeCloseTo(121.2, 6);
+  });
+
+  it("sibling color avg fills when the row's own sku has no avg (RYB0185PPK-CHARCOAL)", () => {
+    const maps = {
+      ...emptyMaps,
+      avgCostMap: new Map([["RYB0185PPK-TONALBLACKCAMO", 121.2]]),
+      siblingsBySku: new Map([
+        ["RYB0185PPK-CHARCOAL", ["RYB0185PPK-CHARCOAL", "RYB0185PPK-TONALBLACKCAMO"]],
+      ]),
+    };
+    expect(cascadePlanningCostForItem({ sku_code: "RYB0185PPK-CHARCOAL", pack_size: 1 }, maps)).toBeCloseTo(121.2, 6);
+  });
+
+  it("open-PO grain-aware fallback fires when the whole avg cascade is empty", () => {
+    // PO on the pack sku at $117.36/pack; item-master pack_size is WRONG (1)
+    // but the active prepack matrix (24) wins via resolvePackSize, so the
+    // pack-grain row re-grains to the full pack price.
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0185PPK-CHARCOAL", unit_cost: 117.36, qty_open: 163, pack_size: 24 },
+    ];
+    const maps = {
+      ...emptyMaps,
+      poEachCostByBaseColor: buildPoEachCostByBaseColor(pos),
+      poEachCostByStyle: buildPoEachCostByStyle(pos),
+    };
+    expect(cascadePlanningCostForItem({ sku_code: "RYB0185PPK-CHARCOAL", pack_size: 1 }, maps)).toBeCloseTo(117.36, 6);
+  });
+
+  it("avg cascade beats the PO fallback (precedence preserved)", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0185PPK-CHARCOAL", unit_cost: 117.36, qty_open: 163, pack_size: 24 },
+    ];
+    const maps = {
+      ...emptyMaps,
+      avgCostMap: new Map([["RYB0185PPK-TONALBLACKCAMO", 121.2]]),
+      siblingsBySku: new Map([
+        ["RYB0185PPK-CHARCOAL", ["RYB0185PPK-CHARCOAL", "RYB0185PPK-TONALBLACKCAMO"]],
+      ]),
+      poEachCostByBaseColor: buildPoEachCostByBaseColor(pos),
+      poEachCostByStyle: buildPoEachCostByStyle(pos),
+    };
+    expect(cascadePlanningCostForItem({ sku_code: "RYB0185PPK-CHARCOAL", pack_size: 1 }, maps)).toBeCloseTo(121.2, 6);
+  });
+
+  it("each-grain sibling row of a PPK style gets the per-each PO price", () => {
+    const pos: PoCostRow[] = [
+      { sku_code: "RYB0185PPK-CHARCOAL", unit_cost: 117.36, qty_open: 163, pack_size: 24 },
+    ];
+    const maps = {
+      ...emptyMaps,
+      poEachCostByBaseColor: buildPoEachCostByBaseColor(pos),
+      poEachCostByStyle: buildPoEachCostByStyle(pos),
+    };
+    // Base garment row (RYB0185-CHARCOAL, pack 1, style not in the matrix)
+    // reads the per-each price: 117.36 / 24 = 4.89.
+    expect(cascadePlanningCostForItem({ sku_code: "RYB0185-CHARCOAL", pack_size: 1 }, maps)).toBeCloseTo(4.89, 6);
   });
 });
