@@ -669,6 +669,8 @@ Full-row click opens the chargeback with its matched invoice. The **matched invo
 
 Re-importing a month **never** overwrites match, disposition, reason-code, owner or notes.
 
+**2025 bulk sign-off (07/20/2026).** With accounting — including the factor accounts — fully reconciled through 2025, every still-open chargeback dated before 01/01/2026 was bulk-dispositioned **Valid** by CEO directive (5,566 rows, net −$594,530.51; actor `system:bulk-2025-signoff`, each row's history note records the directive). The Worklist's *Open* filter therefore shows only 2026 activity going forward. The run script is `scripts/backfills/chargeback_bulk_valid_pre2026.sql`; it only touches rows still at *Open*, so operator decisions are never overwritten.
+
 ### Dilution tab
 
 Table-first analytics (no chart libraries). Sign convention: **positive = a chargeback deduction the customer took; negative = a creditback / recovery / reversal.** "Dilution %" = **gross chargeback deductions ÷ gross sales** (the standard chargeback rate); gross sales come from `ar_invoices` (`v_chargeback_gross_sales`). The chargeback's customer is resolved as `COALESCE(factor_chargebacks.customer_id, matched invoice's customer_id)` so the deliberately-unlinked **Macys Corporate 577512** rows still roll up via their matched invoices.
