@@ -103,6 +103,8 @@ type PO = {
   // In-transit OVERLAY (po_shipments) — a separate dimension from `status`; a PO
   // can be "issued · in transit" or "partially received · in transit".
   in_transit?: boolean; transit_eta?: string | null; transit_shipments?: number;
+  // Production-Manager approval (planning-pushed POs).
+  requires_production_approval?: boolean; production_approval_status?: string | null;
 };
 type DQFinding = {
   po_id: string; po_number: string; defect_class: string; severity: "error" | "warn";
@@ -208,6 +210,9 @@ export default function InternalPurchaseOrders() {
   // Scorecard drill-through: ?vendor=<id> seeds the vendor filter on mount so a
   // click from the Vendor Scorecard lands here pre-filtered to that vendor.
   const [vendorFilter, setVendorFilter] = useState(() => readDrillParam("vendor"));
+  // Pending-production-approval worklist: the PM's notification deep-links here
+  // with ?approval=pending, and a toolbar toggle drives it thereafter.
+  const [approvalFilter, setApprovalFilter] = useState<boolean>(() => readDrillParam("approval") === "pending");
   // Optional style scope (deep-link ?style=<style_code>): when set, the Avg cost
   // + Sell price columns count only that style's lines (whole-PO otherwise).
   const [styleScope] = useState(() => readDrillParam("style"));
@@ -253,9 +258,10 @@ export default function InternalPurchaseOrders() {
   // Apply the date-range window client-side on the selected date field. A row
   // with no value on that field is dropped while a bound is set (can't place it).
   const filteredRows = useMemo(() => {
-    if (!dateFrom && !dateTo && !inTransitOnly) return rows;
+    if (!dateFrom && !dateTo && !inTransitOnly && !approvalFilter) return rows;
     return rows.filter((po) => {
       if (inTransitOnly && !po.in_transit) return false; // in-transit overlay is a client-side filter (not a status)
+      if (approvalFilter && !(po.requires_production_approval && po.production_approval_status === "pending")) return false;
       if (dateFrom || dateTo) {
         const v = (po[dateField] || "") as string;
         if (!v) return false;
@@ -265,7 +271,7 @@ export default function InternalPurchaseOrders() {
       }
       return true;
     });
-  }, [rows, dateField, dateFrom, dateTo, inTransitOnly]);
+  }, [rows, dateField, dateFrom, dateTo, inTransitOnly, approvalFilter]);
 
   // Universal per-column sort (tri-state asc → desc → off, persisted). Computed
   // columns (vendor name, margin) read through accessors; the rest map 1:1.
@@ -380,13 +386,13 @@ export default function InternalPurchaseOrders() {
     } catch (e) { if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : String(e)); }
     finally { if (seq === loadSeqRef.current) setLoading(false); }
   }
-  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo || inTransitOnly);
-  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); setInTransitOnly(false); }
+  const anyFilter = !!(statusFilters.length || vendorFilter || search.trim() || dateFrom || dateTo || inTransitOnly || approvalFilter);
+  function clearFilters() { setStatusFilters([]); setVendorFilter(""); setSearch(""); setDateFrom(""); setDateTo(""); setInTransitOnly(false); setApprovalFilter(false); }
   // Consume one-shot drill params (?q=/?vendor=/?style=) AFTER the useState
   // initializers above seeded from them, so leaving and returning to this panel
   // starts unfiltered instead of silently re-applying a stale search that can
   // hide the whole PO list. Runs once on mount.
-  useEffect(() => { consumeDrillParams(["q", "vendor", "style"]); }, []);
+  useEffect(() => { consumeDrillParams(["q", "vendor", "style", "approval"]); }, []);
   useEffect(() => { void load(); /* eslint-disable-next-line */ }, [statusFilters.join(","), vendorFilter, searchDebounced]);
   useEffect(() => {
     fetch("/api/internal/vendor-master?limit=1000").then((r) => r.json())
@@ -480,6 +486,10 @@ export default function InternalPurchaseOrders() {
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: inTransitOnly ? C.warn : C.textSub, cursor: "pointer", whiteSpace: "nowrap" }} title="Show only POs with an active shipment in transit">
           <input type="checkbox" checked={inTransitOnly} onChange={(e) => setInTransitOnly(e.target.checked)} style={{ accentColor: C.warn, cursor: "pointer", width: 13, height: 13 }} />
           ✈ In transit only
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: approvalFilter ? C.warn : C.textSub, cursor: "pointer", whiteSpace: "nowrap" }} title="Show only planning-pushed POs awaiting Production Manager approval">
+          <input type="checkbox" checked={approvalFilter} onChange={(e) => setApprovalFilter(e.target.checked)} style={{ accentColor: C.warn, cursor: "pointer", width: 13, height: 13 }} />
+          ⏳ Pending production approval
         </label>
         <div style={{ width: 240 }}>
           <SearchableSelect value={vendorFilter || null} onChange={(v) => setVendorFilter(v)}
@@ -1546,6 +1556,15 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [shipmentsOpen, setShipmentsOpen] = useState(false);
+  // Production-Manager approval state for planning-pushed POs (loaded with the
+  // detail below). pmEmails lets us show Approve/Reject only to the PM.
+  const [approval, setApproval] = useState<{
+    requires: boolean; status: string | null; requested_by: string | null;
+    note: string | null; by: string | null; at: string | null; pmEmails: string[];
+  } | null>(null);
+  const currentUserEmail = ((): string => {
+    try { return (JSON.parse(sessionStorage.getItem("plm_user") || "null")?.email || "").toLowerCase(); } catch { return ""; }
+  })();
 
   // Manufacturing-part PO (po_type='manufacturing_part'): lines pick PARTS, not
   // style SKUs. A non-matrix part uses a single qty; a matrix (by-size) part
@@ -1619,10 +1638,19 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   // endpoint decorates lines with style_code/color/size they regroup into
   // per-style matrices; otherwise they seed as flat lines (still editable).
   useEffect(() => {
-    if (isNew || !po) { setSeed(null); setRawLines([]); return; }
+    if (isNew || !po) { setSeed(null); setRawLines([]); setApproval(null); return; }
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full) return;
       setRawLines(Array.isArray(full.lines) ? (full.lines as PoReceiptLine[]) : []);
+      setApproval({
+        requires: !!full.requires_production_approval,
+        status: full.production_approval_status || null,
+        requested_by: full.production_requested_by || null,
+        note: full.production_approval_note || null,
+        by: full.production_approval_by || null,
+        at: full.production_approval_at || null,
+        pmEmails: Array.isArray(full.production_manager_emails) ? full.production_manager_emails : [],
+      });
       // Populate the rich-header state from the full PO record + the rollup.
       setPoType(full.po_type || ""); setCustomerId(full.customer_id || "");
       // Manufacturing-part PO → seed the part-line grid. Per-size CHILD lines
@@ -1956,6 +1984,43 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setSubmitting(false); }
   }
+
+  // Production-Manager approve / reject for a planning-pushed PO. Sends the
+  // caller's email so the server can authorize the decision (only the PM may
+  // decide). Reject requires a reason (the pusher is notified of the outcome).
+  async function decideProduction(decision: "approve" | "reject") {
+    if (!po) return;
+    let note = "";
+    if (decision === "reject") {
+      const reason = await promptDialog(
+        "Reason for rejecting this purchase order (the planner who pushed it is notified):",
+        { title: "Reject purchase order", confirmText: "Reject" },
+      );
+      if (reason == null) return;
+      note = reason.trim();
+      if (!note) { notify("A reason is required to reject.", "error"); return; }
+    } else if (!(await confirmDialog(
+      "Approve this purchase order so it can be issued?",
+      { title: "Approve purchase order", confirmText: "Approve" },
+    ))) return;
+    setSubmitting(true); setErr(null);
+    try {
+      const r = await fetch(`/api/internal/purchase-orders/${po.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-user-email": currentUserEmail },
+        body: JSON.stringify({ production_decision: decision, production_note: note }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      notify(decision === "approve" ? "Purchase order approved — it can now be issued." : "Purchase order rejected.", "success");
+      onSaved();
+    } catch (e) { notify(`Could not ${decision}: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+    finally { setSubmitting(false); }
+  }
+
+  // Derived approval flags used by the footer.
+  const pendingApproval = !!approval && approval.requires && approval.status === "pending";
+  const approvalBlocksIssue = !!approval && approval.requires && approval.status !== "approved";
+  const isProductionManager = !!approval && approval.pmEmails.some((e) => e.toLowerCase() === currentUserEmail) && !!currentUserEmail;
 
   // Cancel a live PO — moves to 'cancelled' (kept for history) and releases its
   // open-PO commitments (server-side). Reversible via Reinstate below.
@@ -2369,9 +2434,34 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             )}
           </span>
 
+          {/* Production-Manager approval (planning-pushed POs). Status chip +,
+              for the Production Manager, Approve / Reject. The Issue button below
+              is blocked until this is approved. */}
+          {approval?.requires && po?.status === "draft" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, alignSelf: "center" }}>
+              <span
+                title={approval.status === "rejected" && approval.note
+                  ? `Rejected: ${approval.note}`
+                  : (approval.status === "approved" && approval.by ? `Approved by ${approval.by}` : "Created from a planning buy plan — needs Production Manager sign-off before it can be issued")}
+                style={{ fontSize: 12, fontWeight: 600, padding: "4px 9px", borderRadius: 8, border: "1px solid",
+                  ...(approval.status === "approved" ? { color: C.success, borderColor: "#065f46" }
+                    : approval.status === "rejected" ? { color: C.danger, borderColor: "#7f1d1d" }
+                    : { color: C.warn, borderColor: "#92400e" }) }}
+              >
+                {approval.status === "approved" ? "✓ Production approved" : approval.status === "rejected" ? "✕ Production rejected" : "⏳ Awaiting production approval"}
+              </span>
+              {pendingApproval && isProductionManager && (
+                <>
+                  <button onClick={() => void decideProduction("approve")} style={{ ...btnSecondary, color: C.success, borderColor: "#065f46" }} disabled={submitting}>Approve</button>
+                  <button onClick={() => void decideProduction("reject")} style={{ ...btnSecondary, color: C.danger, borderColor: "#7f1d1d" }} disabled={submitting}>Reject</button>
+                </>
+              )}
+            </span>
+          )}
+
           {/* Draft / new — the original save + issue flow. */}
           {(isNew || po?.status === "draft") && <button onClick={() => void saveDraft()} style={btnSecondary} disabled={submitting}>{submitting ? "Saving…" : "Save draft"}</button>}
-          {(isNew || po?.status === "draft") && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting}>{submitting ? "…" : "Issue"}</button>}
+          {(isNew || po?.status === "draft") && <button onClick={() => void transition("issued")} style={btnPrimary} disabled={submitting || approvalBlocksIssue} title={approvalBlocksIssue ? (approval?.status === "rejected" ? "Rejected by the Production Manager — this PO can't be issued." : "Needs Production Manager approval before it can be issued.") : undefined}>{submitting ? "…" : "Issue"}</button>}
 
           {/* Saved PO, not editing — ✎ Edit unlocks a full revision + status moves. */}
           {isRevisable && !editMode && <button onClick={() => setEditMode(true)} style={btnPrimary} disabled={submitting}>✎ Edit</button>}

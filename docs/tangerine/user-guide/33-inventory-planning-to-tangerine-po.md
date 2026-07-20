@@ -156,6 +156,22 @@ Notes:
 - This is the same action as the Scenario screen's **Push planner buys → plan**; it's exposed on the main workbench so a live run doesn't have to be routed through a scenario.
 - Prefer the **middle ground?** If you still want reconciliation to run but *not* to stack extra buys on top of what you planned, leave this alone and instead tick **"Count planned wholesale buys as inbound supply"** on the Supply screen before reconciling — your typed buys then count as incoming supply, so the recommended top-up shrinks toward zero.
 
+## 33.11 Production Manager approval before a planning PO is issued
+
+Every purchase order **pushed from a planning buy plan** (§33.1–33.3) is created as a **draft that needs Production Manager sign-off before it can be issued**. Manually-created procurement POs are unaffected.
+
+**What happens on push.** When you create the draft POs, each one is marked *Awaiting production approval*, and the **Production Manager is notified** (in-app bell + email) that POs are waiting. The Production Manager is resolved automatically as the **active employee whose title is "Production Manager"** (with an email fallback — see below). The notification deep-links to the pending worklist.
+
+**Approving / rejecting.** The Production Manager opens the PO (Procurement → Purchase Orders) and uses the **Approve** / **Reject** buttons in the PO footer. These buttons appear **only for the Production Manager**.
+- **Approve** → the PO can now be **Issue**d normally (PO number, commitments, vendor notification).
+- **Reject** → requires a **reason**; the PO can't be issued, and the planner who pushed it is notified with the reason so they can revisit the buy plan.
+
+Until then, the **Issue** button on a pushed PO is **disabled** with a tooltip explaining it's awaiting approval.
+
+**Finding what's waiting.** On the Purchase Orders list, tick **⏳ Pending production approval** to filter to just the pushed POs that still need sign-off. (The Production Manager's notification links here directly.)
+
+**Configuring the Production Manager.** Set an **active employee's title to "Production Manager"** (Master Data → Employees). Link that employee to a PLM login (their employee record) to get the **in-app** bell as well as email. If no employee carries that title, the alert falls back to the **procurement** notification recipients (env `INTERNAL_PROCUREMENT_EMAILS` / the Procurement notification category). If *no* Production Manager is configured at all, approval isn't enforced (so a mis-set title can't permanently block issuing) — configure one to turn the gate on.
+
 ---
 
 *M31 now connects planning to Tangerine in both directions — buy-plan → PO (A) and Tangerine supply → planning (B) — and both are opt-in choices alongside the existing Xoro paths.*
