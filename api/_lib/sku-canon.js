@@ -14,7 +14,9 @@
 // digit-prefixed XL family (-2XL/-3XLG/etc., generalized as [0-9]*X+LG?),
 // one-size markers (-OS/-OSFA/-O/S), prepack suffixes (-PPK18, -PPK_24),
 // and parenthesized ranges (-L(14-16) etc.).
-const SIZE_SUFFIX_RE =
+// Exported so the server-side planning-cost fallback (api/_lib/poCostFallback.js)
+// can strip the size suffix with the exact same regex the browser mirror uses.
+export const SIZE_SUFFIX_RE =
   /-(XS|XSM|S|SM|M|MD|L|LG|[0-9]*X+LG?|SML|MED|LRG|OS|OSFA|O\/S|PPK[\s_-]*\d+|[0-9]+|[A-Z]+\([0-9X\-]+\))$/;
 
 // Strip whitespace + uppercase. Used for hash-key matching (sku_code in DB).

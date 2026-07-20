@@ -43,6 +43,7 @@ const SKIP_LABEL: Record<string, string> = {
   no_vendor: "no vendor on action",
   vendor_missing: "vendor not in planning master",
   vendor_unlinked: "vendor not linked to Tangerine",
+  no_cost_signal: "no resolvable cost (skipped, not pushed at $0)",
 };
 import { validateActions, hasBlockingErrors } from "../utils/validation";
 import { S, PAL, formatQty, formatDate } from "../../components/styles";

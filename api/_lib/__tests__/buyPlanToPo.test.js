@@ -5,6 +5,11 @@ import {
   matchTangerineVendor,
   SKIP_CODES,
 } from "../buyPlanToPo.js";
+import {
+  buildPoEachCostByBaseColor,
+  buildPoEachCostByStyle,
+  resolvePackSize,
+} from "../poCostFallback.js";
 
 const VM_LINKED = { id: "vm1", vendor_code: "ACME", name: "Acme Mfg", portal_vendor_id: "tv1" };
 const VM_UNLINKED = { id: "vm2", vendor_code: "BETA", name: "Beta Co", portal_vendor_id: null };
@@ -34,6 +39,14 @@ describe("resolveUnitCostCents", () => {
   });
   it("returns 0/none when nothing is available", () => {
     expect(resolveUnitCostCents({ unit_cost: 0 }, null)).toEqual({ cents: 0, source: "none" });
+  });
+  it("falls back to sibling_avg after standard_price", () => {
+    expect(resolveUnitCostCents({ unit_cost: 0 }, null, { siblingAvgDollars: 3, poFallbackDollars: 9 }))
+      .toEqual({ cents: 300, source: "sibling_avg" });
+  });
+  it("falls back to po_fallback last, before $0", () => {
+    expect(resolveUnitCostCents({ unit_cost: 0 }, null, { poFallbackDollars: 9 }))
+      .toEqual({ cents: 900, source: "po_fallback" });
   });
 });
 
@@ -99,12 +112,15 @@ describe("planBuyPlanPos idempotency + cost fallback", () => {
     expect(skipped).toHaveLength(0);
     expect(byVendor.get("tv1").lines).toHaveLength(1);
   });
-  it("warns (does not skip) on a $0 line when no cost source resolves", () => {
+  it("hard-blocks a $0 line (no cost source resolves) with a coded skip", () => {
     const actions = [action({ sku_id: "sku2" })];
     const avg = new Map(); // no avg cost for sku2
-    const { byVendor, warnings } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), avgBySku: avg });
-    expect(byVendor.get("tv1").lines[0].unit_cost_cents).toBe(0);
-    expect(warnings).toHaveLength(1);
+    const { byVendor, skipped, warnings, diagnostics } = planBuyPlanPos({ actions, vmById: vmMap(), imById: imMap(), avgBySku: avg });
+    expect(byVendor.size).toBe(0); // line NOT created at $0
+    expect(skipped[0].code).toBe(SKIP_CODES.NO_COST_SIGNAL);
+    expect(skipped[0].sku_code).toBe("RYB2-BLUE-34"); // sku surfaced for the diagnostics list
+    expect(warnings).toHaveLength(0);
+    expect(diagnostics.skip_breakdown.no_cost_signal).toBe(1);
   });
   it("recovers a $0 item-master cost from avg_cost", () => {
     const actions = [action({ sku_id: "sku2" })];
@@ -113,6 +129,81 @@ describe("planBuyPlanPos idempotency + cost fallback", () => {
     expect(byVendor.get("tv1").lines[0].unit_cost_cents).toBe(482);
     expect(byVendor.get("tv1").lines[0].cost_source).toBe("avg_cost");
     expect(warnings).toHaveLength(0);
+  });
+});
+
+describe("planBuyPlanPos cost cascade — sibling + open-PO tiers", () => {
+  // Two colors of one style; the blue is the buy line, the red is a sibling.
+  const IM_RED = { id: "skuA", sku_code: "STY9-RED-M", style_code: "STY9", unit_cost: 0, pack_size: 1 };
+  const IM_BLUE = { id: "skuB", sku_code: "STY9-BLUE-M", style_code: "STY9", unit_cost: 0, pack_size: 1 };
+  function styleMap() { return new Map([["skuA", IM_RED], ["skuB", IM_BLUE]]); }
+  const blueAction = action({ id: "a1", sku_id: "skuB", vendor_id: "vm1" });
+
+  it("(a) sibling-color avg — a colorway with no own cost inherits a sibling color's avg", () => {
+    const avg = new Map([["STY9-RED-M", { avg_cost: 7 }]]); // only the sibling has an avg
+    const { byVendor } = planBuyPlanPos({ actions: [blueAction], vmById: vmMap(), imById: styleMap(), avgBySku: avg });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.unit_cost_cents).toBe(700);
+    expect(line.cost_source).toBe("sibling_avg");
+  });
+
+  it("(b) grain-aware open-PO fallback — a PPK PO price re-grains to an each line (wrong item pack_size healed by matrix)", () => {
+    // The PPK style packs 6 units; the PPK twin's item-master pack_size is WRONG
+    // (1). resolvePackSize heals it from the matrix so per-each = $60/6 = $10.
+    const matrix = new Map([["ryb0412ppk", 6]]);
+    const packSize = resolvePackSize("RYB0412PPK-BLACK", 1, matrix);
+    expect(packSize).toBe(6);
+    const poRows = [{ sku_code: "RYB0412PPK-BLACK", unit_cost: 60, qty_open: 10, pack_size: packSize }];
+    const poEachByBaseColor = buildPoEachCostByBaseColor(poRows);
+    const poEachByStyle = buildPoEachCostByStyle(poRows);
+    const imEach = { id: "skuE", sku_code: "RYB0412-BLACK-M", style_code: "RYB0412", unit_cost: 0, pack_size: 1 };
+    const actions = [action({ id: "a1", sku_id: "skuE", vendor_id: "vm1" })];
+    const { byVendor } = planBuyPlanPos({
+      actions, vmById: vmMap(), imById: new Map([["skuE", imEach]]), avgBySku: new Map(),
+      poEachByBaseColor, poEachByStyle, prepackUnitsPerPack: matrix,
+    });
+    const line = byVendor.get("tv1").lines[0];
+    // per-each $10 re-grained to the each line's own pack size (1) → $10
+    expect(line.unit_cost_cents).toBe(1000);
+    expect(line.cost_source).toBe("po_fallback");
+  });
+
+  it("precedence — direct own avg beats sibling avg beats open-PO fallback", () => {
+    const avg = new Map([
+      ["STY9-RED-M", { avg_cost: 5 }],  // sibling
+      ["STY9-BLUE-M", { avg_cost: 8 }], // the buy line's OWN direct avg
+    ]);
+    const poRows = [{ sku_code: "STY9-BLUE-M", unit_cost: 99, qty_open: 1, pack_size: 1 }];
+    const { byVendor } = planBuyPlanPos({
+      actions: [blueAction], vmById: vmMap(), imById: styleMap(), avgBySku: avg,
+      poEachByBaseColor: buildPoEachCostByBaseColor(poRows), poEachByStyle: buildPoEachCostByStyle(poRows),
+    });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.cost_source).toBe("avg_cost"); // own avg wins over sibling + PO
+    expect(line.unit_cost_cents).toBe(800);
+  });
+
+  it("precedence — sibling avg beats open-PO fallback when own avg is absent", () => {
+    const avg = new Map([["STY9-RED-M", { avg_cost: 5 }]]); // only the sibling has an avg
+    const poRows = [{ sku_code: "STY9-BLUE-M", unit_cost: 99, qty_open: 1, pack_size: 1 }];
+    const { byVendor } = planBuyPlanPos({
+      actions: [blueAction], vmById: vmMap(), imById: styleMap(), avgBySku: avg,
+      poEachByBaseColor: buildPoEachCostByBaseColor(poRows), poEachByStyle: buildPoEachCostByStyle(poRows),
+    });
+    const line = byVendor.get("tv1").lines[0];
+    expect(line.cost_source).toBe("sibling_avg"); // sibling wins over the PO fallback
+    expect(line.unit_cost_cents).toBe(500);
+  });
+
+  it("open-PO fallback still hard-blocks when neither the color nor style bucket has a cost", () => {
+    const imEach = { id: "skuZ", sku_code: "NOPO-GREEN-M", style_code: "NOPO", unit_cost: 0, pack_size: 1 };
+    const actions = [action({ id: "a1", sku_id: "skuZ", vendor_id: "vm1" })];
+    const { byVendor, skipped } = planBuyPlanPos({
+      actions, vmById: vmMap(), imById: new Map([["skuZ", imEach]]), avgBySku: new Map(),
+      poEachByBaseColor: new Map(), poEachByStyle: new Map(),
+    });
+    expect(byVendor.size).toBe(0);
+    expect(skipped[0].code).toBe(SKIP_CODES.NO_COST_SIGNAL);
   });
 });
 

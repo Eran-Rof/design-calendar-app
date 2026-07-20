@@ -10,6 +10,8 @@
 // DO NOT add a Supabase client / res-req args here — keep it framework-
 // agnostic (mirrors the planning-sync.js split).
 
+import { styleKey, resolvePackSize, poFallbackCostForRow } from "./poCostFallback.js";
+
 // Skip codes — coarse categories so the UI can render a "why nothing was
 // created" breakdown without parsing free-text reasons.
 export const SKIP_CODES = {
@@ -20,17 +22,25 @@ export const SKIP_CODES = {
   NO_VENDOR: "no_vendor",
   VENDOR_MISSING: "vendor_missing",
   VENDOR_UNLINKED: "vendor_unlinked",
+  NO_COST_SIGNAL: "no_cost_signal",
 };
 
 // Resolve a PO-line unit cost (cents) for a SKU, falling back through the
 // available cost sources so a missing ip_item_master.unit_cost doesn't
-// silently produce a $0 line. Order: item-master unit_cost → last-known
-// average cost → standard unit price → 0 (caller warns).
-export function resolveUnitCostCents(im, avgRow) {
+// silently produce a $0 line. This mirrors the wholesale grid's shared
+// cascade (PR #1852) so a pushed PO line costs the same as the grid shows.
+// Order: item-master unit_cost → last-known average cost → standard unit
+// price → sibling-color avg → grain-aware open-PO fallback → 0 (caller
+// hard-blocks the line). The last two tiers are pre-resolved dollar
+// candidates the caller derives from the pre-built lookup maps
+// (extra.siblingAvgDollars, extra.poFallbackDollars) — this stays pure.
+export function resolveUnitCostCents(im, avgRow, extra = {}) {
   const tries = [
     [im && im.unit_cost, "item_master"],
     [avgRow && avgRow.avg_cost, "avg_cost"],
     [avgRow && avgRow.standard_unit_price, "standard_price"],
+    [extra.siblingAvgDollars, "sibling_avg"],
+    [extra.poFallbackDollars, "po_fallback"],
   ];
   for (const [dollars, source] of tries) {
     const cents = Math.round(Number(dollars || 0) * 100);
@@ -62,23 +72,47 @@ export function matchTangerineVendor(vm, tangerineVendors) {
 // Group eligible create_buy_request actions by Tangerine vendor, deciding
 // which to skip (and why) and resolving each line's cost.
 //
-//   actions       — ip_execution_actions rows (create_buy_request)
-//   vmById        — Map<ip_vendor_master.id, vendorMasterRow>
-//   imById        — Map<ip_item_master.id, itemMasterRow>
-//   avgBySku      — Map<sku_code, ip_item_avg_cost row>  (optional)
-//   existingPoIds — Set<purchase_orders.id> still present (optional). When a
-//                   previously-linked PO id is NOT in the set, the draft was
-//                   deleted in Procurement, so the action is re-planned
-//                   instead of skipped (re-create safety).
+//   actions            — ip_execution_actions rows (create_buy_request)
+//   vmById             — Map<ip_vendor_master.id, vendorMasterRow>
+//   imById             — Map<ip_item_master.id, itemMasterRow> (rows carry
+//                        sku_code, style_code, unit_cost, pack_size)
+//   avgBySku           — Map<sku_code, ip_item_avg_cost row>  (optional)
+//   existingPoIds      — Set<purchase_orders.id> still present (optional). When
+//                        a previously-linked PO id is NOT in the set, the draft
+//                        was deleted in Procurement, so the action is re-planned
+//                        instead of skipped (re-create safety).
+//   poEachByBaseColor  — Map<baseColorKey, per-each open-PO cost $> (optional)
+//   poEachByStyle      — Map<styleKey, per-each open-PO cost $>     (optional)
+//   prepackUnitsPerPack — Map<lowercased ppk_style_code, units-per-pack>
+//                        (optional; used to re-grain the PO fallback)
+//
+// The last three feed the grain-aware open-PO cost tier — see
+// api/_lib/poCostFallback.js. All are pre-built maps (this stays pure/IO-free).
 //
 // Returns { byVendor: Map<portal_vendor_id, group>, skipped, warnings,
 //           referencedVendors: Map<vm.id, vm>, diagnostics }.
-export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds } = {}) {
+export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoIds,
+  poEachByBaseColor, poEachByStyle, prepackUnitsPerPack } = {}) {
   const skipped = [];
   const warnings = [];
   const byVendor = new Map();
   const referencedVendors = new Map();
   const acts = actions || [];
+
+  // Sibling-color avg cost keyed by style: the first child SKU in a style
+  // whose avg cost is usable. Lets a half-provisioned colorway (all costs
+  // NULL) inherit a sibling color's avg. Built from the items already loaded
+  // for this buy (imById) + their avg costs (avgBySku) — no extra IO. A line
+  // only ever reaches this tier when its OWN avg is absent (see the cascade),
+  // so an item never "borrows" its own avg here.
+  const siblingAvgByStyle = new Map();
+  for (const im of imById ? imById.values() : []) {
+    if (!im || !im.sku_code) continue;
+    const dollars = avgBySku && avgBySku.get(im.sku_code) ? Number(avgBySku.get(im.sku_code).avg_cost) : 0;
+    if (!(dollars > 0)) continue;
+    const sKey = styleKey(im.sku_code);
+    if (sKey && !siblingAvgByStyle.has(sKey)) siblingAvgByStyle.set(sKey, dollars);
+  }
 
   for (const a of acts) {
     const linkedPo = a.response_json && a.response_json.tangerine_po_id;
@@ -117,9 +151,24 @@ export function planBuyPlanPos({ actions, vmById, imById, avgBySku, existingPoId
       continue;
     }
     const im = imById.get(a.sku_id);
-    const { cents: unitCostCents, source: costSource } = resolveUnitCostCents(im, avgBySku && avgBySku.get(im.sku_code));
+    // Shared cost cascade (mirrors the wholesale grid, PR #1852): direct
+    // item-master / avg / standard → sibling-color avg → grain-aware open-PO
+    // fallback. The last two are derived here from the pre-built maps and
+    // handed to resolveUnitCostCents as dollar candidates.
+    const sKey = styleKey(im.sku_code);
+    const siblingAvgDollars = sKey ? siblingAvgByStyle.get(sKey) : null;
+    const packSize = resolvePackSize(im.sku_code, im.pack_size, prepackUnitsPerPack);
+    const poFallbackDollars = poFallbackCostForRow(im.sku_code, packSize, poEachByBaseColor, poEachByStyle);
+    const { cents: unitCostCents, source: costSource } =
+      resolveUnitCostCents(im, avgBySku && avgBySku.get(im.sku_code), { siblingAvgDollars, poFallbackDollars });
     if (unitCostCents <= 0) {
-      warnings.push({ action_id: a.id, message: `SKU ${im.sku_code} has no cost in any source — PO line at $0 (edit before issuing)` });
+      // Hard block: never push a $0-cost line. Skip it (coded) so the rest of
+      // the buy still creates its POs, and surface the SKU in the diagnostics.
+      skipped.push({
+        action_id: a.id, code: SKIP_CODES.NO_COST_SIGNAL, sku_code: im.sku_code,
+        reason: `SKU ${im.sku_code} has no resolvable cost in any source (item master / avg / sibling color / open PO) — line skipped, not pushed at $0 (add a cost, then re-run)`,
+      });
+      continue;
     }
 
     const g = byVendor.get(vm.portal_vendor_id) || { vendor_name: vm.name, planning_vendor_id: vm.id, period_starts: [], lines: [] };
