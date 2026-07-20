@@ -669,7 +669,9 @@ Full-row click opens the chargeback with its matched invoice. The **matched invo
 
 Re-importing a month **never** overwrites match, disposition, reason-code, owner or notes.
 
-**2025 bulk sign-off (07/20/2026).** With accounting — including the factor accounts — fully reconciled through 2025, every still-open chargeback dated before 01/01/2026 was bulk-dispositioned **Valid** by CEO directive (5,566 rows, net −$594,530.51; actor `system:bulk-2025-signoff`, each row's history note records the directive). The Worklist's *Open* filter therefore shows only 2026 activity going forward. The run script is `scripts/backfills/chargeback_bulk_valid_pre2026.sql`; it only touches rows still at *Open*, so operator decisions are never overwritten.
+**2025 bulk sign-off (07/20/2026).** With accounting — including the factor accounts — fully reconciled through 2025, every still-open chargeback dated before 01/01/2026 was bulk-dispositioned **Valid** by CEO directive (5,566 rows, net −$594,530.51; actor `system:bulk-2025-signoff`, each row's history note records the directive). The run script is `scripts/backfills/chargeback_bulk_valid_pre2026.sql`; it only touches rows still at *Open*, so operator decisions are never overwritten.
+
+Because of this sign-off, the Worklist now **defaults to Disposition = Open** — the actionable queue (2026 activity only). Switch the Disposition filter to *All* to see the full Rosenthal ledger including the signed-off 2025 rows; nothing is ever deleted.
 
 ### Dilution tab
 
