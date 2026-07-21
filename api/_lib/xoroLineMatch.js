@@ -64,6 +64,12 @@ export const looseKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+
 // while the catalog spells them out ("Carbon - Black", "Grey Wolf - Light
 // Grey"). Expand ONLY the known abbreviation TOKENS and PRESERVE every other
 // word, applied identically to BOTH sides so they converge.
+// NOTE: this fold dictionary is MIRRORED by the SQL function po_dq_norm_color()
+// (migration 20265400000000_v_po_data_quality_size_coverage_normalize.sql), which
+// normalises PO-line colours for the v_po_data_quality incomplete_size_coverage
+// check. Keep the two lists EXACTLY in sync — add a fold here, add it there.
+// Folds are TOKEN-based (whole-word), so word boundaries are safe: "CAMEL" is a
+// single token that never matches the "CAM" key, so it never folds to "CAMOEL".
 const COLOR_ABBR = {
   LT: "LIGHT", LITE: "LIGHT", LGT: "LIGHT", DK: "DARK", DRK: "DARK",
   MD: "MEDIUM", MED: "MEDIUM", MDM: "MEDIUM",
@@ -71,6 +77,7 @@ const COLOR_ABBR = {
   GRY: "GREY", GRAY: "GREY", GRYE: "GREY", HTHR: "HEATHER", HTR: "HEATHER",
   CHRCL: "CHARCOAL", CHRC: "CHARCOAL", WSH: "WASH", WHT: "WHITE", WHTE: "WHITE",
   BLU: "BLUE", NVY: "NAVY", BRN: "BROWN", GRN: "GREEN", W: "WITH", WTINT: "WITHTINT",
+  CAM: "CAMO", CBO: "COMBO",
 };
 export function expandTokens(s) {
   return String(s ?? "")

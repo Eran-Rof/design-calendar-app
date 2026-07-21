@@ -61,6 +61,18 @@ describe("colorMatchKey (spelling tolerance)", () => {
   it("does not collapse distinct colours", () => {
     expect(colorMatchKey("Sandcastle - Lt Wash")).not.toBe(colorMatchKey("Grey Wolf - Light Grey"));
   });
+  it("Cam↔Camo converge", () => {
+    expect(colorMatchKey("Woodland Cam")).toBe(colorMatchKey("Woodland Camo"));
+    expect(colorMatchKey("Blk Camo")).toBe(colorMatchKey("Black Camo"));
+  });
+  it("Cbo↔Combo converge", () => {
+    expect(colorMatchKey("Simple Sage Cbo")).toBe(colorMatchKey("Simple Sage Combo"));
+  });
+  it("word-boundary safe — CAMEL is not folded to CAMO", () => {
+    // "CAM" only folds as a WHOLE token; "Camel" must stay "CAMEL".
+    expect(colorMatchKey("Camel")).toBe("CAMEL");
+    expect(colorMatchKey("Camel")).not.toBe(colorMatchKey("Camo"));
+  });
 });
 
 describe("resolveStyleToken (inseam composite)", () => {
