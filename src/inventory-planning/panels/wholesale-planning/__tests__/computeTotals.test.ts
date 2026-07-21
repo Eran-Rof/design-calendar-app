@@ -2,7 +2,7 @@
 // grid's totals strip + action / method chips.
 
 import { describe, it, expect } from "vitest";
-import { computeTotals, endingAtsTotal, endingOnHandTotal, lastPeriodAtsTotal } from "../computeTotals";
+import { computeTotals, endingAtsTotal, endingOnHandTotal, histTrailingTotal, lastPeriodAtsTotal } from "../computeTotals";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 function row(over: Partial<IpPlanningGridRow> = {}): IpPlanningGridRow {
@@ -294,5 +294,43 @@ describe("endingOnHandTotal + onHandTotal override", () => {
     ];
     const t = computeTotals(rows, new Map());
     expect(t.columns.onHand).toBe(100);
+  });
+});
+
+
+describe("histTrailingTotal -- trailing window counted once per line", () => {
+  it("counts a (customer, sku) line ONCE across its period rows (latest wins)", () => {
+    const rows = [
+      row({ forecast_id: "a", customer_id: "c1", sku_id: "s1", period_start: "2027-03-01", historical_trailing_qty: 2600 }),
+      row({ forecast_id: "b", customer_id: "c1", sku_id: "s1", period_start: "2027-04-01", historical_trailing_qty: 2673 }),
+      row({ forecast_id: "c", customer_id: "c1", sku_id: "s1", period_start: "2027-05-01", historical_trailing_qty: 2673 }),
+    ];
+    expect(histTrailingTotal(rows)).toBe(2673);
+  });
+
+  it("sums across distinct customer+sku lines", () => {
+    const rows = [
+      row({ forecast_id: "a", customer_id: "c1", sku_id: "s1", historical_trailing_qty: 6337 }),
+      row({ forecast_id: "b", customer_id: "c1", sku_id: "s2", historical_trailing_qty: 4025 }),
+      row({ forecast_id: "c", customer_id: "c2", sku_id: "s1", historical_trailing_qty: 100 }),
+    ];
+    expect(histTrailingTotal(rows)).toBe(10462);
+  });
+
+  it("keys TBD stock-buy rows separately from a forecast row sharing the sku", () => {
+    const rows = [
+      row({ forecast_id: "a", customer_id: "c1", sku_id: "s1", historical_trailing_qty: 500 }),
+      row({ forecast_id: "tbd:1", customer_id: "c1", sku_id: "s1", is_tbd: true, historical_trailing_qty: 800 }),
+    ];
+    expect(histTrailingTotal(rows)).toBe(1300);
+  });
+
+  it("computeTotals exposes it as columns.histT3 (replacing the per-row sum)", () => {
+    const rows = [
+      row({ forecast_id: "a", customer_id: "c1", sku_id: "s1", period_start: "2027-03-01", period_code: "2027-03", historical_trailing_qty: 2673 }),
+      row({ forecast_id: "b", customer_id: "c1", sku_id: "s1", period_start: "2027-04-01", period_code: "2027-04", historical_trailing_qty: 2673 }),
+    ];
+    const t = computeTotals(rows, new Map());
+    expect(t.columns.histT3).toBe(2673);
   });
 });
