@@ -97,3 +97,35 @@ describe("buildBuyerVsLyReport", () => {
     expect(reportPct(0, 0)).toBeNull();      // 0 vs 0 → no %
   });
 });
+
+
+describe("buildBuyerVsLyReport metric = buy vs buyer", () => {
+  const rows = [
+    row({ sku_color: "black", period_code: "2027-01", ly_reference_qty: 1000, buyer_request_qty: 1200, planned_buy_qty: 1500 }),
+    row({ sku_color: "black", period_code: "2027-02", ly_reference_qty: 800, buyer_request_qty: 754, planned_buy_qty: 900 }),
+  ];
+
+  it("default metric ('buyer') pivots buyer_request_qty into TY", () => {
+    const black = buildBuyerVsLyReport(rows).customers[0].styles[0].colors[0];
+    expect(black.ty).toEqual([1200, 754]);
+    expect(black.tyTotal).toBe(1954);
+  });
+
+  it("metric = 'buy' pivots planned_buy_qty into TY (LY unchanged)", () => {
+    const black = buildBuyerVsLyReport(rows, "buy").customers[0].styles[0].colors[0];
+    expect(black.ty).toEqual([1500, 900]);
+    expect(black.tyTotal).toBe(2400);
+    expect(black.ly).toEqual([1000, 800]); // SP/LY identical to the Buyer report
+  });
+});
+
+describe("reportMetricMeta", () => {
+  it("labels the Buyer report", async () => {
+    const { reportMetricMeta } = await import("../buildBuyerVsLyReport");
+    expect(reportMetricMeta("buyer")).toMatchObject({ noun: "Buyer", title: "Buyer vs Last Year", fileStem: "buyer-vs-ly", sheet: "Buyer vs LY" });
+  });
+  it("labels the Buy report", async () => {
+    const { reportMetricMeta } = await import("../buildBuyerVsLyReport");
+    expect(reportMetricMeta("buy")).toMatchObject({ noun: "Buy", title: "Buy vs Last Year", fileStem: "buy-vs-ly", sheet: "Buy vs LY" });
+  });
+});

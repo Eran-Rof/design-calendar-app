@@ -1,13 +1,34 @@
-// Pure builder for the "Buyer vs Last Year" grid report. Pivots planning rows
-// into per-customer → per-style → per-color tables across the run's periods,
-// with two quantity blocks — SP/LY (ly_reference_qty, "same period last year")
-// and TY/Buyer (buyer_request_qty, this year) — plus a comparison the view /
-// exports derive (Comp = TY − LY, % = Comp / LY).
+// Pure builder for the "Buyer vs Last Year" / "Buy vs Last Year" grid report.
+// Pivots planning rows into per-customer → per-style → per-color tables across
+// the run's periods, with two quantity blocks — SP/LY (ly_reference_qty, "same
+// period last year") and TY (this year) — plus a comparison the view / exports
+// derive (Comp = TY − LY, % = Comp / LY). The TY block is the planner's
+// **Buyer** (buyer_request_qty) or **Buy** (planned_buy_qty) column, selected
+// by the `metric` arg — the two reports are otherwise identical.
 //
-// Side-effect free so the pivot is unit-tested; the modal + PDF/Excel exporters
+// Side-effect free so the pivot is unit-tested; the view + PDF/Excel exporters
 // consume the returned shape.
 
 import type { IpPlanningGridRow } from "../../types/wholesale";
+
+// Which "this year" quantity the TY block reports.
+export type ReportMetric = "buyer" | "buy";
+
+// One source of truth for the metric-specific labels used by the on-screen
+// view AND the PDF/Excel exporters, so "Buyer vs LY" and "Buy vs LY" stay
+// consistent everywhere without each surface hard-coding strings.
+export interface ReportMetricMeta {
+  noun: string;      // "Buyer" | "Buy"
+  title: string;     // modal/PDF title
+  tyBlock: string;   // TY block sub-heading
+  fileStem: string;  // export filename stem
+  sheet: string;     // Excel sheet / tab name
+}
+export function reportMetricMeta(metric: ReportMetric): ReportMetricMeta {
+  return metric === "buy"
+    ? { noun: "Buy", title: "Buy vs Last Year", tyBlock: "TY / Buy — This Year", fileStem: "buy-vs-ly", sheet: "Buy vs LY" }
+    : { noun: "Buyer", title: "Buyer vs Last Year", tyBlock: "TY / Buyer — This Year", fileStem: "buyer-vs-ly", sheet: "Buyer vs LY" };
+}
 
 export interface ReportPeriod {
   period_code: string;   // "2027-01"
@@ -108,10 +129,11 @@ export function reportPct(ty: number, ly: number): number | null {
 /**
  * Build the report from planning rows (already scoped to whatever the caller
  * wants — full run or the current grid filter). Aggregate rows are skipped;
- * every leaf row contributes its ly_reference_qty (SP/LY) and buyer_request_qty
- * (TY) to its (customer, style, color, period) cell.
+ * every leaf row contributes its ly_reference_qty (SP/LY) and the chosen TY
+ * metric — buyer_request_qty ("buyer", default) or planned_buy_qty ("buy") —
+ * to its (customer, style, color, period) cell.
  */
-export function buildBuyerVsLyReport(rows: IpPlanningGridRow[]): BuyerVsLyReport {
+export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMetric = "buyer"): BuyerVsLyReport {
   const periodSet = new Set<string>();
   for (const r of rows) if (!r.is_aggregate && r.period_code) periodSet.add(r.period_code);
   const periodCodes = Array.from(periodSet).sort();
@@ -138,7 +160,7 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[]): BuyerVsLyReport
     let cell = colorMap.get(color);
     if (!cell) { cell = { ly: new Array(nP).fill(0), ty: new Array(nP).fill(0) }; colorMap.set(color, cell); }
     addInto(cell.ly, idx, r.ly_reference_qty);
-    addInto(cell.ty, idx, r.buyer_request_qty);
+    addInto(cell.ty, idx, metric === "buy" ? r.planned_buy_qty : r.buyer_request_qty);
   }
 
   const customers: ReportCustomer[] = Array.from(custMap.entries())
