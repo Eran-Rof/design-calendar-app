@@ -123,9 +123,18 @@ export default async function handler(req, res, params) {
     // lines into the per-style size matrix on edit (mirrors the SO detail).
     const itemIds = [...new Set((lines || []).map((l) => l.inventory_item_id).filter(Boolean))];
     let skuById = new Map();
+    let styleNameByCode = new Map();
     if (itemIds.length) {
       const { data: skus } = await admin.from("ip_item_master").select("id, style_code, color, size, inseam, sku_code").in("id", itemIds);
       skuById = new Map((skus || []).map((s) => [s.id, s]));
+      // Style descriptions (style_name / description) so the PO modal — including
+      // the received-PO receipt view — labels each style block with its NAME, not
+      // just the bare style code (parity with the normal matrix line body).
+      const styleCodes = [...new Set((skus || []).map((s) => s.style_code).filter(Boolean))];
+      if (styleCodes.length) {
+        const { data: styleRows } = await admin.from("style_master").select("style_code, style_name, description").in("style_code", styleCodes);
+        styleNameByCode = new Map((styleRows || []).map((s) => [s.style_code, s.style_name || s.description || null]));
+      }
     }
     // Manufacturing-part lines (part_id set) — decorate with the part code/name so
     // the PO modal + Receiving show a label instead of a bare id.
@@ -141,10 +150,32 @@ export default async function handler(req, res, params) {
       const s = l.inventory_item_id ? skuById.get(l.inventory_item_id) : null;
       const p = l.part_id ? partById.get(l.part_id) : null;
       return { ...l, style_code: s?.style_code ?? null, color: s?.color ?? null, size: s?.size ?? null, inseam: s?.inseam ?? null, sku_code: s?.sku_code ?? null,
+        style_name: s?.style_code ? (styleNameByCode.get(s.style_code) ?? null) : null,
         part_code: p?.code ?? null, part_name: p?.name ?? null, part_uom: p?.uom ?? null,
         part_parent_id: p?.parent_part_id ?? null, part_size: p?.size ?? null };
     });
     const rollup = await computeLogisticsRollup(admin, lines || []);
+
+    // Posted-receipt dates for this PO → the receipt view's LRD (Last Received
+    // Date) chip + its per-date hover breakdown. One row PER posted receipt
+    // (qty = Σ its lines' qty_received); the client groups by date + derives the
+    // last date. Only POSTED receipts count (a draft receipt hasn't landed the
+    // goods). No new route — folded into the existing PO detail GET.
+    let receipts = [];
+    {
+      const { data: rcpts } = await admin.from("tanda_po_receipts")
+        .select("receipt_date, status, tanda_po_receipt_lines(qty_received)")
+        .eq("purchase_order_id", id)
+        .eq("status", "posted")
+        .order("receipt_date", { ascending: true });
+      receipts = (rcpts || [])
+        .filter((r) => r.receipt_date)
+        .map((r) => ({
+          date: r.receipt_date,
+          qty: (Array.isArray(r.tanda_po_receipt_lines) ? r.tanda_po_receipt_lines : [])
+            .reduce((s, l) => s + (Number(l.qty_received) || 0), 0),
+        }));
+    }
     // When this PO is awaiting production approval, tell the client who may act
     // on it, so the Approve/Reject controls show only for the Production Manager
     // (the server still enforces this on the decision itself).
@@ -155,7 +186,7 @@ export default async function handler(req, res, params) {
         production_manager_emails = pm.emails || [];
       } catch { production_manager_emails = []; }
     }
-    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup, production_manager_emails });
+    return res.status(200).json({ ...po, lines: decorated, logistics_rollup: rollup, receipts, production_manager_emails });
   }
 
   if (req.method === "DELETE") {
