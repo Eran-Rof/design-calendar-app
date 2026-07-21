@@ -28,6 +28,7 @@ import { computeSizeCollapse } from "../shared/matrix";
 import { compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import { groupPoLines, openQty, poHasReceipts, poFullyReceived, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownCell, type PoBreakdownLine, type ReceiptDatePoint } from "./lib/poLineBreakdown";
+import { colorGroupKey, titleCaseColor } from "./lib/colorGroup";
 import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 // EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
@@ -1108,9 +1109,12 @@ function poDocDataFromLines(lines: PoReceiptLine[]): OrderDocData {
       let g = styleMap.get(l.style_code);
       if (!g) { g = { sizes: [], sizeSet: new Set(), rows: new Map() }; styleMap.set(l.style_code, g); }
       if (!g.sizeSet.has(l.size)) { g.sizeSet.add(l.size); g.sizes.push(l.size); }
-      const rk = `${l.color ?? ""}|${l.inseam ?? ""}`;
+      // Key the color row CASE-INSENSITIVELY so a case variant ("BLACK" vs
+      // "Black") can't split one colorway into two partial-size rows; display the
+      // canonical Title Case form.
+      const rk = `${colorGroupKey(l.color)}|${l.inseam ?? ""}`;
       let row = g.rows.get(rk);
-      if (!row) { row = { color: l.color ?? null, inseam: l.inseam ?? null, unitDollars: unit, qtyBySize: {} }; g.rows.set(rk, row); }
+      if (!row) { row = { color: titleCaseColor(l.color) || null, inseam: l.inseam ?? null, unitDollars: unit, qtyBySize: {} }; g.rows.set(rk, row); }
       row.qtyBySize[l.size as string] = (row.qtyBySize[l.size as string] || 0) + ord;
     } else {
       flats.push({ label: l.sku_code || l.description || "(item)", qty: ord, unitDollars: unit });

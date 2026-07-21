@@ -85,6 +85,10 @@ A `color × size` cell may not yet have a SKU row in `ip_item_master`. When the 
 
 The PO / SO size matrix groups its rows by **color**. If the underlying `ip_item_master` row has a **NULL `color`**, the matrix can't place the line — every line of the style collapses into a single blank **"—"** row, so the PO body looks empty even though the lines exist. The Xoro import / sync paths that create item-master stubs used to leave `color` NULL (the colour was in the `sku_code` but not the column). Those paths now **derive the colour from the Xoro `ItemNumber`** (`STYLE-COLOR-SIZE`, e.g. `RYB059530PPK-Island Breeze lt wash-PPK24` → colour **Island Breeze Lt Wash**) and populate it on every new stub, and **self-heal** an existing stub whose colour is still NULL when a later import links to it. This is best-effort and never overwrites a colour the Item Master already carries. If you still see a collapsed PO body on a style, check that its `ip_item_master` rows carry a colour (a re-import of that PO backfills it).
 
+### Why a colorway sometimes split into two half-empty rows (fixed)
+
+A related quirk: the same colour spelled with **different case** — `BLACK` on one size's SKU, `Black` on the others — used to grade out as **two separate matrix rows**, each showing only the sizes that carried that exact spelling (verified on PO ROF-P000510: `RYB1502` showed a **BLACK** row with only SML and a **Black** row with MED/LRG/XLG). The colour-normalization patches fixed the stored data, but the PO / SO / AR matrix bodies now also **group colorways case-insensitively as a defensive layer** — any future case variant merges into **one** row carrying **all** the sizes (with qty and cost summed across the variants), and the colour is displayed in a tidy **Title Case** form (`BLACK` → `Black`). This is case-only: it never rewrites the actual words (e.g. `Lt Wash` stays `Lt Wash`), so what you read still matches the catalog.
+
 ### Classification source (important caveat)
 
 Style group/category/sub-category come from **`ip_item_master.attributes`** (JSONB), backfilled into `style_master` by migration `20260712240000_p16_classify_backfill_rise_sizes.sql`:
