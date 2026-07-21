@@ -43,7 +43,7 @@ import {
   genderLabel,
   type FreezeKey,
 } from "./wholesale-planning/columns";
-import { computeTotals } from "./wholesale-planning/computeTotals";
+import { computeTotals, endingAtsTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { BuyerVsLyReportModal } from "./wholesale-planning/BuyerVsLyReportModal";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
@@ -1540,27 +1540,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
     // the user is viewing — works for sub-cat, category, per-style
     // rollup, per-cat-style rollup, per-customer rollup, and even
     // non-collapsed (where the chain is style+color across sizes).
-    const groupKeyFor = (r: IpPlanningGridRow): string => {
-      if (collapse.subCat) return `sub:${r.sub_category_name ?? ""}`;
-      if (collapse.category) return `cat:${r.group_name ?? ""}`;
-      if (collapse.allCustomersPerStyle) return `acps:${r.sku_style ?? r.sku_code}`;
-      const styleColorPart = `${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
-      if (collapse.allCustomersPerCategory) {
-        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
-        return `acpc:${r.group_name ?? ""}:${skuPart}`;
-      }
-      if (collapse.allCustomersPerSubCat) {
-        const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
-        return `acpsc:${r.sub_category_name ?? ""}:${skuPart}`;
-      }
-      if (collapse.customerAllStyles) return `cas:${r.customer_id}`;
-      // Default — non-collapsed or only customers/colors. Group by
-      // (style, color) across sizes. `colors` further drops the color
-      // dim. Customer is ignored because customer-level rolling pool
-      // would chain multiple customers' demand through one stock pool.
-      if (collapse.colors) return `sku:${r.sku_style ?? r.sku_code}`;
-      return `sku:${styleColorPart}`;
-    };
+    // Shared with the totals strip (rollGroupKeyFor) so the ATS total
+    // walks the same chains the cells roll through.
+    const groupKeyFor = (r: IpPlanningGridRow): string => rollGroupKeyFor(r, collapse);
     // When any collapse is active, force sort to (groupKey, period) so
     // chained rows render contiguously. Without collapse, keep the
     // user's sortKey — the pool still resets per-row anyway because
@@ -1752,7 +1734,16 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
   }, [filtered, expandedAggs, manuallyCollapsedAggs, mutedById, skuPeriodMath, rows, collapse, deferredSearch, sortSig]);
 
   // computeTotals moved to ./wholesale-planning/computeTotals (tested).
-  const totals = useMemo(() => computeTotals(mutedRows, skuPeriodMath), [mutedRows, skuPeriodMath]);
+  // ATS total = display parity: sum of each rolling chain's ENDING ATS as
+  // shown in the cells (`filtered` = post-applyRollingPool render rows) —
+  // the raw mutedRows carry 0 ATS on customer-demand rows and would zero
+  // the total (the #1862 defect the CEO reported).
+  const totals = useMemo(
+    () => computeTotals(mutedRows, skuPeriodMath, {
+      atsTotal: endingAtsTotal(filtered, (r) => rollGroupKeyFor(r, collapse)),
+    }),
+    [mutedRows, skuPeriodMath, filtered, collapse],
+  );
   // Column total to pass to a Th header (undefined = totals toggle off, no row).
   const ct = (key: string): number | undefined => (showColumnTotals ? (totals.columns[key] ?? 0) : undefined);
 

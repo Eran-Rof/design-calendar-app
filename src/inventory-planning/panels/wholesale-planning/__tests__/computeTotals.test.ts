@@ -2,7 +2,7 @@
 // grid's totals strip + action / method chips.
 
 import { describe, it, expect } from "vitest";
-import { computeTotals, lastPeriodAtsTotal } from "../computeTotals";
+import { computeTotals, endingAtsTotal, lastPeriodAtsTotal } from "../computeTotals";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 function row(over: Partial<IpPlanningGridRow> = {}): IpPlanningGridRow {
@@ -172,5 +172,86 @@ describe("computeTotals", () => {
 
   it("lastPeriodAtsTotal returns 0 for empty input", () => {
     expect(lastPeriodAtsTotal([])).toBe(0);
+  });
+});
+
+
+// ── endingAtsTotal — display-parity ATS total over ROLLED rows ──────────
+// CEO spec (2026-07-21): "RYB0412PPK Black has 5000 ATS in the last period
+// -> add that amount to the next style and so on." The total reads the
+// LAST row's displayed (rolled) ATS of each chain and sums — it can never
+// be 0 while the cells show numbers.
+describe("endingAtsTotal", () => {
+  const byStyleColor = (r: IpPlanningGridRow) =>
+    `sku:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
+
+  it("single chain returns its last row's ATS (not the sum of periods)", () => {
+    const rows = [
+      row({ forecast_id: "a", sku_color: "Black", period_start: "2027-01-01", available_supply_qty: 2000 }),
+      row({ forecast_id: "b", sku_color: "Black", period_start: "2027-02-01", available_supply_qty: 3500 }),
+      row({ forecast_id: "c", sku_color: "Black", period_start: "2027-03-01", available_supply_qty: 5000 }),
+    ];
+    expect(endingAtsTotal(rows, byStyleColor)).toBe(5000);
+  });
+
+  it("sums the ending ATS across chains (style then next style)", () => {
+    const rows = [
+      row({ forecast_id: "a", sku_style: "RYB0412PPK", sku_color: "Black", period_start: "2027-05-01", available_supply_qty: 4000 }),
+      row({ forecast_id: "b", sku_style: "RYB0412PPK", sku_color: "Black", period_start: "2027-06-01", available_supply_qty: 5000 }),
+      row({ forecast_id: "c", sku_style: "RYB0185", sku_color: "Charcoal", period_start: "2027-05-01", available_supply_qty: 120 }),
+      row({ forecast_id: "d", sku_style: "RYB0185", sku_color: "Charcoal", period_start: "2027-06-01", available_supply_qty: 80 }),
+    ];
+    expect(endingAtsTotal(rows, byStyleColor)).toBe(5080);
+  });
+
+  it("rolled input beats raw zeros — the #1862 defect case", () => {
+    // Customer-demand rows carry raw available_supply_qty 0; after the
+    // rolling pool the DISPLAYED values are nonzero. Totalling the rolled
+    // rows yields the on-screen ending figure, never 0.
+    const rolled = [
+      row({ forecast_id: "a", sku_color: "Black", period_start: "2027-01-01", available_supply_qty: 900 }),
+      row({ forecast_id: "b", sku_color: "Black", period_start: "2027-02-01", available_supply_qty: 750 }),
+    ];
+    expect(endingAtsTotal(rolled, byStyleColor)).toBe(750);
+  });
+
+  it("non-consecutive same key = separate runs (matches the visual chains)", () => {
+    // The grid's pool resets whenever the key CHANGES between consecutive
+    // rows — an interleaved ordering produces two visible chains for the
+    // same style/color, and the total mirrors exactly that.
+    const rows = [
+      row({ forecast_id: "a", sku_color: "Black", available_supply_qty: 10 }),
+      row({ forecast_id: "b", sku_color: "White", available_supply_qty: 20 }),
+      row({ forecast_id: "c", sku_color: "Black", available_supply_qty: 30 }),
+    ];
+    expect(endingAtsTotal(rows, byStyleColor)).toBe(60);
+  });
+
+  it("empty input totals 0", () => {
+    expect(endingAtsTotal([], byStyleColor)).toBe(0);
+  });
+});
+
+describe("computeTotals — atsTotal override (display parity)", () => {
+  it("uses the provided rolled ATS total over the raw-row fallback", () => {
+    const rows = [
+      row({ forecast_id: "a", period_start: "2027-06-01", available_supply_qty: 0 }),
+    ];
+    const t = computeTotals(rows, new Map(), { atsTotal: 5080 });
+    expect(t.columns.ats).toBe(5080);
+  });
+
+  it("falls back to lastPeriodAtsTotal when no override is provided", () => {
+    const rows = [
+      row({ forecast_id: "a", period_start: "2027-05-01", available_supply_qty: 111 }),
+      row({ forecast_id: "b", period_start: "2027-06-01", available_supply_qty: 222 }),
+    ];
+    const t = computeTotals(rows, new Map());
+    expect(t.columns.ats).toBe(222);
+  });
+
+  it("keeps the empty-input columns shape (no ats key) even with an override", () => {
+    const t = computeTotals([], new Map(), { atsTotal: 999 });
+    expect("ats" in t.columns).toBe(false);
   });
 });

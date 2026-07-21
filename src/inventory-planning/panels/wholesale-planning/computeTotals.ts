@@ -7,6 +7,7 @@
 // can drop straight in (`const totals = computeTotals(mutedRows, skuPeriodMath)`).
 
 import type { IpPlanningGridRow } from "../../types/wholesale";
+import type { CollapseModes } from "../aggregateGridRows";
 
 export interface GridTotals {
   /** Σ final_forecast_qty across the (already muted) display rows. */
@@ -70,6 +71,60 @@ function styleColorKey(r: IpPlanningGridRow): string {
  *     size is its own rolling pool, so their ending ATS values SUM into
  *     the style/color's ending position.
  */
+// The rolling-pool CHAIN key — moved verbatim from WholesalePlanningGrid's
+// `filtered` memo (the grid now imports it) so the ATS total walks EXACTLY
+// the chains the ATS cells roll through. Consecutive rows sharing this key
+// form one pool chain; a key change resets the pool.
+export function rollGroupKeyFor(r: IpPlanningGridRow, collapse: CollapseModes): string {
+  if (collapse.subCat) return `sub:${r.sub_category_name ?? ""}`;
+  if (collapse.category) return `cat:${r.group_name ?? ""}`;
+  if (collapse.allCustomersPerStyle) return `acps:${r.sku_style ?? r.sku_code}`;
+  const styleColorPart = `${r.sku_style ?? r.sku_code}:${r.sku_color ?? "—"}`;
+  if (collapse.allCustomersPerCategory) {
+    const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
+    return `acpc:${r.group_name ?? ""}:${skuPart}`;
+  }
+  if (collapse.allCustomersPerSubCat) {
+    const skuPart = collapse.colors ? (r.sku_style ?? r.sku_code) : styleColorPart;
+    return `acpsc:${r.sub_category_name ?? ""}:${skuPart}`;
+  }
+  if (collapse.customerAllStyles) return `cas:${r.customer_id}`;
+  if (collapse.colors) return `sku:${r.sku_style ?? r.sku_code}`;
+  return `sku:${styleColorPart}`;
+}
+
+/**
+ * ATS total = Σ (over displayed rolling chains) of each chain's ENDING
+ * displayed ATS — i.e. read the LAST row's ATS cell of every style/color
+ * chain and add them up (CEO spec: "RYB0412PPK Black has 5000 ATS in the
+ * last period → add that amount to the next style and so on").
+ *
+ * Input MUST be the post-`applyRollingPool` rows the cells render from
+ * (the grid's `filtered` array, in render order) — the raw per-row
+ * `available_supply_qty` is 0 on customer-demand rows and would zero the
+ * total (#1862's defect). A chain = a consecutive run of rows sharing
+ * `keyOf(row)`, exactly how the grid segments the pool, so this total is
+ * the sum of the bottom ATS figures the planner can see on screen.
+ */
+export function endingAtsTotal(
+  rolledRows: IpPlanningGridRow[],
+  keyOf: (r: IpPlanningGridRow) => string,
+): number {
+  let total = 0;
+  let curKey: string | null = null;
+  let curLast: number | null = null;
+  for (const r of rolledRows) {
+    const k = keyOf(r);
+    if (k !== curKey) {
+      if (curLast != null) total += curLast;
+      curKey = k;
+    }
+    curLast = r.available_supply_qty ?? 0;
+  }
+  if (curLast != null) total += curLast;
+  return total;
+}
+
 export function lastPeriodAtsTotal(rows: IpPlanningGridRow[]): number {
   if (rows.length === 0) return 0;
   // Pass 1: latest period_start per style/color group.
@@ -97,6 +152,12 @@ export function lastPeriodAtsTotal(rows: IpPlanningGridRow[]): number {
 export function computeTotals(
   rows: IpPlanningGridRow[],
   skuPeriodMath: Map<string, SkuPeriodMathLike>,
+  // The display-parity ATS total (endingAtsTotal over the grid's rolled
+  // `filtered` rows). When provided it REPLACES the raw-row fallback so
+  // the totals strip always agrees with the ATS cells on screen. The
+  // fallback (lastPeriodAtsTotal over raw rows) only serves callers with
+  // no rolled row set.
+  opts?: { atsTotal?: number },
 ): GridTotals {
   const t: GridTotals = { final: 0, shortage: 0, excess: 0, actions: {}, methods: {}, columns: {} };
   const c = t.columns;
@@ -129,11 +190,12 @@ export function computeTotals(
       // period double-counts. It gets its own last-period total below.
     }
   }
-  // ATS total = ending (last-period) ATS per style/color, summed. Only
-  // set when there are rows to total (keeps the empty-input `columns`
-  // shape { shortage, excess } unchanged, and mirrors how the other
-  // supply keys only appear once a row has been seen).
-  if (rows.length > 0) c.ats = lastPeriodAtsTotal(rows);
+  // ATS total = ending displayed ATS per rolling chain (see endingAtsTotal),
+  // passed in by the grid from its rolled rows; raw-row last-period fallback
+  // otherwise. Only set when there are rows to total (keeps the empty-input
+  // `columns` shape { shortage, excess } unchanged, and mirrors how the
+  // other supply keys only appear once a row has been seen).
+  if (rows.length > 0) c.ats = opts?.atsTotal ?? lastPeriodAtsTotal(rows);
   // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
   // from the pre-computed rolling-pool map. Single source of truth
   // shared with per-row display.
