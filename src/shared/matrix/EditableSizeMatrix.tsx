@@ -15,6 +15,7 @@
 
 import React from "react";
 import { computeSizeCollapse } from "./sizeCollapse";
+import { sizeDisplayLabel } from "../sizeSort";
 
 const C = {
   headerBg: "#0F172A", headerText: "#6B7280", gridText: "#E5E7EB",
@@ -129,6 +130,12 @@ export type EditableSizeMatrixProps = {
    *  value and the value the cell held when editing began. SO-from-ATS uses this
    *  to warn when the operator orders more than the available-to-ship quantity. */
   onCellCommit?: (rowKey: string, size: string, value: number, prevValue: number) => void;
+  /** Map a size KEY to the label shown in its column header. The grid always
+   *  keys cells by the raw `sizes[]` entries (canonical tokens); this only
+   *  changes the visible header text. Defaults to `sizeDisplayLabel`, so a
+   *  canonical token ("XLARGE") renders as the house form ("XLG") and numeric /
+   *  PPK / kids-range tokens pass through unchanged. */
+  sizeLabel?: (size: string) => string;
 };
 
 /** Cell-state key shared by callers (qty + on-hand maps). */
@@ -266,7 +273,7 @@ function QuickFillCell({
 
 export function EditableSizeMatrix({
   rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot, customerPo,
-  allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
+  allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit, sizeLabel = sizeDisplayLabel,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
   const [bulkEach, setBulkEach] = React.useState("");
@@ -335,7 +342,7 @@ export function EditableSizeMatrix({
                     ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}),
                   }}
                 >
-                  {collapsedActive && isFirst && hiddenLeading > 0 ? "⋯ " : ""}{sz}{collapsedActive && isLast && hiddenTrailing > 0 ? " ⋯" : ""}
+                  {collapsedActive && isFirst && hiddenLeading > 0 ? "⋯ " : ""}{sizeLabel(sz)}{collapsedActive && isLast && hiddenTrailing > 0 ? " ⋯" : ""}
                 </th>
               );
             })}

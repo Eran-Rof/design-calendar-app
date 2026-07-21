@@ -56,6 +56,36 @@ export function canonSizeLabel(raw: string): string {
   return LETTER_CANON[String(raw).trim().toUpperCase()] || raw;
 }
 
+// Canonical size TOKEN → the HOUSE DISPLAY label the business uses on grids,
+// documents and exports. The catalog mixes short/long spellings of one logical
+// size ACROSS the colorways of a single style (e.g. Black stored "XLG" while
+// Grey stored "XL"), so a matrix keyed on the raw label rendered TWO half-empty
+// columns for one size. Every surface now KEYS + MERGES columns by the canonical
+// token (SMALL…5XLARGE via canonSizeLabel) — but must NEVER SHOW those internal
+// tokens ("XLARGE"/"SMALL"). We render the established house spelling instead,
+// picked as the DOMINANT form in the prod catalog (verified 2026-07 counts:
+// XLG 1043, SML 1026, MED 892, LRG 869, XXL 539, XS 100). Presentation-only —
+// no catalog data is rewritten.
+const SIZE_HOUSE_LABEL: Record<string, string> = {
+  XXSMALL: "XXS", XSMALL: "XS", SMALL: "SML", MEDIUM: "MED", LARGE: "LRG",
+  XLARGE: "XLG", "2XLARGE": "XXL", "3XLARGE": "XXXL", "4XLARGE": "4XL", "5XLARGE": "5XL",
+};
+
+/**
+ * House DISPLAY label for a size token — the label to SHOW in a column header /
+ * document while the grid keeps KEYING cells by the canonical token. Maps the raw
+ * spelling to its canonical tier (via canonSizeLabel) then to the house form
+ * (XL/XLG/XLARGE → "XLG"; S/SML/SMALL → "SML"). Any size that doesn't resolve to
+ * a known letter tier — numeric waists ("28"), PPK pack tokens ("PPK24"), kids
+ * age-range forms ("XS(5-6)"), O/S, "S/8" — passes through as its RAW label,
+ * unchanged. Never used as a map key; display only.
+ */
+export function sizeDisplayLabel(raw: string): string {
+  if (raw == null) return raw;
+  const canon = canonSizeLabel(raw);
+  return SIZE_HOUSE_LABEL[canon] || raw;
+}
+
 /** Comparator for Array.sort — canonical apparel size order. */
 export function compareSizes(a: string, b: string): number {
   const ka = rankOf(a), kb = rankOf(b);

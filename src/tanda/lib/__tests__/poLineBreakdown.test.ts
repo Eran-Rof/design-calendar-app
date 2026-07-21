@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { openQty, poHasReceipts, poFullyReceived, groupPoLines, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownLine } from "../poLineBreakdown";
+import { sizeDisplayLabel, compareSizes } from "../../../shared/sizeSort";
+import { computeSizeCollapse } from "../../../shared/matrix";
 
 const line = (o: Partial<PoBreakdownLine> & { qty_ordered: number }): PoBreakdownLine => ({
   style_code: "STY1", color: "Black", size: "MEDIUM", unit_cost_cents: 1000, qty_received: 0, ...o,
@@ -193,6 +195,66 @@ describe("groupPoLines + poBreakdownGrandTotalCents — ROF-P001133 costed shape
     const waistCost = 12 * 695 + 18 * 695 + 9 * 715;
     const freight = 250000;
     expect(poBreakdownGrandTotalCents(breakdown)).toBe(ppkCost + waistCost + freight);
+  });
+});
+
+// The catalog mixes short/long spellings of one logical size ACROSS the colorways
+// of a single style (ROF-P000510 / RYB1500: Black stored "XLG", Grey/Shiitake
+// stored "XL"). The grid must fold those into ONE column and show the house label
+// (XLG / SML) — never the internal canonical token (XLARGE / SMALL).
+describe("groupPoLines + sizeDisplayLabel — cross-colorway size-spelling merge (ROF-P000510 / RYB1500)", () => {
+  const l = (color: string, size: string, qty: number): PoBreakdownLine =>
+    ({ style_code: "RYB1500", color, size, qty_ordered: qty, qty_received: 0, unit_cost_cents: 900 });
+
+  it("folds XL + XLG (across colorways) into ONE column displayed as 'XLG', qty summed", () => {
+    const { byStyle } = groupPoLines([
+      l("Black", "XLG", 4),
+      l("Grey", "XL", 3),
+      l("Shiitake", "XL", 2),
+    ]);
+    const s = byStyle.get("RYB1500")!;
+    // ONE canonical size key across all three colorways.
+    expect([...s.sizes]).toEqual(["XLARGE"]);
+    // Each colorway row lands in the SAME merged column.
+    expect(s.colors.get("Black")!.get("XLARGE")!.ordered).toBe(4);
+    expect(s.colors.get("Grey")!.get("XLARGE")!.ordered).toBe(3);
+    expect(s.colors.get("Shiitake")!.get("XLARGE")!.ordered).toBe(2);
+    // Displayed as the house label, NOT the internal canonical token.
+    expect(sizeDisplayLabel("XLARGE")).toBe("XLG");
+    expect([...s.sizes].map(sizeDisplayLabel)).toEqual(["XLG"]);
+  });
+
+  it("folds S + SML into ONE column displayed as 'SML' with summed qty", () => {
+    const { byStyle } = groupPoLines([
+      l("Black", "SML", 5),
+      l("Grey", "S", 6),
+    ]);
+    const s = byStyle.get("RYB1500")!;
+    expect([...s.sizes]).toEqual(["SMALL"]);
+    expect(s.colors.get("Black")!.get("SMALL")!.ordered).toBe(5);
+    expect(s.colors.get("Grey")!.get("SMALL")!.ordered).toBe(6);
+    expect([...s.sizes].map(sizeDisplayLabel)).toEqual(["SML"]);
+  });
+
+  it("keeps the green ⋯ collapse working over merged columns (house labels are display-only)", () => {
+    const { byStyle } = groupPoLines([
+      l("Black", "SML", 5),   // SMALL — first sized
+      l("Black", "MED", 0),   // MEDIUM — empty (mid range)
+      l("Black", "XL", 2),    // XLARGE — last sized
+      l("Black", "XLG", 1),   // folds into XLARGE
+    ]);
+    const s = byStyle.get("RYB1500")!;
+    const sizes = [...s.sizes].sort(compareSizes); // canonical keys, scale order
+    const colTotals: Record<string, number> = {};
+    for (const sz of sizes) colTotals[sz] = 0;
+    for (const cm of s.colors.values()) for (const [sz, cell] of cm) colTotals[sz] += cell.ordered;
+    // XL + XLG merged: XLARGE column carries 3.
+    expect(colTotals["XLARGE"]).toBe(3);
+    const collapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: true });
+    // Collapse operates on canonical keys; the visible range is unaffected by the
+    // house-label display, and the merged XLARGE column is the last visible one.
+    expect(collapse.visibleSizes).toEqual(["SMALL", "MEDIUM", "XLARGE"]);
+    expect(collapse.visibleSizes.map(sizeDisplayLabel)).toEqual(["SML", "MED", "XLG"]);
   });
 });
 
