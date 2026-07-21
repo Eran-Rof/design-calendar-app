@@ -968,7 +968,11 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const ym = s.txn_date.slice(0, 7);
     let byMonth = histByPairMonth.get(key);
     if (!byMonth) { byMonth = new Map(); histByPairMonth.set(key, byMonth); }
-    byMonth.set(ym, (byMonth.get(ym) ?? 0) + (s.qty_units ?? s.qty));
+    // Number() BEFORE the add: PostgREST serialises `numeric`-typed columns as
+    // JSON strings, and `0 + "167"` CONCATENATES ("0167") — poisoning every
+    // trailing-window sum so the Hist T3 column renders blank ("–"). Coercing
+    // the addend keeps the accumulator numeric regardless of column type.
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + Number(s.qty_units ?? s.qty ?? 0));
   }
   // Trailing-history windows for a horizon month, all ending at (and including)
   // that month's same-period-last-year month (M−12). The planner can view T3,
@@ -1220,7 +1224,10 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       final_forecast_qty: f.final_forecast_qty,
       confidence_level: f.confidence_level,
       forecast_method: f.forecast_method,
-      ly_reference_qty: f.ly_reference_qty ?? null,
+      // Coerce to a real number (or null). PostgREST returns `numeric` columns
+      // as strings; a string ly_reference_qty renders blank ("–") via formatQty
+      // — the SP/LY column's failure mode — so normalise it at the source.
+      ly_reference_qty: f.ly_reference_qty == null ? null : Number(f.ly_reference_qty),
       item_cost: item?.unit_cost ?? (item?.style_code ? unitCostByStyle.get(item.style_code) ?? null : null) ?? null,
       ats_avg_cost: item?.sku_code ? (atsCostBySku.get(item.sku_code) ?? null) : null,
       avg_cost: resolvedCost,
