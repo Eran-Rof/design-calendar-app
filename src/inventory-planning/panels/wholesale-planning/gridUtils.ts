@@ -174,3 +174,51 @@ export function cmp(a: IpPlanningGridRow, b: IpPlanningGridRow, k: SortKey, d: "
     case "action":      return cmpStr(a.recommended_action, b.recommended_action, sign);
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// Logical rolling chains (fix: On Hand / ATS zeroed under a Period sort).
+//
+// The rolling supply pool is a LOGICAL chain per style/color (or per active
+// collapse-mode group) -- NOT a run of visually adjacent rows. The grid
+// previously split chains wherever the chain key changed between CONSECUTIVE
+// rows in render order, so any sort that interleaves chains (the common
+// "Period ascending" view puts Mar/ColorA next to Mar/ColorB) fragmented
+// every chain into 1-row pieces: the pool reset on each row, On Hand never
+// inherited the prior period's ATS, and the ending-ATS total walked
+// fragments.
+//
+// rollByLogicalChain groups rows by key REGARDLESS of position, orders each
+// chain chronologically (period_start, then original index for stability),
+// runs the pool down the chain, and writes each result back to the row's
+// original index -- so the math is always chronological while the planner
+// sorts the view however they like.
+export interface ChainRollResult {
+  on_hand_qty: number;
+  available_supply_qty: number;
+}
+
+export function rollByLogicalChain(
+  rows: IpPlanningGridRow[],
+  keyOf: (r: IpPlanningGridRow) => string,
+  rollChain: (chainRows: IpPlanningGridRow[]) => ChainRollResult[],
+): ChainRollResult[] {
+  const byChain = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const k = keyOf(r);
+    let idxs = byChain.get(k);
+    if (!idxs) { idxs = []; byChain.set(k, idxs); }
+    idxs.push(i);
+  });
+  const out = new Array<ChainRollResult>(rows.length);
+  for (const idxs of byChain.values()) {
+    const ordered = [...idxs].sort((a, b) => {
+      const pa = rows[a].period_start ?? "";
+      const pb = rows[b].period_start ?? "";
+      return pa !== pb ? pa.localeCompare(pb) : a - b;
+    });
+    const rolled = rollChain(ordered.map((i) => rows[i]));
+    ordered.forEach((idx, j) => { out[idx] = rolled[j]; });
+  }
+  return out;
+}
