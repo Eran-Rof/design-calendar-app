@@ -52,6 +52,12 @@ export type PoBreakdownCell = {
 export type PoBreakdownStyle = {
   style: string;
   sizes: Set<string>;
+  /** The single inseam shared by EVERY matrix line of this style, when they all
+   *  carry the same non-null inseam — shown once in the style header (a jeans
+   *  buyer needs the inseam, e.g. 30, which is otherwise invisible because it is
+   *  not a size column). null when the style has no inseam (tops / shorts) or
+   *  MIXES inseams — then the inseam is appended to each color row label. */
+  inseam: string | null;
   colors: Map<string, Map<string, PoBreakdownCell>>;
   lots: Set<string>;
 };
@@ -97,13 +103,38 @@ export function groupPoLines(lines: PoBreakdownLine[]): PoBreakdown {
   const matrixLines = lines.filter((l) => l.style_code && l.size);
   const unlinkedLines = lines.filter((l) => !(l.style_code && l.size));
 
+  // Pass 1 — per style, the distinct non-null inseams seen + whether any line has
+  // none. Drives whether the inseam is shown ONCE in the style header (every line
+  // shares one inseam) or appended to each color row label (the PO mixes inseams
+  // of one base style, so Black/30 and Black/32 must stay distinct rows).
+  const inseamInfo = new Map<string, { set: Set<string>; hasNull: boolean }>();
+  for (const l of matrixLines) {
+    const style = l.style_code as string;
+    let info = inseamInfo.get(style);
+    if (!info) { info = { set: new Set(), hasNull: false }; inseamInfo.set(style, info); }
+    const ins = l.inseam == null ? "" : String(l.inseam).trim();
+    if (ins) info.set.add(ins); else info.hasNull = true;
+  }
+  const headerInseamOf = (style: string): string | null => {
+    const info = inseamInfo.get(style);
+    return info && info.set.size === 1 && !info.hasNull ? [...info.set][0] : null;
+  };
+  const perRowInseamOf = (style: string): boolean => {
+    const info = inseamInfo.get(style);
+    if (!info) return false;
+    return info.set.size > 1 || (info.set.size >= 1 && info.hasNull);
+  };
+
   const byStyle = new Map<string, PoBreakdownStyle>();
   for (const l of matrixLines) {
     const style = l.style_code as string;
-    const color = l.color || "—";
+    const ins = l.inseam == null ? "" : String(l.inseam).trim();
+    // Row label: plain color, plus the inseam when this style MIXES inseams (so a
+    // uniform-inseam style shows its inseam once in the header, not on every row).
+    const color = perRowInseamOf(style) && ins ? `${l.color || "—"} · ${ins}"` : (l.color || "—");
     const size = canonSizeLabel(l.size as string);
     let s = byStyle.get(style);
-    if (!s) { s = { style, sizes: new Set(), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
+    if (!s) { s = { style, sizes: new Set(), inseam: headerInseamOf(style), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
     s.sizes.add(size);
     if (l.lot_number) s.lots.add(l.lot_number);
     let cm = s.colors.get(color);
