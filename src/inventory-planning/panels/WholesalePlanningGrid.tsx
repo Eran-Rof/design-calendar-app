@@ -33,6 +33,7 @@ import {
   cmpStr,
   cmpNum,
   cmpMulti,
+  rollByLogicalChain,
 } from "./wholesale-planning/gridUtils";
 import { Th } from "./wholesale-planning/Th";
 import {
@@ -43,7 +44,7 @@ import {
   genderLabel,
   type FreezeKey,
 } from "./wholesale-planning/columns";
-import { computeTotals, endingAtsTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
+import { computeTotals, endingAtsTotal, endingOnHandTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { BuyerVsLyReportModal } from "./wholesale-planning/BuyerVsLyReportModal";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
@@ -1580,40 +1581,24 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
       }
       return pool;
     };
-    // Walk sorted rows and split into groups whenever groupKey
-    // changes between consecutive rows. Same groupKey = same chain;
-    // different groupKey = pool resets.
-    const groups: { rows: typeof sorted; startIndex: number }[] = [];
-    let curKey: string | null = null;
-    let curRows: typeof sorted = [];
-    let curStart = 0;
-    for (let i = 0; i < sorted.length; i++) {
-      const r = sorted[i];
-      const k = groupKeyFor(r);
-      if (k !== curKey) {
-        if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
-        curRows = [];
-        curKey = k;
-        curStart = i;
-      }
-      curRows.push(r);
-    }
-    if (curRows.length > 0) groups.push({ rows: curRows, startIndex: curStart });
-    const rolled = new Array(sorted.length);
-    for (const g of groups) {
-      const groupRolled = applyRollingPool(
-        g.rows.map((r) => ({
+    // Roll each LOGICAL chain: rows grouped by chain key REGARDLESS of
+    // visual position, ordered chronologically inside the chain, results
+    // written back to render positions (see rollByLogicalChain). The old
+    // consecutive-run split fragmented every chain to 1-row pieces under
+    // a Period sort (Mar/ColorA sits next to Mar/ColorB) — the pool reset
+    // on every row, so On Hand never inherited the prior period's ATS and
+    // the whole supply flow read as zeros.
+    const rolled = rollByLogicalChain(sorted, groupKeyFor, (chainRows) =>
+      applyRollingPool(
+        chainRows.map((r) => ({
           on_so_qty: r.on_so_qty,
           receipts_due_qty: r.receipts_due_qty ?? 0,
           planned_buy_qty: r.planned_buy_qty ?? 0,
           dedupeKey: `${r.sku_id}:${r.period_start}`,
         })),
-        startingPoolFor(g.rows),
-      );
-      for (let j = 0; j < groupRolled.length; j++) {
-        rolled[g.startIndex + j] = groupRolled[j];
-      }
-    }
+        startingPoolFor(chainRows),
+      ),
+    );
     const asOf = new Date().toISOString().slice(0, 10);
     return sorted.map((r, i) => {
       const onHand = rolled[i].on_hand_qty;
@@ -1741,6 +1726,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
   const totals = useMemo(
     () => computeTotals(mutedRows, skuPeriodMath, {
       atsTotal: endingAtsTotal(filtered, (r) => rollGroupKeyFor(r, collapse)),
+      onHandTotal: endingOnHandTotal(filtered, (r) => rollGroupKeyFor(r, collapse)),
     }),
     [mutedRows, skuPeriodMath, filtered, collapse],
   );

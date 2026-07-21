@@ -56,9 +56,11 @@ function checkAbort(signal: AbortSignal | undefined): void {
 import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
 import { buildSiblingMap } from "../../shared/costResolution";
 import {
+  baseColorKey,
   buildPoEachCostByBaseColor,
   buildPoEachCostByStyle,
   resolvePackSize,
+  styleKey,
   type PlanningCostMaps,
   type PoCostRow,
 } from "../utils/poCostFallback";
@@ -980,8 +982,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   // runs on load, so the toggle stays instant client-side). breakdown is the
   // full 12 months (oldest→newest) for the tooltip; windows[N] = sum of the
   // last N of those (the N months through M−12).
-  const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } => {
-    const byMonth = histByPairMonth.get(`${customerId}:${skuId}`);
+  const windowsFor = (byMonth: Map<string, number> | undefined, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } => {
     const breakdown: Array<{ month: string; qty: number }> = [];
     for (let off = 23; off >= 12; off--) {
       const code = monthOffset(periodStart, off).period_code;
@@ -993,6 +994,40 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     }
     return { windows, breakdown };
   };
+  const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } =>
+    windowsFor(histByPairMonth.get(`${customerId}:${skuId}`), periodStart);
+
+  // FAMILY-grain history twin, keyed (customer, baseColorKey). A planner-added
+  // TBD stock-buy row resolves the PACK sku (RYB0412PPK-BLACK) while the
+  // customer's history is recorded on the each-grain family SKUs
+  // (RYB0412-BLACK …) — the exact-sku map would report 0 for a style the
+  // customer buys thousands of. Aggregating by base color (size + PPK token
+  // stripped, same key the cost cascade uses) lets the TBD row surface the
+  // whole (style, color) family's Hist T3/6/9/12 and SP/LY.
+  const histByCustFamilyMonth = new Map<string, Map<string, number>>();
+  for (const s of sales) {
+    if (!s.customer_id) continue;
+    const fam = baseColorKey(itemById.get(s.sku_id)?.sku_code);
+    if (!fam) continue;
+    const key = `${s.customer_id}:${fam}`;
+    const ym = s.txn_date.slice(0, 7);
+    let byMonth = histByCustFamilyMonth.get(key);
+    if (!byMonth) { byMonth = new Map(); histByCustFamilyMonth.set(key, byMonth); }
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + Number(s.qty_units ?? s.qty ?? 0));
+  }
+  // Family key for a TBD row: prefer the resolved real SKU's base color;
+  // fall back to style+color text (glued PPK stripped, color squished to
+  // the catalog's alphanumeric form) when the colorway isn't in the master
+  // yet (a NEW-color row).
+  const tbdFamilyKey = (skuId: string | undefined, style: string, color: string | null | undefined): string => {
+    const fromSku = skuId ? baseColorKey(itemById.get(skuId)?.sku_code) : "";
+    if (fromSku) return fromSku;
+    const colorPart = (color ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    if (!colorPart) return "";
+    return `${styleKey(style)}-${colorPart}`;
+  };
+  const familyT3ForPeriod = (customerId: string, famKey: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } =>
+    windowsFor(famKey ? histByCustFamilyMonth.get(`${customerId}:${famKey}`) : undefined, periodStart);
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
   // Stamped on every row (TBD + forecast) below so the grid can render
@@ -1535,6 +1570,15 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       const tHistRecv = tSkuId ? (historicalReceiptsBySkuPeriod.get(`${tSkuId}:${sp.period_start}`) ?? 0) : 0;
       // Same cost cascade the forecast rows run — see synResolvedCost above.
       const tResolvedCost = cascadeVendorAwareCostForItem(tSkuId ? itemById.get(tSkuId) : null, costMaps, vendorMaps);
+      // FAMILY-grain history for the row's real customer: Hist T3/6/9/12 and
+      // SP/LY aggregated across every SKU of the (style, color) family — a
+      // TBD row resolved to the PACK sku still surfaces the each-grain
+      // family's sales (CEO 2026-07-21: "T3/6/9/12 all 0 not possibly
+      // correct"). Falls back to zeros only when the customer truly has no
+      // family history.
+      const tFam = tbdFamilyKey(tSkuId, sp.style_code, t.color);
+      const tHist = familyT3ForPeriod(t.customer_id, tFam, sp.period_start);
+      const tLy = tHist.breakdown[tHist.breakdown.length - 1]?.qty ?? 0;
       tbdGridRows.push({
         forecast_id: `tbd:${t.id}`,
         planning_run_id: run.id,
@@ -1568,7 +1612,9 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         period_code: sp.period_code,
         period_start: sp.period_start as IpIsoDate,
         period_end: sp.period_end as IpIsoDate,
-        historical_trailing_qty: 0,
+        historical_trailing_qty: tHist.windows[3],
+        historical_trailing_windows: tHist.windows,
+        historical_trailing_breakdown: tHist.breakdown.some((b) => b.qty > 0) ? tHist.breakdown : null,
         system_forecast_qty: 0,
         system_forecast_qty_original: 0,
         system_forecast_qty_overridden_at: null,
@@ -1578,7 +1624,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         final_forecast_qty: t.final_forecast_qty,
         confidence_level: "estimate",
         forecast_method: "zero_floor",
-        ly_reference_qty: null,
+        ly_reference_qty: tLy > 0 ? tLy : null,
+        historical_margin_pct: null,
         item_cost: null,
         ats_avg_cost: null,
         // Forecast-row convention (see the synthetic row above): cascade
