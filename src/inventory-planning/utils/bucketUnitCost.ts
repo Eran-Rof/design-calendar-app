@@ -56,3 +56,53 @@ export function collectUnitCostBucketTargets(
   for (const fid of ids) visit(fid);
   return { forecastIds, tbdRows };
 }
+
+// Targets for propagating a manually-typed Unit Cost from a single
+// (non-aggregate) row out to every OTHER non-aggregate row of the SAME
+// style + color in the run (all periods, all customers). Rows of the same
+// style+color share the same pack grain, so one typed value is valid for
+// all of them — see #1852. Same shape as BucketCostTargets so the workbench
+// handler reuses one chunk/sequence write pattern:
+//   - regular forecast siblings → patchForecastUnitCostOverride(id, cost)
+//   - TBD stock-buy siblings     → saveTbdField(row, { unit_cost })
+export type StyleColorCostTargets = BucketCostTargets;
+
+// Gather the propagation siblings of an edited row.
+//
+// Match rule: case-insensitive, whitespace-trimmed compare on BOTH
+// sku_style and sku_color; both fields must be non-empty. Excluded:
+//   - the edited row itself (by forecast_id)
+//   - aggregate rows (their children are separate leaf rows already in the
+//     list; we propagate onto leaves, never the roll-up)
+//   - siblings of a different style or a different color
+//   - the TBD placeholder color "TBD" (color must be a REAL color match) —
+//     also short-circuits when the EDITED row's color is the "TBD"
+//     placeholder, so a blank-color stock-buy row never fans out
+//
+// Returns empty lists (never null) when the edited row has no real
+// style/color or has no siblings — the caller still writes the edited row.
+export function collectStyleColorPropagationTargets(
+  editedRow: Pick<IpPlanningGridRow, "forecast_id" | "sku_style" | "sku_color">,
+  allRows: IpPlanningGridRow[],
+): StyleColorCostTargets {
+  const norm = (s: string | null | undefined): string => (s ?? "").trim().toLowerCase();
+  const style = norm(editedRow.sku_style);
+  const color = norm(editedRow.sku_color);
+
+  const forecastIds: string[] = [];
+  const tbdRows: IpPlanningGridRow[] = [];
+
+  // Both fields must be real. Color must be an actual color, not the "TBD"
+  // placeholder — a blank stock-buy row must not blanket every TBD row.
+  if (!style || !color || color === "tbd") return { forecastIds, tbdRows };
+
+  for (const r of allRows) {
+    if (r.forecast_id === editedRow.forecast_id) continue;
+    if (r.is_aggregate) continue;
+    if (norm(r.sku_style) !== style) continue;
+    if (norm(r.sku_color) !== color) continue;
+    if (r.is_tbd) tbdRows.push(r);
+    else forecastIds.push(r.forecast_id);
+  }
+  return { forecastIds, tbdRows };
+}
