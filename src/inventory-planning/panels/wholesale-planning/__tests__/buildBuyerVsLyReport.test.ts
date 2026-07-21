@@ -38,7 +38,8 @@ describe("buildBuyerVsLyReport", () => {
       row({ customer_name: "Ross Stores", sku_style: "RYB0412PPK", sku_color: "black", buyer_request_qty: 9 }),
     ]);
     expect(rep.customers.map((c) => c.customer)).toEqual(["Burlington", "Ross Stores"]);
-    expect(rep.customers[1].styles[0].style).toBe("RYB0412PPK");
+    // A style's PPK sibling collapses to the base family (RYB0412PPK → RYB0412).
+    expect(rep.customers[1].styles[0].style).toBe("RYB0412");
   });
 
   it("aggregates multiple rows sharing the same (customer, style, color, period)", () => {
@@ -127,5 +128,53 @@ describe("reportMetricMeta", () => {
   it("labels the Buy report", async () => {
     const { reportMetricMeta } = await import("../buildBuyerVsLyReport");
     expect(reportMetricMeta("buy")).toMatchObject({ noun: "Buy", title: "Buy vs Last Year", fileStem: "buy-vs-ly", sheet: "Buy vs LY" });
+  });
+});
+
+
+describe("buildBuyerVsLyReport — PPK/base LY double-count fix", () => {
+  it("collapses a style + its PPK sibling into ONE family row", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112 }),
+      row({ sku_style: "RYB0412PPK", sku_color: "black", period_code: "2027-04", is_tbd: true, buyer_request_qty: 5016 } as Partial<IpPlanningGridRow>),
+    ]);
+    const styles = rep.customers[0].styles.map((s) => s.style);
+    expect(styles).toEqual(["RYB0412"]); // no separate RYB0412PPK
+  });
+
+  it("counts LY ONCE — base forecast wins, the PPK stock-buy duplicate is ignored", () => {
+    // Same last-year sales carried by BOTH the base each-grain forecast row
+    // and the PPK TBD stock-buy row (#1866 family history). Must not sum.
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412", sku_code: "RYB0412-BLACK", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112 }),
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-TBD", sku_color: "black", period_code: "2027-04", is_tbd: true, ly_reference_qty: 4112, buyer_request_qty: 5016 } as Partial<IpPlanningGridRow>),
+    ]);
+    const black = rep.customers[0].styles[0].colors[0];
+    expect(black.lyTotal).toBe(4112);        // once, NOT 8224
+    expect(black.tyTotal).toBe(5016);        // buyer summed across the family
+    expect(rep.customers[0].lyTotal).toBe(4112);
+  });
+
+  it("sums base each-grain sizes (real per-size sales are additive)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412", sku_id: "s-s", sku_code: "RYB0412-BLACK-S", sku_color: "black", period_code: "2027-04", ly_reference_qty: 1000 } as Partial<IpPlanningGridRow>),
+      row({ sku_style: "RYB0412", sku_id: "s-m", sku_code: "RYB0412-BLACK-M", sku_color: "black", period_code: "2027-04", ly_reference_qty: 1963 } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(2963);
+  });
+
+  it("falls back to the PPK/TBD family LY when there is NO base forecast row (new color)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-TBD", sku_color: "woodland camo", period_code: "2027-04", is_tbd: true, ly_reference_qty: 8432 } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(8432);
+  });
+
+  it("dedupes even two PPK duplicate carriers (max, not sum)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-A", sku_color: "black", period_code: "2027-04", is_tbd: true, ly_reference_qty: 4112 } as Partial<IpPlanningGridRow>),
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-B", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112 } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(4112);
   });
 });
