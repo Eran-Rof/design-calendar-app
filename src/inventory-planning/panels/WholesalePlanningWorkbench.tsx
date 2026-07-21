@@ -25,7 +25,7 @@ import { wholesaleRepo } from "../services/wholesalePlanningRepository";
 import { promoteStyleColor } from "../services/promoteStyleColorService";
 import { confirmDialog } from "../../shared/ui/warn";
 import { applyOverride, buildGridRows } from "../services/wholesaleForecastService";
-import { collectUnitCostBucketTargets } from "../utils/bucketUnitCost";
+import { collectUnitCostBucketTargets, collectStyleColorPropagationTargets } from "../utils/bucketUnitCost";
 import { planBuyerShiftBackForCustomers } from "./wholesale-planning/shiftBuyerBackOneMonth";
 import { ingestXoroSales, syncAtsSupply, syncMissingItems, syncTandaPos } from "../services/xoroSalesIngestService";
 import { ingestSalesExcel, ingestItemMasterExcel, type ExcelIngestResult } from "../services/excelIngestService";
@@ -2261,8 +2261,23 @@ export default function WholesalePlanningWorkbench() {
     const run = selectedRun;
     if (!run) return;
     const target = rows.find((r) => r.forecast_id === forecastId) ?? null;
+    // Propagate the typed cost to every OTHER non-aggregate row of the same
+    // style + color in the run (all periods, all customers). Symmetric: a
+    // number fans the value out; a clear-to-null reverts the whole
+    // style/color group back to auto-fill. Aggregate edits DON'T reach here
+    // (they route through saveUnitCostBucket's own child fan-out), so there's
+    // no double-propagation. See collectStyleColorPropagationTargets.
+    const prop = target
+      ? collectStyleColorPropagationTargets(target, rows)
+      : { forecastIds: [], tbdRows: [] };
+    const siblingCount = prop.forecastIds.length + prop.tbdRows.length;
+    const affected = new Set<string>([
+      forecastId,
+      ...prop.forecastIds,
+      ...prop.tbdRows.map((t) => t.forecast_id),
+    ]);
     setRows((prev) => prev.map((r) => {
-      if (r.forecast_id !== forecastId) return r;
+      if (!affected.has(r.forecast_id)) return r;
       const effective = cost ?? r.avg_cost ?? r.ats_avg_cost ?? r.item_cost ?? null;
       return { ...r, unit_cost_override: cost, unit_cost: effective };
     }));
@@ -2277,10 +2292,35 @@ export default function WholesalePlanningWorkbench() {
       } else {
         await wholesaleRepo.patchForecastUnitCostOverride(forecastId, cost);
       }
-      setToast({
-        text: cost != null ? `Unit cost set to $${cost.toFixed(2)}${target?.is_tbd ? " (TBD stock buy)" : ""}` : "Unit cost reset to auto-fill",
-        kind: "success",
-      });
+      // Fan the same cost onto the style/color siblings, reusing the bucket
+      // handler's write pattern: forecast PATCHes in bounded parallel chunks,
+      // TBD upserts sequential (each may mutate rows state / stamp a tbd_id).
+      const CHUNK = 25;
+      for (let i = 0; i < prop.forecastIds.length; i += CHUNK) {
+        const chunk = prop.forecastIds.slice(i, i + CHUNK);
+        await Promise.all(chunk.map((id) => wholesaleRepo.patchForecastUnitCostOverride(id, cost)));
+      }
+      for (const t of prop.tbdRows) {
+        await saveTbdField(t, { unit_cost: cost });
+      }
+      if (siblingCount > 0) {
+        // total = the edited row + every sibling now carrying this cost.
+        const total = siblingCount + 1;
+        const styleLabel = (target?.sku_style ?? "").trim();
+        const colorLabel = (target?.sku_color ?? "").trim();
+        const scope = `${total} ${styleLabel} / ${colorLabel} row${total === 1 ? "" : "s"}`;
+        setToast({
+          text: cost != null
+            ? `Unit cost $${cost.toFixed(2)} applied to ${scope}`
+            : `Unit cost cleared on ${scope} — reverted to auto-fill`,
+          kind: "success",
+        });
+      } else {
+        setToast({
+          text: cost != null ? `Unit cost set to $${cost.toFixed(2)}${target?.is_tbd ? " (TBD stock buy)" : ""}` : "Unit cost reset to auto-fill",
+          kind: "success",
+        });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setToast({ text: `Unit cost save failed — ${msg}`, kind: "error" });

@@ -2,7 +2,7 @@
 // See ../utils/bucketUnitCost.ts.
 
 import { describe, it, expect } from "vitest";
-import { collectUnitCostBucketTargets } from "../utils/bucketUnitCost";
+import { collectUnitCostBucketTargets, collectStyleColorPropagationTargets } from "../utils/bucketUnitCost";
 import type { IpPlanningGridRow } from "../types/wholesale";
 
 function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
@@ -123,5 +123,92 @@ describe("collectUnitCostBucketTargets", () => {
     });
     const res = collectUnitCostBucketTargets(agg, byId([c1, agg]));
     expect(res!.forecastIds).toEqual(["f-1"]);
+  });
+});
+
+describe("collectStyleColorPropagationTargets", () => {
+  it("gathers mixed forecast + TBD siblings of the same style/color", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "RYB0412PPK", sku_color: "Black" });
+    const sib1 = row({ forecast_id: "f-2", sku_style: "RYB0412PPK", sku_color: "Black" });
+    const sibTbd = row({ forecast_id: "tbd:9", sku_style: "RYB0412PPK", sku_color: "Black", is_tbd: true });
+    const res = collectStyleColorPropagationTargets(edited, [edited, sib1, sibTbd]);
+    expect(res.forecastIds).toEqual(["f-2"]);
+    expect(res.tbdRows.map((r) => r.forecast_id)).toEqual(["tbd:9"]);
+  });
+
+  it("excludes the edited row itself", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Red" });
+    const res = collectStyleColorPropagationTargets(edited, [edited]);
+    expect(res.forecastIds).toEqual([]);
+    expect(res.tbdRows).toEqual([]);
+  });
+
+  it("excludes the same style with a different color", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Black" });
+    const other = row({ forecast_id: "f-2", sku_style: "S1", sku_color: "White" });
+    const res = collectStyleColorPropagationTargets(edited, [edited, other]);
+    expect(res.forecastIds).toEqual([]);
+  });
+
+  it("excludes a different style with the same color", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Black" });
+    const other = row({ forecast_id: "f-2", sku_style: "S2", sku_color: "Black" });
+    const res = collectStyleColorPropagationTargets(edited, [edited, other]);
+    expect(res.forecastIds).toEqual([]);
+  });
+
+  it("excludes aggregate rows (their leaf children match instead)", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Black" });
+    const agg = row({ forecast_id: "agg", sku_style: "S1", sku_color: "Black", is_aggregate: true });
+    const leaf = row({ forecast_id: "f-2", sku_style: "S1", sku_color: "Black" });
+    const res = collectStyleColorPropagationTargets(edited, [edited, agg, leaf]);
+    expect(res.forecastIds).toEqual(["f-2"]);
+  });
+
+  it("matches case-insensitively and trims whitespace on style and color", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: " ryb0412ppk ", sku_color: "black" });
+    const sib = row({ forecast_id: "f-2", sku_style: "RYB0412PPK", sku_color: " Black" });
+    const res = collectStyleColorPropagationTargets(edited, [edited, sib]);
+    expect(res.forecastIds).toEqual(["f-2"]);
+  });
+
+  it("does not propagate when the edited row's color is the TBD placeholder", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "TBD" });
+    const other = row({ forecast_id: "f-2", sku_style: "S1", sku_color: "TBD", is_tbd: true });
+    const res = collectStyleColorPropagationTargets(edited, [edited, other]);
+    expect(res.forecastIds).toEqual([]);
+    expect(res.tbdRows).toEqual([]);
+  });
+
+  it("excludes TBD-placeholder-color siblings when the edited row has a real color", () => {
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Black" });
+    const realSib = row({ forecast_id: "f-2", sku_style: "S1", sku_color: "Black" });
+    const tbdPlaceholder = row({ forecast_id: "tbd:1", sku_style: "S1", sku_color: "TBD", is_tbd: true });
+    const res = collectStyleColorPropagationTargets(edited, [edited, realSib, tbdPlaceholder]);
+    expect(res.forecastIds).toEqual(["f-2"]);
+    expect(res.tbdRows).toEqual([]);
+  });
+
+  it("returns empty when the edited row has an empty style or color", () => {
+    const noStyle = row({ forecast_id: "f-1", sku_style: "  ", sku_color: "Black" });
+    const noColor = row({ forecast_id: "f-2", sku_style: "S1", sku_color: null });
+    const sib = row({ forecast_id: "f-3", sku_style: "S1", sku_color: "Black" });
+    expect(collectStyleColorPropagationTargets(noStyle, [noStyle, sib]).forecastIds).toEqual([]);
+    expect(collectStyleColorPropagationTargets(noColor, [noColor, sib]).forecastIds).toEqual([]);
+  });
+
+  it("selects the SAME targets whether the caller applies a number or a null (symmetric clear)", () => {
+    // The write value (number vs null) never changes which rows are targeted —
+    // clearing reverts exactly the group a number would have set.
+    const edited = row({ forecast_id: "f-1", sku_style: "S1", sku_color: "Black" });
+    const sib1 = row({ forecast_id: "f-2", sku_style: "S1", sku_color: "Black" });
+    const sib2 = row({ forecast_id: "tbd:2", sku_style: "S1", sku_color: "Black", is_tbd: true });
+    const all = [edited, sib1, sib2];
+    const a = collectStyleColorPropagationTargets(edited, all);
+    const b = collectStyleColorPropagationTargets(edited, all);
+    expect(a.forecastIds).toEqual(b.forecastIds);
+    expect(a.tbdRows.map((r) => r.forecast_id)).toEqual(b.tbdRows.map((r) => r.forecast_id));
+    expect(a.forecastIds).toEqual(["f-2"]);
+    expect(a.tbdRows.map((r) => r.forecast_id)).toEqual(["tbd:2"]);
   });
 });
