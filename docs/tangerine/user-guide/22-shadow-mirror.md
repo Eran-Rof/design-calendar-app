@@ -233,6 +233,19 @@ The **Inventory On-Hand Accuracy** monitor (`/api/cron/inventory-onhand-check`, 
 
 Staleness is computed from the summary's server-side `generated_at` minus `rest_snapshot_date`, so it never depends on the box's local clock. Once the real Xoro cutover lands and the by-size feed refreshes to the current day, the snapshot reads fresh again and full alerting resumes automatically — no config change needed. (Pure handler logic; no migration.)
 
+### 22.12.3 The spine now owns the by-size snapshot — refreshed nightly (2026-07-21)
+
+The stale-baseline suppression in §22.12.2 was a safety net for a real problem: **nothing was writing `tangerine_size_onhand` on a schedule.** The legacy `ingest-size-onhand.mjs --batch` step in the nightly is a headless no-op (it processes 0 styles), so the REST by-size photo froze on 2026-07-15 while the live layers moved every business day. That gap is now closed at the source.
+
+**`scripts/sync-onhand-spine.mjs` — the spine that already trues `inventory_layers` to the fresh Xoro-REST feed every night (Mon–Fri, gated on `BY_SIZE_ONHAND_SYNC=apply`) — now also writes the by-size snapshot in the same `--apply` run.** After it finishes truing layers it:
+
+1. **Upserts one row per (item, warehouse) it resolved from today's REST CSV** into `tangerine_size_onhand` (`source='xoro_rest'`, `snapshot_date` = the `postAD_invrest_YYYYMMDD` date, `warehouse_code` = the raw Xoro StoreName — `ROF Main`, `ROF - ECOM`, `Psycho Tuna`, `Psycho Tuna Ecom`), qty aggregated per cell. Items resolve exactly as the layer sync does — UPC spine (`upc_item_master`) plus the private-label ItemNumber path — so the snapshot and the layers are the same universe.
+2. **Prunes superseded older rows** so the "latest snapshot_date per (item, warehouse)" reads that every consumer uses never see a stale photo. A pre-`snapshot_date` row is deleted when **(a)** the same (item, warehouse) got a fresh row today (day-over-day supersession), **or (b)** its item is spine-mapped (in the UPC-spine or private-label set) but **absent from today's feed** — its truth became 0, the same "confirmed sold-through" semantics as `retire-soldthrough.mjs`. This is what clears the **retired/duplicate SKUs** that otherwise linger forever and inflate the accuracy monitor. **Non-spine items absent from the feed are kept** (a coverage gap must not delete last-known data), and the sold-through prune is skipped entirely if the feed resolves 0 rows (a broken CSV can never mass-delete).
+
+Guardrails: `--apply` is required to write (a plain run prints the upsert/prune **counts** and touches nothing); every count (upserted, pruned-superseded, pruned-sold-through) is logged to stdout so `run_daily`'s tee captures it. The old `ingest-size-onhand.mjs --batch` block was removed from `rof_xoro_project/scripts/run_daily.ps1` so there is exactly **one** writer.
+
+**Net effect on §22.12.2:** the accuracy monitor's baseline now goes fresh every business day, so the stale-baseline suppression becomes a **dormant safety net** — full $-exposure and phantom alerting is active again, and the suppression only ever kicks in if the spine itself stops running (a real break worth its own investigation).
+
 ---
 
 ## 22.13 App-wide error tracking + security hardening (2026-07-07)

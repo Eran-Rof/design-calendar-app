@@ -26,6 +26,7 @@ import { readFileSync, createReadStream, writeFileSync, readdirSync } from "node
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
+import { buildSnapshotUpserts, pruneReason, csvDateFromName, cellKey } from "../api/_lib/spineSnapshot.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -80,11 +81,16 @@ for (const r of plRows) {
 }
 const allowedSkus = new Set([...spineSkus, ...plSkus]);
 
-// Xoro-REST target on-hand by (sku_id, loc_code)
+// Xoro-REST target on-hand by (sku_id, loc_code). snapCells captures the SAME
+// resolved cells keyed by raw StoreName (the tangerine_size_onhand.warehouse_code
+// convention) for the by-size snapshot write below — including stores the layer
+// true-up doesn't map (e.g. 'Psycho Tuna Ecom'); the snapshot is a faithful
+// per-store mirror, the layer sync stays confined to STORE_TO_LOC_CODE.
 const target = new Map();  // `${sku}|${loc}` -> qty
+const snapCells = [];      // { sku, store (raw StoreName), qty }
 {
   const rl = createInterface({ input: createReadStream(newestCsv()) }); let hd = null, ix = {};
-  for await (const line of rl) { if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName", "ItemNumber"]) ix[c] = hd.indexOf(c); continue; } const cols = pcsv(line); if (cols.length !== hd.length) continue; const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0) continue; let sku = null; const plHit = plByNorm.get(normSku(cols[ix.ItemNumber] || "")); if (plHit) sku = plHit.id; else { const upc = (cols[ix.ItemUpc] || "").trim(); if (/^\d{6,}$/.test(upc)) sku = upcMap.get(upc); } if (!sku) continue; const loc = STORE_TO_LOC_CODE[(cols[ix.StoreName] || "").trim()]; if (!loc) continue; const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q); }
+  for await (const line of rl) { if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName", "ItemNumber"]) ix[c] = hd.indexOf(c); continue; } const cols = pcsv(line); if (cols.length !== hd.length) continue; const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0) continue; let sku = null; const plHit = plByNorm.get(normSku(cols[ix.ItemNumber] || "")); if (plHit) sku = plHit.id; else { const upc = (cols[ix.ItemUpc] || "").trim(); if (/^\d{6,}$/.test(upc)) sku = upcMap.get(upc); } if (!sku) continue; const store = (cols[ix.StoreName] || "").trim(); if (store) snapCells.push({ sku, store, qty: q }); const loc = STORE_TO_LOC_CODE[store]; if (!loc) continue; const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q); }
 }
 // current layers by (item, loc): rest + native  (via Mgmt API, join location code)
 const curRows = await mgmt(`select l.item_id::text item, coalesce(loc.code,'?') loc, l.source_kind sk, round(sum(l.remaining_qty))::numeric q from inventory_layers l left join inventory_locations loc on loc.id=l.location_id where l.remaining_qty>0 group by l.item_id, loc.code, l.source_kind;`);
@@ -117,7 +123,33 @@ console.log(`#   net change to xoro_rest_size: ${Math.round(incU - decU).toLocal
 console.log(`\n# top 15 changes (sku | loc | xoro | native | curRest -> targetRest | delta):`);
 plan.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 15).forEach(p => console.log(`  ${(skuCodeById.get(p.sku) || p.sku.slice(0, 8))} | ${p.loc} | xoro=${p.xoro} native=${p.native} ${p.curRest}->${p.targetRest} (${p.delta > 0 ? "+" : ""}${Math.round(p.delta)})`));
 
-if (!APPLY) { console.log(`\n# DRY-RUN — no writes. --apply would true xoro_rest_size to Xoro-REST per store (reversal manifest saved).`); process.exit(0); }
+// ── BY-SIZE SNAPSHOT PLAN (tangerine_size_onhand) — the spine now OWNS this table.
+// One row per (item_id, warehouse=raw StoreName) resolved from today's CSV; older
+// rows are pruned when superseded (same cell re-written today) or sold-through (a
+// spine-mapped item that dropped out of the feed → truth is now 0). Non-spine
+// items absent from the feed keep their last-known row (coverage gaps).
+// See docs/tangerine/user-guide/22-shadow-mirror.md §22.12.3.
+const csvDate = csvDateFromName(newestCsv());
+let snapUpserts = [], supersededIds = [], soldThroughIds = [];
+if (!csvDate) {
+  console.log(`\n# ⚠ SNAPSHOT SKIPPED — CSV name carries no YYYYMMDD; cannot date the snapshot.`);
+} else {
+  snapUpserts = buildSnapshotUpserts(snapCells, null, csvDate);
+  const feedItems = new Set(snapCells.map((c) => c.sku));
+  const upsertKeys = new Set(snapUpserts.map((u) => cellKey(u.item_id, u.warehouse_code)));
+  const existing = await mgmt(`select id::text id, item_id::text item_id, warehouse_code, snapshot_date::text snapshot_date, source from tangerine_size_onhand where source='xoro_rest' and entity_id=${sqlLit(ROF)}::uuid and snapshot_date < ${sqlLit(csvDate)}::date;`);
+  for (const row of existing) {
+    const why = pruneReason(row, { upsertKeys, allowedSkus, feedItems, csvDate });
+    if (why === "superseded") supersededIds.push(row.id);
+    else if (why === "sold-through") soldThroughIds.push(row.id);
+  }
+  console.log(`\n# ===== BY-SIZE SNAPSHOT (tangerine_size_onhand, source=xoro_rest, date ${csvDate}) =====`);
+  console.log(`#   upsert rows (item×warehouse): ${snapUpserts.length} across ${feedItems.size} feed items`);
+  console.log(`#   prune superseded (same cell re-written today): ${supersededIds.length}`);
+  console.log(`#   prune sold-through (spine item absent from feed): ${soldThroughIds.length}`);
+}
+
+if (!APPLY) { console.log(`\n# DRY-RUN — no writes. --apply would true xoro_rest_size to Xoro-REST per store AND upsert/prune the tangerine_size_onhand snapshot above (reversal manifest saved).`); process.exit(0); }
 
 // ── APPLY ── per (sku,loc): DECREASE reduce oldest-first; INCREASE add to newest
 // existing rest layer, else CREATE one. FK-safe (no deletes). Reversal manifest.
@@ -165,5 +197,27 @@ for (let i = 0; i < creates.length; i += 300) {
 }
 writeFileSync(manifestPath, JSON.stringify({ created_at: new Date().toISOString(), csv: newestCsv(), updates, created_ids: createdIds }, null, 2));
 console.log(`# reversal manifest: ${manifestPath}`);
+
+// ── WRITE by-size snapshot (tangerine_size_onhand): upsert today's per-store rows,
+// then prune superseded + sold-through older rows (after a successful upsert).
+// Guarded on a non-empty feed so a broken/empty CSV can never mass-delete via the
+// sold-through path.
+let prunedSup = 0, prunedSold = 0;
+if (csvDate && snapUpserts.length) {
+  let sUp = 0;
+  for (let i = 0; i < snapUpserts.length; i += 500) {
+    const chunk = snapUpserts.slice(i, i + 500);
+    const vals = chunk.map((u) => `(${sqlLit(ROF)}::uuid, ${sqlLit(u.item_id)}::uuid, ${sqlLit(u.warehouse_code)}, ${sqlLit(u.snapshot_date)}::date, ${u.qty_on_hand}::numeric, 'xoro_rest', now())`).join(",");
+    await mgmt(`insert into tangerine_size_onhand (entity_id, item_id, warehouse_code, snapshot_date, qty_on_hand, source, updated_at) values ${vals} on conflict (entity_id, item_id, warehouse_code, snapshot_date, source) do update set qty_on_hand = excluded.qty_on_hand, updated_at = now();`);
+    sUp += chunk.length; console.log(`#   snapshot upserted ${sUp}/${snapUpserts.length}`);
+  }
+  const pruneIds = async (ids) => { let n = 0; for (let i = 0; i < ids.length; i += 500) { const chunk = ids.slice(i, i + 500); const [{ n: d }] = await mgmt(`with d as (delete from tangerine_size_onhand where id in (${chunk.map((x) => `${sqlLit(x)}::uuid`).join(",")}) returning 1) select count(*)::int n from d;`); n += Number(d) || 0; } return n; };
+  if (supersededIds.length) prunedSup = await pruneIds(supersededIds);
+  if (soldThroughIds.length) prunedSold = await pruneIds(soldThroughIds);
+} else if (csvDate) {
+  console.log(`# snapshot upsert/prune SKIPPED — feed produced 0 rows (safety: no sold-through mass-delete).`);
+}
+console.log(`# snapshot: upserted ${snapUpserts.length}, pruned-superseded ${prunedSup}, pruned-sold-through ${prunedSold}.`);
+
 const [{ t }] = await mgmt(`select round(sum(remaining_qty))::int t from inventory_layers where remaining_qty>0;`);
-console.log(`\n# ✓ DONE. spine on-hand synced to Xoro-REST. inventory_layers total now ${t.toLocaleString()}.`);
+console.log(`\n# ✓ DONE. spine on-hand synced to Xoro-REST + by-size snapshot written. inventory_layers total now ${t.toLocaleString()}.`);
