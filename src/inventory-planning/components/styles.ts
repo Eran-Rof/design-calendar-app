@@ -119,9 +119,15 @@ export const METHOD_LABEL: Record<string, string> = {
   zero_floor:                  "Zero",
 };
 
-export function formatQty(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return "–";
-  return Math.round(n).toLocaleString();
+export function formatQty(n: number | string | null | undefined): string {
+  // Coerce numeric strings BEFORE the finite check: PostgREST serialises
+  // `numeric`-typed columns as JSON strings, and `Number.isFinite("167")` is
+  // false — so an un-coerced string (e.g. Hist T3 / SP/LY read straight from a
+  // numeric column) would render blank ("–") instead of the value. A genuinely
+  // non-numeric value still falls through to "–".
+  const v = typeof n === "string" ? (n.trim() === "" ? Number.NaN : Number(n)) : n;
+  if (v == null || !Number.isFinite(v)) return "–";
+  return Math.round(v).toLocaleString();
 }
 
 // ── Date formatting ────────────────────────────────────────────────────────
