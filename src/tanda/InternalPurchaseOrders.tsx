@@ -27,7 +27,7 @@ import { extractPpk } from "../shared/prepack";
 import { computeSizeCollapse } from "../shared/matrix";
 import { compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
-import { groupPoLines, openQty, poHasReceipts, poFullyReceived, type PoBreakdownCell, type PoBreakdownLine } from "./lib/poLineBreakdown";
+import { groupPoLines, openQty, poHasReceipts, poFullyReceived, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownCell, type PoBreakdownLine, type ReceiptDatePoint } from "./lib/poLineBreakdown";
 import { useCanSeeMargins } from "../hooks/useCanSeeMargins";
 
 // EXPLODE PPK preference — shared with the PO/Item Matrix tab. Lifted to module
@@ -1134,11 +1134,68 @@ function distributeRemain(lines: PoBreakdownLine[], newRemain: number): Map<PoBr
   return out;
 }
 
-const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceiptLine[]; editable: boolean }>(
-  function PoReceiptLinesEditor({ lines, editable }, ref) {
-    const { byStyle, unlinkedLines } = useMemo(() => groupPoLines(lines), [lines]);
-    // Editable remain-to-ship per color×size cell (packs/eaches at stored grain).
-    // Seeded from each cell's current open qty; re-seeded when the lines change.
+// LRD (Last Received Date) chip — the newest posted-receipt date, with a
+// dark-palette hover tooltip listing EVERY posted receipt date + qty received on
+// it (oldest → newest). Sits beside the "Received" label in the receipt view so a
+// buyer sees at a glance when goods last landed and the full receipt cadence.
+function LrdChip({ summary }: { summary: { lastReceivedDate: string | null; byDate: ReceiptDatePoint[] } }) {
+  const [open, setOpen] = useState(false);
+  if (!summary.lastReceivedDate || summary.byDate.length === 0) return null;
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "default", fontSize: 10, fontWeight: 700,
+        color: "#60A5FA", border: "1px solid #334155", background: "#0b1220", borderRadius: 4, padding: "1px 6px", letterSpacing: 0.4 }}>
+        LRD {fmtDateDisplay(summary.lastReceivedDate)}
+      </span>
+      {open && (
+        <div role="tooltip" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 40, minWidth: 190,
+          background: "#0b1220", border: "1px solid #334155", borderRadius: 6, padding: "8px 10px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+          <div style={{ color: "#94A3B8", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 700, marginBottom: 6 }}>
+            Received on {summary.byDate.length} {summary.byDate.length === 1 ? "date" : "dates"}
+          </div>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <tbody>
+              {summary.byDate.map((r) => (
+                <tr key={r.date}>
+                  <td style={{ color: "#F1F5F9", fontSize: 11, fontFamily: "monospace", padding: "2px 10px 2px 0", whiteSpace: "nowrap" }}>{fmtDateDisplay(r.date)}</td>
+                  <td style={{ color: "#60A5FA", fontSize: 11, fontFamily: "monospace", fontWeight: 700, textAlign: "right", whiteSpace: "nowrap" }}>{r.qty.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </span>
+  );
+}
+
+const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceiptLine[]; editable: boolean; receipts?: ReceiptDatePoint[] }>(
+  function PoReceiptLinesEditor({ lines, editable, receipts }, ref) {
+    const { byStyle, matrixLines, unlinkedLines } = useMemo(() => groupPoLines(lines), [lines]);
+    // EXPLODE PPK view (shared with the PO grid's toggle via the same storage key):
+    // OFF → cells/totals are PACKS and the unit column is per-pack cost; ON → cells
+    // /totals are UNITS (packs × units-per-pack) and the unit column is per-EACH
+    // cost. Ext $ is grain-invariant (Σ packs × per-pack cost) either way — the
+    // SAME grain-safe math the read-only PO row expander (PoRowDetail) uses.
+    const [explode, setExplode] = useState<boolean>(readExplodePpk);
+    useEffect(() => { try { localStorage.setItem(EXPLODE_PPK_KEY, explode ? "true" : "false"); } catch { /* ignore */ } }, [explode]);
+    // Does this PO carry any prepack (PPK) lines? Only then do the packs/units +
+    // "PPK exploded" affordances make sense (mirrors PoRowDetail).
+    const hasPpk = matrixLines.some((l) => extractPpk(l.size) != null || extractPpk(l.style_code) != null);
+    // Units-per-pack multiplier for a cell (1 when off or non-PPK). Reuses the
+    // shared extractPpk — no bespoke grain math.
+    const ppkOf = (style: string, size: string) => (extractPpk(size) ?? extractPpk(style) ?? 1);
+    const mult = (style: string, size: string) => (explode ? ppkOf(style, size) : 1);
+    // Last Received Date + per-date breakdown for the LRD chip (posted receipts).
+    const lrd = useMemo(() => deriveReceiptDateSummary(receipts), [receipts]);
+    // PO-wide ORDERED grand $ total (parity with the normal matrix line body).
+    const grandTotalCents = useMemo(() => poBreakdownGrandTotalCents({ byStyle, matrixLines, unlinkedLines }), [byStyle, matrixLines, unlinkedLines]);
+    // Editable remain-to-ship per color×size cell, stored ALWAYS at pack grain
+    // (the grain resolve() writes back). Seeded from each cell's current open qty;
+    // re-seeded when the lines change. Under explode the INPUT shows/edits units,
+    // converting units→packs (÷ pack size, whole packs) on write.
     const [remainByCell, setRemainByCell] = useState<Record<string, number>>({});
     useEffect(() => {
       const seed: Record<string, number> = {};
@@ -1173,10 +1230,17 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
       },
     }), [byStyle, remainByCell, lines]);
 
-    const setRemain = (k: string, v: number) => setRemainByCell((p) => ({ ...p, [k]: Math.max(0, v) }));
+    // Edit the remain-to-ship cell. `v` is in the CURRENT view grain (units when
+    // exploded, else packs); store at pack grain (÷ pack size → whole packs).
+    const setRemain = (k: string, v: number, per: number) =>
+      setRemainByCell((p) => ({ ...p, [k]: Math.max(0, explode && per > 1 ? Math.round(v / per) : v) }));
     const miniTh: React.CSSProperties = { ...th, position: "static" };
     // Locked-value cell tint per metric row (mirrors the PO grid colors).
     const ISSUED = C.textSub, RECEIVED = "#60A5FA", REMAIN = "#14B8A6";
+    // Per-pack unit cost for a cell (grain-safe: cost is stored per pack).
+    const unitPerPack = (c: PoBreakdownCell) =>
+      c.ordered > 0 ? c.orderedCost / c.ordered : c.received > 0 ? c.receivedCost / c.received : 0;
+    const qtyColLabel = hasPpk ? (explode ? "Units" : "Packs") : "Qty";
 
     if (byStyle.size === 0 && unlinkedLines.length === 0) {
       return <div style={{ color: C.textMuted, fontSize: 13, padding: "12px 4px" }}>No lines on this purchase order.</div>;
@@ -1185,28 +1249,39 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ color: C.textMuted, fontSize: 11 }}>
-            <span style={{ color: ISSUED }}>Issued</span> / <span style={{ color: RECEIVED }}>Received</span> / <span style={{ color: REMAIN }}>Remain to ship</span>
+          <span style={{ color: C.textMuted, fontSize: 11, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: ISSUED }}>Issued</span> / <span style={{ color: RECEIVED }}>Received</span>
+            <LrdChip summary={lrd} />
+            / <span style={{ color: REMAIN }}>Remain to ship</span>
           </span>
           <span style={{ color: editable ? C.warn : C.textMuted, fontSize: 11 }}>
             · {editable
               ? "Received units are locked — you can only change Remain to ship."
               : "Fully received — quantities are read-only."}
           </span>
+          {hasPpk && (
+            <label
+              title={explode ? "Prepack rows show as units (packs × units-per-pack) with per-each cost. Click to switch to packs." : "Prepack rows show as packs. Click to explode to units + per-each cost."}
+              style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "4px 9px", borderRadius: 6, border: `1px solid ${explode ? "#A855F7" : C.cardBdr}`, background: explode ? "rgba(168,85,247,0.12)" : "transparent", userSelect: "none", whiteSpace: "nowrap" }}>
+              <input type="checkbox" checked={explode} onChange={(e) => setExplode(e.target.checked)} style={{ accentColor: "#A855F7", cursor: "pointer", width: 12, height: 12 }} />
+              <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 11, fontWeight: explode ? 700 : 400 }}>EXPLODE PPK</span>
+            </label>
+          )}
         </div>
         {[...byStyle.entries()].map(([style, s]) => {
           const sizes = [...s.sizes].sort(compareSizes);
           const colors = [...s.colors.entries()];
-          type Metric = { key: string; label: string; q: (c: PoBreakdownCell) => number; color: string; editableRow: boolean };
+          type Metric = { key: string; label: string; q: (c: PoBreakdownCell) => number; ext: (c: PoBreakdownCell) => number; color: string; editableRow: boolean };
           const metrics: Metric[] = [
-            { key: "issued", label: "Issued", q: (c) => c.ordered, color: ISSUED, editableRow: false },
-            { key: "received", label: "Received", q: (c) => c.received, color: RECEIVED, editableRow: false },
-            { key: "remain", label: "Remain to ship", q: (c) => c.remaining, color: REMAIN, editableRow: true },
+            { key: "issued", label: "Issued", q: (c) => c.ordered, ext: (c) => c.orderedCost, color: ISSUED, editableRow: false },
+            { key: "received", label: "Received", q: (c) => c.received, ext: (c) => c.receivedCost, color: RECEIVED, editableRow: false },
+            { key: "remain", label: "Remain to ship", q: (c) => c.remaining, ext: (c) => c.remainingCost, color: REMAIN, editableRow: true },
           ];
           return (
             <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card, flexWrap: "wrap" }}>
                 <span style={{ color: C.primary, fontFamily: "monospace", fontWeight: 700 }}>{style}</span>
+                {s.styleName && <span style={{ color: C.text, fontSize: 12 }}>{s.styleName}</span>}
                 {s.inseam && <span style={{ color: C.textMuted, fontSize: 11 }}>Inseam <b style={{ color: C.textSub, fontWeight: 600 }}>{s.inseam}</b></span>}
                 {s.lots.size > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>lot {[...s.lots].join(", ")}</span>}
               </div>
@@ -1215,19 +1290,31 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
                   <thead><tr>
                     <th style={miniTh}>Color</th>
                     {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sz}</th>)}
-                    <th style={{ ...miniTh, textAlign: "center" }}>Total</th>
+                    <th style={{ ...miniTh, textAlign: "center" }}>{qtyColLabel}</th>
+                    <th style={{ ...miniTh, textAlign: "right" }}>{hasPpk ? (explode ? "Per-each $" : "PO pack $") : "Unit $"}</th>
+                    <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
                   </tr></thead>
                   <tbody>
-                    {colors.map(([color, cm]) => (
+                    {colors.map(([color, cm]) => {
+                      // Per-each vs per-pack unit for THIS color (from issued cost),
+                      // shown once on the Issued row (grain-safe, mirrors PoRowDetail).
+                      let ordPacks = 0, ordExt = 0, ordUnits = 0;
+                      for (const [sz, cell] of cm) { ordPacks += cell.ordered; ordExt += cell.orderedCost; ordUnits += cell.ordered * ppkOf(style, sz); }
+                      const avgPack = ordPacks > 0 ? ordExt / ordPacks : 0;
+                      const perEach = ordUnits > 0 ? ordExt / ordUnits : avgPack;
+                      const unitDisp = explode ? perEach : avgPack;
+                      return (
                       <Fragment key={color}>
                         {metrics.map((m, mi) => {
                           const editRow = m.editableRow && editable;
-                          let rowTotal = 0;
+                          const firstMetric = mi === 0;
+                          let rowQtyDisp = 0, rowExt = 0;
                           for (const [sz, cell] of cm) {
                             const k = cellKeyOf(style, color, sz);
-                            rowTotal += m.editableRow ? (remainByCell[k] ?? cell.remaining) : m.q(cell);
+                            const packs = m.editableRow ? (remainByCell[k] ?? cell.remaining) : m.q(cell);
+                            rowQtyDisp += packs * mult(style, sz);
+                            rowExt += m.editableRow ? packs * unitPerPack(cell) : m.ext(cell);
                           }
-                          const firstMetric = mi === 0;
                           return (
                             <tr key={m.key} style={{ borderTop: firstMetric ? `1px solid ${C.cardBdr}` : "none" }}>
                               <td style={{ ...td, borderBottom: "none", paddingTop: firstMetric ? undefined : 1, paddingBottom: mi === metrics.length - 1 ? undefined : 1 }}>
@@ -1238,38 +1325,47 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
                                 const cell = cm.get(sz);
                                 if (!cell) return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", color: C.cardBdr }}>—</td>;
                                 const k = cellKeyOf(style, color, sz);
+                                const per = ppkOf(style, sz);
                                 if (editRow) {
+                                  const packs = remainByCell[k] ?? cell.remaining;
+                                  const dispVal = packs * mult(style, sz);
                                   return (
                                     <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center" }}>
                                       <input type="text" inputMode="numeric" aria-label={`Remain ${color} ${sz}`}
-                                        value={String(remainByCell[k] ?? cell.remaining)}
-                                        onChange={(e) => { if (/^\d*$/.test(e.target.value)) setRemain(k, Number(e.target.value || 0)); }}
-                                        title={`Received ${cell.received.toLocaleString()} · Issued ${cell.ordered.toLocaleString()} — edit units still to ship`}
+                                        value={String(dispVal)}
+                                        onChange={(e) => { if (/^\d*$/.test(e.target.value)) setRemain(k, Number(e.target.value || 0), per); }}
+                                        title={`Received ${(cell.received * mult(style, sz)).toLocaleString()} · Issued ${(cell.ordered * mult(style, sz)).toLocaleString()}${explode && per > 1 ? " (units — stored as whole packs)" : ""} — edit ${explode && per > 1 ? "units" : "quantity"} still to ship`}
                                         style={{ width: "6ch", textAlign: "right", background: "#0b1220", color: REMAIN, border: `1px solid ${C.cardBdr}`, borderRadius: 4, padding: "3px 6px", fontFamily: "monospace", fontSize: 12 }} />
                                     </td>
                                   );
                                 }
-                                const v = m.q(cell);
+                                const v = m.q(cell) * mult(style, sz);
                                 return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: v ? m.color : C.cardBdr }}>{v ? v.toLocaleString() : "—"}</td>;
                               })}
-                              <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.color, fontWeight: 700 }}>{rowTotal.toLocaleString()}</td>
+                              <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.color, fontWeight: 700 }}>{rowQtyDisp.toLocaleString()}</td>
+                              <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{firstMetric ? fmtCents(Math.round(unitDisp)) : ""}</td>
+                              <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(rowExt))}</td>
                             </tr>
                           );
                         })}
                       </Fragment>
-                    ))}
+                    ); })}
                   </tbody>
                   <tfoot>
                     {metrics.map((m, mi) => {
-                      let tQty = 0;
+                      let tQty = 0, tExt = 0;
                       for (const [color, cm] of s.colors) for (const [sz, cell] of cm) {
                         const k = cellKeyOf(style, color, sz);
-                        tQty += m.editableRow ? (remainByCell[k] ?? cell.remaining) : m.q(cell);
+                        const packs = m.editableRow ? (remainByCell[k] ?? cell.remaining) : m.q(cell);
+                        tQty += packs * mult(style, sz);
+                        tExt += m.editableRow ? packs * unitPerPack(cell) : m.ext(cell);
                       }
                       return (
                         <tr key={m.key} style={{ borderTop: mi === 0 ? `2px solid ${C.cardBdr}` : "none" }}>
                           <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={sizes.length + 1}>{m.label} total</td>
                           <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: m.color, fontWeight: 800 }}>{tQty.toLocaleString()}</td>
+                          <td style={{ ...td, borderBottom: "none" }} />
+                          <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(tExt))}</td>
                         </tr>
                       );
                     })}
@@ -1293,21 +1389,36 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
                   <th style={{ ...miniTh, textAlign: "center" }}>Issued</th>
                   <th style={{ ...miniTh, textAlign: "center" }}>Received</th>
                   <th style={{ ...miniTh, textAlign: "center" }}>Remain</th>
+                  <th style={{ ...miniTh, textAlign: "right" }}>PO unit $</th>
+                  <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
                 </tr></thead>
                 <tbody>
-                  {unlinkedLines.map((l, i) => (
-                    <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
-                      <td style={{ ...td, borderBottom: "none" }}>{l.description || l.sku_code || "—"}</td>
-                      <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: ISSUED }}>{(Number(l.qty_ordered) || 0).toLocaleString()}</td>
-                      <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: RECEIVED }}>{(Number(l.qty_received) || 0).toLocaleString()}</td>
-                      <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: REMAIN }}>{openQty(l).toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {unlinkedLines.map((l, i) => {
+                    const unit = Number(l.unit_cost_cents) || 0;
+                    const ord = Number(l.qty_ordered) || 0;
+                    return (
+                      <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
+                        <td style={{ ...td, borderBottom: "none" }}>{l.description || l.sku_code || "—"}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: ISSUED }}>{ord.toLocaleString()}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: RECEIVED }}>{(Number(l.qty_received) || 0).toLocaleString()}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: REMAIN }}>{openQty(l).toLocaleString()}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{fmtCents(unit)}</td>
+                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(ord * unit))}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
+
+        {/* PO-wide ordered $ total — parity with the normal matrix line body's
+            grand total (the money a received PO otherwise never showed here). */}
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "baseline", gap: 10, padding: "8px 12px", borderTop: `2px solid ${C.cardBdr}` }}>
+          <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Purchase order total</span>
+          <span style={{ color: C.success, fontFamily: "monospace", fontSize: 15, fontWeight: 800 }}>{fmtCents(grandTotalCents)}</span>
+        </div>
       </div>
     );
   },
@@ -1507,6 +1618,9 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   // replaces the blank matrix once a PO has receipts (edit remain-to-ship only).
   const receiptBodyRef = useRef<PoReceiptEditorHandle>(null);
   const [rawLines, setRawLines] = useState<PoReceiptLine[]>([]);
+  // Posted-receipt dates (date + qty per posted receipt) for the receipt view's
+  // LRD chip. Sourced from the PO detail GET (`receipts`); [] until loaded.
+  const [receipts, setReceipts] = useState<ReceiptDatePoint[]>([]);
   const [salesOrderId, setSalesOrderId] = useState(""); // originating SO (Create from SO)
   // Scenario 4 — split this PO's lines across multiple customer POs (lots),
   // evenly on a full-carton basis. Each entered customer PO becomes a lot.
@@ -1647,10 +1761,11 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
   // endpoint decorates lines with style_code/color/size they regroup into
   // per-style matrices; otherwise they seed as flat lines (still editable).
   useEffect(() => {
-    if (isNew || !po) { setSeed(null); setRawLines([]); setApproval(null); return; }
+    if (isNew || !po) { setSeed(null); setRawLines([]); setReceipts([]); setApproval(null); return; }
     fetch(`/api/internal/purchase-orders/${po.id}`).then((r) => r.ok ? r.json() : null).then((full) => {
       if (!full) return;
       setRawLines(Array.isArray(full.lines) ? (full.lines as PoReceiptLine[]) : []);
+      setReceipts(Array.isArray(full.receipts) ? (full.receipts as ReceiptDatePoint[]) : []);
       setApproval({
         requires: !!full.requires_production_approval,
         status: full.production_approval_status || null,
@@ -2396,7 +2511,7 @@ function POModal({ po, vendors: vendorsProp, onClose, onSaved }: { po: PO | null
             <div style={{ fontSize: 12, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
               Lines {poDone ? "· received" : "· partially received"}
             </div>
-            <PoReceiptLinesEditor ref={receiptBodyRef} lines={rawLines} editable={receiptEditable} />
+            <PoReceiptLinesEditor ref={receiptBodyRef} lines={rawLines} editable={receiptEditable} receipts={receipts} />
           </div>
         ) : (
           <div style={{ marginTop: 12, marginBottom: 12 }}>

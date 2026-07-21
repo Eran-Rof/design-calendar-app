@@ -23,6 +23,9 @@ export type PoBreakdownLine = {
   inventory_item_id?: string | null;
   part_id?: string | null;
   style_code?: string | null;
+  /** Style description (style_master.style_name || description) — shown in the
+   *  style block header so a received PO reads by name, not just the bare code. */
+  style_name?: string | null;
   color?: string | null;
   size?: string | null;
   inseam?: string | null;
@@ -51,6 +54,8 @@ export type PoBreakdownCell = {
 
 export type PoBreakdownStyle = {
   style: string;
+  /** First non-null style_name across this style's lines (for the block header). */
+  styleName: string | null;
   sizes: Set<string>;
   /** The single inseam shared by EVERY matrix line of this style, when they all
    *  carry the same non-null inseam — shown once in the style header (a jeans
@@ -134,7 +139,8 @@ export function groupPoLines(lines: PoBreakdownLine[]): PoBreakdown {
     const color = perRowInseamOf(style) && ins ? `${l.color || "—"} · ${ins}"` : (l.color || "—");
     const size = canonSizeLabel(l.size as string);
     let s = byStyle.get(style);
-    if (!s) { s = { style, sizes: new Set(), inseam: headerInseamOf(style), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
+    if (!s) { s = { style, styleName: null, sizes: new Set(), inseam: headerInseamOf(style), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
+    if (!s.styleName && l.style_name) s.styleName = String(l.style_name).trim() || null;
     s.sizes.add(size);
     if (l.lot_number) s.lots.add(l.lot_number);
     let cm = s.colors.get(color);
@@ -150,4 +156,46 @@ export function groupPoLines(lines: PoBreakdownLine[]): PoBreakdown {
     cm.set(size, cell);
   }
   return { byStyle, matrixLines, unlinkedLines };
+}
+
+/** Grand ORDERED-cost total (cents) for a whole PO breakdown — every matrix cell
+ *  plus every unlinked line (qty_ordered × unit_cost_cents). Grain-invariant: a
+ *  pack-grain line's qty is packs and its unit_cost is per-pack, so the product
+ *  is the same money whether or not the view is exploded to eaches. Powers the
+ *  receipt view's grand $ total (parity with the normal matrix line body). */
+export function poBreakdownGrandTotalCents(breakdown: PoBreakdown): number {
+  let cents = 0;
+  for (const s of breakdown.byStyle.values())
+    for (const cm of s.colors.values())
+      for (const cell of cm.values()) cents += cell.orderedCost;
+  for (const l of breakdown.unlinkedLines)
+    cents += (Number(l.qty_ordered) || 0) * (Number(l.unit_cost_cents) || 0);
+  return Math.round(cents);
+}
+
+/** One posted receipt's contribution: a date (YYYY-MM-DD) + qty received. */
+export type ReceiptDatePoint = { date: string; qty: number };
+/** LRD (Last Received Date) summary derived from a PO's POSTED receipts. */
+export type ReceiptDateSummary = {
+  /** Newest posted receipt_date (YYYY-MM-DD), or null when none. */
+  lastReceivedDate: string | null;
+  /** Per-date received quantities, OLDEST → NEWEST (many receipts on one date
+   *  collapse into a single summed row). */
+  byDate: ReceiptDatePoint[];
+};
+
+/** Collapse a PO's posted receipts (one point per receipt, possibly several on
+ *  one date) into per-date totals + the last received date. Pure so the receipt
+ *  view's LRD chip + hover breakdown are unit-testable without the network. */
+export function deriveReceiptDateSummary(receipts: ReceiptDatePoint[] | null | undefined): ReceiptDateSummary {
+  const byDateMap = new Map<string, number>();
+  for (const r of receipts || []) {
+    const d = (r?.date || "").trim();
+    if (!d) continue;
+    byDateMap.set(d, (byDateMap.get(d) || 0) + (Number(r.qty) || 0));
+  }
+  const byDate = [...byDateMap.entries()]
+    .map(([date, qty]) => ({ date, qty }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { lastReceivedDate: byDate.length ? byDate[byDate.length - 1].date : null, byDate };
 }

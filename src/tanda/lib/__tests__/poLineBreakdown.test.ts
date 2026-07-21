@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openQty, poHasReceipts, poFullyReceived, groupPoLines, type PoBreakdownLine } from "../poLineBreakdown";
+import { openQty, poHasReceipts, poFullyReceived, groupPoLines, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownLine } from "../poLineBreakdown";
 
 const line = (o: Partial<PoBreakdownLine> & { qty_ordered: number }): PoBreakdownLine => ({
   style_code: "STY1", color: "Black", size: "MEDIUM", unit_cost_cents: 1000, qty_received: 0, ...o,
@@ -93,6 +93,90 @@ describe("groupPoLines", () => {
     expect(unlinkedLines).toHaveLength(1);
     expect(unlinkedLines[0].description).toBe("Freight");
     expect(byStyle.size).toBe(1);
+  });
+
+  it("carries the style NAME onto the style block (received-PO header parity)", () => {
+    const { byStyle } = groupPoLines([
+      line({ style_code: "RYB1416", style_name: "Cargo Jogger", qty_ordered: 5 }),
+      line({ style_code: "RYB1416", style_name: null, size: "LARGE", qty_ordered: 3 }),
+    ]);
+    expect(byStyle.get("RYB1416")!.styleName).toBe("Cargo Jogger");
+  });
+});
+
+// ROF-P001133 shape (verified prod PO): pack-grain PPK lines ($171.60/pack) +
+// each-grain waist-size lines ($6.95/$7.15, inseam 30) + unlinked lines that
+// carry costs. Asserts the receipt-editor grouping surfaces per-cell costs and a
+// grand total (the money a received PO previously never showed in that view).
+describe("groupPoLines + poBreakdownGrandTotalCents — ROF-P001133 costed shape", () => {
+  const ppk = (style: string, packs: number) =>
+    ({ style_code: style, color: "Assorted", size: `${style} PPK24`, qty_ordered: packs, qty_received: packs, unit_cost_cents: 17160 } as PoBreakdownLine);
+  const waist = (size: string, qty: number, unit: number) =>
+    ({ style_code: "RYB0900", color: "Indigo", size, inseam: "30", qty_ordered: qty, qty_received: 0, unit_cost_cents: unit } as PoBreakdownLine);
+
+  const lines: PoBreakdownLine[] = [
+    ppk("RYB1533PPK", 10), ppk("RYB1619PPK", 8), ppk("RYB1416PPK", 6), ppk("RYB1906PPK", 4),
+    waist("30", 12, 695), waist("32", 18, 695), waist("34", 9, 715),
+    { style_code: null, size: null, description: "Freight surcharge", qty_ordered: 1, qty_received: 1, unit_cost_cents: 250000 },
+  ];
+
+  it("surfaces per-cell ordered/received cost on the PPK pack cells", () => {
+    const { byStyle } = groupPoLines(lines);
+    const cell = byStyle.get("RYB1533PPK")!.colors.get("Assorted")!.get("RYB1533PPK PPK24")!;
+    expect(cell.ordered).toBe(10);
+    expect(cell.orderedCost).toBe(171600);   // 10 packs × $171.60
+    expect(cell.received).toBe(10);
+    expect(cell.receivedCost).toBe(171600);
+  });
+
+  it("keeps inseam-30 waist styles as one header inseam with costed cells", () => {
+    const { byStyle } = groupPoLines(lines);
+    const s = byStyle.get("RYB0900")!;
+    expect(s.inseam).toBe("30");
+    expect(s.colors.get("Indigo")!.get("32")!.orderedCost).toBe(18 * 695);
+  });
+
+  it("routes the costed freight line to unlinkedLines (kept, not dropped)", () => {
+    const { unlinkedLines } = groupPoLines(lines);
+    expect(unlinkedLines).toHaveLength(1);
+    expect(Number(unlinkedLines[0].unit_cost_cents)).toBe(250000);
+  });
+
+  it("grand total = every matrix cell + unlinked line, grain-invariant", () => {
+    const breakdown = groupPoLines(lines);
+    const ppkCost = (10 + 8 + 6 + 4) * 17160;                 // packs × per-pack
+    const waistCost = 12 * 695 + 18 * 695 + 9 * 715;
+    const freight = 250000;
+    expect(poBreakdownGrandTotalCents(breakdown)).toBe(ppkCost + waistCost + freight);
+  });
+});
+
+describe("deriveReceiptDateSummary — LRD from posted receipts", () => {
+  it("groups per date, sums same-date receipts, sorts oldest→newest, LRD = last", () => {
+    const s = deriveReceiptDateSummary([
+      { date: "2026-07-02", qty: 3800 },
+      { date: "2026-06-12", qty: 1000 },
+      { date: "2026-06-12", qty: 240 }, // second receipt same day → summed
+    ]);
+    expect(s.lastReceivedDate).toBe("2026-07-02");
+    expect(s.byDate).toEqual([
+      { date: "2026-06-12", qty: 1240 },
+      { date: "2026-07-02", qty: 3800 },
+    ]);
+  });
+
+  it("ignores blank dates and coerces non-numeric qty to zero", () => {
+    const s = deriveReceiptDateSummary([
+      { date: "", qty: 99 },
+      { date: "2026-05-01", qty: Number("x") },
+    ]);
+    expect(s.byDate).toEqual([{ date: "2026-05-01", qty: 0 }]);
+    expect(s.lastReceivedDate).toBe("2026-05-01");
+  });
+
+  it("returns an empty summary for no receipts (a PO received off-system)", () => {
+    expect(deriveReceiptDateSummary([])).toEqual({ lastReceivedDate: null, byDate: [] });
+    expect(deriveReceiptDateSummary(null)).toEqual({ lastReceivedDate: null, byDate: [] });
   });
 });
 
