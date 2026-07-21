@@ -169,6 +169,29 @@ export function lastPeriodAtsTotal(rows: IpPlanningGridRow[]): number {
   return total;
 }
 
+/**
+ * Hist T3/6/9/12 total = each (customer, sku) line's trailing window
+ * counted ONCE, summed. The window value repeats (nearly) unchanged on
+ * every horizon-month row of the same customer+sku — a per-row sum
+ * multiplied the real history by the number of months in view (CEO:
+ * "T3/6/9/12 total doesn't make sense"). Counted at the line's LATEST
+ * period in view (the most recent trailing window). TBD stock-buy rows
+ * are keyed separately from a forecast row that shares the same
+ * resolved sku (their windows differ: family-grain vs exact-sku).
+ */
+export function histTrailingTotal(rows: IpPlanningGridRow[]): number {
+  const latest = new Map<string, { period: string; qty: number }>();
+  for (const r of rows) {
+    const k = `${r.customer_id ?? ""}:${r.sku_id}:${r.is_tbd ? "t" : "f"}`;
+    const p = r.period_start ?? "";
+    const cur = latest.get(k);
+    if (!cur || p >= cur.period) latest.set(k, { period: p, qty: r.historical_trailing_qty ?? 0 });
+  }
+  let total = 0;
+  for (const { qty } of latest.values()) total += qty;
+  return total;
+}
+
 export function computeTotals(
   rows: IpPlanningGridRow[],
   skuPeriodMath: Map<string, SkuPeriodMathLike>,
@@ -187,7 +210,11 @@ export function computeTotals(
     t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
     t.methods[r.forecast_method]    = (t.methods[r.forecast_method]    ?? 0) + 1;
     // Demand + buy — genuinely per (customer, sku, period) row, so summing is right.
-    add("histT3", r.historical_trailing_qty);
+    // NB: histT3 is NOT summed here — a trailing window repeats (nearly)
+    // the same history on every period row of a (customer, sku), so a
+    // per-row sum multiplies it by the number of horizon months. It gets
+    // its own once-per-line total below. histLY IS per-period (each row's
+    // same-month-last-year), so the plain sum is the true horizon LY.
     add("histLY", r.ly_reference_qty);
     add("system", r.system_forecast_qty);
     add("buyer", r.buyer_request_qty);
@@ -218,6 +245,8 @@ export function computeTotals(
   // other supply keys only appear once a row has been seen).
   if (rows.length > 0) c.ats = opts?.atsTotal ?? lastPeriodAtsTotal(rows);
   if (rows.length > 0 && opts?.onHandTotal != null) c.onHand = opts.onHandTotal;
+  // Hist trailing-window total: once per (customer, sku) line, not per row.
+  if (rows.length > 0) c.histT3 = histTrailingTotal(rows);
   // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
   // from the pre-computed rolling-pool map. Single source of truth
   // shared with per-row display.
