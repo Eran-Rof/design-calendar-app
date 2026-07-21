@@ -222,6 +222,17 @@ There are no weekend transactions to move the feeds, so every night Sat/Sun the 
 
 Net effect: no weekend emails, Monday mornings read green when everything is merely quiet, and a real break on any business day still screams the same as before.
 
+### 22.12.2 On-hand accuracy alert is stale-baseline-aware (2026-07-21)
+
+The **Inventory On-Hand Accuracy** monitor (`/api/cron/inventory-onhand-check`, 07:30 UTC) measures the live on-hand (`inventory_layers`) against the **REST by-size truth** (`tangerine_size_onhand`) and emails a breadcrumb when the $-exposure crosses $50k or any phantom/negative SKU appears. That REST truth is only refreshed by the **by-size ingest, which is paused until the Xoro cutover** — so its snapshot freezes on whatever day it last ran while the live layers keep moving with each business day's real receipts and sales. The gap therefore **grows mechanically every weekday** (e.g. it climbed from $298k to $471k over one Monday's trading against a 07-15 photo) and the monitor fired a "drift" email each morning about a divergence that is a measurement artifact, not lost stock — the alert's own text already said *"root cause needs the Xoro cutover; this is a measurement, not a fix."*
+
+**The gate is now baseline-aware.** When the REST snapshot is older than **`INV_ONHAND_BASELINE_STALE_DAYS`** (default **2** days) the recurring $-exposure / phantom email is **suppressed** — because comparing live layers to a frozen photo isn't actionable. Two things are deliberately preserved:
+
+- **Negative on-hand still alerts.** A negative quantity is a real data bug independent of REST freshness, so it always breaks through.
+- **The daily trend row is still written.** The suppression only skips the email; `inventory_onhand_accuracy_snapshot` is still appended, so the **Inventory Accuracy** panel (Tangerine → Inventory → Inventory Accuracy) keeps charting the divergence for anyone who looks.
+
+Staleness is computed from the summary's server-side `generated_at` minus `rest_snapshot_date`, so it never depends on the box's local clock. Once the real Xoro cutover lands and the by-size feed refreshes to the current day, the snapshot reads fresh again and full alerting resumes automatically — no config change needed. (Pure handler logic; no migration.)
+
 ---
 
 ## 22.13 App-wide error tracking + security hardening (2026-07-07)
