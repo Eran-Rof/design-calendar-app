@@ -711,7 +711,21 @@ export default function InternalPurchaseOrders() {
       )}
 
       {dqOpen && dq && (
-        <PoDataQualityModal dq={dq} focusPo={dqFocusPo} onClose={() => { setDqOpen(false); setDqFocusPo(null); }} />
+        <PoDataQualityModal
+          dq={dq}
+          focusPo={dqFocusPo}
+          onOpenPo={(f) => {
+            // Full-row click → open the PO the defect is about. We're already
+            // inside the PO module, so prefer opening the PO's edit modal
+            // directly; fall back to seeding the search filter when the PO isn't
+            // in the currently-loaded grid rows.
+            const po = rows.find((r) => r.id === f.po_id) || rows.find((r) => r.po_number === f.po_number);
+            setDqOpen(false); setDqFocusPo(null);
+            if (po) { setEditing(po); setModalOpen(true); }
+            else if (f.po_number) { setSearch(f.po_number); }
+          }}
+          onClose={() => { setDqOpen(false); setDqFocusPo(null); }}
+        />
       )}
     </div>
   );
@@ -721,7 +735,7 @@ export default function InternalPurchaseOrders() {
 // Lists every catalog/link defect on active POs (from v_po_data_quality) grouped
 // by defect class, with the affected PO / style / color, a plain-English cause,
 // and a suggested fix — plus a full xlsx export. So bad imports are SEEN.
-function PoDataQualityModal({ dq, focusPo, onClose }: { dq: DQResponse; focusPo: string | null; onClose: () => void }) {
+function PoDataQualityModal({ dq, focusPo, onOpenPo, onClose }: { dq: DQResponse; focusPo: string | null; onOpenPo: (finding: DQFinding) => void; onClose: () => void }) {
   const shown = focusPo ? dq.findings.filter((f) => f.po_number === focusPo) : dq.findings;
   const classes = [...new Set(shown.map((f) => f.defect_class))]
     .sort((a, b) => (shown.filter((f) => f.defect_class === a && f.severity === "error").length ? -1 : 1)
@@ -767,8 +781,10 @@ function PoDataQualityModal({ dq, focusPo, onClose }: { dq: DQResponse; focusPo:
                   </tr></thead>
                   <tbody>
                     {rows.map((f, i) => (
-                      <tr key={i}>
-                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{f.po_number}</td>
+                      // Full-row click opens the PO the defect is about. No drill
+                      // arrow — the blue PO number is the affordance (app convention).
+                      <tr key={i} onClick={() => onOpenPo(f)} style={{ cursor: "pointer" }} title={`Open ${f.po_number}`}>
+                        <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", color: C.primary, fontWeight: 600 }}>{f.po_number}</td>
                         <td style={td}>{f.style_code || <span style={{ color: C.textMuted }}>—</span>}</td>
                         <td style={td}>{f.color || <span style={{ color: C.textMuted }}>—</span>}</td>
                         <td style={{ ...td, textAlign: "right" }}>{f.item_count}</td>
