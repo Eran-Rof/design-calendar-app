@@ -85,6 +85,51 @@ describe("groupPoLines", () => {
     expect(black.get("SMALL")!.lines).toHaveLength(2);
   });
 
+  it("merges CASE variants of one colorway into ONE row (ROF-P000510 shape: BLACK/SML + Black/MED,LRG,XLG)", () => {
+    // Verified prod split: RYB1502 arrived as "BLACK" on the SML line and "Black"
+    // on the MED/LRG/XLG lines, splitting one colorway into two partial-size rows.
+    // The defensive title-case grouping must collapse them into a single row that
+    // carries all four sizes with correctly summed qty + cost.
+    const { byStyle } = groupPoLines([
+      line({ style_code: "RYB1502", color: "BLACK", size: "SML", qty_ordered: 5, qty_received: 2, unit_cost_cents: 800 }),
+      line({ style_code: "RYB1502", color: "Black", size: "MED", qty_ordered: 6, qty_received: 0, unit_cost_cents: 800 }),
+      line({ style_code: "RYB1502", color: "Black", size: "LRG", qty_ordered: 7, qty_received: 0, unit_cost_cents: 800 }),
+      line({ style_code: "RYB1502", color: "black", size: "XLG", qty_ordered: 4, qty_received: 4, unit_cost_cents: 800 }),
+    ]);
+    const colors = byStyle.get("RYB1502")!.colors;
+    // ONE colorway row, displayed Title Case (not "BLACK"/"black").
+    expect([...colors.keys()]).toEqual(["Black"]);
+    const black = colors.get("Black")!;
+    // All four canonical size columns present on the single merged row.
+    expect([...black.keys()].sort()).toEqual(["LARGE", "MEDIUM", "SMALL", "XLARGE"]);
+    expect(black.get("SMALL")!.ordered).toBe(5);
+    expect(black.get("MEDIUM")!.ordered).toBe(6);
+    expect(black.get("LARGE")!.ordered).toBe(7);
+    expect(black.get("XLARGE")!.ordered).toBe(4);
+    // Qty + cost sums merge across the case variants.
+    const rowOrdered = [...black.values()].reduce((s, c) => s + c.ordered, 0);
+    const rowReceived = [...black.values()].reduce((s, c) => s + c.received, 0);
+    const rowOrderedCost = [...black.values()].reduce((s, c) => s + c.orderedCost, 0);
+    expect(rowOrdered).toBe(22);
+    expect(rowReceived).toBe(6);
+    expect(rowOrderedCost).toBe(22 * 800);
+  });
+
+  it("merges case variants that also MIX inseams while keeping the inseam split (Black · 30\" vs · 32\")", () => {
+    const { byStyle } = groupPoLines([
+      line({ style_code: "DMB0013", color: "BLACK", size: "32", inseam: "30", qty_ordered: 5 }),
+      line({ style_code: "DMB0013", color: "Black", size: "34", inseam: "30", qty_ordered: 3 }),
+      line({ style_code: "DMB0013", color: "black", size: "32", inseam: "32", qty_ordered: 7 }),
+    ]);
+    const s = byStyle.get("DMB0013")!;
+    expect(s.inseam).toBeNull();
+    // Case folds within each inseam; the two inseams stay distinct rows.
+    expect([...s.colors.keys()].sort()).toEqual([`Black · 30"`, `Black · 32"`]);
+    expect(s.colors.get(`Black · 30"`)!.get("32")!.ordered).toBe(5);
+    expect(s.colors.get(`Black · 30"`)!.get("34")!.ordered).toBe(3);
+    expect(s.colors.get(`Black · 32"`)!.get("32")!.ordered).toBe(7);
+  });
+
   it("routes SKU-less rows (no style/size) to unlinkedLines", () => {
     const { byStyle, unlinkedLines } = groupPoLines([
       { style_code: null, size: null, description: "Freight", qty_ordered: 1, qty_received: 0 },

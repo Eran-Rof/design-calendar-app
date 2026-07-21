@@ -9,6 +9,7 @@
 // canonicalization / ordering as every other size matrix.
 
 import { canonSizeLabel, compareSizes } from "../shared/sizeSort";
+import { titleCaseColor } from "./lib/colorGroup";
 
 /** One AR invoice line as returned by GET /api/internal/ar-invoices/:id. */
 export type ArDetailLineInput = {
@@ -76,7 +77,10 @@ export function buildArLineDetail(
 
     if (matrixable && item) {
       const style = item.style_code as string;
-      const color = item.color || "—";
+      // Title-case the colorway so a CASE variant ("GREY" vs "Grey") merges into
+      // ONE color row instead of splitting into two partial-size rows. The key
+      // doubles as the display label; title case both folds case and reads well.
+      const color = titleCaseColor(item.color) || "—";
       const size = canonSizeLabel(item.size as string);
       let s = styleMap.get(style);
       if (!s) { s = { sizes: new Set(), colors: new Map() }; styleMap.set(style, s); }

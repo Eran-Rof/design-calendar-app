@@ -15,6 +15,7 @@
 // `unlinkedLines` so callers list them plainly rather than as broken cells.
 
 import { canonSizeLabel } from "../../shared/sizeSort";
+import { titleCaseColor } from "./colorGroup";
 
 /** A decorated PO line — the shape the /purchase-orders/:id detail returns. */
 export type PoBreakdownLine = {
@@ -136,7 +137,11 @@ export function groupPoLines(lines: PoBreakdownLine[]): PoBreakdown {
     const ins = l.inseam == null ? "" : String(l.inseam).trim();
     // Row label: plain color, plus the inseam when this style MIXES inseams (so a
     // uniform-inseam style shows its inseam once in the header, not on every row).
-    const color = perRowInseamOf(style) && ins ? `${l.color || "—"} · ${ins}"` : (l.color || "—");
+    // Title-case the colorway so a future CASE variant ("BLACK" vs "Black") can
+    // never split one colorway into two partial-size rows — the key doubles as
+    // the display label, and title case both merges case variants and reads well.
+    const colorDisp = titleCaseColor(l.color) || "—";
+    const color = perRowInseamOf(style) && ins ? `${colorDisp} · ${ins}"` : colorDisp;
     const size = canonSizeLabel(l.size as string);
     let s = byStyle.get(style);
     if (!s) { s = { style, styleName: null, sizes: new Set(), inseam: headerInseamOf(style), colors: new Map(), lots: new Set() }; byStyle.set(style, s); }
