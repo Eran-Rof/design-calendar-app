@@ -11,7 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { fetchXoroAll } from "../_lib/xoro-client.js";
-import { canonSku as sharedCanonSku, canonStyleColor, buildItemRow } from "../_lib/sku-canon.js";
+import { canonSku as sharedCanonSku, canonStyleColor, buildItemRow, dropBareShellRows } from "../_lib/sku-canon.js";
 import { buildCustomerLookup, resolveExistingCustomerId, loadLiveCustomers } from "../_lib/customers/matchCustomer.js";
 
 export const config = { maxDuration: 300 };
@@ -230,6 +230,7 @@ export default async function handler(req, res) {
     page_limit: pageLimit,
     module: moduleOverride,
     duplicates_prevented: 0,
+    bare_shells_suppressed: 0,
   };
   if (customerLoadError) result.errors.push(customerLoadError);
 
@@ -407,7 +408,14 @@ export default async function handler(req, res) {
   // safe because existing master rows are not touched (ON CONFLICT DO NOTHING,
   // ignoreDuplicates:true), so an authoritative colour is never overwritten.
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
+    // Suppress junk BARE SHELLS: a colourless STYLE(-SIZE) line rolls up (via
+    // canonStyleColor) to a bare style token, which buildItemRow would mint as a
+    // style-code-only row (color=NULL, size=NULL). Those pollute the null-colour
+    // catalog baseline + collapse the size matrices, so drop them here (count in
+    // stats) instead of inserting. Colour-bearing rollup stubs are unaffected.
+    const { rows: newItems, suppressed } = dropBareShellRows(
+      Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku)));
+    result.bare_shells_suppressed += suppressed;
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
