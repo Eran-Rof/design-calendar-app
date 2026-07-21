@@ -246,6 +246,12 @@ Guardrails: `--apply` is required to write (a plain run prints the upsert/prune 
 
 **Net effect on §22.12.2:** the accuracy monitor's baseline now goes fresh every business day, so the stale-baseline suppression becomes a **dormant safety net** — full $-exposure and phantom alerting is active again, and the suppression only ever kicks in if the spine itself stops running (a real break worth its own investigation).
 
+### 22.12.4 On-hand layers carry real cost — tiered resolution (2026-07-21)
+
+When the spine **creates** a new on-hand layer it stamps a `unit_cost_cents` — the cost future FIFO sales will book as COGS. It used to read that from `ip_item_avg_cost` (the mirror of Xoro's average cost) by **exact `sku_code` only**, which silently returned **$0** for entire inseam programs: Xoro keys denim costing by the **inseam-embedded** BasePartNumber (`RYB059430-…`) while our per-size SKUs are coded `RYB0594-COLOR-SIZE`, so the codes never matched. A one-time audit found **~158,000 units sitting at $0** that all had real Xoro costs (e.g. RYB0594 at ~$6.57, DMB0013 at ~$5.80) — those layers were backfilled, and this change stops the nightly from re-accreting the gap.
+
+The shared resolver `api/_lib/layerCost.js` (`makeCostResolver`) now walks four tiers, taking the first hit: **(1)** exact `sku_code`; **(2)** color-level code (the `sku_code` minus its trailing size token); **(3)** **inseam-stem average** — the mean avg-cost over every costing row keyed `<style_code><inseam>-…` (this is the tier that recovers the inseam programs), scoped to the SKU's own inseam so a 30" and a 32" never borrow each other's cost; **(4)** style-prefix average over any `<style_code>…` costing row. It only lands $0 when Xoro's costing truly has nothing for the style. (Zero-value costing rows never satisfy a tier.) Same logic the accountant-reviewed backfill used, so nightly writes and the corrected history agree.
+
 ---
 
 ## 22.13 App-wide error tracking + security hardening (2026-07-07)
