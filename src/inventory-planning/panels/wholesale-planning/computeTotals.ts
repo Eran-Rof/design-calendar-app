@@ -99,30 +99,50 @@ export function rollGroupKeyFor(r: IpPlanningGridRow, collapse: CollapseModes): 
  * chain and add them up (CEO spec: "RYB0412PPK Black has 5000 ATS in the
  * last period → add that amount to the next style and so on").
  *
- * Input MUST be the post-`applyRollingPool` rows the cells render from
- * (the grid's `filtered` array, in render order) — the raw per-row
- * `available_supply_qty` is 0 on customer-demand rows and would zero the
- * total (#1862's defect). A chain = a consecutive run of rows sharing
- * `keyOf(row)`, exactly how the grid segments the pool, so this total is
- * the sum of the bottom ATS figures the planner can see on screen.
+ * Input MUST be the post-roll rows the cells render from (the grid's
+ * `filtered` array) — the raw per-row `available_supply_qty` is 0 on
+ * customer-demand rows and would zero the total (#1862's defect). A chain
+ * = ALL rows sharing `keyOf(row)` regardless of visual position (the same
+ * LOGICAL grouping rollByLogicalChain uses — a Period sort interleaves
+ * chains, so consecutive runs would fragment them); the chain's ending
+ * value is its latest-period row's ATS (later row wins a same-period tie,
+ * matching the chronological roll order).
  */
+function endingChainValueTotal(
+  rolledRows: IpPlanningGridRow[],
+  keyOf: (r: IpPlanningGridRow) => string,
+  valueOf: (r: IpPlanningGridRow) => number,
+): number {
+  const endByChain = new Map<string, { period: string; v: number }>();
+  for (const r of rolledRows) {
+    const k = keyOf(r);
+    const p = r.period_start ?? "";
+    const cur = endByChain.get(k);
+    if (!cur || p >= cur.period) endByChain.set(k, { period: p, v: valueOf(r) });
+  }
+  let total = 0;
+  for (const { v } of endByChain.values()) total += v;
+  return total;
+}
+
 export function endingAtsTotal(
   rolledRows: IpPlanningGridRow[],
   keyOf: (r: IpPlanningGridRow) => string,
 ): number {
-  let total = 0;
-  let curKey: string | null = null;
-  let curLast: number | null = null;
-  for (const r of rolledRows) {
-    const k = keyOf(r);
-    if (k !== curKey) {
-      if (curLast != null) total += curLast;
-      curKey = k;
-    }
-    curLast = r.available_supply_qty ?? 0;
-  }
-  if (curLast != null) total += curLast;
-  return total;
+  return endingChainValueTotal(rolledRows, keyOf, (r) => r.available_supply_qty ?? 0);
+}
+
+// On Hand gets the same display-parity treatment: it is a rolling
+// beginning balance (each period's On Hand = the prior period's ATS), so
+// the meaningful total is each chain's ENDING displayed On Hand, summed —
+// the raw per-row on_hand repeats the same physical stock on every period
+// row (and is 0 on stock-buy rows), so both the old dedupe-sum and a raw
+// read misstate the column the planner is looking at.
+export function endingOnHandTotal(
+  rolledRows: IpPlanningGridRow[],
+  keyOf: (r: IpPlanningGridRow) => string,
+): number {
+  return endingChainValueTotal(rolledRows, keyOf, (r) => r.on_hand_qty ?? 0);
 }
 
 export function lastPeriodAtsTotal(rows: IpPlanningGridRow[]): number {
@@ -152,12 +172,11 @@ export function lastPeriodAtsTotal(rows: IpPlanningGridRow[]): number {
 export function computeTotals(
   rows: IpPlanningGridRow[],
   skuPeriodMath: Map<string, SkuPeriodMathLike>,
-  // The display-parity ATS total (endingAtsTotal over the grid's rolled
-  // `filtered` rows). When provided it REPLACES the raw-row fallback so
-  // the totals strip always agrees with the ATS cells on screen. The
-  // fallback (lastPeriodAtsTotal over raw rows) only serves callers with
-  // no rolled row set.
-  opts?: { atsTotal?: number },
+  // Display-parity totals computed by the grid over its rolled `filtered`
+  // rows (endingAtsTotal / endingOnHandTotal). When provided they REPLACE
+  // the raw-row aggregation so the totals strip always agrees with the
+  // cells on screen. The fallbacks only serve callers with no rolled rows.
+  opts?: { atsTotal?: number; onHandTotal?: number },
 ): GridTotals {
   const t: GridTotals = { final: 0, shortage: 0, excess: 0, actions: {}, methods: {}, columns: {} };
   const c = t.columns;
@@ -181,6 +200,8 @@ export function computeTotals(
     const sp = `${r.sku_id}:${r.period_code}`;
     if (!seenSupply.has(sp)) {
       seenSupply.add(sp);
+      // onHand raw dedupe-sum is only the FALLBACK — overridden below by
+      // the display-parity ending total whenever the grid provides one.
       add("onHand", r.on_hand_qty);
       add("onSo", r.on_so_qty);
       add("receipts", r.receipts_due_qty);
@@ -196,6 +217,7 @@ export function computeTotals(
   // `columns` shape { shortage, excess } unchanged, and mirrors how the
   // other supply keys only appear once a row has been seen).
   if (rows.length > 0) c.ats = opts?.atsTotal ?? lastPeriodAtsTotal(rows);
+  if (rows.length > 0 && opts?.onHandTotal != null) c.onHand = opts.onHandTotal;
   // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
   // from the pre-computed rolling-pool map. Single source of truth
   // shared with per-row display.

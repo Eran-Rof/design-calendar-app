@@ -2,7 +2,7 @@
 // grid's totals strip + action / method chips.
 
 import { describe, it, expect } from "vitest";
-import { computeTotals, endingAtsTotal, lastPeriodAtsTotal } from "../computeTotals";
+import { computeTotals, endingAtsTotal, endingOnHandTotal, lastPeriodAtsTotal } from "../computeTotals";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
 
 function row(over: Partial<IpPlanningGridRow> = {}): IpPlanningGridRow {
@@ -215,16 +215,24 @@ describe("endingAtsTotal", () => {
     expect(endingAtsTotal(rolled, byStyleColor)).toBe(750);
   });
 
-  it("non-consecutive same key = separate runs (matches the visual chains)", () => {
-    // The grid's pool resets whenever the key CHANGES between consecutive
-    // rows — an interleaved ordering produces two visible chains for the
-    // same style/color, and the total mirrors exactly that.
+  it("non-consecutive same key = ONE logical chain (Period-sort interleave)", () => {
+    // A Period sort interleaves chains (Mar/Black, Mar/White, Apr/Black…).
+    // The chain is LOGICAL — grouped by key regardless of position — so
+    // Black's ending is its latest-period row, not one per visual run.
     const rows = [
-      row({ forecast_id: "a", sku_color: "Black", available_supply_qty: 10 }),
-      row({ forecast_id: "b", sku_color: "White", available_supply_qty: 20 }),
-      row({ forecast_id: "c", sku_color: "Black", available_supply_qty: 30 }),
+      row({ forecast_id: "a", sku_color: "Black", period_start: "2027-03-01", available_supply_qty: 10 }),
+      row({ forecast_id: "b", sku_color: "White", period_start: "2027-03-01", available_supply_qty: 20 }),
+      row({ forecast_id: "c", sku_color: "Black", period_start: "2027-04-01", available_supply_qty: 30 }),
     ];
-    expect(endingAtsTotal(rows, byStyleColor)).toBe(60);
+    expect(endingAtsTotal(rows, byStyleColor)).toBe(50);
+  });
+
+  it("same-period tie inside a chain: the later row wins (chronological roll order)", () => {
+    const rows = [
+      row({ forecast_id: "a", sku_color: "Black", period_start: "2027-03-01", available_supply_qty: 10 }),
+      row({ forecast_id: "b", sku_color: "Black", period_start: "2027-03-01", available_supply_qty: 40 }),
+    ];
+    expect(endingAtsTotal(rows, byStyleColor)).toBe(40);
   });
 
   it("empty input totals 0", () => {
@@ -253,5 +261,38 @@ describe("computeTotals — atsTotal override (display parity)", () => {
   it("keeps the empty-input columns shape (no ats key) even with an override", () => {
     const t = computeTotals([], new Map(), { atsTotal: 999 });
     expect("ats" in t.columns).toBe(false);
+  });
+});
+
+
+describe("endingOnHandTotal + onHandTotal override", () => {
+  const byStyleColor2 = (r: IpPlanningGridRow) =>
+    `sku:${r.sku_style ?? r.sku_code}:${r.sku_color ?? "-"}`;
+
+  it("sums each chain's latest-period displayed On Hand", () => {
+    const rows = [
+      row({ forecast_id: "a", sku_color: "Black", period_start: "2027-03-01", on_hand_qty: 0 }),
+      row({ forecast_id: "b", sku_color: "Black", period_start: "2027-04-01", on_hand_qty: 1200 }),
+      row({ forecast_id: "c", sku_color: "White", period_start: "2027-04-01", on_hand_qty: 500 }),
+    ];
+    expect(endingOnHandTotal(rows, byStyleColor2)).toBe(1700);
+  });
+
+  it("computeTotals uses the onHandTotal override over the raw dedupe-sum", () => {
+    const rows = [
+      row({ forecast_id: "a", period_start: "2027-03-01", period_code: "2027-03", on_hand_qty: 0 }),
+      row({ forecast_id: "b", period_start: "2027-04-01", period_code: "2027-04", on_hand_qty: 0 }),
+    ];
+    const t = computeTotals(rows, new Map(), { onHandTotal: 1200 });
+    expect(t.columns.onHand).toBe(1200);
+  });
+
+  it("without the override the raw dedupe-sum behavior is unchanged", () => {
+    const rows = [
+      row({ forecast_id: "a", period_start: "2027-03-01", period_code: "2027-03", on_hand_qty: 70 }),
+      row({ forecast_id: "b", period_start: "2027-04-01", period_code: "2027-04", on_hand_qty: 30 }),
+    ];
+    const t = computeTotals(rows, new Map());
+    expect(t.columns.onHand).toBe(100);
   });
 });
