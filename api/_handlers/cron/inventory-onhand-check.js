@@ -17,6 +17,12 @@
 //      phantom-suspect, or any negative on-hand), writes ONE breadcrumb to
 //      app_errors (source='cron') so the daily app-errors digest surfaces it.
 //      Silent otherwise. This is an alert, NOT a remediation.
+//      EXCEPTION: while the REST baseline (tangerine_size_onhand) is stale — its
+//      by-size ingest is paused until the Xoro cutover, so the snapshot freezes
+//      while live layers keep moving — the $-exposure / phantom email is
+//      suppressed (it would fire every business day against a frozen photo).
+//      Negative on-hand still breaks through. The trend row is written either
+//      way, so the Inventory Accuracy panel keeps charting the divergence.
 //
 // app_errors.source is CHECK-constrained to ('api','client','cron'); the
 // 'inventory-onhand' token rides route/message/context for digest fingerprinting.
@@ -31,12 +37,40 @@ export const config = { maxDuration: 60 };
 // always alerts on any phantom-suspect or negative on-hand regardless of $.
 const ALERT_EXPOSURE_CENTS = Number(process.env.INV_ONHAND_ALERT_EXPOSURE_CENTS || 5000000);
 
-export function shouldAlert(summary, exposureThresholdCents = ALERT_EXPOSURE_CENTS) {
+// The REST by-size truth (tangerine_size_onhand) is only refreshed by the
+// by-size ingest, which stays paused until the Xoro cutover. Once its snapshot
+// is older than this many days, the $-exposure and phantom-suspect signals are
+// just the LIVE layers measured against a frozen photo — they grow mechanically
+// as real trading moves the layers while the reference stands still, so the
+// recurring divergence email is noise, not an actionable regression. When the
+// baseline is stale we suppress that email (the daily trend row is still
+// recorded for the Inventory Accuracy panel) but STILL alert on negative
+// on-hand, which is a real data bug independent of REST freshness.
+const BASELINE_STALE_DAYS = Number(process.env.INV_ONHAND_BASELINE_STALE_DAYS || 2);
+
+// Days between the REST snapshot date and the summary's server-side generated_at
+// (falls back to the local clock only if generated_at is absent). Returns false
+// — never "stale" — when there is no baseline at all, so a missing feed still
+// surfaces through the normal path.
+export function isBaselineStale(summary, maxAgeDays = BASELINE_STALE_DAYS) {
+  const snap = summary?.rest_snapshot_date;
+  if (!snap) return false;
+  const snapMs = Date.parse(`${snap}T00:00:00Z`);
+  const refMs = summary?.generated_at ? Date.parse(summary.generated_at) : Date.now();
+  if (Number.isNaN(snapMs) || Number.isNaN(refMs)) return false;
+  return (refMs - snapMs) / 86400000 > maxAgeDays;
+}
+
+export function shouldAlert(summary, exposureThresholdCents = ALERT_EXPOSURE_CENTS, opts = {}) {
   if (!summary) return false;
+  // Negative on-hand is a real data bug regardless of REST freshness — always alert.
+  if (Number(summary.negative_skus || 0) > 0) return true;
+  // Stale baseline → the divergence signal isn't actionable; suppress the email.
+  const stale = opts.baselineStale ?? isBaselineStale(summary);
+  if (stale) return false;
   const exposure = Number(summary.exposure_cents || 0);
   const phantom = Number(summary.skus_phantom || 0);
-  const negative = Number(summary.negative_skus || 0);
-  return exposure >= exposureThresholdCents || phantom > 0 || negative > 0;
+  return exposure >= exposureThresholdCents || phantom > 0;
 }
 
 function fmtUsd(cents) {
@@ -81,14 +115,23 @@ export default async function handler(req, res) {
     const summary = data || {};
     out.summary = summary;
 
-    if (!shouldAlert(summary)) return res.status(200).json(out);
+    // Suppress the recurring $-divergence email while the REST baseline is
+    // frozen (by-size ingest paused until the Xoro cutover) — the trend row is
+    // already persisted above, so the Inventory Accuracy panel keeps charting it.
+    // Negative on-hand still breaks through (shouldAlert handles that).
+    const baselineStale = isBaselineStale(summary);
+    out.baseline_stale = baselineStale;
+    if (!shouldAlert(summary, ALERT_EXPOSURE_CENTS, { baselineStale })) {
+      if (baselineStale) out.suppressed_reason = "baseline_stale";
+      return res.status(200).json(out);
+    }
 
     const msg =
       `inventory-onhand: ${summary.skus_divergent} SKU(s) diverge from the Xoro REST truth ` +
       `(${Number(summary.sum_abs_units || 0).toLocaleString()} units |Δ|, ${fmtUsd(summary.exposure_cents)} at cost); ` +
       `phantom-suspect ${summary.skus_phantom}, negative on-hand ${summary.negative_skus}, ` +
       `zero-cost on-hand ${summary.zero_cost_skus} SKU(s). ` +
-      `REST snapshot ${summary.rest_snapshot_date || "n/a"}. ` +
+      `REST snapshot ${summary.rest_snapshot_date || "n/a"}${baselineStale ? " (STALE baseline)" : ""}. ` +
       `Root cause needs the Xoro cutover — this is a measurement, not a fix. ` +
       `Drill: Tangerine → Inventory → Inventory Accuracy.`;
 
