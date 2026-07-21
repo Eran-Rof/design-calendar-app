@@ -8,6 +8,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { computeSizeCollapse } from "../shared/matrix";
+import { sizeDisplayLabel } from "../shared/sizeSort";
 import { buildArLineDetail, type ArDetailItem } from "./arInvoiceLineDetail";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
@@ -781,7 +782,7 @@ function ArRowDetail({ invoiceId }: { invoiceId: string }) {
                           : undefined}
                         style={{ ...miniTh, textAlign: "center", ...(green ? { color: C.success } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
                       >
-                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sizeDisplayLabel(sz)}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
                       </th>
                     );
                   })}

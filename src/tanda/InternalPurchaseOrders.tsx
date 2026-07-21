@@ -25,7 +25,7 @@ import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
 import { computeSizeCollapse } from "../shared/matrix";
-import { compareSizes } from "../shared/sizeSort";
+import { compareSizes, canonSizeLabel, sizeDisplayLabel } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import { groupPoLines, openQty, poHasReceipts, poFullyReceived, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownCell, type PoBreakdownLine, type ReceiptDatePoint } from "./lib/poLineBreakdown";
 import { colorGroupKey, titleCaseColor } from "./lib/colorGroup";
@@ -961,7 +961,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
                           : undefined}
                         style={{ ...miniTh, textAlign: "center", ...(green ? { color: C.success } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
                       >
-                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
+                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sizeDisplayLabel(sz)}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
                       </th>
                     );
                   })}
@@ -1108,14 +1108,20 @@ function poDocDataFromLines(lines: PoReceiptLine[]): OrderDocData {
     if (l.style_code && l.size) {
       let g = styleMap.get(l.style_code);
       if (!g) { g = { sizes: [], sizeSet: new Set(), rows: new Map() }; styleMap.set(l.style_code, g); }
-      if (!g.sizeSet.has(l.size)) { g.sizeSet.add(l.size); g.sizes.push(l.size); }
+      // Canonicalize the size so legacy spellings that mix ACROSS colorways of one
+      // style (Black stored "XLG" while Grey stored "XL") collapse into ONE column
+      // instead of two half-empty ones. The column KEY is the canonical token
+      // (SMALL…XLARGE); openOrderDocument / downloadOrderExcel render the house
+      // label (XLG/SML/…) from it. Numeric waists / PPK / kids sizes pass through.
+      const size = canonSizeLabel(l.size as string);
+      if (!g.sizeSet.has(size)) { g.sizeSet.add(size); g.sizes.push(size); }
       // Key the color row CASE-INSENSITIVELY so a case variant ("BLACK" vs
       // "Black") can't split one colorway into two partial-size rows; display the
       // canonical Title Case form.
       const rk = `${colorGroupKey(l.color)}|${l.inseam ?? ""}`;
       let row = g.rows.get(rk);
       if (!row) { row = { color: titleCaseColor(l.color) || null, inseam: l.inseam ?? null, unitDollars: unit, qtyBySize: {} }; g.rows.set(rk, row); }
-      row.qtyBySize[l.size as string] = (row.qtyBySize[l.size as string] || 0) + ord;
+      row.qtyBySize[size] = (row.qtyBySize[size] || 0) + ord;
     } else {
       flats.push({ label: l.sku_code || l.description || "(item)", qty: ord, unitDollars: unit });
     }
@@ -1309,7 +1315,7 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead><tr>
                     <th style={miniTh}>Color</th>
-                    {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sz}</th>)}
+                    {sizes.map((sz) => <th key={sz} style={{ ...miniTh, textAlign: "center" }}>{sizeDisplayLabel(sz)}</th>)}
                     <th style={{ ...miniTh, textAlign: "center" }}>{qtyColLabel}</th>
                     <th style={{ ...miniTh, textAlign: "right" }}>{hasPpk ? (explode ? "Per-each $" : "PO pack $") : "Unit $"}</th>
                     <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>

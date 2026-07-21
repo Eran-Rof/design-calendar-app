@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canonSizeLabel, compareSizes } from "../sizeSort";
+import { canonSizeLabel, compareSizes, sizeDisplayLabel } from "../sizeSort";
 
 describe("canonSizeLabel — backend-canon display labels (the P001044 phantom-columns bug)", () => {
   it("maps legacy SKU spellings onto the scale labels", () => {
@@ -13,6 +13,33 @@ describe("canonSizeLabel — backend-canon display labels (the P001044 phantom-c
     expect(canonSizeLabel("PPK24")).toBe("PPK24");
     expect(canonSizeLabel("XS(5-6)")).toBe("XS(5-6)"); // age-range: whole-token only
     expect(canonSizeLabel("OS")).toBe("OS");
+  });
+});
+
+describe("sizeDisplayLabel — house DISPLAY label (never surface a canonical token)", () => {
+  it("renders every canonical letter tier as its house form (XL/XLG/XLARGE → XLG)", () => {
+    // Both raw spellings of one logical size resolve to the SAME house label, so a
+    // grid that keys columns by the canonical token shows ONE header, not two.
+    expect(["XL", "XLG", "XLARGE"].map(sizeDisplayLabel)).toEqual(["XLG", "XLG", "XLG"]);
+    expect(["S", "SML", "SMALL"].map(sizeDisplayLabel)).toEqual(["SML", "SML", "SML"]);
+    expect(["M", "MED", "MEDIUM"].map(sizeDisplayLabel)).toEqual(["MED", "MED", "MED"]);
+    expect(["L", "LRG", "LARGE"].map(sizeDisplayLabel)).toEqual(["LRG", "LRG", "LRG"]);
+    expect(["XXL", "2XL", "2XLARGE"].map(sizeDisplayLabel)).toEqual(["XXL", "XXL", "XXL"]);
+    expect(["XS", "XSM", "XSMALL"].map(sizeDisplayLabel)).toEqual(["XS", "XS", "XS"]);
+  });
+  it("NEVER emits an internal canonical token (XLARGE / SMALL / X-Large)", () => {
+    for (const raw of ["XL", "XLG", "XLARGE", "X-LARGE", "S", "SML", "SMALL", "M", "MED", "L", "LRG"]) {
+      expect(["SMALL", "MEDIUM", "LARGE", "XLARGE", "2XLARGE", "XSMALL", "3XLARGE"]).not.toContain(sizeDisplayLabel(raw));
+    }
+  });
+  it("passes numeric waists, PPK tokens and kids age-range forms through UNCHANGED", () => {
+    expect(sizeDisplayLabel("28")).toBe("28");
+    expect(sizeDisplayLabel("30")).toBe("30");
+    expect(sizeDisplayLabel("PPK24")).toBe("PPK24");
+    expect(sizeDisplayLabel("XS(5-6)")).toBe("XS(5-6)"); // kids: whole-token pass-through
+    expect(sizeDisplayLabel("M(10-12)")).toBe("M(10-12)");
+    expect(sizeDisplayLabel("O/S")).toBe("O/S");
+    expect(sizeDisplayLabel("S/8")).toBe("S/8");
   });
 });
 

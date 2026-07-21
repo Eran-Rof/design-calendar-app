@@ -27,7 +27,7 @@ import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON,
 import { explodePacks, packTotal, type PrepackBlock } from "../shared/prepack";
 import { MatrixFormModal } from "./InternalPrepackMatrix";
 import { canonColor } from "./colorCanon";
-import { canonSizeLabel } from "../shared/sizeSort";
+import { canonSizeLabel, sizeDisplayLabel } from "../shared/sizeSort";
 import { confirmDialog } from "../shared/ui/warn";
 import { useStyleThumbs, StyleThumb } from "../shared/ui/StyleThumb";
 import type { OrderDocData, OrderDocStyle, OrderDocMatrixRow, OrderDocFlat, OrderDocPrepack } from "./orderDocument";
@@ -81,7 +81,7 @@ function PrepackExplodePreview({ rows, packsByRow, composition }: {
           <tr>
             <th style={{ ...th2, textAlign: "left" }}>Color</th>
             <th style={{ ...th2 }}>Packs</th>
-            {sizes.map((sz) => <th key={sz} style={th2}>{sz}</th>)}
+            {sizes.map((sz) => <th key={sz} style={th2}>{sizeDisplayLabel(sz)}</th>)}
             <th style={th2}>Units</th>
           </tr>
         </thead>
@@ -133,7 +133,7 @@ function PrepackCompositionView({ composition }: {
       <div style={{ fontSize: 12, color: PC.muted, marginBottom: 5 }}>{label} = <b style={{ color: PC.amber }}>{total.toLocaleString()}</b></div>
       <table style={{ borderCollapse: "separate", borderSpacing: 3 }}>
         <tbody>
-          <tr>{sizes.map((sz, i) => <td key={i} style={chip}>{sz}</td>)}</tr>
+          <tr>{sizes.map((sz, i) => <td key={i} style={chip}>{sizeDisplayLabel(sz)}</td>)}</tr>
           <tr>{vals.map((v, i) => <td key={i} style={num}>{v.toLocaleString()}</td>)}</tr>
         </tbody>
       </table>

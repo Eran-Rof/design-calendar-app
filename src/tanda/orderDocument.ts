@@ -10,6 +10,7 @@
 // (src/tanda/exports/useTableExport.ts), so it works everywhere with no new dep.
 
 import { ROF_LOGO_DATA_URL } from "../shared/assets/rofLogo";
+import { sizeDisplayLabel } from "../shared/sizeSort";
 import type { AoaCell, AoaImage } from "../shared/excelLogo";
 
 // One color (× inseam) row of a style's matrix: a qty per size.
@@ -115,7 +116,7 @@ export function openOrderDocument(doc: OrderDocument): void {
     grandQty += styleQty;
     grandAmt += styleAmt;
 
-    const headSizes = sizes.map((sz) => `<th class="num">${esc(sz)}</th>`).join("");
+    const headSizes = sizes.map((sz) => `<th class="num">${esc(sizeDisplayLabel(sz))}</th>`).join("");
     const footSizes = sizes.map((sz) => `<td class="num">${colSums[sz] ? colSums[sz].toLocaleString() : ""}</td>`).join("");
 
     return `<div class="style-block">
@@ -168,7 +169,7 @@ export function openOrderDocument(doc: OrderDocument): void {
     const hasInner = sizes.some((s) => (s.inner || 0) > 0);
     const cartonTotal = sizes.reduce((a, s) => a + (s.carton || 0), 0);
     const innerTotal = sizes.reduce((a, s) => a + (s.inner || 0), 0);
-    const headSizes = sizes.map((s) => `<th class="num">${esc(s.size)}</th>`).join("");
+    const headSizes = sizes.map((s) => `<th class="num">${esc(sizeDisplayLabel(s.size))}</th>`).join("");
     const innerRow = hasInner ? `<tr><td>Inner pack</td>${sizes.map((s) => `<td class="num">${(s.inner || 0).toLocaleString()}</td>`).join("")}<td class="num">${innerTotal.toLocaleString()}</td></tr>` : "";
     const cartonRow = `<tr><td>Carton pack</td>${sizes.map((s) => `<td class="num">${(s.carton || 0).toLocaleString()}</td>`).join("")}<td class="num">${cartonTotal.toLocaleString()}</td></tr>`;
     const sizeTotals = sizes.map(() => 0);
@@ -338,7 +339,7 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
     } else {
       push([t(label)]);
     }
-    push([t("Color"), ...g.sizes.map(t), t("Qty"), t(doc.moneyLabel), t("Total $")]);
+    push([t("Color"), ...g.sizes.map((sz) => t(sizeDisplayLabel(sz))), t("Qty"), t(doc.moneyLabel), t("Total $")]);
     const colSums: Record<string, number> = {};
     let styleQty = 0;
     let styleAmt = 0;
@@ -379,11 +380,11 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
       const hasInner = sizes.some((s) => (s.inner || 0) > 0);
       const cartonTotal = sizes.reduce((a, s) => a + (s.carton || 0), 0);
       push([t(`${p.style}${p.packToken ? ` · ${p.packToken}` : ""} — units per pack`)]);
-      push([t("Per pack"), ...sizes.map((s) => t(s.size)), t("Pack")]);
+      push([t("Per pack"), ...sizes.map((s) => t(sizeDisplayLabel(s.size))), t("Pack")]);
       if (hasInner) push([t("Inner pack"), ...sizes.map((s) => t(s.inner || 0)), t(sizes.reduce((a, s) => a + (s.inner || 0), 0))]);
       push([t("Carton pack"), ...sizes.map((s) => t(s.carton || 0)), t(cartonTotal)]);
       push([t(`${p.style} — full size breakdown (packs exploded to units)`)]);
-      push([t("Color"), ...sizes.map((s) => t(s.size)), t("Units"), t("Packs")]);
+      push([t("Color"), ...sizes.map((s) => t(sizeDisplayLabel(s.size))), t("Units"), t("Packs")]);
       const sizeTotals = sizes.map(() => 0);
       let gUnits = 0, gPacks = 0;
       for (const c of p.colors) {
