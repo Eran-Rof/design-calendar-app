@@ -101,6 +101,35 @@ export function deriveColorFromSku(rawSku) {
   return color || null;
 }
 
+// Derive a HUMAN-READABLE colour from a raw Xoro ItemNumber ("STYLE-COLOR-SIZE").
+// Unlike deriveColorFromSku — which SQUISHES to an uppercase match key
+// ("ISLANDBREEZELTWASH") — this preserves the readable middle segment and
+// title-cases it to match the catalogue's own spelling ("Island Breeze Lt Wash",
+// "Black Shadow Gd"). PREFER this when populating ip_item_master.color at
+// import/sync time: the raw Xoro Item payload carries the pretty colour word, so
+// we keep it instead of persisting the squished key.
+//
+// It strips the trailing SIZE token with the SAME vocabulary canonStyleColor
+// uses (SIZE_SUFFIX_RE — incl. paren ranges "-L(14-16)" and "-PPK24"), matched on
+// the uppercased string then sliced off the ORIGINAL-case string (uppercasing
+// preserves length, so the match length maps 1:1). Then it splits the style off
+// the front; the remainder is the colour. Returns null when the ItemNumber
+// carries no colour segment (no dash, or nothing left after the style).
+export function prettyColorFromItemNumber(rawItemNumber) {
+  const raw = (rawItemNumber == null ? "" : String(rawItemNumber)).trim();
+  if (!raw) return null;
+  const m = raw.toUpperCase().match(SIZE_SUFFIX_RE);
+  const body = m ? raw.slice(0, raw.length - m[0].length) : raw;
+  const dash = body.indexOf("-");
+  if (dash <= 0) return null;
+  const color = body.slice(dash + 1).trim();
+  if (!color) return null;
+  // Title-case: lowercase every word, capitalise its first letter. Collapses
+  // Xoro's inconsistent casing ("Island Breeze lt wash") to the catalogue form
+  // ("Island Breeze Lt Wash") so the stub colour matches an existing sibling's.
+  return color.toLowerCase().replace(/(^|\s)([a-z])/g, (_, sp, c) => sp + c.toUpperCase());
+}
+
 // Collapse a size to its canonical form — a 1:1 JS MIRROR of the SQL
 // canonical_size() (migration 20260724000000) that keys uq_ip_item_master_
 // logical_sku. Keep the two in lock-step: any divergence lets a twin-reuse
@@ -169,6 +198,33 @@ export function buildItemRow(canonicalSku, overrides = {}) {
     // inseam/length/fit.
     const parsedSize = parseSizeSuffix(canonicalSku);
     if (parsedSize) row.size = parsedSize;
+    // Populate `color` on the stub. Root cause of the PO/SO/AR matrix
+    // collapse (#1858 follow-up): a colourless stub lands with color=NULL, and
+    // the size-matrix gate (style_code && size) drops or collapses every line of
+    // such a style to one "—" row. The colour is right there in the SKU. Prefer
+    // the caller-supplied PRETTY colour (derived from the raw Xoro ItemNumber,
+    // e.g. "Island Breeze Lt Wash"); fall back to the squished key derived from
+    // the canonical sku_code ("ISLANDBREEZELTWASH") so a colour is ALWAYS set
+    // when one is parseable. SAFE against clobber: every sync caller upserts with
+    // { onConflict: "sku_code", ignoreDuplicates: true }, so an existing
+    // authoritative Item-Master colour is never overwritten — this only fills
+    // GENUINELY-NEW stub rows (identical reasoning to ar-sizegrain's stub path).
+    let colorVal;
+    if (overrides.colorDisplay != null && String(overrides.colorDisplay).trim() !== "") {
+      colorVal = String(overrides.colorDisplay).trim();
+    } else {
+      // Strip the parsed size token FIRST. parseSizeSuffix (SIZE_TOKEN_RE)
+      // recognises spelled-out sizes (LARGE/MEDIUM, 12MO) that the rollup
+      // SIZE_SUFFIX_RE does not, so deriving colour straight from the sku_code
+      // would bleed the size into the colour ("STONEBLOCKGD-LARGE"). Removing the
+      // trailing "-<size>" first yields the clean colour ("STONEBLOCKGD").
+      let body = canonSku(canonicalSku);
+      if (parsedSize && body.endsWith(`-${parsedSize}`)) {
+        body = body.slice(0, body.length - parsedSize.length - 1);
+      }
+      colorVal = deriveColorFromSku(body);
+    }
+    if (colorVal) row.color = colorVal;
   } else {
     row.color = overrides.colorDisplay ?? color;
     if (overrides.unit_cost != null) row.unit_cost = overrides.unit_cost;

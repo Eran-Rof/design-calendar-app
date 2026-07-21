@@ -1461,6 +1461,19 @@ function StyleFormModal({ mode, style, dimValues, brands, genders, isAdmin, onCl
   }, [brands, form.brand_id]);
 
   async function submit() {
+    // No-colour guard (non-blocking). A style saved with no declared colours
+    // creates no ip_item_master colour+size variants, so the PO/SO/AR size
+    // matrices and the product catalogs can't render it until colours AND SKU
+    // variants exist (the colour_ids drive the matrix colour rows before any SKU
+    // is created). Warn via the shared app-coloured confirm surface, but allow
+    // the save to proceed — operators legitimately stage a style before colours.
+    if (colorIds.length === 0) {
+      const proceed = await confirmDialog(
+        "This style has no colors selected. Purchase order, sales order, and AR size matrices — and product catalogs — won't display this style until you add its colors and SKU variants exist. Save without colors?",
+        { confirmText: "Save without colors" },
+      );
+      if (!proceed) return;
+    }
     setSubmitting(true);
     setErr(null);
     try {

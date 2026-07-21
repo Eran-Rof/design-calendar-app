@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildItemRow, parseSizeSuffix, canonStyleColor } from "../sku-canon.js";
+import { buildItemRow, parseSizeSuffix, canonStyleColor, prettyColorFromItemNumber } from "../sku-canon.js";
 
 describe("parseSizeSuffix", () => {
   it("returns the trailing size token when present", () => {
@@ -43,6 +43,49 @@ describe("buildItemRow", () => {
   it("minimal stub for a style+color rollup stays size-less", () => {
     const row = buildItemRow("RYB086930-BLACK");
     expect(row.size).toBeUndefined();
+  });
+
+  it("minimal stub populates color from the sku_code so matrices don't collapse", () => {
+    // Regression (PO/SO/AR matrix collapse): a colourless stub lands with
+    // color=NULL, and the size-matrix gate (style_code && size) drops or
+    // collapses every line of the style to one "—" row. The colour is in the SKU.
+    const size = buildItemRow("100215186MN-STONEBLOCKGD-LARGE");
+    expect(size.color).toBe("STONEBLOCKGD");
+    const rollup = buildItemRow("RYB086930-BLACK");
+    expect(rollup.color).toBe("BLACK");
+  });
+
+  it("minimal stub prefers a caller-supplied pretty colorDisplay over the squished key", () => {
+    const row = buildItemRow("RYB059530PPK-ISLANDBREEZELTWASH-PPK24", {
+      colorDisplay: "Island Breeze Lt Wash",
+    });
+    expect(row.color).toBe("Island Breeze Lt Wash");
+  });
+
+  it("minimal stub with no parseable colour omits color", () => {
+    const row = buildItemRow("100203712MN"); // bare style token, no colour segment
+    expect(row.color).toBeUndefined();
+  });
+});
+
+describe("prettyColorFromItemNumber", () => {
+  it("preserves + title-cases the readable colour segment of a raw ItemNumber", () => {
+    expect(prettyColorFromItemNumber("RYB059530PPK-Island Breeze lt wash-PPK24"))
+      .toBe("Island Breeze Lt Wash");
+    expect(prettyColorFromItemNumber("PTYG0001H-Black-M")).toBe("Black");
+    expect(prettyColorFromItemNumber("RYB059430-Island Breeze Lt Wash-30"))
+      .toBe("Island Breeze Lt Wash");
+  });
+  it("strips paren-range kids' sizes without eating the colour", () => {
+    expect(prettyColorFromItemNumber("100206796GK-Millie Wash-L(14-16)")).toBe("Millie Wash");
+  });
+  it("returns the colour for a size-less style+colour ItemNumber", () => {
+    expect(prettyColorFromItemNumber("RYB086930-Black")).toBe("Black");
+  });
+  it("returns null when the ItemNumber carries no colour segment", () => {
+    expect(prettyColorFromItemNumber("100203712MN")).toBeNull();
+    expect(prettyColorFromItemNumber("")).toBeNull();
+    expect(prettyColorFromItemNumber(null)).toBeNull();
   });
 
   it("non-minimal (Excel uploader) row does NOT force is_apparel:false", () => {

@@ -46,6 +46,10 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+// Shared canonical colour derivation (single source of truth — same helper the
+// AR/planning sync paths use). Preserves the readable colour segment of a raw
+// Xoro ItemNumber ("Island Breeze Lt Wash") instead of squishing it.
+import { prettyColorFromItemNumber } from "../api/_lib/sku-canon.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -368,6 +372,21 @@ async function loadStyles() {
   return m;
 }
 
+// Best-effort self-heal: when the import LINKS to an existing ip_item_master row
+// whose colour is NULL/empty (the stale colourless rows that collapse the PO body
+// matrix — root cause of the #1858 follow-up), backfill the colour parsed from
+// the Xoro ItemNumber. GUARDED: only writes on --apply; NEVER overwrites a
+// non-empty colour; try-wrapped so a heal failure can never abort the import.
+async function healColorIfMissing(id, existingColor, itemNumber, apply) {
+  if (!apply || !id) return;
+  if (existingColor != null && String(existingColor).trim() !== "") return;
+  try {
+    const pretty = prettyColorFromItemNumber(itemNumber);
+    if (!pretty) return;
+    await pgPatch("ip_item_master", `id=eq.${id}`, { color: pretty });
+  } catch { /* best-effort — import must not fail on a heal */ }
+}
+
 // SKU resolver: parse ItemNumber -> match existing ip_item_master row by exact
 // sku_code, then (style,color,size-variant), then loose sku_code; else (apply)
 // create a non-apparel partial SKU. Returns {id, created, reason}.
@@ -380,8 +399,8 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
 
   // 1) exact sku_code
   {
-    const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(itemNumber)}&select=id&limit=1`);
-    if (data?.length) { out = { id: data[0].id, created: false, reason: "exact-sku" }; skuCache.set(itemNumber, out); return out; }
+    const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(itemNumber)}&select=id,color&limit=1`);
+    if (data?.length) { await healColorIfMissing(data[0].id, data[0].color, itemNumber, opts.apply); out = { id: data[0].id, created: false, reason: "exact-sku" }; skuCache.set(itemNumber, out); return out; }
   }
   const styleId = styleByCode.get(p.style_code.toUpperCase());
   // 2) tuple match (style_id + color + size-variant)
@@ -391,7 +410,7 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     // Match the colour (abbreviation-expanded) — do NOT fall back to data[0], which
     // would attach a WRONG colour (e.g. an "Ibiza" line resolving to "Algae").
     const hit = (data || []).find((r) => expandedColorKey(r.color) === expandedColorKey(p.color));
-    if (hit) { out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out; }
+    if (hit) { await healColorIfMissing(hit.id, hit.color, itemNumber, opts.apply); out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out; }
   }
   // 3) loose sku_code match within the style family (capture the family so a
   //    missing SIZE can be auto-created from a sibling below).
@@ -400,13 +419,13 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     family = (await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=ilike.${enc(p.style_code + "-*")}&select=id,sku_code,style_id,style_code,color,size,inseam,length,fit,is_apparel&limit=500`)) || [];
     const target = looseKey(itemNumber);
     const hit = family.find((r) => looseKey(r.sku_code) === target);
-    if (hit) { out = { id: hit.id, created: false, reason: "loose-sku" }; skuCache.set(itemNumber, out); return out; }
+    if (hit) { await healColorIfMissing(hit.id, hit.color, itemNumber, opts.apply); out = { id: hit.id, created: false, reason: "loose-sku" }; skuCache.set(itemNumber, out); return out; }
     // 3b) abbreviation-expanded loose match: tolerate Xoro's abbreviated colour
     //     words (Blck↔Black, MD↔Medium, Lt↔Light) while KEEPING the wash name
     //     (Ibiza, Carbon…). Expands both sides' tokens then strips separators.
     const exTarget = expandedKey(itemNumber);
     const exHit = family.find((r) => expandedKey(r.sku_code) === exTarget);
-    if (exHit) { out = { id: exHit.id, created: false, reason: "loose-expanded" }; skuCache.set(itemNumber, out); return out; }
+    if (exHit) { await healColorIfMissing(exHit.id, exHit.color, itemNumber, opts.apply); out = { id: exHit.id, created: false, reason: "loose-expanded" }; skuCache.set(itemNumber, out); return out; }
     // 3c) PREPACK (PPK) lines. Xoro's ItemNumber ends in the pack SIZE segment
     //     ("…-PPK24"), but the catalog pack SKU keeps the pack size in the `size`
     //     COLUMN and OMITS it from sku_code (sku RYB153330PPK-SEAWEED-DARKWASH,
@@ -487,9 +506,14 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     // is_apparel only when the sibling is apparel AND all five dims are present
     // (mirrors resolveOrCreateSku — avoids the apparel_dims_required CHECK).
     const apparelFinal = !!(sib.is_apparel && sib.color && p.size && sib.inseam && sib.length && sib.fit);
+    // Never mint another COLOURLESS row: when the sibling itself carries no
+    // colour, fall back to the colour parsed from the Xoro ItemNumber (pretty
+    // form) then the parsed source colour, so the new SKU always gets a colour.
+    const newColor = (sib.color && String(sib.color).trim()) ? sib.color
+      : (prettyColorFromItemNumber(itemNumber) || p.color || null);
     const row = {
       entity_id: entityId, sku_code: newSku, style_code: sib.style_code, style_id: sib.style_id,
-      color: sib.color, size: p.size, inseam: sib.inseam, length: sib.length, fit: sib.fit, is_apparel: apparelFinal,
+      color: newColor, size: p.size, inseam: sib.inseam, length: sib.length, fit: sib.fit, is_apparel: apparelFinal,
     };
     const { data, error } = await pgInsert("ip_item_master", row, "representation");
     if (!error && data?.[0]?.id) {

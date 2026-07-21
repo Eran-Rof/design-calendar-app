@@ -81,6 +81,10 @@ The editable surfaces use the `EditableSizeMatrix` component (`src/shared/matrix
 
 A `color × size` cell may not yet have a SKU row in `ip_item_master`. When the operator types a qty into a cell and clicks "Add to PO / SO / adjustment", the surface calls `POST /api/internal/style-matrix/resolve-sku` → `resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam })`. That helper **finds or creates** the sized SKU (composing a unique `sku_code` like `RYB0412-BLACK-32`, retrying with a numeric suffix on a `23505` unique collision). Matrix cells materialize SKUs on first use — so the operator never has to pre-create every size variant.
 
+### Why a PO body sometimes showed no size rows (fixed)
+
+The PO / SO size matrix groups its rows by **color**. If the underlying `ip_item_master` row has a **NULL `color`**, the matrix can't place the line — every line of the style collapses into a single blank **"—"** row, so the PO body looks empty even though the lines exist. The Xoro import / sync paths that create item-master stubs used to leave `color` NULL (the colour was in the `sku_code` but not the column). Those paths now **derive the colour from the Xoro `ItemNumber`** (`STYLE-COLOR-SIZE`, e.g. `RYB059530PPK-Island Breeze lt wash-PPK24` → colour **Island Breeze Lt Wash**) and populate it on every new stub, and **self-heal** an existing stub whose colour is still NULL when a later import links to it. This is best-effort and never overwrites a colour the Item Master already carries. If you still see a collapsed PO body on a style, check that its `ip_item_master` rows carry a colour (a re-import of that PO backfills it).
+
 ### Classification source (important caveat)
 
 Style group/category/sub-category come from **`ip_item_master.attributes`** (JSONB), backfilled into `style_master` by migration `20260712240000_p16_classify_backfill_rise_sizes.sql`:

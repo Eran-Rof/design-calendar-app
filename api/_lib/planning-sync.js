@@ -12,7 +12,7 @@
 // arguments here — keep this file framework-agnostic so it stays
 // unit-testable.
 
-import { canonSku, canonStyleColor, buildItemRow } from "./sku-canon.js";
+import { canonSku, canonStyleColor, buildItemRow, prettyColorFromItemNumber } from "./sku-canon.js";
 import { unpackGzipEnvelope } from "./gzipEnvelope.js";
 import { buildCustomerLookup, resolveExistingCustomerId, loadLiveCustomers } from "./customers/matchCustomer.js";
 
@@ -273,7 +273,11 @@ export async function syncOnHandChunkFromAtsSnapshot(admin, { start = 0, limit =
   const preExistingSkus = new Set(itemMap.keys());
   const missingCandidates = candidates.filter((c) => !preExistingSkus.has(c.sku));
   if (missingCandidates.length > 0) {
-    const newItems = missingCandidates.map((c) => buildItemRow(c.sku));
+    // Populate colour on new stubs — a colourless master row collapses the
+    // downstream size matrices. c.src is the raw ATS row; its full sku
+    // ("STYLE-COLOR-SIZE") carries the readable colour segment.
+    const newItems = missingCandidates.map((c) =>
+      buildItemRow(c.sku, { colorDisplay: prettyColorFromItemNumber(c.src?.sku) }));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin
@@ -883,7 +887,12 @@ export async function syncOpenPosFromTandaPos(admin) {
     }
   }
   if (missingSkus.size > 0) {
-    const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
+    // Stub the missing SKUs WITH a colour. missingSkus.get(sku) is the raw PO
+    // line, so we derive the pretty colour from its Xoro ItemNumber
+    // ("STYLE-COLOR-SIZE") rather than the squished sku_code — a colourless stub
+    // is what collapses the PO body matrix (color=NULL → one "—" row).
+    const newItems = Array.from(missingSkus.entries()).map(([sku, ln]) =>
+      buildItemRow(sku, { colorDisplay: prettyColorFromItemNumber(ln?.ItemNumber ?? ln?.Sku ?? ln?.ItemCode) }));
     for (let i = 0; i < newItems.length; i += 500) {
       const chunk = newItems.slice(i, i + 500);
       const { data: created, error } = await admin

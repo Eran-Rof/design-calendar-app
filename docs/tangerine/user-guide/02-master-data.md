@@ -126,6 +126,8 @@ A **Show / Hide toggle** (with the color count beside it) lets you collapse the 
 
 These declared colors become the **color rows in the Sales Order and Purchase Order size matrix** — including a brand-new style that has no SKUs yet, and the AI **"Upload customer PO"** prefill on a new Sales Order. (Previously a style's colors were inferred only from SKUs that already existed, so a new style had no rows to fill.)
 
+> **⚠ Saving with no colors.** If you save a style with **no colors selected**, Tangerine shows a warning first — *"This style has no colors selected. Purchase order, sales order, and AR size matrices — and product catalogs — won't display this style until you add its colors and SKU variants exist. Save without colors?"* The save is **not blocked** (you can legitimately stage a style before its colours are decided), but until you add at least one colour **and** its SKU variants exist, the style's `color × size` matrix has nothing to render and the style is effectively invisible on PO / SO / AR matrices and catalogs. Click **Save without colors** to proceed, or cancel and add colours first.
+
 - **Anyone** can pick existing colors.
 - **Admins** also get a **"+ Add new color … to master"** row at the bottom of the dropdown — type a colour that isn't in the master yet and choose it to create the color and attach it in one step. Non-admins only see existing colors. (Adding a colour that already exists, case-insensitively, just re-uses the existing one.)
 

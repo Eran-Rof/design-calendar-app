@@ -401,9 +401,11 @@ export default async function handler(req, res) {
   }
 
   // Insert minimal stubs for SKUs not yet in master so each sales line
-  // has a sku_id. NEVER write description / color / unit_cost — Item
-  // Master Excel is the SOLE source of those fields. Existing master
-  // rows are not touched (ON CONFLICT DO NOTHING).
+  // has a sku_id. NEVER write description / unit_cost — Item Master Excel is the
+  // SOLE source of those. `color` IS now derived from the sku_code by
+  // buildItemRow (a colourless stub collapses the AR/PO size matrices); this is
+  // safe because existing master rows are not touched (ON CONFLICT DO NOTHING,
+  // ignoreDuplicates:true), so an authoritative colour is never overwritten.
   if (missingSkus.size > 0) {
     const newItems = Array.from(missingSkus.keys()).map((sku) => buildItemRow(sku));
     for (let i = 0; i < newItems.length; i += 500) {
