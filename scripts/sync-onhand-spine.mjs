@@ -27,6 +27,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { buildSnapshotUpserts, pruneReason, csvDateFromName, cellKey } from "../api/_lib/spineSnapshot.js";
+import { makeCostResolver } from "../api/_lib/layerCost.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -57,7 +58,9 @@ const upcMap = new Map((await anonAll("upc_item_master", "upc,sku_id")).filter(r
 const spineSkus = new Set(upcMap.values());
 const locs = await anonAll("inventory_locations", "id,code");
 const locIdByCode = new Map(locs.map(l => [l.code, l.id]));
-const skuCodeById = new Map((await anonAll("ip_item_master?sku_code=not.is.null", "id,sku_code")).map(r => [r.id, r.sku_code]));
+const itemMeta = await anonAll("ip_item_master?sku_code=not.is.null", "id,sku_code,style_code,inseam");
+const skuCodeById = new Map(itemMeta.map(r => [r.id, r.sku_code]));
+const costMetaById = new Map(itemMeta.map(r => [r.id, { skuCode: r.sku_code, styleCode: r.style_code, inseam: r.inseam }]));
 const avgCost = new Map((await anonAll("ip_item_avg_cost", "sku_code,avg_cost")).filter(r => r.avg_cost != null).map(r => [r.sku_code, Number(r.avg_cost)]));
 
 // ── Private-label parts (labels/patches/etc.): Xoro reuses/blanks the UPC across
@@ -163,7 +166,11 @@ for (let i = 0; i < planSkus.length; i += 200) {
 const layersByCell = new Map();
 for (const r of layerRows) { const k = `${r.item}|${r.loc}`; if (!layersByCell.has(k)) layersByCell.set(k, []); layersByCell.get(k).push(r); }
 const skuCode = (sku) => skuCodeById.get(sku);
-const costCents = (sku) => { const c = skuCode(sku); return avgCost.has(c) ? Math.round(avgCost.get(c) * 100) : 0; };
+// Tiered cost resolution (exact → color-level → inseam-stem avg → style avg):
+// a naive exact-code lookup reads $0 for inseam-program styles because Xoro's
+// costing keys embed the inseam in the BP (see api/_lib/layerCost.js).
+const resolveCost = makeCostResolver(avgCost);
+const costCents = (sku) => resolveCost(costMetaById.get(sku) || { skuCode: skuCode(sku) });
 const updates = [], creates = [];
 for (const p of plan) {
   const ls = layersByCell.get(`${p.sku}|${p.loc}`) || [];
