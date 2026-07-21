@@ -95,3 +95,41 @@ describe("groupPoLines", () => {
     expect(byStyle.size).toBe(1);
   });
 });
+
+describe("groupPoLines — inseam (jeans buyer needs to see the inseam)", () => {
+  it("UNIFORM: a style whose every line shares one inseam shows it once in the header (DMB0013 / ROF-P001281 shape)", () => {
+    // Waist sizes 30–36 are the columns; inseam 30 is uniform → header, not a row.
+    const { byStyle } = groupPoLines([
+      line({ style_code: "DMB0013", color: "Neptune - Medium Wash", size: "31", inseam: "30", qty_ordered: 12 }),
+      line({ style_code: "DMB0013", color: "Neptune - Medium Wash", size: "32", inseam: "30", qty_ordered: 18 }),
+      line({ style_code: "DMB0013", color: "Skylark - Light Wash", size: "30", inseam: "30", qty_ordered: 6 }),
+    ]);
+    const s = byStyle.get("DMB0013")!;
+    expect(s.inseam).toBe("30");
+    // Colors stay plain (inseam is NOT appended to each row).
+    expect([...s.colors.keys()].sort()).toEqual(["Neptune - Medium Wash", "Skylark - Light Wash"]);
+  });
+
+  it("MIXED: a style that mixes inseams keeps them as distinct color rows and shows no header inseam", () => {
+    const { byStyle } = groupPoLines([
+      line({ style_code: "DMB0013", color: "Black", size: "32", inseam: "30", qty_ordered: 5 }),
+      line({ style_code: "DMB0013", color: "Black", size: "32", inseam: "32", qty_ordered: 7 }),
+    ]);
+    const s = byStyle.get("DMB0013")!;
+    expect(s.inseam).toBeNull();
+    expect([...s.colors.keys()].sort()).toEqual([`Black · 30"`, `Black · 32"`]);
+    // The two inseams stay SEPARATE cells (not merged into one Black/32 cell).
+    expect(s.colors.get(`Black · 30"`)!.get("32")!.ordered).toBe(5);
+    expect(s.colors.get(`Black · 32"`)!.get("32")!.ordered).toBe(7);
+  });
+
+  it("ABSENT: a non-inseam product (tops / composite-code rows with null inseam) shows no inseam anywhere", () => {
+    const { byStyle } = groupPoLines([
+      line({ style_code: "TOP001", color: "White", size: "MEDIUM", inseam: null, qty_ordered: 4 }),
+      line({ style_code: "TOP001", color: "White", size: "LARGE", inseam: undefined, qty_ordered: 3 }),
+    ]);
+    const s = byStyle.get("TOP001")!;
+    expect(s.inseam).toBeNull();
+    expect([...s.colors.keys()]).toEqual(["White"]);
+  });
+});

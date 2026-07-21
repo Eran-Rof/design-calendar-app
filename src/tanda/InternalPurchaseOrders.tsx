@@ -923,6 +923,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
           <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
               <span style={{ color: C.primary, fontFamily: "monospace", fontWeight: 700 }}>{style}</span>
+              {s.inseam && <span style={{ color: C.textMuted, fontSize: 11 }}>Inseam <b style={{ color: C.textSub, fontWeight: 600 }}>{s.inseam}</b></span>}
               {s.lots.size > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>lot {[...s.lots].join(", ")}</span>}
             </div>
             <div style={{ overflowX: "auto" }}>
@@ -1100,7 +1101,14 @@ function poDocDataFromLines(lines: PoReceiptLine[]): OrderDocData {
     }
   }
   const styles: OrderDocStyle[] = [];
-  for (const [style, g] of styleMap) styles.push({ style, sizes: [...g.sizes].sort(compareSizes), rows: [...g.rows.values()] });
+  for (const [style, g] of styleMap) {
+    // Uniform inseam → header (mirrors the on-screen matrix + printable doc);
+    // mixed / absent stays per-row via the row label.
+    const rows = [...g.rows.values()];
+    const distinctInseams = [...new Set(rows.map((r) => r.inseam).filter(Boolean))];
+    const inseam = distinctInseams.length === 1 && rows.every((r) => r.inseam) ? distinctInseams[0] : null;
+    styles.push({ style, sizes: [...g.sizes].sort(compareSizes), rows, inseam });
+  }
   return { styles, flats };
 }
 
@@ -1199,6 +1207,7 @@ const PoReceiptLinesEditor = forwardRef<PoReceiptEditorHandle, { lines: PoReceip
             <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
                 <span style={{ color: C.primary, fontFamily: "monospace", fontWeight: 700 }}>{style}</span>
+                {s.inseam && <span style={{ color: C.textMuted, fontSize: 11 }}>Inseam <b style={{ color: C.textSub, fontWeight: 600 }}>{s.inseam}</b></span>}
                 {s.lots.size > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>lot {[...s.lots].join(", ")}</span>}
               </div>
               <div style={{ overflowX: "auto" }}>

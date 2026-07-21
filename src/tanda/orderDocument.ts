@@ -25,6 +25,11 @@ export type OrderDocStyle = {
   description?: string | null;
   sizes: string[];
   rows: OrderDocMatrixRow[];
+  /** The single inseam shared by EVERY row of this style — rendered once in the
+   *  style section header (e.g. "· Inseam 30") so a vendor reading the PO sees it.
+   *  null when the style has no inseam or MIXES inseams (then each row label
+   *  carries its own inseam instead). Mirrors the on-screen matrix. */
+  inseam?: string | null;
   imageUrl?: string | null;   // item 25 — style thumbnail when "Show images" is on
 };
 // A non-matrix (flat) line — the rare one-off SKU / charge.
@@ -67,8 +72,11 @@ const esc = (s: string): string =>
 const money = (n: number): string =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const rowLabel = (r: OrderDocMatrixRow): string =>
-  `${r.color || "—"}${r.inseam ? ` · ${r.inseam}"` : ""}`;
+// Row label = color, plus the inseam ONLY when it isn't already shown once in
+// the style header (mixed-inseam styles). `showInseam` is false for a uniform
+// style so the inseam isn't repeated on every row.
+const rowLabel = (r: OrderDocMatrixRow, showInseam = true): string =>
+  `${r.color || "—"}${showInseam && r.inseam ? ` · ${r.inseam}"` : ""}`;
 
 export function openOrderDocument(doc: OrderDocument): void {
   if (typeof window === "undefined" || typeof document === "undefined") return; // SSR / test safety
@@ -96,7 +104,7 @@ export function openOrderDocument(doc: OrderDocument): void {
         })
         .join("");
       return `<tr>
-        <td>${esc(rowLabel(r))}</td>
+        <td>${esc(rowLabel(r, !g.inseam))}</td>
         ${cells}
         <td class="num">${rowQty.toLocaleString()}</td>
         <td class="num">$${money(Number(r.unitDollars) || 0)}</td>
@@ -111,7 +119,7 @@ export function openOrderDocument(doc: OrderDocument): void {
     const footSizes = sizes.map((sz) => `<td class="num">${colSums[sz] ? colSums[sz].toLocaleString() : ""}</td>`).join("");
 
     return `<div class="style-block">
-      <div class="style-name">${g.imageUrl ? `<img class="style-img" src="${esc(g.imageUrl)}" alt="" />` : ""}${esc(g.style)}${g.description ? `<span class="sub"> — ${esc(g.description)}</span>` : ""}</div>
+      <div class="style-name">${g.imageUrl ? `<img class="style-img" src="${esc(g.imageUrl)}" alt="" />` : ""}${esc(g.style)}${g.description ? `<span class="sub"> — ${esc(g.description)}</span>` : ""}${g.inseam ? `<span class="sub"> · Inseam ${esc(g.inseam)}</span>` : ""}</div>
       <table>
         <thead><tr>
           <th>Color</th>${headSizes}
@@ -318,7 +326,7 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
   let grandQty = 0;
   let grandAmt = 0;
   for (const g of doc.data.styles) {
-    const label = g.description ? `${g.style} — ${g.description}` : g.style;
+    const label = `${g.description ? `${g.style} — ${g.description}` : g.style}${g.inseam ? ` · Inseam ${g.inseam}` : ""}`;
     const im = g.imageUrl ? imgByUrl.get(g.imageUrl) : null;
     if (im && im.dataUrl) {
       // Image in col A (style name shifts to col B), row sized to the picture.
@@ -341,7 +349,7 @@ export async function downloadOrderExcel(doc: OrderDocument): Promise<void> {
       styleQty += rowQty;
       styleAmt += rowAmt;
       g.sizes.forEach((sz) => { colSums[sz] = (colSums[sz] || 0) + (r.qtyBySize[sz] || 0); });
-      push([t(rowLabel(r)), ...g.sizes.map((sz) => t(r.qtyBySize[sz] || 0)), t(rowQty), t(unit), t(rowAmt)]);
+      push([t(rowLabel(r, !g.inseam)), ...g.sizes.map((sz) => t(r.qtyBySize[sz] || 0)), t(rowQty), t(unit), t(rowAmt)]);
     }
     push([t("Total"), ...g.sizes.map((sz) => t(colSums[sz] || 0)), t(styleQty), t(""), t(styleAmt)]);
     push([]);

@@ -717,6 +717,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
           row.qtyBySize[size] = (row.qtyBySize[size] || 0) + n;
         }
         if (rowMap.size === 0) continue;
+        // Uniform inseam → carried in the style header (like the on-screen matrix
+        // and the printable/Excel doc) instead of on every color row. Only when
+        // EVERY row shares one non-null inseam; mixed / absent stays per-row.
+        const rowVals = [...rowMap.values()];
+        const distinctInseams = [...new Set(rowVals.map((r) => r.inseam).filter(Boolean))];
+        const styleInseam = distinctInseams.length === 1 && rowVals.every((r) => r.inseam) ? distinctInseams[0] : null;
         // Size columns in scale order (from the loaded payload), limited to sizes
         // actually ordered; fall back to appearance order if no payload yet. For a
         // prepack the single column is the pack token (cells are PACK counts).
@@ -740,7 +746,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         } else {
           sizes = [...sizesSeen];
         }
-        styleGroups.push({ style: code, description: desc, sizes, rows: [...rowMap.values()], imageUrl: showImages ? thumbUrlFor(s.styleId) : null });
+        styleGroups.push({ style: code, description: desc, sizes, rows: rowVals, inseam: styleInseam, imageUrl: showImages ? thumbUrlFor(s.styleId) : null });
         // For a PPK style WITH a defined matrix, also emit the pack composition
         // (inner + carton units per size) + the per-color pack counts so the
         // document can render the full garment explode (confirmation requirement).
@@ -914,6 +920,12 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
         // whole PO reads blank in the modal though the grid total is correct).
         const entrySizes = ppActive ? [ppActive.pack_token] : displaySizes;
         const allRows = rowsFor(s.payload);
+        // Uniform-inseam styles (a jeans style whose SKUs all share one inseam,
+        // e.g. 30) carry NO Inseam column (that only shows for >1 inseam), so the
+        // inseam is otherwise invisible — a buyer can't see it. Surface it once in
+        // the style header. Nothing shows for tops / shorts (no inseam) or when the
+        // style mixes inseams (the Inseam column then handles it per row).
+        const headerInseam = (s.payload?.inseams?.length === 1) ? s.payload.inseams[0] : null;
         // When locked (a confirmed order viewed read-only) show ONLY the color rows
         // that carry a quantity. Editable ("Add styles") shows every color.
         const rows = editable ? allRows : allRows.filter((r) => entrySizes.some((sz) => (s.qty[matrixCellKey(r.key, sz)] || 0) > 0));
@@ -967,6 +979,11 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 options={styles.map((st) => ({ value: st.id, label: `${st.style_code}${st.style_name ? ` — ${st.style_name}` : st.description ? ` — ${st.description}` : ""}`, searchHaystack: `${st.style_code} ${st.style_name || ""} ${st.description || ""}` }))}
                 placeholder="(pick a style…)" />
               <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                {headerInseam && (
+                  <span title="Every item in this style shares this inseam" style={{ fontSize: 12, color: C.textMuted, whiteSpace: "nowrap" }}>
+                    Inseam <b style={{ color: C.textSub, fontWeight: 600 }}>{headerInseam}</b>
+                  </span>
+                )}
                 {secBelowCost && (
                   <span
                     title={`Average cost exceeds the unit price on this style — projected margin ${secMarginPct.toFixed(1)}%. Raise the unit price above the average cost to fix.`}
