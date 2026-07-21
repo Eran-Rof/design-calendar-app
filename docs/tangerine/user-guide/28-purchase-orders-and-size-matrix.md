@@ -219,6 +219,7 @@ The PO grid **calls out bad data** instead of silently rendering it wrong — th
 
 - **Per-PO ⚠ badge** — a PO # cell that has issues carries a small **⚠ N** badge (red if any *error*, amber if only *warnings*). Click it to open the report focused on that PO.
 - **⚠ Data quality (N)** button (top of the grid, appears only when there are findings) — opens the full report: findings grouped by defect class, each row showing the **PO · Style · Color · item count · suggested fix**, with a plain-English cause under each group and a one-click **xlsx export** (`ExportButton`, the universal export). The header summarises *E errors · W warnings across P active POs*.
+- **Click any finding row to open its PO.** The **PO number renders blue** and the whole row is clickable — a click opens that purchase order's edit modal (the same modal the grid opens), so you can jump straight from the defect to the record and fix it. When the PO isn't in the currently-loaded grid page, the click seeds the PO search filter to that PO number instead. Every defect class — including the style-level ones (orphan style code, PPK missing prepack def) — drills to the PO carrying the defect line. (#1870)
 
 The defect classes:
 
