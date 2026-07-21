@@ -39,6 +39,7 @@ import {
 } from "../api/_lib/factor/parseFactorPdfText.js";
 import { mapReasonToCode } from "../api/_lib/chargebackReasonCode.js";
 import { isFactorChurnChargeback } from "../api/_lib/chargebackMatch.js";
+import { sweepChargebackChurn } from "../api/_lib/chargebackChurnSweep.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -315,6 +316,19 @@ async function main() {
       }
     }
     console.log(`↑ auto-coded ${coded} previously un-coded chargeback row(s) by reason pattern`);
+  }
+
+  // ── Factor-churn classification + auto-disposition ──
+  // Widens #1832's recourse-610 exclusion: flags offset pairs (chargeback +
+  // equal-and-opposite creditback on the same normalized item token) and factor
+  // admin codes (200/202/204) as churn, then auto-dispositions any OPEN churn
+  // row to 'valid'. New rows can complete a pair with existing rows, so this
+  // runs over the whole table each import. Idempotent; never clobbers
+  // operator-set or #1854 bulk dispositions (open-only guard). Shared with the
+  // one-time backfill (scripts/backfills/chargeback_churn_classification.mjs).
+  if (chargebacks.length) {
+    const res = await sweepChargebackChurn(sb, { actor: "system:churn-auto", log: (m) => console.log(`↑ ${m}`) });
+    console.log(`↑ churn sweep: ${res.classified.offset_pair} offset_pair + ${res.classified.recourse_610} recourse_610 + ${res.classified.factor_admin_code} factor_admin_code; ${res.auto_dispositioned} open row(s) auto-dispositioned (${fmt(res.auto_dispositioned_cents)})`);
   }
 
   // ── Verify chargebacks from the DB: Σ amount per month vs TradeStyle total ──
