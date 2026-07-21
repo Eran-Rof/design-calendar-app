@@ -153,7 +153,7 @@ A row whose style isn't yet in the item master shows an amber **NEW** badge; it 
 
 These two reports live under **Reports** in the left menu (Planning → **Reports** → the **Buyer vs LY** and **Buy vs LY** tabs) — pick a planning run at the top of the tab and the report builds. They're formatted, printable comparisons: for each **Customer**, they break out **Style → Color** across the run's months in three blocks:
 
-- **SP/LY** — same-period-last-year quantities (the SP/LY column).
+- **SP/LY** — same-period-last-year quantities (the SP/LY column). A style and its prepack (PPK) sibling are the same garment, so they're shown as **one style row** and last-year sales are counted **once** — never added twice under both the base and the PPK code.
 - **TY** — this year's quantities. The **Buyer vs LY** report uses your **Buyer** column; the **Buy vs LY** report uses your **Buy** column. The two reports are otherwise identical.
 - **Comparison** — the difference (**Δ = TY − LY**) and **%** per month and in total. A brand-new color with no last-year history reads **+100%**.
 

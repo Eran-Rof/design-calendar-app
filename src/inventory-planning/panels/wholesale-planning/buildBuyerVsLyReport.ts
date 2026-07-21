@@ -77,6 +77,16 @@ function labelFor(periodCode: string, yearDelta: number): string {
   return `${MONTHS[m - 1]}-${yy}`;
 }
 
+// Collapse a style and its prepack sibling to ONE family — RYB0412 and
+// RYB0412PPK are the same garment (PPK is just the pack packaging), so the
+// report must present them as a single style row. Without this the same
+// last-year sales appear under both codes and the customer total
+// double-counts them (a PPK stock-buy row carries the same base-family LY
+// its each-grain forecast twin does — see the ly resolution below).
+export function familyStyleOf(style: string): string {
+  return style.replace(/PPK\d*$/i, "") || style;
+}
+
 const sumArr = (a: number[]): number => a.reduce((s, v) => s + v, 0);
 const addInto = (target: number[], idx: number, v: number | null | undefined): void => {
   if (idx >= 0) target[idx] += v ?? 0;
@@ -128,10 +138,20 @@ export function reportPct(ty: number, ly: number): number | null {
 
 /**
  * Build the report from planning rows (already scoped to whatever the caller
- * wants — full run or the current grid filter). Aggregate rows are skipped;
- * every leaf row contributes its ly_reference_qty (SP/LY) and the chosen TY
- * metric — buyer_request_qty ("buyer", default) or planned_buy_qty ("buy") —
- * to its (customer, style, color, period) cell.
+ * wants — full run or the current grid filter). Aggregate rows are skipped.
+ *
+ * A style and its prepack sibling (RYB0412 / RYB0412PPK) collapse into ONE
+ * family row (familyStyleOf). Within a (customer, family, color) cell:
+ *   - TY (buyer_request_qty / planned_buy_qty) is SUMMED across every row —
+ *     planner demand is additive (they enter it on whichever grain).
+ *   - LY (ly_reference_qty) is taken ONCE. The authoritative source is the
+ *     base each-grain FORECAST rows (non-TBD, non-PPK) — their per-size LY
+ *     SUMS to the family's true SP/LY. Every other representation of the
+ *     same family+color (a PPK pack row, or a TBD stock-buy row of either
+ *     grain — each carries a duplicate of that family total) is used only
+ *     as a FALLBACK, taken once (max), when no base forecast row exists
+ *     (a pure-PPK / brand-new color). This is the fix for the same
+ *     last-year sales double-counting under both the base and the PPK code.
  */
 export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMetric = "buyer"): BuyerVsLyReport {
   const periodSet = new Set<string>();
@@ -143,25 +163,40 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
     period_code: p, tyLabel: labelFor(p, 0), lyLabel: labelFor(p, -1),
   }));
 
-  // customer → style → color → { ly[], ty[] }
-  type Cell = { ly: number[]; ty: number[] };
+  // customer → family-style → color → cell. LY is split into the authoritative
+  // base each-grain forecast bucket (summed) and a fallback bucket for every
+  // duplicate representation (maxed), so the finalizer never sums the two.
+  type Cell = { ty: number[]; lyBase: number[]; lyFallback: number[]; hasBase: boolean };
+  // A row is a duplicate LY carrier — not the authoritative base each-grain
+  // forecast — when it's a TBD stock-buy row OR its style carries a PPK token.
+  const isDuplicateLy = (r: IpPlanningGridRow, rawStyle: string): boolean =>
+    !!r.is_tbd || familyStyleOf(rawStyle) !== rawStyle || /PPK/i.test(r.sku_code ?? "");
   const custMap = new Map<string, Map<string, Map<string, Cell>>>();
   for (const r of rows) {
     if (r.is_aggregate || !r.period_code) continue;
     const idx = periodIdx.get(r.period_code) ?? -1;
     if (idx < 0) continue;
     const customer = r.customer_name || "(no customer)";
-    const style = r.sku_style ?? r.sku_code ?? "(no style)";
+    const rawStyle = r.sku_style ?? r.sku_code ?? "(no style)";
+    const style = familyStyleOf(rawStyle);
     const color = r.sku_color ?? "(no color)";
     let styleMap = custMap.get(customer);
     if (!styleMap) { styleMap = new Map(); custMap.set(customer, styleMap); }
     let colorMap = styleMap.get(style);
     if (!colorMap) { colorMap = new Map(); styleMap.set(style, colorMap); }
     let cell = colorMap.get(color);
-    if (!cell) { cell = { ly: new Array(nP).fill(0), ty: new Array(nP).fill(0) }; colorMap.set(color, cell); }
-    addInto(cell.ly, idx, r.ly_reference_qty);
+    if (!cell) { cell = { ty: new Array(nP).fill(0), lyBase: new Array(nP).fill(0), lyFallback: new Array(nP).fill(0), hasBase: false }; colorMap.set(color, cell); }
     addInto(cell.ty, idx, metric === "buy" ? r.planned_buy_qty : r.buyer_request_qty);
+    if (isDuplicateLy(r, rawStyle)) {
+      // Duplicate carriers of the family total — take once (max), never sum.
+      if (idx >= 0) cell.lyFallback[idx] = Math.max(cell.lyFallback[idx], r.ly_reference_qty ?? 0);
+    } else {
+      cell.hasBase = true;
+      addInto(cell.lyBase, idx, r.ly_reference_qty);
+    }
   }
+  // Resolve each cell's LY: authoritative base if present, else the fallback.
+  const cellLy = (cell: Cell): number[] => (cell.hasBase ? cell.lyBase : cell.lyFallback);
 
   const customers: ReportCustomer[] = Array.from(custMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -176,8 +211,9 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
           const colors: ReportColorRow[] = Array.from(colorMap.entries())
             .sort((a, b) => a[0].localeCompare(b[0]))
             .map(([color, cell]) => {
-              for (let i = 0; i < nP; i++) { styLy[i] += cell.ly[i]; styTy[i] += cell.ty[i]; }
-              return { style, color, ly: cell.ly, ty: cell.ty, lyTotal: sumArr(cell.ly), tyTotal: sumArr(cell.ty) };
+              const ly = cellLy(cell);
+              for (let i = 0; i < nP; i++) { styLy[i] += ly[i]; styTy[i] += cell.ty[i]; }
+              return { style, color, ly, ty: cell.ty, lyTotal: sumArr(ly), tyTotal: sumArr(cell.ty) };
             });
           for (let i = 0; i < nP; i++) { custLy[i] += styLy[i]; custTy[i] += styTy[i]; }
           return { style, colors, lyTotals: styLy, tyTotals: styTy, lyTotal: sumArr(styLy), tyTotal: sumArr(styTy) };
