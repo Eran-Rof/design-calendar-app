@@ -83,7 +83,7 @@ Above the grid, pick the baseline method the build uses:
 
 ### Reading and editing the grid
 
-Each row is a customer × style × color × period demand line. Columns can be shown or hidden with the **Columns** button. Flip **Totals: ON** (above the grid) to show a **sum under each numeric column header** for the rows currently in view — demand and buy columns sum per row, while supply columns (On hand / On SO / Receipts / ATS) are counted once per SKU-period so a SKU shared across customers isn't double-counted. The key columns:
+Each row is a customer × style × color × period demand line. Columns can be shown or hidden with the **Columns** button. Flip **Totals: ON** (above the grid) to show a **sum under each numeric column header** for the rows currently in view — demand and buy columns sum per row, while the other supply columns (On hand / On SO / Receipts) are counted once per SKU-period so a SKU shared across customers isn't double-counted. The **ATS** total is different: ATS is a *rolling* supply balance carried month to month (each period's ATS already includes what's left over from the prior period), so the total is the **ending (last-period) ATS of each style/color, summed** — not a sum of every month, which would count the same units repeatedly. "Last period" is the latest period still in view, so narrowing the period filter moves the ending point with it. The key columns:
 
 | Column | Meaning | Editable? |
 |---|---|---|
