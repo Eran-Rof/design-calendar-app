@@ -50,6 +50,14 @@ import { gunzipSync } from "node:zlib";
 // AR/planning sync paths use). Preserves the readable colour segment of a raw
 // Xoro ItemNumber ("Island Breeze Lt Wash") instead of squishing it.
 import { prettyColorFromItemNumber } from "../api/_lib/sku-canon.js";
+// Pure matching helpers (unit-tested in api/_lib/__tests__/xoroLineMatch.test.js).
+// Includes the inseam-aware style-token resolver (RYB147730 = RYB1477 + inseam
+// 30), the exactly-one colour+size matcher (spelling-tolerant Gray↔Grey /
+// Lt↔Light / Blk↔Black), and mergePreservedLinks (the re-import link churn guard).
+import {
+  parseItemNumber, sizeVariantsOf, looseKey, expandedKey, colorMatchKey,
+  resolveStyleToken, pickColorSizeMatch, mergePreservedLinks,
+} from "../api/_lib/xoroLineMatch.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -194,75 +202,10 @@ function toIsoDate(raw) {
 }
 const cents = (n) => { const v = Number(n); return Number.isFinite(v) ? Math.round(v * 100) : 0; };
 
-// canonical letter-size map (mirrors api/_lib/styleMatrix.js LETTER_SIZE_CANON)
-const SIZE_CANON = {
-  XS: "XSMALL", XSM: "XSMALL", "X-SMALL": "XSMALL", XSMALL: "XSMALL",
-  S: "SMALL", SM: "SMALL", SML: "SMALL", SMALL: "SMALL",
-  M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM", MEDIUM: "MEDIUM",
-  L: "LARGE", LG: "LARGE", LRG: "LARGE", LARGE: "LARGE",
-  XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
-  XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
-  XXXL: "3XLARGE", "3X": "3XLARGE", "3XL": "3XLARGE", "3XLARGE": "3XLARGE",
-};
-const canonSize = (raw) => (raw == null ? raw : (SIZE_CANON[String(raw).trim().toUpperCase()] || String(raw).trim()));
-const SIZE_VARIANTS = (() => {
-  const m = {};
-  for (const [tok, c] of Object.entries(SIZE_CANON)) (m[c] ||= new Set()).add(tok).add(c);
-  return m;
-})();
-function sizeVariantsOf(raw) {
-  if (raw == null) return [];
-  const c = canonSize(raw);
-  const set = SIZE_VARIANTS[c];
-  return set ? [...new Set([...set, String(raw).trim()])] : [String(raw).trim()];
-}
-const looseKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
-
-// Colour-abbreviation expansion. Xoro writes abbreviated colour words
-// ("Carbon- Blck", "IBIZA - MED WASH", "Skylar-LtBlue") while the catalog spells
-// them out ("Carbon - Black", "Ibiza - Medium Wash", "Skylar - Light Blue"), so
-// the loose key BLCK≠BLACK and the tuple colour match miss. We expand ONLY the
-// known abbreviation TOKENS and PRESERVE every other word — so "IBIZA - MED WASH"
-// → "IBIZA MEDIUM WASH" (Ibiza, the wash name, is kept; never collapsed to just
-// "Medium Wash"). Applied identically to BOTH the Xoro value and the catalog
-// value so they converge. Tokenises on non-alphanumerics AND camelCase / letter-
-// digit boundaries so combined forms ("LtBlue", "MdBlue") split correctly.
-const COLOR_ABBR = {
-  LT: "LIGHT", LITE: "LIGHT", LGT: "LIGHT", DK: "DARK", DRK: "DARK",
-  MD: "MEDIUM", MED: "MEDIUM", MDM: "MEDIUM",
-  BLK: "BLACK", BLCK: "BLACK", BLAK: "BLACK",
-  GRY: "GREY", GRAY: "GREY", GRYE: "GREY", HTHR: "HEATHER", HTR: "HEATHER",
-  CHRCL: "CHARCOAL", CHRC: "CHARCOAL", WSH: "WASH", WHT: "WHITE", WHTE: "WHITE",
-  BLU: "BLUE", NVY: "NAVY", BRN: "BROWN", GRN: "GREEN", W: "WITH", WTINT: "WITHTINT",
-};
-function expandTokens(s) {
-  return String(s ?? "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")     // camelCase  → camel Case
-    .replace(/([A-Za-z])([0-9])/g, "$1 $2")  // letter+digit boundary
-    .replace(/([0-9])([A-Za-z])/g, "$1 $2")
-    .replace(/[^A-Za-z0-9]+/g, " ")
-    .trim().toUpperCase()
-    .split(/\s+/)
-    .map((t) => COLOR_ABBR[t] || t)
-    .join(" ");
-}
-// Abbreviation-expanded loose key (no separators) — for full ItemNumber↔sku_code
-// matching that tolerates abbreviated colour words.
-const expandedKey = (s) => expandTokens(s).replace(/[^A-Z0-9]+/g, "");
-// Abbreviation-expanded colour key — for choosing the right sibling colour.
-const expandedColorKey = (s) => expandTokens(s).replace(/\s+/g, " ").trim();
-
-// Parse a Xoro ItemNumber "STYLE-COLOR-SIZE" -> {style_code, color, size}.
-function parseItemNumber(item) {
-  const s = String(item ?? "").trim();
-  if (!s) return null;
-  const parts = s.split("-");
-  if (parts.length < 2) return { style_code: parts[0], color: null, size: null };
-  const style_code = parts[0];
-  const size = parts[parts.length - 1];
-  const color = parts.slice(1, -1).join("-") || null;
-  return { style_code, color, size };
-}
+// Size-canon, colour-abbreviation expansion, ItemNumber parse, inseam-aware
+// style-token resolution, the exactly-one colour+size matcher, and the churn
+// guard all live in ../api/_lib/xoroLineMatch.js (pure + unit-tested). Imported
+// at the top of this file — single source of truth, do NOT re-copy them here.
 
 // ── PO status map (Xoro StatusName -> purchase_orders.status) ──────────────--
 // enum: draft | issued | partially_received | in_transit | received | cancelled
@@ -402,15 +345,26 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&sku_code=eq.${enc(itemNumber)}&select=id,color&limit=1`);
     if (data?.length) { await healColorIfMissing(data[0].id, data[0].color, itemNumber, opts.apply); out = { id: data[0].id, created: false, reason: "exact-sku" }; skuCache.set(itemNumber, out); return out; }
   }
-  const styleId = styleByCode.get(p.style_code.toUpperCase());
-  // 2) tuple match (style_id + color + size-variant)
+  // Resolve the style token to a style id, unwrapping the INSEAM COMPOSITE
+  // ("RYB147730" = base style "RYB1477" + inseam "30"). Xoro's sized garment
+  // ItemNumbers carry the inseam FUSED into the style token, which never matches
+  // style_master's base style_code — so before this the tuple tier was skipped
+  // and every such line ("Gray Wolf - Lt Gray" waist sizes) imported null-linked
+  // even though the catalog row exists. resolveStyleToken also returns the peeled
+  // inseam so the tuple can't cross-bind a different inseam's colour.
+  const { styleId, inseam: tokenInseam } = resolveStyleToken(styleByCode, p.style_code);
+  // 2/b) inseam-aware colour + size tuple. pickColorSizeMatch tolerates the
+  //      spelling variance between the Xoro colour ("Gray Wolf - Lt Gray") and
+  //      the catalog colour field ("Grey Wolf - Light Grey") — Gray↔Grey,
+  //      Lt↔Light, Blk↔Black, wTint↔With Tint — and requires EXACTLY ONE match
+  //      (zero-or-multi → fall through to the looser tiers / unresolved; never
+  //      guesses). The optional inseam constraint disambiguates a style that has
+  //      several inseam composites sharing one base style_code.
   if (styleId && p.size) {
     const variants = sizeVariantsOf(p.size).map((s) => `"${s.replace(/"/g, '""')}"`).join(",");
-    const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&style_id=eq.${styleId}&size=in.(${enc(variants)})&select=id,color,size`);
-    // Match the colour (abbreviation-expanded) — do NOT fall back to data[0], which
-    // would attach a WRONG colour (e.g. an "Ibiza" line resolving to "Algae").
-    const hit = (data || []).find((r) => expandedColorKey(r.color) === expandedColorKey(p.color));
-    if (hit) { await healColorIfMissing(hit.id, hit.color, itemNumber, opts.apply); out = { id: hit.id, created: false, reason: "tuple" }; skuCache.set(itemNumber, out); return out; }
+    const data = await pgGet("ip_item_master", `entity_id=eq.${entityId}&style_id=eq.${styleId}&size=in.(${enc(variants)})&select=id,color,size,inseam`);
+    const hit = pickColorSizeMatch(data, { color: p.color, size: p.size, inseam: tokenInseam });
+    if (hit) { await healColorIfMissing(hit.id, hit.color, itemNumber, opts.apply); out = { id: hit.id, created: false, reason: tokenInseam ? "inseam-tuple" : "tuple" }; skuCache.set(itemNumber, out); return out; }
   }
   // 3) loose sku_code match within the style family (capture the family so a
   //    missing SIZE can be auto-created from a sibling below).
@@ -426,6 +380,15 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
     const exTarget = expandedKey(itemNumber);
     const exHit = family.find((r) => expandedKey(r.sku_code) === exTarget);
     if (exHit) { await healColorIfMissing(exHit.id, exHit.color, itemNumber, opts.apply); out = { id: exHit.id, created: false, reason: "loose-expanded" }; skuCache.set(itemNumber, out); return out; }
+    // 3b') family colour + size tuple. The code-family (sku_code ILIKE STYLE-*)
+    //      is already inseam-scoped by the composite prefix, but the sku_code's
+    //      colour TOKEN is squished ("GRAYWOLF") while the Xoro colour carries the
+    //      full readable form ("Gray Wolf - Lt Gray"), so 3/3b miss. Match on the
+    //      catalog COLOUR FIELD (spelling-tolerant) + canonical size, exactly-one.
+    //      Catches lines whose base style_code isn't registered in style_master
+    //      (styleId above was null) but whose sized catalog row nonetheless exists.
+    const famHit = pickColorSizeMatch(family, { color: p.color, size: p.size, inseam: null });
+    if (famHit) { await healColorIfMissing(famHit.id, famHit.color, itemNumber, opts.apply); out = { id: famHit.id, created: false, reason: "family-tuple" }; skuCache.set(itemNumber, out); return out; }
     // 3c) PREPACK (PPK) lines. Xoro's ItemNumber ends in the pack SIZE segment
     //     ("…-PPK24"), but the catalog pack SKU keeps the pack size in the `size`
     //     COLUMN and OMITS it from sku_code (sku RYB153330PPK-SEAWEED-DARKWASH,
@@ -451,7 +414,7 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
         const packSize = String(p.size).trim().toUpperCase();
         if (opts.apply) {
           const dup = family.find((r) => r.id !== colorOnly.id && r.style_id === colorOnly.style_id
-            && expandedColorKey(r.color) === expandedColorKey(colorOnly.color) && String(r.size || "").toUpperCase() === packSize);
+            && colorMatchKey(r.color) === colorMatchKey(colorOnly.color) && String(r.size || "").toUpperCase() === packSize);
           if (!dup) await pgPatch("ip_item_master", `id=eq.${colorOnly.id}`, { size: packSize });
         }
         out = { id: colorOnly.id, created: false, reason: "ppk-promote-size" };
@@ -483,8 +446,8 @@ async function resolveSku(entityId, itemNumber, styleByCode, opts) {
   // to -03SF rows), splitting the base style's size run across phantom styles.
   const sibPool = styleId ? family.filter((r) => r.style_id === styleId) : family;
   const sib = (sibPool.length && p.size && !/PPK/i.test(itemNumber) && !/PPK/i.test(p.size))
-    ? (sibPool.find((r) => r.style_id && r.size && expandedColorKey(r.color) === expandedColorKey(p.color))
-        || sibPool.find((r) => r.style_id && expandedColorKey(r.color) === expandedColorKey(p.color)) || null)
+    ? (sibPool.find((r) => r.style_id && r.size && colorMatchKey(r.color) === colorMatchKey(p.color))
+        || sibPool.find((r) => r.style_id && colorMatchKey(r.color) === colorMatchKey(p.color)) || null)
     : null;
   if (sib) {
     if (!opts.apply) { out = { id: null, created: false, reason: "would-create-sibling" }; skuCache.set(itemNumber, out); return out; }
@@ -566,7 +529,7 @@ async function importPOs(refs) {
     console.log(`  --affected-only: ${affected.size} POs have unresolved lines`);
   }
 
-  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_vendor: 0, lines: 0, sku_created: 0, would_create: 0, status: {}, lineStatus: {} };
+  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_vendor: 0, lines: 0, sku_created: 0, would_create: 0, preserved: 0, status: {}, lineStatus: {} };
   const vendorUnresolved = new Set(), skuUnresolved = new Set();
   const samples = [];
 
@@ -582,6 +545,20 @@ async function importPOs(refs) {
 
     const existRow = existingByNum.get(poNum);
     if (existRow && !(existRow.notes || "").startsWith(NOTE_TAG)) { stats.skip_app_owned++; continue; }
+
+    // CHURN GUARD: this re-import REPLACES an existing PO's lines (delete+reinsert
+    // below). Capture the current line→SKU links FIRST so a manual re-link (or a
+    // prior successful auto-link) survives instead of reverting to whatever the
+    // resolver produces this run — the bug where a 53/53-linked PO reverted to 5
+    // unlinked after the next nightly. Keyed by line_number (deterministic from
+    // the stable Xoro Items order). Best-effort read; a failure never aborts.
+    let priorLinkByLineNo = new Map();
+    if (existRow) {
+      try {
+        const prior = await pgGet("purchase_order_lines", `purchase_order_id=eq.${existRow.id}&select=line_number,inventory_item_id`);
+        for (const pl of prior || []) if (pl.inventory_item_id != null) priorLinkByLineNo.set(Number(pl.line_number), pl.inventory_item_id);
+      } catch { /* best-effort */ }
+    }
 
     const lineRows = [];
     let ln = 1;
@@ -606,6 +583,11 @@ async function importPOs(refs) {
       });
     }
     if (!lineRows.length) continue;
+    // Restore preserved links over the freshly-resolved ones (prior non-null wins;
+    // prior null lets the upgraded resolver re-heal previously-unlinked lines).
+    const merged = mergePreservedLinks(lineRows, priorLinkByLineNo);
+    lineRows.length = 0; lineRows.push(...merged.rows);
+    stats.preserved += merged.preserved;
     const subtotal = lineRows.reduce((s, l) => s + l.line_total_cents, 0);
 
     const header = {
@@ -658,6 +640,7 @@ async function importPOs(refs) {
   console.log(`  updates:        ${stats.update}`);
   console.log(`  lines:          ${stats.lines}`);
   console.log(`  skus created:   ${stats.sku_created}${stats.would_create ? `  (would create on --apply: ${stats.would_create})` : ""}`);
+  console.log(`  links preserved (manual/prior link kept across re-import): ${stats.preserved}`);
   console.log(`  POs blocked (unresolved vendor, vendor_id NOT NULL): ${stats.blocked_no_vendor}`);
   console.log(`  skipped (app-owned native PO left untouched): ${stats.skip_app_owned}`);
   console.log(`  PO header status breakdown: ${JSON.stringify(stats.status)}`);
@@ -738,7 +721,7 @@ async function importSOsNative(refs) {
     console.log(`  --affected-only: ${affected.size} SOs have unresolved lines`);
   }
 
-  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_customer: 0, lines: 0, sku_created: 0, would_create: 0, status: {}, lineStatus: {} };
+  const stats = { insert: 0, update: 0, skip_app_owned: 0, blocked_no_customer: 0, lines: 0, sku_created: 0, would_create: 0, preserved: 0, status: {}, lineStatus: {} };
   const custUnresolved = new Set(), skuUnresolved = new Set();
   const samples = [];
 
@@ -753,6 +736,16 @@ async function importSOsNative(refs) {
 
     const existRow = existingByNum.get(soNum);
     if (existRow && !(existRow.notes || "").startsWith(NOTE_TAG)) { stats.skip_app_owned++; continue; }
+
+    // CHURN GUARD (see importPOs): preserve prior line→SKU links across the
+    // delete+reinsert so a manual re-link survives; a prior null re-resolves.
+    let priorLinkByLineNo = new Map();
+    if (existRow) {
+      try {
+        const prior = await pgGet("sales_order_lines", `sales_order_id=eq.${existRow.id}&select=line_number,inventory_item_id`);
+        for (const pl of prior || []) if (pl.inventory_item_id != null) priorLinkByLineNo.set(Number(pl.line_number), pl.inventory_item_id);
+      } catch { /* best-effort */ }
+    }
 
     const lineRows = [];
     let ln = 1;
@@ -779,6 +772,9 @@ async function importSOsNative(refs) {
       });
     }
     if (!lineRows.length) continue;
+    const merged = mergePreservedLinks(lineRows, priorLinkByLineNo);
+    lineRows.length = 0; lineRows.push(...merged.rows);
+    stats.preserved += merged.preserved;
     const subtotal = lineRows.reduce((s, l) => s + l.line_total_cents, 0);
 
     const header = {
@@ -834,6 +830,7 @@ async function importSOsNative(refs) {
   console.log(`  updates:        ${stats.update}`);
   console.log(`  lines:          ${stats.lines}`);
   console.log(`  skus created:   ${stats.sku_created}${stats.would_create ? `  (would create on --apply: ${stats.would_create})` : ""}`);
+  console.log(`  links preserved (manual/prior link kept across re-import): ${stats.preserved}`);
   console.log(`  SOs blocked (unresolved customer, customer_id NOT NULL): ${stats.blocked_no_customer}`);
   console.log(`  skipped (app-owned native SO left untouched): ${stats.skip_app_owned}`);
   console.log(`  SO header status breakdown: ${JSON.stringify(stats.status)}`);
