@@ -4,10 +4,14 @@
 
 import { exportPdf, type PdfColumn, type PdfSection } from "../../../shared/pdfExport";
 import { newWorkbook, renderStyledAoa, downloadExcelWorkbook, XLP, NUMFMT, type AoaCell } from "../../../shared/excelLogo";
-import { reportComp, reportPct, filterStylesForBlock, type BuyerVsLyReport, type ReportCustomer } from "./buildBuyerVsLyReport";
+import { reportComp, reportPct, filterStylesForBlock, reportMetricMeta, type BuyerVsLyReport, type ReportCustomer, type ReportMetric } from "./buildBuyerVsLyReport";
 
-function fileStem(runName: string): string {
-  return `buyer-vs-ly-${(runName || "run").replace(/[^\w.-]+/g, "_")}`;
+// Export options. `metric` selects Buyer vs Buy labels/filenames (defaults to
+// "buyer" so any pre-existing caller keeps its behavior).
+interface ExportOpts { runName: string; scopeLabel: string; hideZero?: boolean; metric?: ReportMetric }
+
+function fileStem(runName: string, metric: ReportMetric): string {
+  return `${reportMetricMeta(metric).fileStem}-${(runName || "run").replace(/[^\w.-]+/g, "_")}`;
 }
 
 // Zero quantities export as blank (empty) so downloads match the on-screen view.
@@ -15,9 +19,10 @@ const bz = (n: number): number | string => (n === 0 ? "" : n);
 
 // ── PDF ────────────────────────────────────────────────────────────────────
 
-export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string; hideZero?: boolean }): void {
+export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: ExportOpts): void {
   const { periods } = report;
   const hz = !!opts.hideZero;
+  const meta = reportMetricMeta(opts.metric ?? "buyer");
   const sections: PdfSection[] = [];
 
   const qtyCols = (labelKey: "lyLabel" | "tyLabel"): PdfColumn[] => [
@@ -34,9 +39,9 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: str
       columns: qtyCols("lyLabel"),
       rows: [...qtyRows(cust, "ly", codes, hz), totalRow(cust, "ly", codes)],
     });
-    // TY/Buyer block
+    // TY block (Buyer or Buy)
     sections.push({
-      heading: `${cust.customer} — TY / Buyer (This Year)`,
+      heading: `${cust.customer} — TY / ${meta.noun} (This Year)`,
       columns: qtyCols("tyLabel"),
       rows: [...qtyRows(cust, "ty", codes, hz), totalRow(cust, "ty", codes)],
     });
@@ -58,8 +63,8 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: { runName: str
   }
 
   exportPdf({
-    fileName: `${fileStem(opts.runName)}.pdf`,
-    title: "Buyer vs Last Year",
+    fileName: `${fileStem(opts.runName, opts.metric ?? "buyer")}.pdf`,
+    title: meta.title,
     subtitle: `${opts.runName} · ${opts.scopeLabel}`,
     orientation: "landscape",
     sections,
@@ -133,9 +138,10 @@ const S_CUST: Sty = { font: { bold: true, sz: 13, color: { rgb: XLP.HEADER_FILL 
 const qtyCell = (v: number, s: Sty): AoaCell => (v === 0 ? { v: "", s } : { v, s, z: NUMFMT.QTY });
 const pctCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_MUTED } : { v: frac, s: S_MUTED, z: NUMFMT.PCT });
 
-export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runName: string; scopeLabel: string; hideZero?: boolean }): Promise<void> {
+export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: ExportOpts): Promise<void> {
   const { periods } = report;
   const hz = !!opts.hideZero;
+  const meta = reportMetricMeta(opts.metric ?? "buyer");
   const nP = periods.length;
   const maxCols = Math.max(nP + 3, nP * 2 + 4); // comparison block is widest
   const aoa: AoaCell[][] = [];
@@ -164,7 +170,7 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
       blank();
     };
     qtyBlock("SP/LY — Last Year", (p) => p.lyLabel, "ly");
-    qtyBlock("TY / Buyer — This Year", (p) => p.tyLabel, "ty");
+    qtyBlock(meta.tyBlock, (p) => p.tyLabel, "ty");
 
     // Comparison block (Δ + %).
     heading("Comparison — TY − LY", S_SUBHEAD);
@@ -190,9 +196,9 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: { runN
 
   const wb = newWorkbook();
   const cols = [16, 16, ...Array(Math.max(0, maxCols - 2)).fill(11)];
-  renderStyledAoa(wb, "Buyer vs LY", aoa, {
-    banner: { title: "Buyer vs Last Year", subtitle: `${opts.runName} · ${opts.scopeLabel}`, cols: maxCols, logoWidth: 200 },
+  renderStyledAoa(wb, meta.sheet, aoa, {
+    banner: { title: meta.title, subtitle: `${opts.runName} · ${opts.scopeLabel}`, cols: maxCols, logoWidth: 200 },
     cols,
   });
-  await downloadExcelWorkbook(wb, `${fileStem(opts.runName)}.xlsx`);
+  await downloadExcelWorkbook(wb, `${fileStem(opts.runName, opts.metric ?? "buyer")}.xlsx`);
 }

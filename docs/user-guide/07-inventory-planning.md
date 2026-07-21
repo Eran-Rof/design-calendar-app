@@ -149,15 +149,15 @@ A row whose style isn't yet in the item master shows an amber **NEW** badge; it 
 
 > **↶ Undo** in the toolbar reverses your **+ Add row** actions — up to the **last 4** batches. The button shows the depth (`↶ Undo (3)` means three adds are still undoable). Each press removes the *entire* most-recent batch — every customer × period × color row it created for that style/color — and refreshes the grid. Editing a TBD row's customer, color, or style, or switching to another run, clears the undo history.
 
-### Buyer vs Last Year report
+### Buyer vs LY and Buy vs LY reports
 
-The **Buyer vs LY Report** button (toolbar) opens a formatted, printable comparison. For each **Customer**, it breaks out **Style → Color** across the run's months in three blocks:
+These two reports live under **Reports** in the left menu (Planning → **Reports** → the **Buyer vs LY** and **Buy vs LY** tabs) — pick a planning run at the top of the tab and the report builds. They're formatted, printable comparisons: for each **Customer**, they break out **Style → Color** across the run's months in three blocks:
 
 - **SP/LY** — same-period-last-year quantities (the SP/LY column).
-- **TY / Buyer** — this year's **Buyer** quantities.
+- **TY** — this year's quantities. The **Buyer vs LY** report uses your **Buyer** column; the **Buy vs LY** report uses your **Buy** column. The two reports are otherwise identical.
 - **Comparison** — the difference (**Δ = TY − LY**) and **%** per month and in total. A brand-new color with no last-year history reads **+100%**.
 
-Toggles at the top of the report: switch between your **current grid filters** and the **full run**, and **Hide zero rows**. The report stacks three tables per customer — **SP/LY (Last Year)**, **TY/Buyer (This Year)**, and **Comparison** — so "Hide zero rows" is applied **per table**: the Last Year table hides colors with no last-year sales, the Buyer table hides colors you aren't buying, and Comparison hides colors zero in both. (So a color you're buying that's brand-new won't clutter the Last Year table with a blank row, and vice-versa.) The toggle applies the same way to whatever you download. Use **Download PDF** for a landscape, Ring-of-Fire-branded sheet, or **Download Excel** for the same Ring-of-Fire-branded workbook every Tangerine report uses (logo, blue headers, blue total rows, red negatives; quantities and percentages come through as real Excel numbers you can re-sort or chart).
+At the top of each report: **Hide zero rows**. The report stacks three tables per customer — **SP/LY (Last Year)**, **TY (This Year)**, and **Comparison** — so "Hide zero rows" is applied **per table**: the Last Year table hides colors with no last-year sales, the This Year table hides colors with no quantity, and Comparison hides colors zero in both. (So a brand-new color you're buying won't clutter the Last Year table with a blank row, and vice-versa.) The toggle applies the same way to whatever you download. Use **Download PDF** for a landscape, Ring-of-Fire-branded sheet, or **Download Excel** for the same Ring-of-Fire-branded workbook every Tangerine report uses (logo, blue headers, blue total rows, red negatives; quantities and percentages come through as real Excel numbers you can re-sort or chart). As with the grid, the report reflects **saved** quantities — if a run's Buy (or Buyer) column is empty, that report's This Year block will be blank until you fill it.
 
 ### Future demand requests
 

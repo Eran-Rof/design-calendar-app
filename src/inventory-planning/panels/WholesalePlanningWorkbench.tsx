@@ -2614,7 +2614,6 @@ export default function WholesalePlanningWorkbench() {
                 period_code: addUndoStack[addUndoStack.length - 1].period_codes[0],
               } : undefined}
               focusBatch={focusBatch}
-              runName={selectedRun?.name}
               masterColorsLower={masterColorsLower}
               masterColorsByStyleLower={masterColorsByStyleLower}
               masterStyles={masterStyles}

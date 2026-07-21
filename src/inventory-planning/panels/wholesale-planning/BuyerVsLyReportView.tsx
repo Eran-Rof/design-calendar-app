@@ -1,15 +1,16 @@
-// On-screen "Buyer vs Last Year" report. Pivots the planning rows into a
-// per-customer → style → color view across the run's periods, with three
-// blocks (SP/LY, TY/Buyer, Comparison). Scope toggle switches between the
-// current grid filter and the whole run; Download buttons emit PDF / Excel.
+// Inline "Buyer vs Last Year" / "Buy vs Last Year" report view. Pivots the
+// planning rows into a per-customer → style → color view across the run's
+// periods, with three blocks (SP/LY, TY, Comparison). Rendered inline in the
+// Planning Reports hub (one tab per metric). Scope toggle appears only when a
+// distinct filtered row set is supplied (the grid passes both; the hub passes
+// the whole run). Download buttons emit PDF / Excel with metric-aware labels.
 
 import { useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import { PAL } from "../../components/styles";
 import type { IpPlanningGridRow } from "../../types/wholesale";
 import {
   buildBuyerVsLyReport, filterOutZeroReportRows, filterStylesForBlock, reportComp, reportPct,
-  type ReportCustomer, type ReportPeriod,
+  reportMetricMeta, type ReportCustomer, type ReportPeriod, type ReportMetric,
 } from "./buildBuyerVsLyReport";
 import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExports";
 
@@ -17,20 +18,24 @@ import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExpor
 const qfmt = (n: number): string => (n === 0 ? "" : n.toLocaleString("en-US", { maximumFractionDigits: 0 }));
 const pfmt = (frac: number | null): string => (frac == null || frac === 0 ? "" : `${(frac * 100).toFixed(0)}%`);
 
-export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }: {
+export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
   fullRows: IpPlanningGridRow[];
-  scopedRows: IpPlanningGridRow[];
+  // Optional current-grid-filter rows. When omitted (or identical to fullRows)
+  // the scope toggle is hidden — the hub has no grid filter, so it's full-run.
+  scopedRows?: IpPlanningGridRow[];
   runName: string;
-  onClose: () => void;
+  metric: ReportMetric;
 }) {
-  const [scope, setScope] = useState<"filtered" | "full">("filtered");
+  const hasScope = !!scopedRows && scopedRows !== fullRows;
+  const [scope, setScope] = useState<"filtered" | "full">(hasScope ? "filtered" : "full");
   const [hideZero, setHideZero] = useState(false);
-  const rows = scope === "full" ? fullRows : scopedRows;
-  const built = useMemo(() => buildBuyerVsLyReport(rows), [rows]);
+  const meta = reportMetricMeta(metric);
+  const rows = scope === "full" || !scopedRows ? fullRows : scopedRows;
+  const built = useMemo(() => buildBuyerVsLyReport(rows, metric), [rows, metric]);
   // The view + both exports use the same (optionally zero-filtered) report so a
   // download always matches what's on screen.
   const report = useMemo(() => (hideZero ? filterOutZeroReportRows(built) : built), [built, hideZero]);
-  const scopeLabel = scope === "full" ? "Full run" : "Current filters";
+  const scopeLabel = scope === "full" || !hasScope ? "Full run" : "Current filters";
 
   const th: React.CSSProperties = { padding: "6px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#fff", background: PAL.accent, whiteSpace: "nowrap" };
   const thL: React.CSSProperties = { ...th, textAlign: "left" };
@@ -41,7 +46,7 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
 
   function QtyBlock({ cust, periods, block }: { cust: ReportCustomer; periods: ReportPeriod[]; block: "ly" | "ty" }) {
     // Per-block zero hiding: the Last Year table shows only colors that sold
-    // last year; the Buyer table only colors you're buying.
+    // last year; the TY table only colors you're buying.
     const styles = hideZero ? filterStylesForBlock(cust, block) : cust.styles;
     return (
       <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -128,60 +133,53 @@ export function BuyerVsLyReportModal({ fullRows, scopedRows, runName, onClose }:
   const btn: React.CSSProperties = { background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim, borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" };
   const seg = (active: boolean): React.CSSProperties => ({ ...btn, background: active ? PAL.accent : "transparent", color: active ? "#fff" : PAL.textDim, borderColor: active ? PAL.accent : PAL.border });
 
-  return createPortal(
-    <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 5000, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
-    >
-      <div style={{ width: "min(1400px, 95vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 12, boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>
-        {/* Frozen header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${PAL.border}`, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: PAL.text }}>Buyer vs Last Year</div>
-            <div style={{ fontSize: 12, color: PAL.textMuted }}>{runName} · {scopeLabel}</div>
-          </div>
+  return (
+    <div style={{ background: PAL.bg, border: `1px solid ${PAL.border}`, borderRadius: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${PAL.border}`, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: PAL.text }}>{meta.title}</div>
+          <div style={{ fontSize: 12, color: PAL.textMuted }}>{runName} · {scopeLabel}</div>
+        </div>
+        {hasScope && (
           <div style={{ display: "inline-flex", gap: 2, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: 2, background: PAL.panel }}>
             <button type="button" style={seg(scope === "filtered")} onClick={() => setScope("filtered")}>Current filters</button>
             <button type="button" style={seg(scope === "full")} onClick={() => setScope("full")}>Full run</button>
           </div>
-          <button
-            type="button"
-            style={seg(hideZero)}
-            onClick={() => setHideZero((v) => !v)}
-            title="Hide rows where both last year and this year's Buyer are zero across every month"
-          >{hideZero ? "Zero rows: hidden" : "Hide zero rows"}</button>
-          <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel, hideZero }); }}>Download Excel</button>
-          <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel, hideZero })}>Download PDF</button>
-          <button type="button" style={{ ...btn, borderColor: PAL.border, padding: "6px 10px" }} onClick={onClose} title="Close">✕</button>
-        </div>
-        {/* Scrollable body */}
-        <div style={{ overflow: "auto", padding: 18 }}>
-          {report.customers.length === 0 ? (
-            <div style={{ color: PAL.textMuted, padding: 40, textAlign: "center" }}>
-              No rows in scope. {scope === "filtered" ? "Widen the grid filters or switch to Full run." : "This run has no forecast rows yet."}
-            </div>
-          ) : report.customers.map((cust) => (
-            <div key={cust.customer} style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: PAL.accent, marginBottom: 8, borderBottom: `2px solid ${PAL.accent}44`, paddingBottom: 4 }}>{cust.customer}</div>
-              <div style={{ display: "grid", gap: 16 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>SP/LY — Last Year</div>
-                  <div style={{ overflowX: "auto" }}><QtyBlock cust={cust} periods={report.periods} block="ly" /></div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>TY / Buyer — This Year</div>
-                  <div style={{ overflowX: "auto" }}><QtyBlock cust={cust} periods={report.periods} block="ty" /></div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>Comparison — TY − LY</div>
-                  <div style={{ overflowX: "auto" }}><CompBlock cust={cust} periods={report.periods} /></div>
-                </div>
+        )}
+        <button
+          type="button"
+          style={seg(hideZero)}
+          onClick={() => setHideZero((v) => !v)}
+          title={`Hide rows where both last year and this year's ${meta.noun} are zero across every month`}
+        >{hideZero ? "Zero rows: hidden" : "Hide zero rows"}</button>
+        <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel, hideZero, metric }); }}>Download Excel</button>
+        <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel, hideZero, metric })}>Download PDF</button>
+      </div>
+      <div style={{ overflow: "auto", padding: 16 }}>
+        {report.customers.length === 0 ? (
+          <div style={{ color: PAL.textMuted, padding: 40, textAlign: "center" }}>
+            No rows in scope. {scope === "filtered" ? "Widen the grid filters or switch to Full run." : "This run has no forecast rows yet."}
+          </div>
+        ) : report.customers.map((cust) => (
+          <div key={cust.customer} style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: PAL.accent, marginBottom: 8, borderBottom: `2px solid ${PAL.accent}44`, paddingBottom: 4 }}>{cust.customer}</div>
+            <div style={{ display: "grid", gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>SP/LY — Last Year</div>
+                <div style={{ overflowX: "auto" }}><QtyBlock cust={cust} periods={report.periods} block="ly" /></div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>{meta.tyBlock}</div>
+                <div style={{ overflowX: "auto" }}><QtyBlock cust={cust} periods={report.periods} block="ty" /></div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: PAL.textDim, marginBottom: 4 }}>Comparison — TY − LY</div>
+                <div style={{ overflowX: "auto" }}><CompBlock cust={cust} periods={report.periods} /></div>
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

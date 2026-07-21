@@ -46,7 +46,6 @@ import {
 } from "./wholesale-planning/columns";
 import { computeTotals, endingAtsTotal, endingOnHandTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
-import { BuyerVsLyReportModal } from "./wholesale-planning/BuyerVsLyReportModal";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
 import { usePersistedHiddenColumns } from "./wholesale-planning/hooks/usePersistedHiddenColumns";
 import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
@@ -83,8 +82,6 @@ export interface WholesalePlanningGridProps {
   // as a period option and can't pre-scope a build for the other
   // months.
   runHorizon?: { start: string; end: string } | null;
-  // Active run's name — titles the Buyer-vs-Last-Year report + its export files.
-  runName?: string;
   onSelectRow: (row: IpPlanningGridRow) => void;
   onUpdateBuyQty: (forecastId: string, qty: number | null) => Promise<void>;
   // TBD-row mutations: rename color (with is_new_color flag), reassign
@@ -273,7 +270,7 @@ export interface WholesalePlanningGridProps {
 // ws_planning_* convention as the hidden-columns preference).
 const SORT_STORAGE_KEY = "ws_planning_sort_stack";
 
-export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateUnitCostBucket, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, focusBatch, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
+export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, onUpdateBuyQty, onUpdateBucketBuy, onUpdateUnitCost, onUpdateUnitCostBucket, onUpdateBuyerRequest, onShiftBuyerBack, onUpdateOverride, onUpdateSystemOverride, onUpdateTbdColor, onUpdateTbdStyle, onUpdateTbdCustomer, onAddTbdNewCustomer, newCustomerIds, onUpdateTbdDescription, onAddTbdRow, onDeleteTbdRow, onPromoteTbdRow, promotedTbdKeys, onUndoLastAdd, undoDepth, lastAddedTbdMarker, focusBatch, masterColorsLower, masterColorsByStyleLower, masterStyles, ppkUnitsByStyle, masterCustomers, onFiltersChange, headerSlot, bucketBuys, loading, systemSuggestionsOn, onSystemSuggestionsChange, onScopeChange }: WholesalePlanningGridProps) {
   // Persisted filter state — survives reloads + builds. Each slot is
   // mirrored to ws_planning_filter_<key> in localStorage so the
   // planner doesn't re-pick after a reload or rebuild.
@@ -343,8 +340,6 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
   useEffect(() => { try { localStorage.setItem("ws_planning_trailing_window", String(trailingWindow)); } catch { /* ignore */ } }, [trailingWindow]);
   // Busy flag for the "Copy Final → Buy" bulk action.
   const [copyingBuy, setCopyingBuy] = useState(false);
-  // Buyer-vs-Last-Year report modal.
-  const [showReport, setShowReport] = useState(false);
   // Column-totals header row — sums each numeric column across the rows in
   // view, shown under the header labels. Persisted; off by default.
   const [showColumnTotals, setShowColumnTotals] = usePersistedBool("showColumnTotals", false);
@@ -2415,16 +2410,8 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
             >Shift Buyer ◀ 1 mo</button>
           </span>
         )}
-        {/* Buyer vs Last Year report — on-screen pivot + PDF/Excel export. */}
-        <button
-          type="button"
-          onClick={() => setShowReport(true)}
-          title="Buyer vs Last Year report — per customer → style → color across the run's months, comparing this year's Buyer quantities to same-period-last-year. View on screen and download to PDF or Excel."
-          style={{
-            background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
-            borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
-          }}
-        >Buyer vs LY Report</button>
+        {/* Buyer vs LY / Buy vs LY reports live under Reports in the nav
+            (Planning → Reports hub), not on this toolbar. */}
         {/* Freeze through column. Pins the chosen column + everything
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
@@ -2993,14 +2980,6 @@ export default function WholesalePlanningGrid({ rows, runHorizon, runName, onSel
         summaryCtxRef={summaryCtxRef as React.RefObject<HTMLDivElement>}
         setSummaryCtx={setSummaryCtx}
       />
-      {showReport && (
-        <BuyerVsLyReportModal
-          fullRows={rows}
-          scopedRows={mutedRows}
-          runName={runName ?? "Planning run"}
-          onClose={() => setShowReport(false)}
-        />
-      )}
       {summaryCtxLoading && summaryCtx && (
         <div
           style={{

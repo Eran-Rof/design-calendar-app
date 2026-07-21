@@ -23,8 +23,13 @@ import { buildForecastAccuracy, type AccGroupBy } from "../reports/forecastAccur
 import { buildBuyPlanSupply, type BuyGroupBy } from "../reports/buyPlanSupply";
 import SearchableSelect from "../../../tanda/components/SearchableSelect";
 import { useCanSeeMargins } from "../../../hooks/useCanSeeMargins";
+import { wholesaleRepo } from "../../services/wholesalePlanningRepository";
+import { buildGridRows } from "../../services/wholesaleForecastService";
+import { BuyerVsLyReportView } from "../../panels/wholesale-planning/BuyerVsLyReportView";
+import type { ReportMetric } from "../../panels/wholesale-planning/buildBuyerVsLyReport";
+import type { IpPlanningGridRow, IpPlanningRun } from "../../types/wholesale";
 
-type TabKey = "sales" | "inventory" | "accuracy" | "buy";
+type TabKey = "sales" | "inventory" | "accuracy" | "buy" | "buyerVsLy" | "buyVsLy";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 const labelStyle: React.CSSProperties = { color: PAL.textMuted, fontSize: 11 };
@@ -61,9 +66,18 @@ export default function ReportsWorkbench() {
           <TabButton active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory Health</TabButton>
           <TabButton active={tab === "accuracy"} onClick={() => setTab("accuracy")}>Forecast Accuracy</TabButton>
           <TabButton active={tab === "buy"} onClick={() => setTab("buy")}>Buy Plan & Supply</TabButton>
+          <TabButton active={tab === "buyerVsLy"} onClick={() => setTab("buyerVsLy")}>Buyer vs LY</TabButton>
+          <TabButton active={tab === "buyVsLy"} onClick={() => setTab("buyVsLy")}>Buy vs LY</TabButton>
         </div>
 
-        {!ctx ? (
+        {/* The Buyer/Buy vs LY tabs build directly from the planning run's grid
+            rows and don't need the shared masters context, so they render even
+            while `ctx` is still loading. */}
+        {tab === "buyerVsLy" ? (
+          <BuyerVsLyPanel metric="buyer" />
+        ) : tab === "buyVsLy" ? (
+          <BuyerVsLyPanel metric="buy" />
+        ) : !ctx ? (
           <div style={{ ...S.card, padding: 32, textAlign: "center", color: PAL.textMuted }}>Loading masters…</div>
         ) : (
           <>
@@ -74,6 +88,56 @@ export default function ReportsWorkbench() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Buyer vs LY / Buy vs LY ─────────────────────────────────────────────────
+// One panel, two metrics: TY block = the run's Buyer (buyer_request_qty) or Buy
+// (planned_buy_qty). Builds the same grid rows the Wholesale workbench renders
+// (buildGridRows), then the shared pivot view. Report was moved here from the
+// grid toolbar so it lives under Reports in the menu.
+function BuyerVsLyPanel({ metric }: { metric: ReportMetric }) {
+  const [runs, setRuns] = useState<IpPlanningRun[]>([]);
+  const [runId, setRunId] = useState("");
+  const [rows, setRows] = useState<IpPlanningGridRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    wholesaleRepo.listPlanningRuns("wholesale")
+      .then((list) => { setRuns(list); if (list[0]) setRunId((cur) => cur || list[0].id); })
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const run = useMemo(() => runs.find((r) => r.id === runId) ?? null, [runs, runId]);
+
+  useEffect(() => {
+    if (!run) { setRows(null); return; }
+    let cancelled = false;
+    setBusy(true); setErr(null);
+    buildGridRows(run)
+      .then((r) => { if (!cancelled) setRows(r); })
+      .catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, [run]);
+
+  return (
+    <div style={S.card}>
+      <div style={{ ...S.toolbar, marginBottom: 12 }}>
+        <span style={labelStyle}>Planning run</span>
+        <SearchableSelect value={runId} onChange={(v) => setRunId(v)} inputStyle={sel}
+          options={runs.map((r) => ({ value: r.id, label: `${r.name} · ${r.planning_scope} · ${r.status}` }))} />
+      </div>
+      {err && <div style={{ color: PAL.red, marginBottom: 12 }}>Load failed — {err}</div>}
+      {busy ? (
+        <div style={{ padding: 32, textAlign: "center", color: PAL.textMuted }}>Building report…</div>
+      ) : rows ? (
+        <BuyerVsLyReportView fullRows={rows} runName={run?.name ?? "Planning run"} metric={metric} />
+      ) : (
+        <div style={{ padding: 32, textAlign: "center", color: PAL.textMuted }}>Pick a planning run to build the report.</div>
+      )}
     </div>
   );
 }
