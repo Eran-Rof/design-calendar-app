@@ -235,3 +235,44 @@ export function buildItemRow(canonicalSku, overrides = {}) {
   }
   return row;
 }
+
+// True when a freshly-built ip_item_master row is a junk "BARE SHELL": no colour
+// AND its sku_code carries no colour segment (sku_code === the bare style token,
+// no dash). These are what the nightly Xoro sales/planning rollup used to mint
+// when a line's ItemNumber was STYLE-only or STYLE-SIZE with no colour word
+// (e.g. "RYB1878", "RYO0659FPPPK") — canonStyleColor strips the size, buildItemRow
+// then emits a style-code-only row with color=NULL and size=NULL. They pollute the
+// null-colour catalog baseline and collapse the PO/SO/AR colour x size matrices,
+// and colourless service/non-inventory lines never belong in the catalog anyway.
+// Callers filter these out of their stub-create batch instead of inserting them.
+//
+// NOT flagged (still created): any row that carries a colour, and any sku_code
+// that has a colour segment (a dash-delimited STYLE-COLOR[-SIZE]). The 6 intended
+// null-colour AR placeholders (ADMINISTRATIVE, DEFAULTSKU, MISCELLANEOUSCHARGE,
+// HERITAGESURFCBREVERSAL, MACYCBREVERSAL, ROSSCBREVERSAL) are inserted by a
+// SEPARATE path (style_code NULL) and already exist — this predicate only gates
+// the sync stub-create path, whose upserts use ignoreDuplicates, so those rows
+// are never touched.
+export function isBareShellItemRow(row) {
+  if (!row || typeof row !== "object") return false;
+  const hasColor = row.color != null && String(row.color).trim() !== "";
+  if (hasColor) return false;               // colour present → a real catalog stub
+  const sku = canonSku(row.sku_code);
+  if (!sku) return false;
+  const { color } = parseStyleColor(sku);   // color = the segment after the first "-"
+  return color == null;                     // no colour segment → bare style token → junk shell
+}
+
+// Partition an array of freshly-built ip_item_master rows: keep the insertable
+// ones, drop the junk bare shells. Returns { rows, suppressed } where suppressed
+// is the count removed (surface it in the sync's import stats — "bare shells
+// suppressed: N").
+export function dropBareShellRows(builtRows) {
+  const rows = [];
+  let suppressed = 0;
+  for (const r of builtRows || []) {
+    if (isBareShellItemRow(r)) { suppressed++; continue; }
+    rows.push(r);
+  }
+  return { rows, suppressed };
+}
