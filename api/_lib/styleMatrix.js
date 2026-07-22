@@ -86,6 +86,27 @@ export function compareSizes(a, b) {
   return 0;
 }
 
+// Order size columns by the ASSIGNED scale, slotting any size the data carries
+// that the scale is MISSING into its correct canonical position (never appended
+// blindly at the end). The scale order is authoritative and preserved exactly;
+// only the extras are positioned, via compareSizes. Extras already covered by the
+// scale (same canonical size — "SMALL" vs "SML") are dropped as duplicates. With
+// an empty scale this degrades to a plain compareSizes sort. Backend mirror of
+// src/shared/sizeSort.ts mergeSizesIntoScaleOrder — KEEP IN SYNC.
+export function mergeSizesIntoScaleOrder(scaleSizes, extraSizes) {
+  const out = (scaleSizes || []).filter((s) => s != null && String(s) !== "").map(String);
+  const covered = (sz) => out.some((o) => compareSizes(o, sz) === 0);
+  const extras = [...new Set((extraSizes || []).filter((s) => s != null && String(s) !== "").map(String))]
+    .filter((sz) => !covered(sz))
+    .sort(compareSizes);
+  for (const sz of extras) {
+    if (out.some((o) => compareSizes(o, sz) === 0)) continue; // an earlier extra already placed this size
+    const i = out.findIndex((o) => compareSizes(sz, o) < 0);
+    if (i < 0) out.push(sz); else out.splice(i, 0, sz);
+  }
+  return out;
+}
+
 // Color canonicalization — the SAME physical color arrives from different ingest
 // paths spelled differently: CASE ("Black" vs "BLACK"), abbreviation ("Light
 // Wash" vs "Lt Wash", "…with Tint" vs "…w Tint"), and punctuation/spacing
@@ -239,6 +260,17 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
     // No scale to order by → sort into intuitive size order (XS→XL, kids
     // age-ranges, numeric waists) instead of arbitrary SKU insertion order.
     sizes.sort(compareSizes);
+  } else {
+    // A scale gave the columns (authoritative order). But the style's SKUs can
+    // carry a size the assigned scale is MISSING (the operator picked a scale that
+    // predates that size). Without a column that SKU's cell has nowhere to render
+    // and its on-hand/qty silently vanishes. Slot every such off-scale SKU size
+    // INTO the scale sequence via the canonical comparator (a 34 between 32 and
+    // 36; a stray letter/PPK to its tier) rather than dropping or appending it.
+    const skuSizes = [...new Set(
+      skus.map((s) => normalizeSize(s.size)).filter((sz) => sz && !/PPK/i.test(String(sz))),
+    )];
+    sizes = mergeSizesIntoScaleOrder(sizes, skuSizes);
   }
   // Canonicalize colors so spelling/case variants of one physical color collapse
   // to a single row (see canonColor). Dedupe preserving first-seen order.
@@ -448,11 +480,11 @@ export async function enumerateStyleMatrix(admin, entityId, styleId, opts = {}) 
 
   // When exploding, surface any newly-introduced sizes (e.g. a pack composition
   // references a garment size that has no sized SKU yet) so the grid renders a
-  // column for it. Append after the scale-ordered sizes, preserving order.
+  // column for it. Slot each into the scale sequence (not appended blindly at the
+  // end) so an exploded 34 lands between 32 and 36, matching every other column.
   let outSizes = sizes;
   if (explode && explode.extraSizes.length) {
-    outSizes = [...sizes];
-    for (const sz of explode.extraSizes) if (!outSizes.includes(sz)) outSizes.push(sz);
+    outSizes = mergeSizesIntoScaleOrder(sizes, explode.extraSizes);
   }
   let outColors = colors;
   if (explode && explode.extraColors.length) {
