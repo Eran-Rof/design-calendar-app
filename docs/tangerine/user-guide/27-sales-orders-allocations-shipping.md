@@ -60,6 +60,8 @@ The header status enum is `draft → confirmed → allocated → fulfilling → 
 >
 > **Status colour matches the grid.** The status word in the modal header is shown with the **same colour + ● dot** the list grid uses for that status (draft/confirmed/allocated/fulfilling/shipped/invoiced/closed/cancelled), so the opened order is visually consistent with the row you clicked.
 
+> **Sort the list by any column (2026-07-21).** Every column header in the Sales Orders grid is now clickable to sort: first click **ascending**, second **descending**, third clears back to the natural (most-recent-first) order, with a **▲ / ▼** arrow on the active column. SO #, Customer, Warehouse and Status sort as text; Order/Start-ship/Cancel dates sort by real calendar value; and Avg cost, Avg sell, Margin %/$, Total Margin, Qty and Total sort numerically. The Qty and per-unit money columns respect the **Explode** toggle (they sort on the same packs-vs-units figure shown). Sorting is client-side over the loaded rows, so pair it with the filters when you need the full history; your sort choice is remembered per browser. See the universal column-sort note in [chapter 1](01-getting-started.md).
+
 ### Creating a sales order (draft)
 
 From **🛒 Sales Orders → + New sales order**. The header pickers mirror the AR-invoice modal:

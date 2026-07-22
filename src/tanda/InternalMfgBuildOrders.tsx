@@ -6,6 +6,8 @@
 // finished-goods inventory at actual cost). Shows the live WIP cost rollup.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import { notify, confirmDialog, promptDialog } from "../shared/ui/warn";
 import { readDrillParam, consumeDrillParams } from "./scorecardDrill";
 import { getCachedAuthUserId } from "../utils/tangerineAuthUser";
@@ -82,6 +84,13 @@ export default function InternalMfgBuildOrders() {
     () => (openOnly ? rows.filter((b) => b.status === "draft" || b.status === "issued" || b.status === "in_progress") : rows),
     [rows, openOnly],
   );
+
+  // Client-side column sort (shared useSort hook). Finished Style sorts by the
+  // resolved SKU; the rest read direct scalar fields. Additive — click to sort.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(displayRows, {
+    persistKey: "tanda.mfg_build_orders.sort",
+    accessors: { finished_style: (b) => b.finished_item?.sku_code ?? "" },
+  });
 
   async function load() {
     setLoading(true); setErr(null);
@@ -175,17 +184,17 @@ export default function InternalMfgBuildOrders() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={th}>Build #</th>
-                  <th style={th}>Finished Style</th>
-                  <th style={{ ...th, textAlign: "right" }}>Target</th>
-                  <th style={th}>Status</th>
-                  <th style={{ ...th, textAlign: "right" }}>WIP/Accum</th>
-                  <th style={{ ...th, textAlign: "right" }}>Unit Cost</th>
+                  <SortableTh label="Build #" sortKey="build_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                  <SortableTh label="Finished Style" sortKey="finished_style" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                  <SortableTh label="Target" sortKey="target_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+                  <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+                  <SortableTh label="WIP/Accum" sortKey="accumulated_cost_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+                  <SortableTh label="Unit Cost" sortKey="finished_unit_cost_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
                   <th style={th}></th>
                 </tr>
               </thead>
               <tbody>
-                {displayRows.map((b) => (
+                {sortedRows.map((b) => (
                   <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => setDetailId(b.id)}>
                     <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace", fontWeight: 600 }}>{b.build_number}</td>
                     <td style={td}>{b.finished_item?.sku_code ?? "—"}{b.finished_item?.description ? <span style={{ color: C.textSub }}> — {b.finished_item.description}</span> : null}</td>

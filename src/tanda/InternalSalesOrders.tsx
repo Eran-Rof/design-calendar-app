@@ -25,6 +25,8 @@ import {
   type ParsedPo, type ParsedPoLine, type StyleLite, type LineResolution, type PrefillWarning, type ColorQuestion,
 } from "./lib/customerPoPrefill";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import DateRangePresets from "./components/DateRangePresets";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
@@ -326,6 +328,35 @@ export default function InternalSalesOrders() {
   }, [dateFrom, dateTo, dateField]);
   const filteredRows = useMemo(() => rows.filter(inDateRange), [rows, inDateRange]);
 
+  // Client-side column sort (shared useSort hook). Accessors resolve the value
+  // that BACKS each display cell — id→name lookups, cents, computed totals and
+  // the explode-aware Qty — so numbers sort numerically, dates by real value,
+  // and blanks cluster last. Dates are stored ISO but wrapped in Date so the
+  // comparator uses timestamps rather than string order. Purely additive: order
+  // only changes once a header is clicked.
+  const soSortAccessors = useMemo<Record<string, (so: SO) => unknown>>(() => ({
+    so_number: (so) => so.so_number ?? "",
+    customer: (so) => customerName[so.customer_id] || "",
+    store: (so) => so.sale_store ?? "",
+    order_date: (so) => (so.order_date ? new Date(so.order_date) : null),
+    start_ship: (so) => (so.requested_ship_date ? new Date(so.requested_ship_date) : null),
+    cancel_date: (so) => (so.cancel_date ? new Date(so.cancel_date) : null),
+    status: (so) => so.status ?? "",
+    factor: (so) => (so.factor_approval_status && so.factor_approval_status !== "not_submitted" ? so.factor_approval_status : ""),
+    credit: (so) => (showCredit(so.credit_approval_status) ? (so.credit_approval_status ?? "") : ""),
+    avg_cost: (so) => so.avg_cost_cents ?? null,
+    avg_sell: (so) => so.avg_sell_cents ?? null,
+    margin_pct: (so) => so.margin_pct ?? null,
+    margin_amt: (so) => so.margin_cents ?? null,
+    total_margin_amt: (so) => (so.margin_cents != null && so.total_qty != null ? so.margin_cents * Number(so.total_qty) : null),
+    total_qty: (so) => { const v = explode ? so.total_qty_exploded : so.total_qty; return v != null ? Number(v) : null; },
+    total: (so) => Number(so.total_cents ?? 0),
+  }), [customerName, explode]);
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(filteredRows, {
+    persistKey: "tangerine:salesorders:sort",
+    accessors: soSortAccessors,
+  });
+
   // Map an SO header → the export row shape (ids resolved to human labels; cents
   // kept in cents for currency formatting). Shared by the on-screen export and
   // the full "Export all" fetch so both produce identical columns.
@@ -542,16 +573,28 @@ export default function InternalSalesOrders() {
               Inventory Matrix SnapshotView pattern). */}
           <thead><tr>
             <th style={{ ...thStick, width: 28 }} />
-            <th style={thStick} hidden={!isVisible("so_number")}>SO #</th><th style={thStick} hidden={!isVisible("customer")}>Customer</th><th style={thStick} hidden={!isVisible("store")}>Warehouse</th><th style={thStick} hidden={!isVisible("order_date")}>Order date</th>
-            <th style={thStick} hidden={!isVisible("start_ship")}>Start Ship</th><th style={thStick} hidden={!isVisible("cancel_date")}>Cancel date</th><th style={thStick} hidden={!isVisible("status")}>Status</th><th style={thStick} hidden={!isVisible("factor")}>Factor</th><th style={thStick} hidden={!isVisible("credit")}>Credit</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_cost")}>Avg cost</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("avg_sell")}>Avg sell</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_pct")}>Margin %</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("margin_amt")}>Margin $</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_margin_amt")}>Total Margin $</th>
-            <th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total_qty")}>Qty</th><th style={{ ...thStick, textAlign: "right" }} hidden={!isVisible("total")}>Total</th>
+            <SortableTh label="SO #" sortKey="so_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("so_number")} />
+            <SortableTh label="Customer" sortKey="customer" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("customer")} />
+            <SortableTh label="Warehouse" sortKey="store" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("store")} />
+            <SortableTh label="Order date" sortKey="order_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("order_date")} />
+            <SortableTh label="Start Ship" sortKey="start_ship" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("start_ship")} />
+            <SortableTh label="Cancel date" sortKey="cancel_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("cancel_date")} />
+            <SortableTh label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("status")} />
+            <SortableTh label="Factor" sortKey="factor" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("factor")} />
+            <SortableTh label="Credit" sortKey="credit" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} hidden={!isVisible("credit")} />
+            <SortableTh label="Avg cost" sortKey="avg_cost" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_cost")} />
+            <SortableTh label="Avg sell" sortKey="avg_sell" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("avg_sell")} />
+            <SortableTh label="Margin %" sortKey="margin_pct" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_pct")} />
+            <SortableTh label="Margin $" sortKey="margin_amt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("margin_amt")} />
+            <SortableTh label="Total Margin $" sortKey="total_margin_amt" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total_margin_amt")} />
+            <SortableTh label="Qty" sortKey="total_qty" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total_qty")} />
+            <SortableTh label="Total" sortKey="total" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={thStick} cellStyle={{ textAlign: "right" }} hidden={!isVisible("total")} />
             <th style={{ ...thStick, textAlign: "center" }}>Actions</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={17}>Loading…</td></tr>}
             {!loading && filteredRows.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={17}>No sales orders.</td></tr>}
-            {filteredRows.map((so) => {
+            {sortedRows.map((so) => {
               const marginColor = so.margin_cents == null ? C.text : so.margin_cents >= 0 ? C.success : C.danger;
               // Item 30 (fix) — when exploded, the per-unit metric columns (avg
               // cost / avg sell / margin $) must switch from PER-PACK to PER-EACH

@@ -64,6 +64,8 @@ import { exportXlsx } from "./exports/useTableExport";
 import type { ExportColumn } from "./exports/useTableExport";
 import SearchableSelect, { type SearchableSelectOption } from "./components/SearchableSelect";
 import { TablePrefsButton, useTablePrefs, type ColumnDef } from "./components/TablePrefs";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import { useSearchSeed } from "./hooks/useSearchSeed";
@@ -409,6 +411,21 @@ export default function InternalStyleMaster() {
     }
     return out;
   }, [rows, reviewOnly, scaleMissing, missingScaleCodes]);
+
+  // Client-side column sort (shared useSort hook). Direct scalar columns resolve
+  // by key; the id→label columns (gender / brand / size scale / base fabric)
+  // sort by their DISPLAYED text via accessors. Purely additive — order only
+  // changes once a header is clicked, and blanks always cluster last.
+  const styleSortAccessors = useMemo<Record<string, (r: Style) => unknown>>(() => ({
+    gender_code: (r) => genderLabelFor(r.gender_code, genderLabelMap),
+    brand_name: (r) => (r.brand_id ? (brandNameById.get(r.brand_id) ?? "") : ""),
+    size_scale_code: (r) => (r.size_scale_id ? (scaleNameById.get(r.size_scale_id) ?? "") : ""),
+    base_fabric: (r) => r.base_fabric?.code ?? r.base_fabric_legacy ?? "",
+  }), [genderLabelMap, brandNameById, scaleNameById]);
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(visibleRows, {
+    persistKey: "tanda.style_master.sort",
+    accessors: styleSortAccessors,
+  });
   // Fetch the missing-scale style_codes once when the drill is active; consume
   // the one-shot ?scale= param so it doesn't linger on a later visit.
   useEffect(() => {
@@ -711,26 +728,26 @@ export default function InternalStyleMaster() {
             <thead>
               <tr>
                 <th style={{ ...th, width: 52, textAlign: "center" }}>Img</th>
-                <th style={th} hidden={!isVisible("style_code")}>Style Number</th>
-                <th style={th} hidden={!isVisible("style_name")}>Style Name</th>
-                <th style={th} hidden={!isVisible("description")}>Description</th>
-                <th style={th} hidden={!isVisible("gender_code")}>Gender</th>
-                <th style={th} hidden={!isVisible("group_name")}>Group</th>
-                <th style={th} hidden={!isVisible("category_name")}>Category</th>
-                <th style={th} hidden={!isVisible("sub_category_name")}>Sub Category</th>
-                <th style={th} hidden={!isVisible("brand_name")}>Brand</th>
-                <th style={th} hidden={!isVisible("size_scale_code")}>Size Scale</th>
-                <th style={th} hidden={!isVisible("base_fabric")}>Base Fabric</th>
-                <th style={th} hidden={!isVisible("hts_code")}>HTS</th>
-                <th style={th} hidden={!isVisible("season")}>Season</th>
-                <th style={th} hidden={!isVisible("design_year")}>Year</th>
-                <th style={th} hidden={!isVisible("lifecycle_status")}>Lifecycle</th>
-                <th style={th} hidden={!isVisible("is_apparel")}>Apparel</th>
+                <SortableTh label="Style Number" sortKey="style_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("style_code")} />
+                <SortableTh label="Style Name" sortKey="style_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("style_name")} />
+                <SortableTh label="Description" sortKey="description" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("description")} />
+                <SortableTh label="Gender" sortKey="gender_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("gender_code")} />
+                <SortableTh label="Group" sortKey="group_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("group_name")} />
+                <SortableTh label="Category" sortKey="category_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("category_name")} />
+                <SortableTh label="Sub Category" sortKey="sub_category_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("sub_category_name")} />
+                <SortableTh label="Brand" sortKey="brand_name" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("brand_name")} />
+                <SortableTh label="Size Scale" sortKey="size_scale_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("size_scale_code")} />
+                <SortableTh label="Base Fabric" sortKey="base_fabric" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("base_fabric")} />
+                <SortableTh label="HTS" sortKey="hts_code" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("hts_code")} />
+                <SortableTh label="Season" sortKey="season" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("season")} />
+                <SortableTh label="Year" sortKey="design_year" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("design_year")} />
+                <SortableTh label="Lifecycle" sortKey="lifecycle_status" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("lifecycle_status")} />
+                <SortableTh label="Apparel" sortKey="is_apparel" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} hidden={!isVisible("is_apparel")} />
                 <th style={{ ...th, width: 140 }}></th>
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((r) => (
+              {sortedRows.map((r) => (
                 <ScrollHighlightRow
                   key={r.id}
                   rowId={r.id}
