@@ -205,6 +205,7 @@ export default [
   ["/api/cron/anomalies-nightly"                             , "./cron/anomalies-nightly.js"],
   ["/api/cron/benchmark-compute"                             , "./cron/benchmark-compute.js"],
   ["/api/internal/data-freshness"                            , "./internal/data-freshness.js"],
+  ["/api/internal/cutover-recon"                             , "./internal/cutover-recon.js"],
   ["/api/internal/virtual-cards"                             , "./internal/virtual-cards/index.js"],
   ["/api/planning/sync-onhand-xoro"                          , "./planning/sync-onhand-xoro.js"],
   ["/api/planning/sync-open-pos"                             , "./planning/sync-open-pos.js"],
