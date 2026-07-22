@@ -1063,10 +1063,89 @@ export function extractReceiptLines(po, poNumberFallback, ddpByPo) {
   return out;
 }
 
+// ── Real goods-in dates from the item-receipt feed ───────────────────────────
+//
+// receipts + receipt_line_items are populated by xoro-receipts-sync.js from
+// Xoro's bill/getitemreceipt — the REAL received date per (po, item), unlike
+// the expected-delivery proxy extractReceiptLines derives from the PO header.
+// These helpers let syncReceiptsFromTandaPos override the proxy with the true
+// date whenever a receipt document exists for that (po, sku), and fall back to
+// the proxy for lines with no receipt doc (pre-history / not-yet-received).
+
+// Map key for a (po, item) real-date lookup. Both sides canonicalize the item
+// number to style+color grain (canonStyleColor) so a size-grain receipt line
+// (…-S / …-M) keys to the same (po, style-color) row ip_receipts_history holds.
+export function receiptDateKey(poNumber, itemNumber) {
+  const po = String(poNumber ?? "").trim();
+  const sku = canonStyleColor(itemNumber ?? "");
+  if (!po || !sku) return null;
+  return `${po}::${sku}`;
+}
+
+// Pure lookup: the real received date for a candidate receipt line, or null
+// when no receipt document covers it (the caller then keeps the expected-date
+// proxy). `line` is { po_number, sku } where sku is already style+color grain.
+export function pickReceiptDate(realDatesByKey, line) {
+  if (!realDatesByKey || realDatesByKey.size === 0 || !line) return null;
+  const key = receiptDateKey(line.po_number, line.sku);
+  return (key && realDatesByKey.get(key)) || null;
+}
+
+// Build the (po, style-color) → earliest-real-received-date map from the
+// receipts feed. EARLIEST wins: for a line received across several physical
+// receipts, the first goods-in date is when the stock actually arrived, which
+// is what the planning "Hist Recv" bucket wants. The per-line PoNumber is read
+// from receipt_line_items.raw_json (a receipt can span >1 PO; receipts.po_id is
+// only the primary), so each line dates against its OWN po. Returns an empty
+// map when the feed is empty — the promote then behaves exactly as before.
+export async function fetchRealReceiptDates(admin) {
+  const byKey = new Map();
+
+  // 1. receipts: id → ISO received date.
+  const dateByReceipt = new Map();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await admin
+      .from("receipts")
+      .select("id, received_date")
+      .range(offset, offset + 999);
+    if (error || !data || data.length === 0) break;
+    for (const r of data) {
+      const iso = toIsoDate(r.received_date);
+      if (iso) dateByReceipt.set(r.id, iso);
+    }
+    if (data.length < 1000) break;
+  }
+  if (dateByReceipt.size === 0) return byKey;
+
+  // 2. receipt_line_items: (po from raw_json, item) → earliest date.
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await admin
+      .from("receipt_line_items")
+      .select("receipt_id, item_number, raw_json")
+      .range(offset, offset + 999);
+    if (error || !data || data.length === 0) break;
+    for (const ln of data) {
+      const iso = dateByReceipt.get(ln.receipt_id);
+      if (!iso) continue;
+      const po = ln.raw_json && (ln.raw_json.PoNumber ?? ln.raw_json.PurchaseOrderNumber);
+      const key = receiptDateKey(po, ln.item_number);
+      if (!key) continue;
+      const prev = byKey.get(key);
+      if (!prev || iso < prev) byKey.set(key, iso);
+    }
+    if (data.length < 1000) break;
+  }
+  return byKey;
+}
+
 // Flatten every received PO line in tanda_pos into ip_receipts_history.
 // Idempotent: upserts on (source, source_line_key = tanda:<po>:<sku>) and prunes
 // its own stale rows, so re-running just reconciles. source='tanda' keeps these
 // derived rows distinct from any future true item-receipt feed.
+//
+// received_date is the REAL goods-in date from the item-receipt feed
+// (fetchRealReceiptDates) whenever a receipt document covers the (po, sku);
+// otherwise it falls back to the expected-delivery proxy from extractReceiptLines.
 export async function syncReceiptsFromTandaPos(admin) {
   const result = {
     pos_scanned: 0,
@@ -1075,6 +1154,8 @@ export async function syncReceiptsFromTandaPos(admin) {
     skipped_no_receipts: 0,
     skipped_no_date: 0,
     skipped_no_sku: 0,
+    real_date_rows: 0,   // rows dated from a real item-receipt document
+    proxy_date_rows: 0,  // rows still on the expected-delivery proxy
     cleaned: 0,
     errors: [],
   };
@@ -1126,6 +1207,14 @@ export async function syncReceiptsFromTandaPos(admin) {
     if (data.length < 1000) break;
   }
 
+  // 2b. Real goods-in dates from the item-receipt feed (empty map ⇒ pure proxy).
+  let realDatesByKey = new Map();
+  try {
+    realDatesByKey = await fetchRealReceiptDates(admin);
+  } catch (e) {
+    result.errors.push(`real receipt dates: ${e?.message || e}`);
+  }
+
   // 3. Flatten received lines → candidates.
   const candidates = [];
   const missingSkus = new Map();
@@ -1137,14 +1226,18 @@ export async function syncReceiptsFromTandaPos(admin) {
     const recLines = extractReceiptLines(po, r.po_number, ddpByPo);
     if (recLines.length === 0) { result.skipped_no_receipts++; continue; }
     for (const rl of recLines) {
-      if (!rl.received_date) { result.skipped_no_date++; continue; }
+      // Real goods-in date wins; the expected-delivery proxy is the fallback.
+      // A real date can also RESCUE a line that has no proxy date at all.
+      const realDate = pickReceiptDate(realDatesByKey, rl);
+      const received_date = realDate || rl.received_date;
+      if (!received_date) { result.skipped_no_date++; continue; }
       // PPK-strip fallback so prepack PO lines that bake the size token into the
       // item number attach to the existing canonical (style, color) master —
       // identical to syncOpenPosFromTandaPos.
       const stripped = rl.sku.replace(/-PPK[\s_-]*\d+(-[^-]*)?$/i, "");
       const sku = (stripped !== rl.sku && itemMap.has(stripped)) ? stripped : rl.sku;
       if (!itemMap.has(sku) && !missingSkus.has(sku)) missingSkus.set(sku, rl);
-      candidates.push({ sku, qty: rl.qty, received_date: rl.received_date, po_number: rl.po_number });
+      candidates.push({ sku, qty: rl.qty, received_date, po_number: rl.po_number, real: !!realDate });
     }
   }
 
@@ -1173,16 +1266,26 @@ export async function syncReceiptsFromTandaPos(admin) {
         qty: c.qty,
         source: "tanda",
         source_line_key: key,
+        _real: c.real,
       });
       continue;
     }
     prev.qty += c.qty;
-    // Latest expected date wins, mirroring the open-PO aggregate.
+    prev._real = prev._real || c.real;
+    // Latest date wins, mirroring the open-PO aggregate. (All sizes of one
+    // (po, style-color) share the same real date — the map is keyed at that
+    // grain — so this only ever arbitrates among proxy dates.)
     if (c.received_date && (!prev.received_date || c.received_date > prev.received_date)) {
       prev.received_date = c.received_date;
     }
   }
   const rows = Array.from(aggMap.values());
+  // Report real- vs proxy-dated rows, then drop the transient flag so the
+  // upsert only carries real ip_receipts_history columns.
+  for (const row of rows) {
+    if (row._real) result.real_date_rows++; else result.proxy_date_rows++;
+    delete row._real;
+  }
 
   // 6. Upsert.
   for (let i = 0; i < rows.length; i += 500) {

@@ -45,6 +45,8 @@ export default async function handler(req, res) {
       upserted: r.inserted,
       cleaned: r.cleaned,
       pos_scanned: r.pos_scanned,
+      real_date_rows: r.real_date_rows,
+      proxy_date_rows: r.proxy_date_rows,
       skipped_no_receipts: r.skipped_no_receipts,
       skipped_no_date: r.skipped_no_date,
       skipped_no_sku: r.skipped_no_sku,
