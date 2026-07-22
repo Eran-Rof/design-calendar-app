@@ -128,6 +128,9 @@ export interface RunForecastPassResult {
   // them (e.g. "build only for Joggers / Customer X"). Zero when the
   // build was unfiltered.
   pairs_pruned_filter: number;
+  // Pairs seeded to honor the build filter even when they have no history —
+  // the filter-selected products that would otherwise not have built.
+  pairs_seeded_filter: number;
   // True when the grid's period filter selected only month(s) OUTSIDE the
   // run's horizon. Applying it would have dropped every computed row and
   // silently written an empty build, so the build IGNORES the period filter
@@ -251,6 +254,67 @@ export function pairPassesBuildFilter(
   if (!attrMatches(attrs?.category_name, filter.sub_category_name, filter.sub_category_names)) return false;
   if (!attrMatches(attrs?.gender, filter.gender, filter.genders)) return false;
   return true;
+}
+
+// True when the filter names a PRODUCT dimension (style / group / sub-cat /
+// gender) — the only case that seeds new pairs (a customer-only filter already
+// covers everything that customer buys; seeding all SKUs for them is neither
+// wanted nor bounded).
+export function buildFilterHasProductScope(filter: BuildFilter): boolean {
+  const any = (a?: string[] | null) => !!a && a.length > 0;
+  return !!(filter.style_code || any(filter.style_codes)
+    || filter.group_name || any(filter.group_names)
+    || filter.sub_category_name || any(filter.sub_category_names)
+    || filter.gender || any(filter.genders));
+}
+
+export interface SeedPairInput {
+  existingPairs: Array<{ customer_id: string; sku_id: string }>;
+  filter: BuildFilter;
+  items: Array<{ id: string; style_code?: string | null; sku_code?: string | null; attributes?: unknown }>;
+  itemCategoryBySku: Map<string, string | null>;
+  supplyPlaceholder: string;
+}
+
+// Honor the build filter even with NO history: for every product the filter
+// selects, ensure the filter's customers get a (customer, sku) pair so the
+// style is built (as zero-forecast rows the planner can then plan) instead of
+// silently absent. CEO 2026-07-22: "any filters selected to create a build are
+// to be honored for the build even if there is not historical information."
+//
+// Returns ONLY the pairs to ADD (those not already present). No product scope
+// → no seeding. Seed customers = the filter's customers, else the run's real
+// demand customers, else the supply placeholder. Seed SKUs = every item that
+// matches the product-attribute filter.
+export function seedFilterPairs(input: SeedPairInput): Array<{ customer_id: string; sku_id: string; category_id: string | null }> {
+  const { existingPairs, filter, items, itemCategoryBySku, supplyPlaceholder } = input;
+  if (!buildFilterHasProductScope(filter)) return [];
+
+  let seedCustomers: string[];
+  if (filter.customer_ids && filter.customer_ids.length > 0) seedCustomers = [...new Set(filter.customer_ids)];
+  else if (filter.customer_id) seedCustomers = [filter.customer_id];
+  else {
+    const real = [...new Set(existingPairs.map((p) => p.customer_id).filter((c) => c && c !== supplyPlaceholder))];
+    seedCustomers = real.length > 0 ? real : [supplyPlaceholder];
+  }
+
+  // Items matching the PRODUCT filter — isSupplyOnly:true short-circuits the
+  // customer check so only style/group/sub-cat/gender are tested.
+  const seedItems = items.filter((it) =>
+    pairPassesBuildFilter(filter, { isSupplyOnly: true, hasOpenRequest: false, customerId: "", item: it }));
+
+  const existing = new Set(existingPairs.map((p) => `${p.customer_id}:${p.sku_id}`));
+  const out: Array<{ customer_id: string; sku_id: string; category_id: string | null }> = [];
+  const added = new Set<string>();
+  for (const cust of seedCustomers) {
+    for (const it of seedItems) {
+      const k = `${cust}:${it.id}`;
+      if (existing.has(k) || added.has(k)) continue;
+      added.add(k);
+      out.push({ customer_id: cust, sku_id: it.id, category_id: itemCategoryBySku.get(it.id) ?? null });
+    }
+  }
+  return out;
 }
 
 export async function runForecastPass(run: IpPlanningRun, options: RunForecastPassOptions = {}): Promise<RunForecastPassResult> {
@@ -482,6 +546,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     || filter.sub_category_name || anyArray(filter.sub_category_names)
     || filter.gender || anyArray(filter.genders)
   );
+  let seededFilterCount = 0;
   if (filterActive) {
     const itemBySku = new Map(items.map((i) => [i.id, i]));
     const beforeFilter = pairs.length;
@@ -492,6 +557,13 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
       item: itemBySku.get(p.sku_id),
     }));
     prunedFilterCount = beforeFilter - pairs.length;
+    // Honor the filter even without history: seed the selected products for the
+    // filter's customers so they build as (zero-forecast) rows rather than
+    // vanishing. Added after the prune + filter so they can't be pruned.
+    const seeded = seedFilterPairs({
+      existingPairs: pairs, filter: filter!, items, itemCategoryBySku, supplyPlaceholder,
+    });
+    if (seeded.length > 0) { pairs = pairs.concat(seeded); seededFilterCount = seeded.length; }
   }
 
   const computeInput: IpForecastComputeInput = {
@@ -779,6 +851,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     pairs_considered: pairs.length,
     pairs_pruned_dead: prunedDeadCount,
     pairs_pruned_filter: prunedFilterCount,
+    pairs_seeded_filter: seededFilterCount,
     period_filter_out_of_horizon: periodFilterOutOfHorizon,
     methods,
   };

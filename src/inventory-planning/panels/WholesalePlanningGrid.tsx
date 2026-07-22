@@ -952,7 +952,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       // any other filter narrows the view (only the single pinned row
       // survived otherwise). Same rationale as the untagged-gender bypass
       // above — never hide a row the planner explicitly created.
-      if (!showZeroRows && !(r.is_tbd && r.is_user_added)) {
+      //
+      // Rows whose STYLE the planner is actively filtering to are also exempt:
+      // a build/view scoped to specific styles (e.g. a filtered build of a
+      // prepack with no sales history) must SHOW those styles even at zero —
+      // the filter is a deliberate selection to honor, not clutter to hide.
+      const styleExplicitlyPicked = !!setStyle && setStyle.has(r.sku_style ?? r.sku_code);
+      if (!showZeroRows && !(r.is_tbd && r.is_user_added) && !styleExplicitlyPicked) {
         const hasAnyQty =
           (r.final_forecast_qty ?? 0) !== 0 ||
           (r.system_forecast_qty ?? 0) !== 0 ||

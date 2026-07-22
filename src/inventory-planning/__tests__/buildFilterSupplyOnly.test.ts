@@ -105,3 +105,71 @@ describe("pairPassesBuildFilter — supply-only rows respect product filters", (
     expect(pairPassesBuildFilter(f, { isSupplyOnly: false, hasOpenRequest: false, customerId: "ross", item: denimItem })).toBe(false); // right group? no — denim, and style not CARGO1
   });
 });
+
+
+import { seedFilterPairs, buildFilterHasProductScope } from "../services/wholesaleForecastService";
+
+describe("seedFilterPairs — honor the filter even with no history", () => {
+  const items = [
+    { id: "ppk-blk", style_code: "RYB0412PPK", sku_code: "RYB0412PPK-BLKCAMO", attributes: { group_name: "Cargo Shorts" } },
+    { id: "ppk-cha", style_code: "RYB0412PPK", sku_code: "RYB0412PPK-CHARCOAL", attributes: { group_name: "Cargo Shorts" } },
+    { id: "base-blk", style_code: "RYB0412", sku_code: "RYB0412-BLACK", attributes: { group_name: "Cargo Shorts" } },
+    { id: "denim", style_code: "DENIM1", sku_code: "DENIM1-MW", attributes: { group_name: "Denim" } },
+  ];
+  const cats = new Map<string, string | null>([["ppk-blk", "cat1"], ["ppk-cha", "cat1"], ["base-blk", "cat1"], ["denim", "cat2"]]);
+  const SUPPLY = "supply-placeholder";
+
+  it("seeds the filtered style's SKUs for the filtered customer when none exist", () => {
+    const out = seedFilterPairs({
+      existingPairs: [], filter: { customer_ids: ["burlington"], style_codes: ["RYB0412PPK"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    });
+    expect(out.map((p) => `${p.customer_id}:${p.sku_id}`).sort())
+      .toEqual(["burlington:ppk-blk", "burlington:ppk-cha"]);
+    expect(out[0].category_id).toBe("cat1");
+  });
+
+  it("does not duplicate a pair that already exists", () => {
+    const out = seedFilterPairs({
+      existingPairs: [{ customer_id: "burlington", sku_id: "ppk-blk" }],
+      filter: { customer_ids: ["burlington"], style_codes: ["RYB0412PPK"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    });
+    expect(out.map((p) => p.sku_id)).toEqual(["ppk-cha"]);
+  });
+
+  it("only seeds SKUs matching the product filter (not denim / not base when PPK-only)", () => {
+    const out = seedFilterPairs({
+      existingPairs: [], filter: { customer_ids: ["burlington"], style_codes: ["RYB0412PPK"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    });
+    expect(out.some((p) => p.sku_id === "denim" || p.sku_id === "base-blk")).toBe(false);
+  });
+
+  it("customer-only filter (no product scope) seeds nothing", () => {
+    expect(buildFilterHasProductScope({ customer_ids: ["burlington"] })).toBe(false);
+    expect(seedFilterPairs({
+      existingPairs: [], filter: { customer_ids: ["burlington"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    })).toEqual([]);
+  });
+
+  it("no customer filter -> seeds under the run's real demand customers", () => {
+    const out = seedFilterPairs({
+      existingPairs: [{ customer_id: "ross", sku_id: "base-blk" }, { customer_id: SUPPLY, sku_id: "x" }],
+      filter: { style_codes: ["RYB0412PPK"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    });
+    // ross (real) gets the two PPK skus; supply placeholder is not used as a seed customer here.
+    expect([...new Set(out.map((p) => p.customer_id))]).toEqual(["ross"]);
+    expect(out.length).toBe(2);
+  });
+
+  it("no customer filter and no real customers -> falls back to the supply placeholder", () => {
+    const out = seedFilterPairs({
+      existingPairs: [], filter: { style_codes: ["RYB0412PPK"] },
+      items, itemCategoryBySku: cats, supplyPlaceholder: SUPPLY,
+    });
+    expect([...new Set(out.map((p) => p.customer_id))]).toEqual([SUPPLY]);
+  });
+});
