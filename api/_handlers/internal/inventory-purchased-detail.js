@@ -3,12 +3,18 @@
 // Drill-down for the Inventory Snapshot "Purchased" cell. For one style (+ date
 // range) returns per-colour totals + grand total + the purchase list the popup
 // shows. TWO sources (operator model: historical from Xoro, live from Tangerine):
-//   • Tangerine AP vendor bills (invoices + invoice_line_items) — full detail:
-//     vendor, qty, unit price, bill Ref# (clickable → bill popup), bill date,
-//     type. Date-filtered on the bill's invoice_date.
 //   • Xoro receipt mirror (ip_receipts_history) — historical qty + receipt date
 //     + vendor + receipt number (NOT clickable; the feed carries no unit price /
 //     bill — that enrichment needs a Xoro REST sync, tracked separately).
+//   • Tangerine AP vendor bills (invoices + invoice_line_items) — full detail:
+//     vendor, qty, unit price, bill Ref# (clickable → bill popup), bill date,
+//     type. Date-filtered on the bill's invoice_date.
+// PER-COLOUR PREFERENCE (ties the drill to the column): the two feeds OVERLAP for
+// every Xoro-world PO (receipt mirror + AP bill both carry it). So — exactly like
+// the snapshot's resolvePurchased — where a colour has ANY receipts we list the
+// receipt documents and SUPPRESS its vendor bills; only colours the receipts feed
+// does not cover fall back to listing bills. Without this the same goods appear
+// twice and the popup double-counts the column.
 //
 // GET ?style_id=<uuid>&from=YYYY-MM-DD&to=YYYY-MM-DD
 //   → { color_totals:[{ color, qty }], grand_total,
@@ -17,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
+import { purchasedSource } from "../../_lib/purchasedResolve.js";
 
 export const config = { maxDuration: 30 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -143,9 +150,17 @@ export default async function handler(req, res) {
       }
       for (const r of billMap.values()) if (r.po_number && recvByPo.has(r.po_number)) r.receipt_date = recvByPo.get(r.po_number);
     }
+    // Finalize bill rows into a staging list keyed by colour — they are pushed
+    // into the result ONLY for colours the receipts feed does not cover (see the
+    // per-colour preference below). This keeps the drill tied to the Purchased
+    // column, which counts receipts where they exist and only falls back to bills.
+    const billRowsByColor = new Map(); // colorKey → row[]
     for (const r of billMap.values()) {
       const { _amt, _q, ...rest } = r;
-      rows.push({ ...rest, unit_price: _q > 0 ? +(_amt / _q).toFixed(4) : null });
+      const row = { ...rest, unit_price: _q > 0 ? +(_amt / _q).toFixed(4) : null };
+      const ck = row.color ?? "";
+      if (!billRowsByColor.has(ck)) billRowsByColor.set(ck, []);
+      billRowsByColor.get(ck).push(row);
     }
 
     // ── Xoro receipt mirror (historical; qty + receipt date only) ─────────────
@@ -174,7 +189,25 @@ export default async function handler(req, res) {
       }
       row.qty += (Number(r.qty) || 0) * packRatio;
     }
+
+    // Per-colour receipts total → per-colour source preference (mirrors the
+    // snapshot column's resolvePurchased). Where a colour has receipts, list its
+    // receipt documents and SUPPRESS the vendor bills (else the same goods show
+    // twice — the CEO-reported "second received PO without a vendor"). Where a
+    // colour has no receipts, fall back to the vendor bills.
+    const receiptsByColor = new Map(); // colorKey → Σ qty
+    for (const r of recMap.values()) {
+      const ck = r.color ?? "";
+      receiptsByColor.set(ck, (receiptsByColor.get(ck) || 0) + (Number(r.qty) || 0));
+    }
+    const colorPrefersReceipts = (ck) => purchasedSource(receiptsByColor.get(ck) || 0) === "receipts";
+    // Receipts: list every receipt row (they only exist where receipts exist).
     for (const r of recMap.values()) rows.push(r);
+    // Bills: only for colours the receipts feed does not cover.
+    for (const [ck, list] of billRowsByColor) {
+      if (colorPrefersReceipts(ck)) continue;
+      for (const row of list) rows.push(row);
+    }
 
     rows.sort((a, b) => String(b.bill_date || b.receipt_date || "").localeCompare(String(a.bill_date || a.receipt_date || "")));
 
