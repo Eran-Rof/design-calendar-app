@@ -64,3 +64,43 @@ export function compareSizes(a: string, b: string): number {
   if (ka.rank !== kb.rank) return ka.rank - kb.rank;
   return ka.sub - kb.sub;
 }
+
+/**
+ * Order a style's size columns by its ASSIGNED size scale, but slot any size the
+ * data carries that is NOT in the scale INTO its correct canonical position —
+ * never appended blindly at the end.
+ *
+ * WHY. A size scale gives the authoritative column order (a merchandiser may
+ * order 30,32,36 deliberately, skipping 34). When a SKU / AR-invoice / PO line
+ * carries a size the scale is missing (34), the old behaviour either dropped it
+ * (matrix, no column) or tacked it on at the end (AR body) — so a 34 rendered
+ * AFTER 36, out of sequence. This merges the extras back into place using the
+ * canonical comparator: 34 lands between 32 and 36. Any extra that doesn't belong
+ * to the scale's size family (a stray letter size on a numeric waist scale, a PPK
+ * pack token) sorts to its comparator tier, which for cross-family / PPK is the
+ * end — matching compareSizes' numeric→letter→PPK→alpha tiers.
+ *
+ * The SCALE order is preserved EXACTLY (its labels are never re-sorted among
+ * themselves — a scale is authoritative even when its own order isn't strictly
+ * ascending). Only the extras are positioned. Extras already covered by the scale
+ * (same canonical size, e.g. scale "SMALL" + extra "SML"/"S") are dropped as
+ * duplicates. With an empty scale this degrades to a plain compareSizes sort.
+ *
+ * Pure — no dedup of the scale's own labels, no mutation of inputs.
+ */
+export function mergeSizesIntoScaleOrder(
+  scaleSizes: readonly string[] | null | undefined,
+  extraSizes: readonly string[] | null | undefined,
+): string[] {
+  const out = (scaleSizes || []).filter((s) => s != null && String(s) !== "").map(String);
+  const covered = (sz: string) => out.some((o) => compareSizes(o, sz) === 0);
+  const extras = [...new Set((extraSizes || []).filter((s) => s != null && String(s) !== "").map(String))]
+    .filter((sz) => !covered(sz))
+    .sort(compareSizes);
+  for (const sz of extras) {
+    if (out.some((o) => compareSizes(o, sz) === 0)) continue; // an earlier extra already placed this size
+    const i = out.findIndex((o) => compareSizes(sz, o) < 0);
+    if (i < 0) out.push(sz); else out.splice(i, 0, sz);
+  }
+  return out;
+}
