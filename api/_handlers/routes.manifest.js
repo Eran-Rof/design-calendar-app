@@ -799,6 +799,7 @@ export default [
   ["/api/internal/inventory-aging/layers"                    , "./internal/inventory-aging/layers.js"],
   ["/api/cron/inventory-onhand-check"                        , "./cron/inventory-onhand-check.js"],
   ["/api/cron/inventory-cost-backfill"                       , "./cron/inventory-cost-backfill.js"],
+  ["/api/cron/xoro-gl-mirror-post"                           , "./cron/xoro-gl-mirror-post.js"],
   ["/api/internal/month-end-close/periods"                   , "./internal/month-end-close/periods.js"],
   ["/api/internal/month-end-close/checklist"                 , "./internal/month-end-close/checklist.js"],
   ["/api/internal/month-end-close/run-checks"                , "./internal/month-end-close/run-checks.js"],

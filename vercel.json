@@ -82,6 +82,7 @@
     { "path": "/api/cron/subledger-tieout", "schedule": "0 6 * * *" },
     { "path": "/api/cron/three-way-match", "schedule": "45 6 * * *" },
     { "path": "/api/cron/ap-paid-delta-watcher", "schedule": "30 6 * * *" },
-    { "path": "/api/cron/inventory-onhand-check", "schedule": "30 7 * * 1-5" }
+    { "path": "/api/cron/inventory-onhand-check", "schedule": "30 7 * * 1-5" },
+    { "path": "/api/cron/xoro-gl-mirror-post", "schedule": "30 8 * * 1-5" }
   ]
 }
