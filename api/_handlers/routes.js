@@ -67,6 +67,7 @@ import r_cron_three_way_match from "./cron/three-way-match.js";
 import r_cron_tpl_inventory_pull from "./cron/tpl-inventory-pull.js";
 import r_cron_workspace_tasks_due_soon from "./cron/workspace-tasks-due-soon.js";
 import r_cron_xoro_feed_health_alert from "./cron/xoro-feed-health-alert.js";
+import r_cron_xoro_gl_mirror_post from "./cron/xoro-gl-mirror-post.js";
 import r_dropbox_proxy from "./dropbox-proxy.js";
 import r_edi_inbound_vendor_id from "./edi/inbound/[vendor_id].js";
 import r_edi_inbound_index from "./edi/inbound/index.js";
@@ -1369,6 +1370,7 @@ export const ROUTES = [
   { pattern: "/api/vendor/payment-preference", handler: r_vendor_payment_preference_index },
   { pattern: "/api/cron/bank-auto-post-fees", handler: r_cron_bank_auto_post_fees },
   { pattern: "/api/cron/fba-inventory-daily", handler: r_cron_fba_inventory_daily },
+  { pattern: "/api/cron/xoro-gl-mirror-post", handler: r_cron_xoro_gl_mirror_post },
   { pattern: "/api/cron/xoro-mirror-nightly", handler: r_cron_xoro_mirror_nightly },
   { pattern: "/api/internal/ats-size-matrix", handler: r_internal_ats_size_matrix },
   { pattern: "/api/internal/bank-recon-runs", handler: r_internal_bank_recon_runs_index },

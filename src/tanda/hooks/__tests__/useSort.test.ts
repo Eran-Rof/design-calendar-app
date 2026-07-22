@@ -101,3 +101,46 @@ describe("sortRows", () => {
     expect(rows).toEqual(copy);
   });
 });
+
+// Date columns are displayed MM/DD/YYYY but sort by real value: grids pass a
+// Date-returning accessor (e.g. so.order_date → new Date(...)), so the SO /
+// Customs date columns exercise this path. Null dates must still cluster last.
+describe("sortRows — Date values via accessor", () => {
+  type DRow = { label: string; d: Date | null };
+  const rows: DRow[] = [
+    { label: "mid", d: new Date("2026-03-15") },
+    { label: "late", d: new Date("2026-12-01") },
+    { label: "none", d: null },
+    { label: "early", d: new Date("2026-01-02") },
+  ];
+  const getD = (_k: string, r: DRow): unknown => r.d;
+
+  it("sorts dates ascending by real chronological value, nulls last", () => {
+    const out = sortRows(rows, "d", "asc", getD).map((r) => r.label);
+    expect(out).toEqual(["early", "mid", "late", "none"]);
+  });
+
+  it("sorts dates descending, nulls still last", () => {
+    const out = sortRows(rows, "d", "desc", getD).map((r) => r.label);
+    expect(out).toEqual(["late", "mid", "early", "none"]);
+  });
+});
+
+// Grids resolve id→label and computed columns through an accessor rather than a
+// same-named row field (e.g. SO "customer" → customerName[customer_id]). Verify
+// the getValue indirection drives the ordering, not the raw row shape.
+describe("sortRows — accessor-driven value resolution", () => {
+  type IdRow = { id: string; customer_id: string };
+  const names: Record<string, string> = { c1: "Zephyr", c2: "Acme", c3: "Mango" };
+  const rows: IdRow[] = [
+    { id: "a", customer_id: "c1" },
+    { id: "b", customer_id: "c2" },
+    { id: "c", customer_id: "c3" },
+  ];
+  const getName = (_k: string, r: IdRow): unknown => names[r.customer_id];
+
+  it("orders by the accessor-resolved label", () => {
+    const out = sortRows(rows, "customer", "asc", getName).map((r) => r.id);
+    expect(out).toEqual(["b", "c", "a"]); // Acme, Mango, Zephyr
+  });
+});

@@ -63,9 +63,15 @@ From the **AP Invoices** panel, click **+ New invoice**.
 
 The trigger `invoice_line_items_total_trg` (from P3-1) recomputes `invoices.total_amount_cents` after every line insert / update / delete. The UI shows a running total under the lines table.
 
-### ☰ List / ▦ Matrix view
+### ☰ List / ▦ Matrix view — the bill body is the size matrix
 
-The Lines section has a **☰ List / ▦ Matrix** toggle. **List** is the editable default (mix of expense + inventory lines). **Matrix** shows the **inventory** lines as a read-only **color × size grid** (rows = color, columns = size, with row/column totals) by resolving each inventory line's item id to its SKU's color/size — useful for checking the size breakdown of a goods bill against the PO. **Expense lines** (and any inventory item missing a color/size) can't go in the grid; they're listed under a **"Non-matrix lines"** section beneath the matrix.
+The Lines section has a **☰ List / ▦ Matrix** toggle. **List** is the editable default (mix of expense + inventory lines). **Matrix** renders the bill body as the **same per-style size matrix as an AR invoice** (the CEO asked the AP body to be modelled after the AR body — one shared builder + component, `buildInvoiceMatrixBody` / `InvoiceMatrixBody`). Instead of one flat row per size, inventory lines are grouped by **style + colourway** with **sizes as columns**:
+
+- Each style block leads with the **style code in blue** + **style name**, plus a shared **inseam chip** for jeans (mixed inseams append `· 32"` to the colourway row), and any originating **PO number** (`invoice_line_items.po_number`) as a chip.
+- Case-variant colourways (`GREY` vs `Grey`) merge into one title-cased row; columns are **Qty**, **Unit Cost $** (per each, qty-weighted), and **Ext $**, with per-style totals. Size columns use the shared canonical ordering + green first-column collapse.
+- **Expense lines**, size-NULL colour-level SKUs, and any line that can't resolve to a size fall to a flat **"Other lines"** table beneath the matrices (nothing is hidden — qty is always shown). PPK pack lines show the pack token as their size column (no explosion).
+
+This is the identical body used by the **AR Invoices** row expander and the **Inventory Snapshot** Sold/Purchased drill's invoice/bill popup.
 
 ## Posting — Approval gate
 

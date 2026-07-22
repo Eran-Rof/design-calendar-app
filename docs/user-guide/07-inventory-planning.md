@@ -107,10 +107,10 @@ Each row is a customer × style × color × period demand line. Columns can be s
 | Short / Excess | Shortage / excess vs supply | No |
 | Action | The recommended action (buy / hold / monitor / reduce / expedite) | No |
 
-**Where receipts come from.** Both receipt columns are derived from the PO WIP app's purchase orders — Tangerine holds the receipt data itself; there is no separate receipt feed from Xoro.
+**Where receipts come from.** The **Receipts** (incoming) column is derived from the PO WIP app's open purchase orders. **Hist Recv** (historical) now uses the **real goods-in date** from Xoro's item-receipt records whenever one exists, and falls back to the expected-arrival proxy only for lines with no receipt document yet.
 
 - **Receipts** (incoming) = the still-open quantity on purchase orders whose expected arrival lands in that period.
-- **Hist Recv** (historical) = the received quantity on POs that have already landed, bucketed into the period of the PO line's expected/delivery date. Because the source records *how much* was received but not a literal scan timestamp, receipts bucket by **expected arrival date** — the same date the rest of planning uses for a PO. A PO received across several deliveries shows against its line's expected date, not each physical receipt day. Historical receipts refresh every night alongside the open-PO sync.
+- **Hist Recv** (historical) = the received quantity on POs that have already landed, bucketed into the period the goods **actually arrived**. Tangerine now pulls Xoro's item receipts (the true received date per PO line) each night, so a line received in, say, mid-February shows in February — not in the month it was *expected*. For older lines that pre-date the item-receipt feed (or POs Xoro hasn't formally received), Hist Recv falls back to the PO line's **expected/delivery date** as before. A line received across several physical deliveries is dated to its **first** goods-in. Both the real-date pull and the historical-receipt refresh run every night alongside the open-PO sync.
 
 **Editing cells:**
 

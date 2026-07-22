@@ -40,7 +40,8 @@ import { useRowClickEdit } from "./hooks/useRowClickEdit";
 import ScrollHighlightRow from "./components/ScrollHighlightRow";
 import DynamicSearchInput from "./components/DynamicSearchInput";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
-import LineColorSizeMatrix, { type MatrixEntry } from "./components/LineColorSizeMatrix";
+import InvoiceMatrixBody from "./components/InvoiceMatrixBody";
+import { buildInvoiceMatrixBody, type InvoiceMatrixItem, type InvoiceMatrixLineInput } from "./lib/invoiceMatrixBody";
 import { useItemResolver } from "./hooks/useItemResolver";
 import LineViewToggle from "./components/LineViewToggle";
 import { readDrillParam } from "./scorecardDrill";
@@ -600,27 +601,34 @@ function APInvoiceModal({
     [lines],
   );
   const { itemMap: resolvedItems } = useItemResolver(lineItemIds, lineView === "matrix");
-  const matrixData = useMemo(() => {
-    const itemLookup = new Map<string, Item>();
-    for (const it of items) itemLookup.set(it.id, it);
-    const matrixEntries: MatrixEntry[] = [];
-    const fallback: { label: string; qty: number }[] = [];
-    for (const l of lines) {
-      if (l.kind === "expense") {
-        fallback.push({ label: l.description || "(expense line)", qty: 0 });
-        continue;
+  // The bill body IS the size matrix — modeled after the AR invoice body: group
+  // inventory lines by style + colorway with sizes as columns (via the shared
+  // buildInvoiceMatrixBody), expense / non-sized lines drop to the flat list.
+  // AP is a buy side, so the money column is the per-each Unit COST.
+  const apMatrixModel = useMemo(() => {
+    const merged = new Map<string, InvoiceMatrixItem>();
+    for (const [id, it] of resolvedItems) merged.set(id, it as InvoiceMatrixItem);
+    for (const it of items) if (!merged.has(it.id)) merged.set(it.id, it as InvoiceMatrixItem);
+    const mlines: InvoiceMatrixLineInput[] = lines.map((l) => {
+      if (l.kind === "inventory") {
+        const uc = dollarsToCentsBigInt(l.unit_cost_dollars);
+        return {
+          inventory_item_id: l.inventory_item_id || null,
+          quantity: Number(l.quantity) || 0,
+          unitCents: uc != null ? Number(uc) : null,
+          description: l.description || null,
+        };
       }
-      const qty = Number(l.quantity) || 0;
-      const resolved = l.inventory_item_id
-        ? (resolvedItems.get(l.inventory_item_id) || itemLookup.get(l.inventory_item_id))
-        : undefined;
-      if (resolved && resolved.color && resolved.size) {
-        matrixEntries.push({ color: resolved.color, size: resolved.size, qty });
-      } else {
-        fallback.push({ label: resolved?.sku_code || l.description || "(inventory line)", qty });
-      }
-    }
-    return { matrixEntries, fallback };
+      const amt = dollarsToCentsBigInt(l.amount_dollars);
+      return {
+        inventory_item_id: null,
+        quantity: null,
+        unitCents: null,
+        lineTotalCents: amt != null ? Number(amt) : null,
+        description: l.description || "(expense line)",
+      };
+    });
+    return buildInvoiceMatrixBody(mlines, merged);
   }, [lines, resolvedItems, items]);
 
   useEffect(() => {
@@ -982,21 +990,13 @@ function APInvoiceModal({
             </div>
 
             {lineView === "matrix" ? (
-              <div style={{ marginBottom: 12 }}>
-                <LineColorSizeMatrix entries={matrixData.matrixEntries} />
-                {matrixData.fallback.length > 0 && (
-                  <div style={{ marginTop: 10, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, padding: "8px 12px" }}>
-                    <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
-                      Non-matrix lines (expense / no color&size)
-                    </div>
-                    {matrixData.fallback.map((f, i) => (
-                      <div key={i} style={{ fontSize: 12, color: C.textSub, display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-                        <span>{f.label}</span>
-                        {f.qty > 0 && <span style={{ fontFamily: "SFMono-Regular, Menlo, monospace", color: C.textMuted }}>qty {f.qty.toLocaleString()}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div style={{ marginBottom: 12, background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden" }}>
+                <InvoiceMatrixBody
+                  model={apMatrixModel}
+                  moneyLabel="Unit Cost $"
+                  title="Bill lines"
+                  emptyLabel="No lines resolve to a size grid — add inventory lines or use the list view."
+                />
               </div>
             ) : (
             <div style={{ background: "#0b1220", border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>

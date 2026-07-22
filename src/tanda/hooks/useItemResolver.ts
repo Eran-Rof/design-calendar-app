@@ -14,6 +14,9 @@ export type ResolvedItem = {
   description?: string;
   color?: string;
   size?: string;
+  // The ?ids= lookup also returns inseam (jeans) — carried so the invoice/bill
+  // size-matrix body can roll a uniform inseam into the style header.
+  inseam?: string;
 };
 
 /**

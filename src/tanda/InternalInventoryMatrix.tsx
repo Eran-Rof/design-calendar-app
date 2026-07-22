@@ -15,6 +15,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
 import type { SearchableSelectOption } from "./components/SearchableSelect";
+import InvoiceMatrixBody from "./components/InvoiceMatrixBody";
+import { buildInvoiceMatrixBody, type InvoiceMatrixItem, type InvoiceMatrixLineInput } from "./lib/invoiceMatrixBody";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
@@ -1279,23 +1281,57 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
   kind: "ar" | "ap"; id: string; number: string; party: string | null; onClose: () => void;
 }) {
   const [doc, setDoc] = useState<Record<string, unknown> | null>(null);
+  const [itemsById, setItemsById] = useState<Map<string, InvoiceMatrixItem>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    let cancelled = false; setLoading(true); setErr(null);
+    let cancelled = false; setLoading(true); setErr(null); setItemsById(new Map());
     fetch(`/api/internal/${kind === "ar" ? "ar-invoices" : "ap-invoices"}/${id}`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then((j) => { if (!cancelled) setDoc(j); }).catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [kind, id]);
+  // Resolve each line's inventory_item_id → style/color/size/inseam so the body
+  // renders as the shared size matrix (same builder as the AR/AP screens).
+  useEffect(() => {
+    const ls = (doc?.lines as Record<string, unknown>[]) || [];
+    const ids = [...new Set(ls.map((l) => l.inventory_item_id).filter(Boolean) as string[])];
+    if (ids.length === 0) { setItemsById(new Map()); return; }
+    let cancelled = false;
+    fetch(`/api/internal/items?ids=${encodeURIComponent(ids.join(","))}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((arr: InvoiceMatrixItem[]) => {
+        if (cancelled || !Array.isArray(arr)) return;
+        const m = new Map<string, InvoiceMatrixItem>();
+        for (const it of arr) m.set(String(it.id), it);
+        setItemsById(m);
+      })
+      .catch(() => { if (!cancelled) setItemsById(new Map()); });
+    return () => { cancelled = true; };
+  }, [doc]);
   const editUrl = `?m=${kind === "ar" ? "ar_invoices" : "ap_invoices"}&q=${encodeURIComponent(number)}`;
   const lines = (doc?.lines as Record<string, unknown>[]) || [];
-  const th: React.CSSProperties = { ...thBase, textAlign: "left", padding: "8px 12px" };
-  const thR: React.CSSProperties = { ...th, textAlign: "right" };
-  const td: React.CSSProperties = { padding: "8px 12px", color: C.text, borderBottom: `1px solid ${C.rowBdr}` };
-  const tdR: React.CSSProperties = { ...td, textAlign: "right", fontFamily: "monospace" };
+  // Build the per-style color × size body. AR lines carry unit_price_cents /
+  // line_total_cents; AP lines carry unit_cost_cents + po_number, with line_total
+  // in DOLLARS. Normalize both into the money-agnostic builder input.
   const centsCol = kind === "ar" ? "unit_price_cents" : "unit_cost_cents";
+  const bodyModel = buildInvoiceMatrixBody(
+    lines.map((l): InvoiceMatrixLineInput => {
+      let lineTotalCents: number | null = null;
+      if (l.line_total_cents != null) lineTotalCents = Number(l.line_total_cents);
+      else if (l.line_total != null) lineTotalCents = Math.round(Number(l.line_total) * 100);
+      return {
+        inventory_item_id: (l.inventory_item_id as string) || null,
+        quantity: l.quantity != null ? Number(l.quantity) : null,
+        unitCents: l[centsCol] != null ? Number(l[centsCol]) : null,
+        lineTotalCents,
+        description: (l.description as string) ?? null,
+        poNumber: (l.po_number as string) ?? null,
+      };
+    }),
+    itemsById,
+  );
   return (
     <div style={{ ...modalBackdrop, zIndex: 210 }} onClick={onClose}>
       <div style={{ ...modalCard, width: "min(820px, calc(100vw - var(--tng-nav-offset, 0px) - 40px))" }} onClick={(e) => e.stopPropagation()}>
@@ -1314,34 +1350,18 @@ function DocDetailModal({ kind, id, number, party, onClose }: {
               <div><span style={dl}>Status</span><br />{String(doc.gl_status ?? "—")}</div>
               <div><span style={dl}>Total</span><br />{doc.total_amount_cents != null ? `$${money(Number(doc.total_amount_cents) / 100)}` : "—"}</div>
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr><th style={th}>#</th><th style={th}>Description</th><th style={thR}>Qty</th><th style={thR}>Unit</th><th style={thR}>Line Total</th></tr></thead>
-              <tbody>
-                {lines.map((l, i) => {
-                  const qty = Number(l.quantity) || 0;
-                  const unit = l[centsCol] != null ? Number(l[centsCol]) / 100 : null;
-                  // Line shapes differ by table: AR (ar_invoice_lines) carries
-                  // line_number + line_total_cents; AP (invoice_line_items) carries
-                  // a 0-based line_index + line_total in DOLLARS. Read whichever is
-                  // present so the bill popup doesn't blank out (paired with the
-                  // handler's line_index order fix — the #16 bill 500).
-                  const lineNo = l.line_number ?? (l.line_index != null ? Number(l.line_index) + 1 : i + 1);
-                  const lineTotal = l.line_total_cents != null
-                    ? Number(l.line_total_cents) / 100
-                    : (l.line_total != null ? Number(l.line_total) : (unit != null ? unit * qty : null));
-                  return (
-                    <tr key={i}>
-                      <td style={td}>{String(lineNo)}</td>
-                      <td style={td}>{String(l.description ?? "—")}</td>
-                      <td style={tdR}>{fmtQty(qty)}</td>
-                      <td style={tdR}>{money(unit)}</td>
-                      <td style={tdR}>{lineTotal != null ? `$${money(lineTotal)}` : "—"}</td>
-                    </tr>
-                  );
-                })}
-                {lines.length === 0 && <tr><td style={td} colSpan={5}>No lines.</td></tr>}
-              </tbody>
-            </table>
+            {/* The body IS the size matrix — style code (blue) + name, colorway
+                rows, per-size cells, unit price/cost + line/style totals, with
+                amount-only lines in the flat list below. Same shared component
+                as the AR/AP invoice screens. */}
+            <div style={{ background: "#0b1220", border: `1px solid ${C.rowBdr}`, borderRadius: 8, overflow: "hidden" }}>
+              <InvoiceMatrixBody
+                model={bodyModel}
+                moneyLabel={kind === "ar" ? "Unit $" : "Unit Cost $"}
+                title="Line detail"
+                emptyLabel="No lines."
+              />
+            </div>
           </>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap, extractReceiptLines, syncReceiptsFromTandaPos, rollUpXoroOnHandToSnapshot } from "../planning-sync.js";
+import { syncOnHandFromAtsSnapshot, syncOpenPosFromTandaPos, buildDdpDateMap, extractReceiptLines, syncReceiptsFromTandaPos, rollUpXoroOnHandToSnapshot, receiptDateKey, pickReceiptDate, fetchRealReceiptDates } from "../planning-sync.js";
 
 // Minimal Supabase admin stub. Each test wires up only the table
 // methods it actually needs; the rest fall through to a generic empty
@@ -546,6 +546,145 @@ describe("syncReceiptsFromTandaPos — happy path", () => {
       source: "tanda",
       source_line_key: "tanda:PO-2001:STY01-RED",
     });
+  });
+});
+
+describe("receiptDateKey / pickReceiptDate — pure real-date lookup", () => {
+  it("keys (po, item) at style+color grain so size lines collapse together", () => {
+    expect(receiptDateKey("ROF-P000207", "RBB0873-NvySpaceDye-S"))
+      .toBe("ROF-P000207::RBB0873-NVYSPACEDYE");
+    // Different size of the SAME (po, style-color) → identical key.
+    expect(receiptDateKey("ROF-P000207", "RBB0873-NvySpaceDye-M"))
+      .toBe(receiptDateKey("ROF-P000207", "RBB0873-NvySpaceDye-S"));
+  });
+
+  it("returns null for a blank po or unparseable item", () => {
+    expect(receiptDateKey("", "STY01-RED-M")).toBeNull();
+    expect(receiptDateKey("PO-1", "")).toBeNull();
+  });
+
+  it("finds the real date for a matching (po, sku), else null", () => {
+    const map = new Map([["PO-1::STY01-RED", "2026-02-10"]]);
+    expect(pickReceiptDate(map, { po_number: "PO-1", sku: "STY01-RED" })).toBe("2026-02-10");
+    expect(pickReceiptDate(map, { po_number: "PO-1", sku: "STY02-BLUE" })).toBeNull();
+    expect(pickReceiptDate(new Map(), { po_number: "PO-1", sku: "STY01-RED" })).toBeNull();
+    expect(pickReceiptDate(map, null)).toBeNull();
+  });
+});
+
+describe("fetchRealReceiptDates — build (po, style-color) → earliest date map", () => {
+  it("joins receipt lines to their receipt date via raw_json PoNumber, earliest wins", async () => {
+    let receiptsPage = 0;
+    let linesPage = 0;
+    const admin = makeAdmin({
+      receipts: {
+        async select() {
+          if (receiptsPage++ === 0) {
+            return { data: [
+              { id: "rc-early", received_date: "2026-02-10T00:00:00+00:00" },
+              { id: "rc-late",  received_date: "2026-03-05T00:00:00+00:00" },
+              { id: "rc-nodate", received_date: null }, // ignored
+            ], error: null };
+          }
+          return { data: [], error: null };
+        },
+      },
+      receipt_line_items: {
+        async select() {
+          if (linesPage++ === 0) {
+            return { data: [
+              // Two physical receipts for the SAME (po, style-color): earliest wins.
+              { receipt_id: "rc-late",  item_number: "STY01-RED-M", raw_json: { PoNumber: "PO-1" } },
+              { receipt_id: "rc-early", item_number: "STY01-RED-L", raw_json: { PoNumber: "PO-1" } },
+              // A different po.
+              { receipt_id: "rc-late",  item_number: "STY02-BLUE-S", raw_json: { PoNumber: "PO-9" } },
+              // Line whose receipt has no date → excluded.
+              { receipt_id: "rc-nodate", item_number: "STY03-GRN-S", raw_json: { PoNumber: "PO-1" } },
+            ], error: null };
+          }
+          return { data: [], error: null };
+        },
+      },
+    });
+
+    const map = await fetchRealReceiptDates(admin);
+    expect(map.get("PO-1::STY01-RED")).toBe("2026-02-10"); // earliest of the two
+    expect(map.get("PO-9::STY02-BLUE")).toBe("2026-03-05");
+    expect(map.has("PO-1::STY03-GRN")).toBe(false);        // receipt had no date
+    expect(map.size).toBe(2);
+  });
+
+  it("returns an empty map when there are no receipts (pure-proxy fallback)", async () => {
+    const admin = makeAdmin({
+      receipts: { async select() { return { data: [], error: null }; } },
+    });
+    const map = await fetchRealReceiptDates(admin);
+    expect(map.size).toBe(0);
+  });
+});
+
+describe("syncReceiptsFromTandaPos — real receipt date overrides the proxy", () => {
+  it("dates the row to the real item-receipt date, keeping the proxy only as fallback", async () => {
+    const upserts = [];
+    let posPage = 0, rcPage = 0, rlPage = 0;
+    const admin = makeAdmin({
+      tanda_pos: {
+        async select() {
+          if (posPage++ === 0) {
+            return { data: [{
+              po_number: "PO-2001",
+              data: {
+                PoNumber: "PO-2001",
+                DateExpectedDelivery: "2026-03-01", // proxy (expected delivery)
+                StatusName: "Received",
+                PoLineArr: [
+                  { ItemNumber: "STY01-RED-M", QtyOrder: 10, QtyReceived: 6 },
+                  { ItemNumber: "STY01-RED-L", QtyOrder: 8, QtyReceived: 4 },
+                ],
+              },
+            }], error: null };
+          }
+          return { data: [], error: null };
+        },
+      },
+      ip_item_master: {
+        async select() { return { data: [{ id: "sku-1", sku_code: "STY01-RED" }], error: null }; },
+      },
+      receipts: {
+        async select() {
+          if (rcPage++ === 0) return { data: [{ id: "rc-1", received_date: "2026-02-12T00:00:00+00:00" }], error: null };
+          return { data: [], error: null };
+        },
+      },
+      receipt_line_items: {
+        async select() {
+          if (rlPage++ === 0) return { data: [{ receipt_id: "rc-1", item_number: "STY01-RED-M", raw_json: { PoNumber: "PO-2001" } }], error: null };
+          return { data: [], error: null };
+        },
+      },
+      ip_receipts_history: {
+        async upsert(state) { upserts.push(...state.upsertRows); return { data: null, error: null }; },
+        async select() { return { data: [], error: null }; },
+      },
+    });
+
+    const r = await syncReceiptsFromTandaPos(admin);
+    expect(r.error).toBeUndefined();
+    expect(r.errors).toEqual([]);
+    expect(r.inserted).toBe(1);
+    expect(r.real_date_rows).toBe(1);
+    expect(r.proxy_date_rows).toBe(0);
+    expect(upserts).toHaveLength(1);
+    // Real goods-in date (2026-02-12), NOT the expected-delivery proxy (2026-03-01).
+    expect(upserts[0]).toMatchObject({
+      sku_id: "sku-1",
+      po_number: "PO-2001",
+      received_date: "2026-02-12",
+      qty: 10,
+      source_line_key: "tanda:PO-2001:STY01-RED",
+    });
+    // Transient flag never reaches the DB row.
+    expect(upserts[0]._real).toBeUndefined();
   });
 });
 
