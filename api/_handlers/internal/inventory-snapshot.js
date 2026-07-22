@@ -27,6 +27,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { isPpkStyle, ppkUnitsPerPackByStyle, lotKeyOf, NO_LOT } from "../../_lib/styleMatrix.js";
+import { resolvePurchased } from "../../_lib/purchasedResolve.js";
 
 export const config = { maxDuration: 60 };
 
@@ -207,7 +208,14 @@ export default async function handler(req, res) {
           color: color ?? null,
           category: st?.category_name || st?.group_name || null,
           on_hand: 0, on_hand_ats: 0, allocated: 0, on_so: 0, on_po: 0, in_transit: 0,
-          sold: 0, purchased: 0, _costCents: [], _salePx: [],
+          sold: 0, purchased: 0,
+          // Purchased is two OVERLAPPING feeds — accumulate each per BUCKET, then
+          // resolve (receipts win where present, bills backstop) in finalizeRow so
+          // an Xoro-world PO carrying both a receipt mirror AND an AP bill counts
+          // ONCE. Per-bucket (not per-SKU): the receipt often sits on a size-NULL
+          // color SKU while the bill sits on the sized SKUs of the same bucket.
+          _receiptsQty: 0, _billQty: 0,
+          _costCents: [], _salePx: [],
           // P27/#1541 per-column transaction pricing (all per-EACH, cents):
           //   open-SO value → On SO column price; sold value (sales history) →
           //   Sold column price; most-recent SO line → "current" price for the
@@ -413,11 +421,13 @@ export default async function handler(req, res) {
     // things sold at, per each — what the Sold column's Avg Sale should show.
     for (const r of whRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (!b) continue; const ea = (Number(r.qty) || 0) * mult(r.sku_id); b.sold += ea; const nc = Math.round((Number(r.net_amount) || 0) * 100); if (ea > 0 && nc > 0) { b._soldValC += nc; b._soldEa += ea; } }
     for (const r of ecRows) { if (whKey && channelIdToWh.get(r.channel_id) !== whKey) continue; const b = bucketOfItem(r.sku_id); if (!b) continue; const ea = (Number(r.net_qty) || 0) * mult(r.sku_id); b.sold += ea; const nc = Math.round((Number(r.net_amount) || 0) * 100); if (ea > 0 && nc > 0) { b._soldValC += nc; b._soldEa += ea; } }
-    // Purchased — Xoro receipts + Tangerine AP vendor-bill lines (date-ranged).
-    for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b.purchased += (Number(r.qty) || 0) * mult(r.sku_id); }
+    // Purchased — accumulate the Xoro receipts feed and the Tangerine AP
+    // vendor-bill feed SEPARATELY per bucket (both date-ranged as each already is).
+    // finalizeRow() then resolves them: receipts win where present, bills backstop.
+    for (const r of rcRows) { const b = bucketOfItem(r.sku_id); if (b) b._receiptsQty += (Number(r.qty) || 0) * mult(r.sku_id); }
     for (const l of billBundle.billLines) {
       if (!billBundle.billDateOk.get(l.invoice_id)) continue;
-      const b = bucketOfItem(l.inventory_item_id); if (b) b.purchased += (Number(l.quantity) || 0) * mult(l.inventory_item_id);
+      const b = bucketOfItem(l.inventory_item_id); if (b) b._billQty += (Number(l.quantity) || 0) * mult(l.inventory_item_id);
     }
     // Avg cost — ip_item_avg_cost by sku_code (exact + loose), per colour. When
     // exploded, a PPK SKU's avg cost is recorded at PACK grain (e.g. $136.80 for
@@ -471,12 +481,16 @@ function finalizeRow(b) {
   // Qty-weighted open-PO unit cost for the colour (null when no priced open PO
   // line) — the On PO / In Trnst columns cost off this instead of avg_cost_cents.
   const on_po_cost_cents = b._poEa > 0 ? Math.round(b._poCostC / b._poEa) : null;
+  // Purchased = receipts feed where it exists (authoritative units), else the AP
+  // vendor-bill total (bills-only native flows / pre-Aug-2024 history). Resolved
+  // per bucket so an Xoro PO carrying BOTH legs is not double-counted.
+  const purchased = resolvePurchased(b._receiptsQty, b._billQty);
   return {
     style_id: b.style_id, style_code: b.style_code, description: b.description,
     color: b.color, category: b.category,
     on_hand: b.on_hand, allocated: b.allocated, on_so: b.on_so,
     on_po: b.on_po, in_transit: b.in_transit, ats, ats_incl_po,
-    sold: b.sold, purchased: b.purchased, avg_cost_cents, sale_price_cents,
+    sold: b.sold, purchased, avg_cost_cents, sale_price_cents,
     open_so_price_cents, sold_price_cents, current_price_cents, on_po_cost_cents,
   };
 }
