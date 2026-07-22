@@ -15,6 +15,8 @@
 
 import React from "react";
 import { computeSizeCollapse } from "./sizeCollapse";
+import { useHideEmptySizes, useTotalsOnly } from "./matrixPrefs";
+import { MatrixTotalsToggle } from "./MatrixTotalsToggle";
 
 const C = {
   headerBg: "#0F172A", headerText: "#6B7280", gridText: "#E5E7EB",
@@ -129,6 +131,12 @@ export type EditableSizeMatrixProps = {
    *  value and the value the cell held when editing began. SO-from-ATS uses this
    *  to warn when the operator orders more than the available-to-ship quantity. */
   onCellCommit?: (rowKey: string, size: string, value: number, prevValue: number) => void;
+  /** Suppress the built-in "Totals only" toggle chip above the grid. Callers that
+   *  render MANY matrices under one header (e.g. the SO/PO/AR line body renders one
+   *  grid per style) set this and render a SINGLE shared MatrixTotalsToggle in their
+   *  own toolbar instead — every grid still reacts to the shared pref. Default:
+   *  render the chip so standalone one-grid mounts inherit the toggle for free. */
+  hideTotalsToggle?: boolean;
 };
 
 /** Cell-state key shared by callers (qty + on-hand maps). */
@@ -266,13 +274,21 @@ function QuickFillCell({
 
 export function EditableSizeMatrix({
   rows, sizes, showRise = false, riseLabel = "Rise", qty, onQtyChange, onHand, onHandTitle = "on-hand", unit, lot, customerPo,
-  allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit,
+  allowNegative = false, quickFill, collapsibleSizes = false, onCellCommit, hideTotalsToggle = false,
 }: EditableSizeMatrixProps) {
   const [bulk, setBulk] = React.useState("");
   const [bulkEach, setBulkEach] = React.useState("");
   const [bulkLot, setBulkLot] = React.useState("");
   const [bulkPo, setBulkPo] = React.useState("");
-  const [collapsed, setCollapsed] = React.useState(false);
+  // Green empty-size-column collapse — now a shared, per-user persisted pref that
+  // DEFAULTS ON (hidden) across every matrix surface; the green first-size header
+  // still toggles it live. Harmless when collapsibleSizes is off (computeSizeCollapse
+  // gates on `enabled`).
+  const [collapsed, setCollapsed] = useHideEmptySizes();
+  // Totals-only view — hide the per-size columns and show just the per-colorway
+  // totals (color, Total qty, money columns). Shared persisted pref; the row/column
+  // TOTALS are computed over the FULL `sizes` below, so the money math is identical.
+  const [totalsOnly] = useTotalsOnly();
 
   // Normalise a typed unit value for "set all": blank → null (no stamp); else
   // apply forceDecimals (plain, no commas) so the whole grid lands at 2 dp.
@@ -308,18 +324,27 @@ export function EditableSizeMatrix({
   // range tracks the entered quantities live.
   const { hasQty, visibleSizes, collapsedActive, canToggle, hiddenLeading, hiddenTrailing } =
     computeSizeCollapse(sizes, colTotals, { enabled: collapsibleSizes, collapsed });
+  // Totals-only hides EVERY size column (per-colorway totals view). The lead
+  // columns + Total + money columns still render; row/grand totals are unchanged.
+  const renderSizes = totalsOnly ? [] : visibleSizes;
 
   return (
-    <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
+    <>
+      {!hideTotalsToggle && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <MatrixTotalsToggle />
+        </div>
+      )}
+      <div style={{ overflowX: "auto", background: C.headerBg, borderRadius: 8, border: `1px solid ${C.sectionBdr}` }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr style={{ background: C.headerBg }}>
             <th style={{ ...thBase, textAlign: "left" }}>Color</th>
             {showRise && <th style={{ ...thBase, textAlign: "left" }}>{riseLabel}</th>}
             {quickFill && <th style={{ ...thBase, textAlign: "center", minWidth: 64 }} title="Type a total here to auto-fill the sizes from the style's size scale">Qty</th>}
-            {visibleSizes.map((sz, i) => {
+            {renderSizes.map((sz, i) => {
               const isFirst = i === 0;
-              const isLast = i === visibleSizes.length - 1;
+              const isLast = i === renderSizes.length - 1;
               const green = collapsibleSizes && hasQty && isFirst;
               const clickable = isFirst && canToggle;
               return (
@@ -439,7 +464,7 @@ export function EditableSizeMatrix({
                     />
                   </td>
                 )}
-                {visibleSizes.map((sz) => {
+                {renderSizes.map((sz) => {
                   const k = matrixCellKey(row.key, sz);
                   const oh = onHand ? onHand[k] : undefined;
                   return (
@@ -542,7 +567,7 @@ export function EditableSizeMatrix({
           <tr style={{ borderTop: `2px solid ${C.sectionBdr}`, background: C.headerBg }}>
             <td colSpan={leadCols} style={{ padding: "10px 12px", color: C.desc, fontWeight: 700, textAlign: "left" }}>Grand Total</td>
             {quickFill && <td />}
-            {visibleSizes.map((sz) => (
+            {renderSizes.map((sz) => (
               <td key={sz} style={{ padding: "10px 12px", textAlign: "center", color: colTotals[sz] ? C.amber : C.emptyCell, fontWeight: 700, fontFamily: "monospace" }}>
                 {colTotals[sz] || "—"}
               </td>
@@ -558,7 +583,8 @@ export function EditableSizeMatrix({
           </tr>
         </tfoot>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
 

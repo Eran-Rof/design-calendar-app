@@ -6,11 +6,10 @@
 // "Total cost" = pack total × unit price. Prepack rows surface their pack token
 // (e.g. PPK24) as its own size column.
 
-import { useState } from "react";
 import { TH } from "../theme";
 import { fmtMoney, fmtMoney2 } from "../utils";
 import { buildPoMatrix } from "../../shared/poMatrix";
-import { computeSizeCollapse } from "../../shared/matrix";
+import { computeSizeCollapse, MatrixTotalsToggle, useHideEmptySizes, useTotalsOnly } from "../../shared/matrix";
 
 const AMBER = "#F59E0B"; // total-qty highlight, matches the Tanda matrix
 const GREEN = "#34D399"; // cost highlight
@@ -20,12 +19,15 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
   const { bases, byBase, sizeOrder, parsed } = buildPoMatrix(items);
   // Empty-size-column collapse — same SO/PO model: first size header with qty
   // turns green + is clickable to hide the all-zero leading/trailing columns.
-  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // Shared per-user pref, DEFAULTS ON (hidden), persisted across surfaces.
+  const [sizesCollapsed, setSizesCollapsed] = useHideEmptySizes();
+  const [totalsOnly] = useTotalsOnly();
   const colTotals: Record<string, number> = {};
   for (const sz of sizeOrder) colTotals[sz] = 0;
   for (const base of bases) for (const row of byBase[base]) for (const sz of sizeOrder) colTotals[sz] += row.sizes[sz] || 0;
   const sizeCollapse = computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed });
-  const visibleSizes = sizeCollapse.visibleSizes;
+  // Totals-only drops every size column (per-colorway totals view); Total + cost stay.
+  const visibleSizes = totalsOnly ? [] : sizeCollapse.visibleSizes;
 
   if (bases.length === 0) {
     return (
@@ -43,7 +45,11 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
   let grandCost = 0;
 
   return (
-    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8, overflowX: "auto" }}>
+    <div style={{ background: TH.surface, border: `1px solid ${TH.border}`, borderRadius: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 8px" }}>
+        <MatrixTotalsToggle />
+      </div>
+      <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
@@ -116,6 +122,7 @@ export default function VendorPoMatrix({ items }: { items: any[] }) {
           </tr>
         </tfoot>
       </table>
+      </div>
     </div>
   );
 }

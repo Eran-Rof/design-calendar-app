@@ -22,7 +22,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useDebouncedSearch } from "./hooks/useDebouncedSearch";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
-import { computeSizeCollapse } from "../shared/matrix";
+import { computeSizeCollapse, useHideEmptySizes, useTotalsOnly } from "../shared/matrix";
 import { openStyleGallery } from "../shared/ui/StyleImageGallery";
 import { useStyleThumbs, StyleThumb, type StyleThumbInfo } from "../shared/ui/StyleThumb";
 import { colPriceCents, colCostCents } from "./snapshotPricing";
@@ -1421,19 +1421,24 @@ export default function InternalInventoryMatrix() {
   // multi-style view where no single-style payload (with its own list) exists.
   const [allWarehouses, setAllWarehouses] = useState<string[]>([]);
   const [hideZeros, setHideZeros] = useState(true); // default: hide zero-total color rows
-  // Hide sizes (matrix view): drop ALL per-size columns, leaving the non-size
-  // columns (Color / Total / Avg Cost / Total Cost / Last Received). Off by default.
-  const [hideSizes, setHideSizes] = useState(false);
+  // Hide sizes / "Totals only" (matrix view): drop ALL per-size columns, leaving
+  // the non-size columns (Color / Total / Avg Cost / Total Cost / Last Received).
+  // Bound to the shared, per-user, cross-surface "Totals only" pref (default OFF).
+  const [hideSizes, setHideSizes] = useTotalsOnly();
   // Empty-size-column collapse (single-style matrix) — mirrors the SO/PO grid:
   // once any size column has stock, the first VISIBLE size header turns green +
-  // clickable and hides the all-zero leading/trailing size columns.
-  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // clickable and hides the all-zero leading/trailing size columns. Shared pref,
+  // DEFAULTS ON (hidden), persisted across every matrix surface.
+  const [sizesCollapsed, setSizesCollapsed] = useHideEmptySizes();
   // Same collapse, but per-STYLE-BLOCK for the multi-style (brand-level) view —
-  // each block owns its own collapsed flag (keyed by style id) so one style's
-  // green-header click doesn't collapse every other block. Same SO behavior.
+  // each block owns an OVERRIDE flag (keyed by style id) applied on top of the
+  // shared default, so one block's green-header click doesn't move the others yet
+  // the default still follows the shared pref. Same SO behavior.
   const [blockCollapsed, setBlockCollapsed] = useState<Set<string>>(new Set());
   const toggleBlockCollapsed = (id: string) =>
     setBlockCollapsed((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Effective per-block collapse = shared default XOR this block's override.
+  const blockCollapsedFor = (id: string) => (blockCollapsed.has(id) ? !sizesCollapsed : sizesCollapsed);
   // Snapshot column show/hide — lifted up from SnapshotView so the control can
   // live in the filter header row (next to Warehouse). Persisted per browser.
   const [snapHidden, setSnapHidden] = useState<Set<string>>(() => {
@@ -2492,9 +2497,9 @@ export default function InternalInventoryMatrix() {
               the non-size columns (Color / Total / Avg Cost / Total Cost / Last
               Received). Blue = active. */}
           {((styleId && viewMode === "matrix") || (!styleId && noStyleView === "matrix")) && (
-            <button type="button" title="Hide all per-size columns; keep totals and the non-size columns"
+            <button type="button" title="Totals only — hide all per-size columns; keep totals and the non-size columns (shared with every matrix)"
               style={{ background: hideSizes ? C.primary : C.card, color: hideSizes ? "#fff" : C.textMuted, border: `1px solid ${hideSizes ? C.primary : C.cardBdr}`, padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "all 0.15s" }}
-              onClick={() => setHideSizes((v) => !v)}>Hide sizes</button>
+              onClick={() => setHideSizes((v) => !v)}>Totals only</button>
           )}
 
           {/* By Inseam — single-style matrix tab, or the all-styles "OH matrices"
@@ -2758,7 +2763,7 @@ export default function InternalInventoryMatrix() {
               // any size column has stock the first VISIBLE size header turns
               // green + is clickable to hide the all-zero leading/trailing size
               // columns. Collapsed state is owned per style id (blockCollapsed).
-              const bCollapse = computeSizeCollapse(bSizeOrder, bColTotals, { enabled: true, collapsed: blockCollapsed.has(bStyle.id) });
+              const bCollapse = computeSizeCollapse(bSizeOrder, bColTotals, { enabled: true, collapsed: blockCollapsedFor(bStyle.id) });
               // Honor the global "Hide sizes" toggle — drop all size columns;
               // else draw the (possibly collapsed) visible size range.
               const bRenderSizes = hideSizes ? [] : bCollapse.visibleSizes;
