@@ -30,9 +30,17 @@ const ALPHA = new Map([
 export function canonToken(raw) {
   const t = String(raw == null ? "" : raw).toUpperCase().trim();
   if (!t) return [];
+  // ALPHA first: "O/S" means One Size — splitting it on the slash (as the
+  // generic combined-token rule below would) yielded ["O","S"] and made every
+  // One-Size scale look like it was missing its own size (85 false positives
+  // in the 2026-07-21 scale-gap audit).
+  if (ALPHA.has(t)) return [ALPHA.get(t)];          // alpha synonym (incl. O/S)
   if (t.includes("/")) return [...new Set(t.split("/").flatMap((p) => canonToken(p)))];
   if (/^\d+(\.\d+)?$/.test(t)) return [t];          // pure numeric (waist / women's)
-  if (ALPHA.has(t)) return [ALPHA.get(t)];          // alpha synonym
+  // Infant month sizes: SKUs say "12MO"/"18MO", scales say "12M"/"18M" — same
+  // size. Canonical = the scale spelling (digits + "M").
+  const mo = t.replace(/\s+/g, "").match(/^(\d+)MOS?$/);
+  if (mo) return [`${mo[1]}M`];
   return [t.replace(/\s+/g, "")];                   // structured (2T, 12M, 0-3M, …)
 }
 

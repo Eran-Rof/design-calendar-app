@@ -78,3 +78,28 @@ describe("bestScaleFor", () => {
     expect(r.size_scale_id).not.toBeNull();
   });
 });
+
+// 2026-07-21 CEO toddler-scale finding: SKUs spell month sizes 12MO/18MO while
+// scales carry 12M/18M — the same size. canonToken now aliases the MO spelling
+// to the scale form; and O/S is consulted in ALPHA before the slash-split
+// (it used to split into O + S, making every One-Size scale look like it was
+// missing its own size — 85 false positives in the scale-gap audit).
+describe("canonToken month + O/S aliases", () => {
+  it("12MO/18MO/24MO canonicalize to the scale spelling", () => {
+    expect(canonToken("12MO")).toEqual(["12M"]);
+    expect(canonToken("18mo")).toEqual(["18M"]);
+    expect(canonToken("24 MO")).toEqual(["24M"]);
+    expect(canonToken("12M")).toEqual(["12M"]);
+  });
+  it("Toddler Girl scale covers a 12MO/18MO style", () => {
+    const tg = { id: "tg", code: "SCALE-00010", name: "Toddler Girl", sizes: ["12M", "18M", "2T", "3T", "4T", "5T"] };
+    const r = bestScaleFor(["12MO", "18MO", "2T", "3T", "4T", "5T"], [tg], "C");
+    expect(r.size_scale_id).toBe("tg");
+  });
+  it("O/S resolves as One Size, not O + S", () => {
+    expect(canonToken("O/S")).toEqual(["OS"]);
+  });
+  it("combined tokens still split (L/12 → L + 12)", () => {
+    expect(new Set(canonToken("L/12"))).toEqual(new Set(["L", "12"]));
+  });
+});
