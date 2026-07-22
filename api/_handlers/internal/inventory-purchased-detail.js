@@ -23,7 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { isPpkStyle, ppkUnitsPerPackByStyle } from "../../_lib/styleMatrix.js";
-import { purchasedSource } from "../../_lib/purchasedResolve.js";
+import { purchasedSource, buildBillInfoIndex, pickBillInfoFor } from "../../_lib/purchasedResolve.js";
 
 export const config = { maxDuration: 30 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -163,9 +163,14 @@ export default async function handler(req, res) {
       billRowsByColor.get(ck).push(row);
     }
 
-    // ── Xoro receipt mirror (historical; qty + receipt date only) ─────────────
+    // ── Xoro receipt mirror (the unit-authoritative feed) ────────────────────
+    // Group receipts per (po_number, colour) so each receipt row can be
+    // ENRICHED from its matching vendor bill below — the receipts feed itself
+    // is document-poor (no unit price; vendor_id points at ip_vendor_master,
+    // which is empty in prod; no bill date), and listing it bare was the
+    // CEO-reported "surviving receipt shows no vendor / unit price / bill date".
     const rcRows = await fetchChunked(itemIds, (ids) => {
-      let q = admin.from("ip_receipts_history").select("sku_id, qty, received_date, vendor_id, receipt_number").in("sku_id", ids);
+      let q = admin.from("ip_receipts_history").select("sku_id, qty, received_date, vendor_id, receipt_number, po_number").in("sku_id", ids);
       if (from) q = q.gte("received_date", from);
       if (to) q = q.lte("received_date", to);
       return q;
@@ -179,15 +184,44 @@ export default async function handler(req, res) {
     const recMap = new Map();
     for (const r of rcRows) {
       const color = colorByItem.get(r.sku_id) ?? null;
-      const key = `${r.receipt_number ?? ""}|${color ?? ""}`;
+      const key = `${r.po_number ?? r.receipt_number ?? ""}|${color ?? ""}`;
       let row = recMap.get(key);
       if (!row) {
         row = { color, vendor: rcVendName.get(r.vendor_id) || null, qty: 0, unit_price: null,
-          ref: r.receipt_number ?? null, bill_id: null, receipt_type: "Receipt",
+          ref: r.receipt_number ?? r.po_number ?? null, po_number: r.po_number ?? null,
+          bill_id: null, receipt_type: "Receipt",
           receipt_date: r.received_date ?? null, bill_date: null };
         recMap.set(key, row);
       }
+      if (!row.po_number && r.po_number) { row.po_number = r.po_number; if (!row.ref) row.ref = r.po_number; }
       row.qty += (Number(r.qty) || 0) * packRatio;
+    }
+
+    // Enrich each receipt row from its matching vendor bill (exact (PO, colour)
+    // match, else the colour's single unambiguous bill): vendor, per-each unit
+    // price, bill date, and the clickable bill ref — quantity stays the
+    // RECEIPT's (unit-authoritative). Falls back to the tanda PO header vendor
+    // when no bill matches. Never guesses between multiple candidate bills.
+    const billIndex = buildBillInfoIndex([...billRowsByColor.values()].flat());
+    const noVendorPoNums = new Set();
+    for (const row of recMap.values()) {
+      const bill = pickBillInfoFor(row, billIndex);
+      if (bill) {
+        if (!row.vendor) row.vendor = bill.vendor ?? null;
+        if (row.unit_price == null) row.unit_price = bill.unit_price ?? null;
+        row.bill_date = bill.bill_date ?? null;
+        row.bill_id = bill.bill_id ?? null;
+        if (!row.ref || row.ref === row.po_number) row.ref = bill.ref ?? row.ref;
+      }
+      if (!row.vendor && row.po_number) noVendorPoNums.add(row.po_number);
+    }
+    if (noVendorPoNums.size) {
+      const tp = await fetchChunked([...noVendorPoNums], (ids) =>
+        admin.from("tanda_pos").select("po_number, vendor").in("po_number", ids));
+      const tpVendor = new Map(tp.filter((t) => t.vendor).map((t) => [t.po_number, t.vendor]));
+      for (const row of recMap.values()) {
+        if (!row.vendor && row.po_number && tpVendor.has(row.po_number)) row.vendor = tpVendor.get(row.po_number);
+      }
     }
 
     // Per-colour receipts total → per-colour source preference (mirrors the

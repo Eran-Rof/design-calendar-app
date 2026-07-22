@@ -6,7 +6,7 @@
 // win where present, the bill total only backstops uncovered buckets.
 
 import { describe, it, expect } from "vitest";
-import { resolvePurchased, purchasedSource } from "../purchasedResolve.js";
+import { resolvePurchased, purchasedSource, buildBillInfoIndex, pickBillInfoFor } from "../purchasedResolve.js";
 
 describe("resolvePurchased", () => {
   it("receipts-only bucket → receipts total", () => {
@@ -62,5 +62,59 @@ describe("purchasedSource (drill labelling)", () => {
       const src = purchasedSource(rc);
       expect(resolvePurchased(rc, bl)).toBe(src === "receipts" ? rc : bl);
     }
+  });
+});
+
+// ── Receipt-row enrichment from the matching vendor bill ────────────────────
+// The receipts feed carries no unit price / bill date and its vendor_id points
+// at an empty master, so the drill decorates each receipt row from the bill for
+// the same PO (the CEO-reported "receipt shows no vendor / unit price / bill
+// date"). Quantity always stays the receipt's.
+describe("buildBillInfoIndex / pickBillInfoFor (receipt enrichment)", () => {
+  const bill = (over = {}) => ({
+    po_number: "ROF-P001128", color: "Open Sea - Light Wash W Tint",
+    vendor: "Guangzhou Blue Denim Apparel Co., Ltd", unit_price: 5.85,
+    bill_date: "2026-06-30", bill_id: "b-1", ref: "ROF-B006639", ...over,
+  });
+
+  it("exact (po_number, color) match wins", () => {
+    const idx = buildBillInfoIndex([bill(), bill({ po_number: "ROF-P999999", bill_id: "b-2" })]);
+    const hit = pickBillInfoFor({ po_number: "ROF-P001128", color: "Open Sea - Light Wash W Tint" }, idx);
+    expect(hit?.bill_id).toBe("b-1");
+    expect(hit?.vendor).toMatch(/Guangzhou/);
+    expect(hit?.unit_price).toBe(5.85);
+    expect(hit?.bill_date).toBe("2026-06-30");
+  });
+
+  it("latest bill_date wins when two bills share (po, color)", () => {
+    const idx = buildBillInfoIndex([
+      bill({ bill_id: "older", bill_date: "2026-05-01" }),
+      bill({ bill_id: "newer", bill_date: "2026-06-30" }),
+    ]);
+    expect(pickBillInfoFor({ po_number: "ROF-P001128", color: "Open Sea - Light Wash W Tint" }, idx)?.bill_id).toBe("newer");
+  });
+
+  it("falls back to the colour's SINGLE bill when the receipt has no PO match", () => {
+    const idx = buildBillInfoIndex([bill()]);
+    expect(pickBillInfoFor({ po_number: null, color: "Open Sea - Light Wash W Tint" }, idx)?.bill_id).toBe("b-1");
+    expect(pickBillInfoFor({ po_number: "ROF-P424242", color: "Open Sea - Light Wash W Tint" }, idx)?.bill_id).toBe("b-1");
+  });
+
+  it("NEVER guesses between multiple colour-level candidates", () => {
+    const idx = buildBillInfoIndex([bill({ bill_id: "b-1" }), bill({ bill_id: "b-2", po_number: "ROF-P2" })]);
+    expect(pickBillInfoFor({ po_number: null, color: "Open Sea - Light Wash W Tint" }, idx)).toBeNull();
+  });
+
+  it("colour buckets are isolated (null colour ≠ named colour)", () => {
+    const idx = buildBillInfoIndex([bill({ color: null })]);
+    expect(pickBillInfoFor({ po_number: "ROF-P001128", color: "Open Sea - Light Wash W Tint" }, idx)).toBeNull();
+    expect(pickBillInfoFor({ po_number: "ROF-P001128", color: null }, idx)?.bill_id).toBe("b-1");
+  });
+
+  it("tolerates empty/null input", () => {
+    const idx = buildBillInfoIndex([]);
+    expect(pickBillInfoFor({ po_number: "X", color: "Y" }, idx)).toBeNull();
+    expect(pickBillInfoFor(null, idx)).toBeNull();
+    expect(pickBillInfoFor({ color: "Y" }, null)).toBeNull();
   });
 });
