@@ -321,8 +321,11 @@ async function planInvoice(num) {
   const aggs = aggByInvoice.get(header.id) || [];
   const csv = csvByInvoice.get(num) || [];
   if (aggs.length === 0) { logException({ invoice: num, reason: "no aggregate lines loaded" }); bumpReason("no_aggregate"); stats.skipped++; return; }
-  // every aggregate line must have an anchor SKU (colour/inseam identity)
+  // every aggregate line must have an anchor SKU with a style (colour/size come
+  // from it). Amount-only lines (e.g. "CB Reversal" chargeback adjustments) link a
+  // styleless SKU and can't be size-enriched → skip the whole invoice cleanly.
   if (aggs.some((a) => !a.anchor)) { logException({ invoice: num, reason: "aggregate line without anchor SKU" }); bumpReason("no_anchor"); stats.skipped++; return; }
+  if (aggs.some((a) => !a.anchor.style_id)) { logException({ invoice: num, reason: "aggregate line anchors a styleless SKU (amount-only/CB reversal line)" }); bumpReason("anchor_no_style"); stats.skipped++; return; }
 
   // group CSV by (style, colour, inseam); GROUP aggregate lines by the same key
   // (an already-size-grain historical invoice has MANY aggregate lines per key —
@@ -444,6 +447,10 @@ async function planInvoice(num) {
   const ishColorRows = ishAll.filter((r) => r.sku && r.sku.size == null);
   const ishInserts = [];
   const ishDeletes = [];
+  // Per-invoice monotonic sequence guarantees a UNIQUE source_line_key even when
+  // two source rows resolve to the SAME sized SKU (uq_ip_sales_wholesale_source_line
+  // is (source, source_line_key)). Keying on the target SKU alone collides then.
+  let ishSeq = 0;
   for (const cr of ishColorRows) {
     const owners = aggs.filter((a) => a.inventory_item_id === cr.sku_id && aggLineOutput.has(a.id));
     if (owners.length === 0) continue; // ish row's SKU isn't an enriched anchor → leave it
@@ -451,7 +458,7 @@ async function planInvoice(num) {
       const out = aggLineOutput.get(a.id);
       if (out.kind === "split") {
         const lines = out.csvLines;
-        const meta = out.itemIds.map((skuId) => ({ skuId, sourceLineKey: `${cr.source}:size:${num}:${skuId}` }));
+        const meta = out.itemIds.map((skuId) => ({ skuId, sourceLineKey: `${cr.source}:size:${num}:${skuId}:${ishSeq++}` }));
         const rows = buildIshSizeRows(lines, meta, cr);
         ishDeletes.push(cr);
         for (const row of rows) ishInserts.push({ colorRow: cr, ...row });
@@ -462,7 +469,7 @@ async function planInvoice(num) {
           unit_price: cr.unit_price == null ? null : Number(cr.unit_price),
           gross_amount: cr.gross_amount == null ? null : Number(cr.gross_amount),
           net_amount: cr.net_amount == null ? null : Number(cr.net_amount),
-          source_line_key: `${cr.source}:size:${num}:${out.itemId}` });
+          source_line_key: `${cr.source}:size:${num}:${out.itemId}:${ishSeq++}` });
       }
     }
   }
