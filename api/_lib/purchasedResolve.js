@@ -39,3 +39,56 @@ export function resolvePurchased(receiptsTotal, billTotal) {
 export function purchasedSource(receiptsTotal) {
   return (Number(receiptsTotal) || 0) > 0 ? "receipts" : "bills";
 }
+
+// ── Receipt-row enrichment from the matching vendor bill ────────────────────
+// The receipts feed is unit-authoritative but DOCUMENT-POOR: it has no unit
+// price, its vendor_id points at ip_vendor_master (empty in prod), and it has
+// no bill date. When the drill lists receipt rows it must still show the
+// COMMERCIAL detail — vendor, unit price, bill date, clickable bill ref — which
+// lives on the suppressed vendor bill for the same PO. These helpers index the
+// bill rows and pick the best match for a receipt row.
+
+/**
+ * Index finalized bill rows for receipt enrichment.
+ * @param {Array<{po_number?:string|null,color?:string|null,vendor?:string|null,
+ *                unit_price?:number|null,bill_date?:string|null,bill_id?:string|null,
+ *                ref?:string|null}>} billRows
+ * @returns {{byPoColor:Map<string,object>, byColor:Map<string,object[]>}}
+ *   byPoColor: `${po}|${color}` → the bill row (latest bill_date wins on dupes).
+ *   byColor:   `${color}` → all bill rows for that colour.
+ */
+export function buildBillInfoIndex(billRows) {
+  const byPoColor = new Map();
+  const byColor = new Map();
+  for (const b of billRows || []) {
+    if (!b) continue;
+    const ck = b.color ?? "";
+    if (!byColor.has(ck)) byColor.set(ck, []);
+    byColor.get(ck).push(b);
+    if (b.po_number) {
+      const k = `${b.po_number}|${ck}`;
+      const cur = byPoColor.get(k);
+      if (!cur || String(b.bill_date || "") > String(cur.bill_date || "")) byPoColor.set(k, b);
+    }
+  }
+  return { byPoColor, byColor };
+}
+
+/**
+ * Pick the bill whose commercial detail should decorate a receipt row.
+ * Exact (po_number, color) match wins; else the colour's SINGLE bill (an
+ * unambiguous colour-level match); else null (never guess between bills).
+ * @param {{po_number?:string|null,color?:string|null}} receipt
+ * @param {{byPoColor:Map<string,object>, byColor:Map<string,object[]>}} index
+ * @returns {object|null}
+ */
+export function pickBillInfoFor(receipt, index) {
+  if (!receipt || !index) return null;
+  const ck = receipt.color ?? "";
+  if (receipt.po_number) {
+    const hit = index.byPoColor.get(`${receipt.po_number}|${ck}`);
+    if (hit) return hit;
+  }
+  const list = index.byColor.get(ck) || [];
+  return list.length === 1 ? list[0] : null;
+}
