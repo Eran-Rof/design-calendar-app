@@ -8,6 +8,40 @@
 
 import type { IpPlanningGridRow } from "../../types/wholesale";
 import type { CollapseModes } from "../aggregateGridRows";
+import { familyStyleOf } from "../../utils/poCostFallback";
+
+// A prepack (PPK) row — its style carries a PPK token, or its sku_code does.
+const isPpkRow = (r: IpPlanningGridRow): boolean => {
+  const s = r.sku_style ?? r.sku_code ?? "";
+  return familyStyleOf(s) !== s || /PPK/i.test(r.sku_code ?? "");
+};
+// (family-style, color, period) — deliberately NOT keyed by customer: with
+// PPK-inherit on, a synthetic (Supply Only) prepack row mirrors the family's
+// demand that the base each-grain rows carry under a REAL customer, so the two
+// share this cell across the customer boundary.
+const familyCellKey = (r: IpPlanningGridRow): string =>
+  `${familyStyleOf(r.sku_style ?? r.sku_code ?? "")}:${(r.sku_color ?? "").trim().toUpperCase()}:${r.period_code}`;
+
+// With PPK-inherit ON, prepack rows DISPLAY the base family's demand — the same
+// value the base each-grain rows already carry (possibly under a different
+// customer). For a total, count the authoritative base rows; drop the PPK
+// mirrors. Only when a family cell has NO base row anywhere (a pure-PPK build)
+// is the PPK kept — once per cell — so its inherited demand is counted a single
+// time instead of once per prepack row.
+function rowsForFamilyTotal(rows: IpPlanningGridRow[]): IpPlanningGridRow[] {
+  const hasBaseCell = new Set<string>();
+  for (const r of rows) if (!r.is_aggregate && !isPpkRow(r)) hasBaseCell.add(familyCellKey(r));
+  const seenPpkCell = new Set<string>();
+  return rows.filter((r) => {
+    if (r.is_aggregate) return false;
+    if (!isPpkRow(r)) return true;
+    const k = familyCellKey(r);
+    if (hasBaseCell.has(k)) return false;      // base already carries this family's demand
+    if (seenPpkCell.has(k)) return false;      // pure-PPK: count the family cell once
+    seenPpkCell.add(k);
+    return true;
+  });
+}
 
 export interface GridTotals {
   /** Σ final_forecast_qty across the (already muted) display rows. */
@@ -199,14 +233,18 @@ export function computeTotals(
   // rows (endingAtsTotal / endingOnHandTotal). When provided they REPLACE
   // the raw-row aggregation so the totals strip always agrees with the
   // cells on screen. The fallbacks only serve callers with no rolled rows.
-  opts?: { atsTotal?: number; onHandTotal?: number },
+  // ppkInherit: the grid's "PPK inherits base" toggle is on, so prepack rows
+  // now DISPLAY the base family's System / Final / SP·LY / Hist. Dedupe those
+  // demand/history columns by family so mirroring onto both grains doesn't
+  // double the totals; Buyer / Override / Buy stay per-row (planner input).
+  opts?: { atsTotal?: number; onHandTotal?: number; ppkInherit?: boolean },
 ): GridTotals {
   const t: GridTotals = { final: 0, shortage: 0, excess: 0, actions: {}, methods: {}, columns: {} };
   const c = t.columns;
   const add = (k: string, v: number | null | undefined) => { c[k] = (c[k] ?? 0) + (v ?? 0); };
+  const inherit = !!opts?.ppkInherit;
   const seenSupply = new Set<string>(); // (sku, period) — supply is per-grain, not per-row
   for (const r of rows) {
-    t.final += r.final_forecast_qty;
     t.actions[r.recommended_action] = (t.actions[r.recommended_action] ?? 0) + 1;
     t.methods[r.forecast_method]    = (t.methods[r.forecast_method]    ?? 0) + 1;
     // Demand + buy — genuinely per (customer, sku, period) row, so summing is right.
@@ -215,11 +253,16 @@ export function computeTotals(
     // per-row sum multiplies it by the number of horizon months. It gets
     // its own once-per-line total below. histLY IS per-period (each row's
     // same-month-last-year), so the plain sum is the true horizon LY.
-    add("histLY", r.ly_reference_qty);
-    add("system", r.system_forecast_qty);
+    // When PPK-inherit is on, system / histLY / final are family-deduped
+    // AFTER the loop (see below) — skip them here so PPK mirrors don't double.
+    if (!inherit) {
+      t.final += r.final_forecast_qty;
+      add("histLY", r.ly_reference_qty);
+      add("system", r.system_forecast_qty);
+      add("final", r.final_forecast_qty);
+    }
     add("buyer", r.buyer_request_qty);
     add("override", r.override_qty);
-    add("final", r.final_forecast_qty);
     add("buy", r.planned_buy_qty);
     add("buyDollars", (r.planned_buy_qty ?? 0) * (r.unit_cost ?? 0));
     // Supply columns are per (sku, period) — count each grain once so a SKU
@@ -246,7 +289,21 @@ export function computeTotals(
   if (rows.length > 0) c.ats = opts?.atsTotal ?? lastPeriodAtsTotal(rows);
   if (rows.length > 0 && opts?.onHandTotal != null) c.onHand = opts.onHandTotal;
   // Hist trailing-window total: once per (customer, sku) line, not per row.
-  if (rows.length > 0) c.histT3 = histTrailingTotal(rows);
+  // With PPK-inherit on, drop the prepack mirrors so a family's history is
+  // counted once (via its base each-grain rows; PPK kept only for pure-PPK).
+  if (rows.length > 0) c.histT3 = histTrailingTotal(inherit ? rowsForFamilyTotal(rows) : rows);
+  // PPK-inherit family-deduped demand columns. System / SP·LY sum only the
+  // authoritative rows (base each-grain, or PPK where no base exists); Final =
+  // that deduped System plus the planner's Buyer + Override (real, per-row).
+  if (inherit) {
+    const kept = rowsForFamilyTotal(rows);
+    for (const r of kept) {
+      add("system", r.system_forecast_qty);
+      add("histLY", r.ly_reference_qty);
+    }
+    c.final = (c.system ?? 0) + (c.buyer ?? 0) + (c.override ?? 0);
+    t.final = c.final;
+  }
   // Σ Excess / Σ Shortage = sum across unique (sku, period) grains
   // from the pre-computed rolling-pool map. Single source of truth
   // shared with per-row display.

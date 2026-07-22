@@ -334,3 +334,42 @@ describe("histTrailingTotal -- trailing window counted once per line", () => {
     expect(t.columns.histT3).toBe(2673);
   });
 });
+
+
+describe("computeTotals — PPK-inherit family dedup", () => {
+  // Base garment demand under a REAL customer + the prepack mirror under the
+  // (Supply Only) placeholder. With inherit on, the total must count the
+  // family demand ONCE (base), not add the PPK mirror — even across customers.
+  const base = (over = {}) => row({ sku_style: "RYB0412", sku_color: "Black", customer_id: "cust-A", system_forecast_qty: 100, final_forecast_qty: 100, ly_reference_qty: 40, historical_trailing_qty: 200, period_code: "2027-04", period_start: "2027-04-01", ...over });
+  const ppk = (over = {}) => row({ sku_style: "RYB0412PPK", sku_color: "Black", customer_id: "supply", system_forecast_qty: 100, final_forecast_qty: 100, ly_reference_qty: 40, historical_trailing_qty: 200, period_code: "2027-04", period_start: "2027-04-01", ...over });
+
+  it("does not double System / SP·LY / HistT3 when the PPK mirror is present", () => {
+    const rows = [base(), ppk()];
+    const off = computeTotals(rows, new Map());
+    const on = computeTotals(rows, new Map(), { ppkInherit: true });
+    // off counts both rows (100+100); on dedupes the PPK mirror -> 100.
+    expect(on.columns.system).toBe(100);
+    expect(on.columns.histLY).toBe(40);
+    expect(on.columns.histT3).toBe(200);
+    expect(off.columns.system).toBe(200); // default path still sums both
+  });
+
+  it("Final = deduped System + Buyer + Override (planner input stays per-row)", () => {
+    const rows = [base({ buyer_request_qty: 0 }), ppk({ buyer_request_qty: 500, final_forecast_qty: 600 })];
+    const on = computeTotals(rows, new Map(), { ppkInherit: true });
+    expect(on.columns.buyer).toBe(500);        // planner's PPK buyer counts
+    expect(on.columns.final).toBe(100 + 500);  // base system once + buyer
+  });
+
+  it("keeps the PPK family once when there is NO base row (pure-PPK)", () => {
+    const rows = [ppk(), ppk({ customer_id: "cust-B" })]; // two PPK rows, same family cell, no base
+    const on = computeTotals(rows, new Map(), { ppkInherit: true });
+    expect(on.columns.system).toBe(100); // counted once, not 200
+  });
+
+  it("inherit off is byte-identical to today (PPK mirrors are zero rows)", () => {
+    const rows = [base(), ppk({ system_forecast_qty: 0, final_forecast_qty: 0, ly_reference_qty: 0, historical_trailing_qty: 0 })];
+    const on = computeTotals(rows, new Map(), { ppkInherit: false });
+    expect(on.columns.system).toBe(100);
+  });
+});
