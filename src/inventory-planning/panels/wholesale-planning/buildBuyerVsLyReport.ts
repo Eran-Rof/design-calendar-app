@@ -166,6 +166,14 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
   const isDuplicateLy = (r: IpPlanningGridRow, rawStyle: string): boolean =>
     !!r.is_tbd || familyStyleOf(rawStyle) !== rawStyle || /PPK/i.test(r.sku_code ?? "");
   const custMap = new Map<string, Map<string, Map<string, Cell>>>();
+  // Per (customer, family) DISPLAY label. The grouping key stays familyStyleOf
+  // — a mixed base+PPK run still collapses and dedupes LY once (#1872) — but
+  // the LABEL the group carries is the actual style present: a base (non-PPK)
+  // sku_style if the group has one (mixed / base-only → "RYB0412"), else the
+  // first PPK sku_style seen (PPK-ONLY build → "RYB0412PPK", NOT a base style
+  // that isn't on the build). Only the label changes; grouping + LY/TY math
+  // are untouched.
+  const displayMap = new Map<string, Map<string, string>>();
   for (const r of rows) {
     if (r.is_aggregate || !r.period_code) continue;
     const idx = periodIdx.get(r.period_code) ?? -1;
@@ -174,6 +182,12 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
     const rawStyle = r.sku_style ?? r.sku_code ?? "(no style)";
     const style = familyStyleOf(rawStyle);
     const color = r.sku_color ?? "(no color)";
+    let dispByFamily = displayMap.get(customer);
+    if (!dispByFamily) { dispByFamily = new Map(); displayMap.set(customer, dispByFamily); }
+    const prevDisp = dispByFamily.get(style);
+    const isBaseRow = rawStyle === style;   // familyStyleOf left it unchanged → base row
+    // First row seen locks the label; a later BASE row upgrades a PPK label.
+    if (prevDisp === undefined || (isBaseRow && prevDisp !== style)) dispByFamily.set(style, rawStyle);
     let styleMap = custMap.get(customer);
     if (!styleMap) { styleMap = new Map(); custMap.set(customer, styleMap); }
     let colorMap = styleMap.get(style);
@@ -197,9 +211,14 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
     .map(([customer, styleMap]) => {
       const custLy = new Array(nP).fill(0);
       const custTy = new Array(nP).fill(0);
+      const dispByFamily = displayMap.get(customer);
       const styles: ReportStyle[] = Array.from(styleMap.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([style, colorMap]) => {
+          // Display the actual style on the build (base if present, else the
+          // PPK), while grouping still keys on the family. Falls back to the
+          // family key if somehow untracked.
+          const displayStyle = dispByFamily?.get(style) ?? style;
           const styLy = new Array(nP).fill(0);
           const styTy = new Array(nP).fill(0);
           const colors: ReportColorRow[] = Array.from(colorMap.entries())
@@ -207,10 +226,10 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
             .map(([color, cell]) => {
               const ly = cellLy(cell);
               for (let i = 0; i < nP; i++) { styLy[i] += ly[i]; styTy[i] += cell.ty[i]; }
-              return { style, color, ly, ty: cell.ty, lyTotal: sumArr(ly), tyTotal: sumArr(cell.ty) };
+              return { style: displayStyle, color, ly, ty: cell.ty, lyTotal: sumArr(ly), tyTotal: sumArr(cell.ty) };
             });
           for (let i = 0; i < nP; i++) { custLy[i] += styLy[i]; custTy[i] += styTy[i]; }
-          return { style, colors, lyTotals: styLy, tyTotals: styTy, lyTotal: sumArr(styLy), tyTotal: sumArr(styTy) };
+          return { style: displayStyle, colors, lyTotals: styLy, tyTotals: styTy, lyTotal: sumArr(styLy), tyTotal: sumArr(styTy) };
         });
       return { customer, styles, lyTotals: custLy, tyTotals: custTy, lyTotal: sumArr(custLy), tyTotal: sumArr(custTy) };
     });

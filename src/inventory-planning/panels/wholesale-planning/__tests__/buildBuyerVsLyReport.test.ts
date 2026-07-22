@@ -38,8 +38,9 @@ describe("buildBuyerVsLyReport", () => {
       row({ customer_name: "Ross Stores", sku_style: "RYB0412PPK", sku_color: "black", buyer_request_qty: 9 }),
     ]);
     expect(rep.customers.map((c) => c.customer)).toEqual(["Burlington", "Ross Stores"]);
-    // A style's PPK sibling collapses to the base family (RYB0412PPK → RYB0412).
-    expect(rep.customers[1].styles[0].style).toBe("RYB0412");
+    // A PPK-only run collapses to ONE family row but is LABELED the actual PPK
+    // style on the build (RYB0412PPK), not the stripped base RYB0412.
+    expect(rep.customers[1].styles[0].style).toBe("RYB0412PPK");
   });
 
   it("aggregates multiple rows sharing the same (customer, style, color, period)", () => {
@@ -176,5 +177,39 @@ describe("buildBuyerVsLyReport — PPK/base LY double-count fix", () => {
       row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-B", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112 } as Partial<IpPlanningGridRow>),
     ]);
     expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(4112);
+  });
+});
+
+describe("buildBuyerVsLyReport — family display label (PPK-only build shows the PPK style)", () => {
+  it("PPK-ONLY group is labeled the actual PPK style, NOT the stripped base", () => {
+    // The build was filtered to ONLY RYB0412PPK — no base RYB0412 row exists.
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-TBD", sku_color: "black", period_code: "2027-04", is_tbd: true, ly_reference_qty: 4112, buyer_request_qty: 5016 } as Partial<IpPlanningGridRow>),
+    ]);
+    const sty = rep.customers[0].styles[0];
+    expect(sty.style).toBe("RYB0412PPK");             // label reflects the build
+    expect(sty.colors[0].style).toBe("RYB0412PPK");   // color row mirrors it
+  });
+
+  it("BASE-only group is labeled the base style", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412", sku_code: "RYB0412-BLACK", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112, buyer_request_qty: 5016 }),
+    ]);
+    const sty = rep.customers[0].styles[0];
+    expect(sty.style).toBe("RYB0412");
+    expect(sty.colors[0].style).toBe("RYB0412");
+  });
+
+  it("MIXED base+PPK group is labeled the base and LY is still counted ONCE (#1872 regression)", () => {
+    const rep = buildBuyerVsLyReport([
+      // PPK row seen FIRST, then the base — the base must still win the label.
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-TBD", sku_color: "black", period_code: "2027-04", is_tbd: true, ly_reference_qty: 4112, buyer_request_qty: 5016 } as Partial<IpPlanningGridRow>),
+      row({ sku_style: "RYB0412", sku_code: "RYB0412-BLACK", sku_color: "black", period_code: "2027-04", ly_reference_qty: 4112 }),
+    ]);
+    const sty = rep.customers[0].styles[0];
+    expect(sty.style).toBe("RYB0412");                // base wins even seen second
+    expect(sty.colors[0].style).toBe("RYB0412");
+    expect(sty.colors[0].lyTotal).toBe(4112);         // once, NOT 8224
+    expect(rep.customers[0].lyTotal).toBe(4112);
   });
 });
