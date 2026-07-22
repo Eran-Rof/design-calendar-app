@@ -7,8 +7,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { fmtDateDisplay } from "../utils/tandaTypes";
-import { computeSizeCollapse } from "../shared/matrix";
 import { buildArLineDetail, type ArDetailItem } from "./arInvoiceLineDetail";
+import InvoiceMatrixBody from "./components/InvoiceMatrixBody";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import DocumentAttachmentList from "../shared/documents/DocumentAttachmentList";
 import StagedDocsPicker from "../shared/documents/StagedDocsPicker";
@@ -693,11 +693,6 @@ function ArRowDetail({ invoiceId }: { invoiceId: string }) {
   const [lines, setLines] = useState<ARInvoiceLine[] | null>(null);
   const [itemsById, setItemsById] = useState<Map<string, ArDetailItem>>(new Map());
   const [err, setErr] = useState<string | null>(null);
-  // Empty-size-column collapse, per style block (keyed by style code) — same
-  // green-first-header behavior as the SO/PO grids + Inventory Matrix.
-  const [collapsedStyles, setCollapsedStyles] = useState<Set<string>>(new Set());
-  const toggleCollapsedStyle = (style: string) =>
-    setCollapsedStyles((prev) => { const n = new Set(prev); n.has(style) ? n.delete(style) : n.add(style); return n; });
 
   useEffect(() => {
     let cancel = false;
@@ -730,7 +725,7 @@ function ArRowDetail({ invoiceId }: { invoiceId: string }) {
   if (lines == null) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>Loading line detail…</div>;
   if (lines.length === 0) return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>No lines on this invoice.</div>;
 
-  const { styles, flat } = buildArLineDetail(
+  const model = buildArLineDetail(
     lines.map((l) => ({
       inventory_item_id: l.inventory_item_id,
       quantity: l.quantity,
@@ -741,125 +736,11 @@ function ArRowDetail({ invoiceId }: { invoiceId: string }) {
     itemsById,
   );
 
-  const miniTh: React.CSSProperties = { ...th, position: "static" };
-
-  return (
-    <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
-      <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>Line detail</span>
-
-      {styles.map((st) => {
-        const sizes = st.sizes;
-        // Per-size totals (qty) drive the green collapse; a column with any qty
-        // is kept, only empty leading/trailing columns collapse.
-        const colTotals: Record<string, number> = {};
-        for (const sz of sizes) colTotals[sz] = 0;
-        for (const cm of st.colors.values()) for (const [sz, cell] of cm) colTotals[sz] += cell.qty;
-        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: collapsedStyles.has(st.styleCode) });
-        const vSizes = sizeCollapse.visibleSizes;
-        let styleQty = 0, styleExt = 0;
-        for (const cm of st.colors.values()) for (const cell of cm.values()) { styleQty += cell.qty; styleExt += cell.extCents; }
-        return (
-          <div key={st.styleCode} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
-              <span style={{ color: C.primary, fontFamily: "monospace", fontWeight: 700 }}>{st.styleCode}</span>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                <thead><tr>
-                  <th style={miniTh}>Color</th>
-                  {vSizes.map((sz, i) => {
-                    const isFirst = i === 0;
-                    const isLast = i === vSizes.length - 1;
-                    const green = sizeCollapse.hasQty && isFirst;
-                    const clickable = isFirst && sizeCollapse.canToggle;
-                    return (
-                      <th
-                        key={sz}
-                        onClick={clickable ? () => toggleCollapsedStyle(st.styleCode) : undefined}
-                        title={clickable
-                          ? (sizeCollapse.collapsedActive ? "Show all size columns" : "Hide the empty size columns before/after the sizes with quantities")
-                          : undefined}
-                        style={{ ...miniTh, textAlign: "center", ...(green ? { color: C.success } : {}), ...(clickable ? { cursor: "pointer", userSelect: "none" } : {}) }}
-                      >
-                        {sizeCollapse.collapsedActive && isFirst && sizeCollapse.hiddenLeading > 0 ? "⋯ " : ""}{sz}{sizeCollapse.collapsedActive && isLast && sizeCollapse.hiddenTrailing > 0 ? " ⋯" : ""}
-                      </th>
-                    );
-                  })}
-                  <th style={{ ...miniTh, textAlign: "center" }}>Qty</th>
-                  <th style={{ ...miniTh, textAlign: "right" }}>Unit $</th>
-                  <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
-                </tr></thead>
-                <tbody>
-                  {[...st.colors.entries()].map(([color, cm]) => {
-                    let rowQty = 0, rowExt = 0;
-                    for (const cell of cm.values()) { rowQty += cell.qty; rowExt += cell.extCents; }
-                    const avgUnit = rowQty > 0 ? rowExt / rowQty : 0;
-                    return (
-                      <tr key={color} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
-                        <td style={{ ...td, borderBottom: "none" }}>{color}</td>
-                        {vSizes.map((sz) => {
-                          const cell = cm.get(sz);
-                          return <td key={sz} style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: cell?.qty ? C.text : C.cardBdr }}>{cell?.qty ? cell.qty.toLocaleString() : "—"}</td>;
-                        })}
-                        <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 700 }}>{rowQty.toLocaleString()}</td>
-                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{fmtCents(Math.round(avgUnit))}</td>
-                        <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(Math.round(rowExt))}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
-                    <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={vSizes.length + 1}>Style total</td>
-                    <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: C.warn, fontWeight: 800 }}>{styleQty.toLocaleString()}</td>
-                    <td style={{ ...td, borderBottom: "none" }} />
-                    <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(Math.round(styleExt))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Amount-only / unresolved lines — freight, fees, non-apparel SKUs, or
-          SKUs we can't resolve to a size. Shown as a plain list. */}
-      {flat.length > 0 && (
-        <div style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>
-            <span style={{ color: C.warn, fontWeight: 700, fontSize: 12 }}>Other lines</span>
-            <span style={{ color: C.textMuted, fontSize: 11 }}>amount-only charges / lines with no per-size SKU</span>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead><tr>
-                <th style={miniTh}>Description</th>
-                <th style={{ ...miniTh, textAlign: "center" }}>Qty</th>
-                <th style={{ ...miniTh, textAlign: "right" }}>Unit $</th>
-                <th style={{ ...miniTh, textAlign: "right" }}>Ext $</th>
-              </tr></thead>
-              <tbody>
-                {flat.map((l, i) => (
-                  <tr key={i} style={{ borderTop: `1px solid ${C.cardBdr}` }}>
-                    <td style={{ ...td, borderBottom: "none" }}>{l.label}</td>
-                    <td style={{ ...td, borderBottom: "none", textAlign: "center", fontFamily: "monospace", color: l.qty != null ? C.warn : C.textMuted, fontWeight: 700 }}>{l.qty != null ? l.qty.toLocaleString() : "—"}</td>
-                    <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.textSub }}>{l.unitCents != null ? fmtCents(l.unitCents) : "—"}</td>
-                    <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 600 }}>{fmtCents(l.extCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: `2px solid ${C.cardBdr}` }}>
-                  <td style={{ ...td, borderBottom: "none", color: C.textMuted, fontWeight: 700 }} colSpan={3}>Total</td>
-                  <td style={{ ...td, borderBottom: "none", textAlign: "right", fontFamily: "monospace", color: C.success, fontWeight: 800 }}>{fmtCents(flat.reduce((s, l) => s + l.extCents, 0))}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  // The shared invoice/bill body — a per-style color × size matrix (style code
+  // blue + name + inseam chip) with the amount-only "Other lines" table below.
+  // The same component renders AR invoices, AP bills, and the Snapshot drill
+  // popup. AR is a sell side → the money column is the "Unit $" price.
+  return <InvoiceMatrixBody model={model} moneyLabel="Unit $" />;
 }
 
 // ─────────────────────────────────────────────────────────────────────
