@@ -20,7 +20,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AppDatePicker } from "../../shared/components/AppDatePicker";
 import SearchableSelect from "../../tanda/components/SearchableSelect";
 import { fetchSalesAggregates, type SalesFetchResult, type DailyStyleAgg } from "../exportSalesFetch";
-import { getItemMasterById, resolveItemMasterIds } from "../itemMasterLookup";
+import { getAllMasterStyles, getItemMasterById, loadItemMasterCache, resolveItemMasterIds } from "../itemMasterLookup";
 import { fmtDateDisplay } from "../helpers";
 import { estimateSoMargin, type SoCostInputs } from "../salesCompsSoMargin";
 import { useCanSeeMargins } from "../../hooks/useCanSeeMargins";
@@ -323,12 +323,6 @@ interface Props {
   defaultStoreFilter: string[];
   // Gender filter — initial value for the Gender multi-select.
   defaultGenders?: string[];
-  // Grid's current TY window. When provided, the Start / End date
-  // pickers initialize to these values so the modal opens on the same
-  // window the operator is looking at on the grid. Either undefined →
-  // fall back to YTD defaults.
-  defaultStart?: string;
-  defaultEnd?: string;
   // FULL option lists — sourced from the broader dataset (not just the
   // currently-filtered grid rows) so the operator can broaden the
   // selection beyond what's already on screen. Defaults above stay
@@ -376,7 +370,7 @@ type SoRow = {
 export const SalesCompsModal: React.FC<Props> = ({
   onClose,
   defaultCustomer, defaultCategories, defaultSubCategories, defaultStyles, defaultStoreFilter,
-  defaultGenders, defaultStart, defaultEnd,
+  defaultGenders,
   allCategories, allSubCategories, allStyles, allStores,
   rows, excelData, explodePpk,
 }) => {
@@ -390,9 +384,34 @@ export const SalesCompsModal: React.FC<Props> = ({
   // Sorted for predictable presentation in the dropdowns.
   const categories    = useMemo(() => [...allCategories].sort(),    [allCategories]);
   const subCategories = useMemo(() => [...allSubCategories].sort(), [allSubCategories]);
-  const styles        = useMemo(() => [...allStyles].sort(),        [allStyles]);
+  // Style options = grid-derived styles UNION the full item master.
+  // The grid only carries SKUs with availability (on-hand / open SO /
+  // open PO), so sold-out styles never appear in allStyles — but their
+  // sales history is still reportable (the fetch's cross-grid extras
+  // pick them up). Without the master union the operator can't scope
+  // the report to a sold-out style at all. The cache is loaded at app
+  // bootstrap; the effect re-reads it in case this modal mounted first.
+  const [masterStyles, setMasterStyles] = useState<Array<{ code: string; description: string | null }>>(
+    () => getAllMasterStyles(),
+  );
+  useEffect(() => {
+    if (masterStyles.length > 0) return;
+    let alive = true;
+    loadItemMasterCache()
+      .then(() => { if (alive) setMasterStyles(getAllMasterStyles()); })
+      .catch(() => { /* master unavailable — dropdown stays grid-only */ });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const styles = useMemo(() => {
+    const set = new Set(allStyles);
+    for (const s of masterStyles) set.add(s.code);
+    return [...set].sort();
+  }, [allStyles, masterStyles]);
   // style_code → clean style description, sourced from the enriched grid rows
-  // (master fields). Lets the Style picker show the description beside the code.
+  // (master fields), with the item-master description as fallback for
+  // styles that have no grid row. Lets the Style picker show the
+  // description beside the code.
   const styleDescByCode = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of rows) {
@@ -400,8 +419,11 @@ export const SalesCompsModal: React.FC<Props> = ({
       const desc = (r.master_description ?? "").trim();
       if (code && desc && !m.has(code)) m.set(code, desc);
     }
+    for (const s of masterStyles) {
+      if (s.description && !m.has(s.code)) m.set(s.code, s.description);
+    }
     return m;
-  }, [rows]);
+  }, [rows, masterStyles]);
   const styleOptionLabel = (code: string) => {
     const d = styleDescByCode.get(code);
     return d ? `${code} — ${d}` : code;
@@ -419,8 +441,14 @@ export const SalesCompsModal: React.FC<Props> = ({
     return [...s].sort();
   }, [rows]);
 
-  const [start, setStart] = useState(defaultStart || yearStartIso());
-  const [end,   setEnd]   = useState(defaultEnd   || todayIso());
+  // Date window ALWAYS opens backward-looking (YTD → today). It used to
+  // inherit the grid's display window, but the grid is a forward-looking
+  // availability view (starts ~today) — a forward window has zero shipped
+  // sales by definition, so every past invoice silently vanished from the
+  // report and it opened "empty" (bit the operator on ROF-I153370 /
+  // RYB1893, 2026-07-22).
+  const [start, setStart] = useState(yearStartIso());
+  const [end,   setEnd]   = useState(todayIso());
   const [customer, setCustomer]                 = useState<string[]>(defaultCustomer ? [defaultCustomer] : []);
   const [selCategories, setSelCategories]       = useState<string[]>(defaultCategories);
   const [selSubCategories, setSelSubCategories] = useState<string[]>(defaultSubCategories);

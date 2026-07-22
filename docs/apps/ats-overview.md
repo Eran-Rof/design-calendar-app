@@ -140,6 +140,24 @@ Category/Sub-Cat/Style/Brand/Cust-Vend dropdown search fields) and in the Sales
 Comps + Export-Options modals now **selects all text on focus**, so tabbing in and
 typing replaces the prior value in one keystroke.
 
+## Sales Comps default window + sold-out styles (2026-07)
+
+The Sales Comps modal **always opens on a backward-looking YTD → today
+window**. It previously inherited the grid's display window, but the grid is a
+forward-looking availability view (start ≈ today), and a forward window has
+zero shipped sales by definition — every past invoice silently fell out of the
+report and it opened "empty" (bit the operator on ROF-I153370 / RYB1893).
+The `gridStart`/`gridEnd` threading (renderPanel → NavBar → modal) was removed.
+
+The modal's **Style picker options = grid styles ∪ the full item master**
+(`getAllMasterStyles()` in `itemMasterLookup.ts`, deduped past the whitespace-
+alias keys in `byStyleCode`). Sold-out styles have no ATS grid row (the blob's
+active-SKU filter drops zero-availability SKUs at `ats-parse.js`), so the old
+grid-derived list couldn't offer them — even though the sales fetch's
+cross-grid extras machinery reports their history fine. Master descriptions
+also backfill the picker's *code — description* labels for styles with no
+grid row.
+
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in
 - [inventory-planning-overview.md](inventory-planning-overview.md) — downstream consumer
