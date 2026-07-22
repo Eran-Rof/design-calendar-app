@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { buildSnapshotUpserts, pruneReason, csvDateFromName, cellKey } from "../api/_lib/spineSnapshot.js";
 import { makeCostResolver } from "../api/_lib/layerCost.js";
+import { buildNormSkuIndex, buildStyleRowIndex, resolveFallbackSku } from "../api/_lib/spineFallback.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -58,10 +59,25 @@ const upcMap = new Map((await anonAll("upc_item_master", "upc,sku_id")).filter(r
 const spineSkus = new Set(upcMap.values());
 const locs = await anonAll("inventory_locations", "id,code");
 const locIdByCode = new Map(locs.map(l => [l.code, l.id]));
-const itemMeta = await anonAll("ip_item_master?sku_code=not.is.null", "id,sku_code,style_code,inseam");
+const itemMeta = await anonAll("ip_item_master?sku_code=not.is.null", "id,sku_code,style_code,inseam,style_id,color,size");
 const skuCodeById = new Map(itemMeta.map(r => [r.id, r.sku_code]));
 const costMetaById = new Map(itemMeta.map(r => [r.id, { skuCode: r.sku_code, styleCode: r.style_code, inseam: r.inseam }]));
 const avgCost = new Map((await anonAll("ip_item_avg_cost", "sku_code,avg_cost")).filter(r => r.avg_cost != null).map(r => [r.sku_code, Number(r.avg_cost)]));
+
+// ── Fallback-resolution indices (api/_lib/spineFallback.js). For feed rows that
+// tie via NEITHER the UPC spine NOR the private-label ItemNumber path (lowercase /
+// mixed-case / inseam-embedded BasePartNumbers), resolve to a catalog SKU by
+// (A) unique normalized ItemNumber, then (B) inseam-aware (colour,size,inseam)
+// tuple. normIndex keeps only unambiguous norm keys; styleByCode mirrors the
+// order-importer's style_master map (base code + aliases) so resolveStyleToken
+// can peel the inseam composite; rowsByStyle is the tuple-tier candidate pool.
+const normIndex = buildNormSkuIndex(itemMeta);
+const rowsByStyle = buildStyleRowIndex(itemMeta);
+const styleByCode = new Map();
+for (const s of await anonAll("style_master?deleted_at=is.null", "id,style_code,aliases")) {
+  if (s.style_code) styleByCode.set(String(s.style_code).toUpperCase(), s.id);
+  for (const a of s.aliases || []) { const k = String(a).toUpperCase(); if (!styleByCode.has(k)) styleByCode.set(k, s.id); }
+}
 
 // ── Private-label parts (labels/patches/etc.): Xoro reuses/blanks the UPC across
 // customers, so these can NEVER tie via the UPC spine. Their unique, stable key
@@ -83,18 +99,52 @@ for (const r of plRows) {
   plByNorm.set(k, better);
 }
 const allowedSkus = new Set([...spineSkus, ...plSkus]);
+const fallbackSkus = new Set();  // filled in the CSV loop (tier A/B resolutions)
+const tierCount = { upc: 0, pl: 0, normcode: 0, inseam: 0, unresolved: 0 };
+let unresolvedU = 0;             // units on feed rows that resolve to NO sku
 
 // Xoro-REST target on-hand by (sku_id, loc_code). snapCells captures the SAME
 // resolved cells keyed by raw StoreName (the tangerine_size_onhand.warehouse_code
 // convention) for the by-size snapshot write below — including stores the layer
 // true-up doesn't map (e.g. 'Psycho Tuna Ecom'); the snapshot is a faithful
 // per-store mirror, the layer sync stays confined to STORE_TO_LOC_CODE.
+// Resolution order per row: private-label ItemNumber → UPC spine → FALLBACK
+// (normalized ItemNumber, then inseam-aware colour+size tuple). Unresolved rows
+// are counted and skipped — NEVER invented.
 const target = new Map();  // `${sku}|${loc}` -> qty
 const snapCells = [];      // { sku, store (raw StoreName), qty }
+const fbCache = new Map(); // ItemNumber -> { sku, tier } (feed repeats per store)
 {
   const rl = createInterface({ input: createReadStream(newestCsv()) }); let hd = null, ix = {};
-  for await (const line of rl) { if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName", "ItemNumber"]) ix[c] = hd.indexOf(c); continue; } const cols = pcsv(line); if (cols.length !== hd.length) continue; const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0) continue; let sku = null; const plHit = plByNorm.get(normSku(cols[ix.ItemNumber] || "")); if (plHit) sku = plHit.id; else { const upc = (cols[ix.ItemUpc] || "").trim(); if (/^\d{6,}$/.test(upc)) sku = upcMap.get(upc); } if (!sku) continue; const store = (cols[ix.StoreName] || "").trim(); if (store) snapCells.push({ sku, store, qty: q }); const loc = STORE_TO_LOC_CODE[store]; if (!loc) continue; const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q); }
+  for await (const line of rl) {
+    if (!hd) { hd = pcsv(line); for (const c of ["ItemUpc", "OnHandQty", "StoreName", "ItemNumber", "BasePartNumber", "Color", "Size"]) ix[c] = hd.indexOf(c); continue; }
+    const cols = pcsv(line); if (cols.length !== hd.length) continue;
+    const q = parseFloat(cols[ix.OnHandQty] || 0) || 0; if (q <= 0) continue;
+    const itemNumber = cols[ix.ItemNumber] || "";
+    let sku = null, tier = "unresolved";
+    const plHit = plByNorm.get(normSku(itemNumber));
+    if (plHit) { sku = plHit.id; tier = "pl"; }
+    else {
+      const upc = (cols[ix.ItemUpc] || "").trim();
+      if (/^\d{6,}$/.test(upc) && upcMap.has(upc)) { sku = upcMap.get(upc); tier = "upc"; }
+      else {
+        let fb = fbCache.get(itemNumber);
+        if (fb === undefined) { fb = resolveFallbackSku({ itemNumber, basePart: cols[ix.BasePartNumber] || "", color: cols[ix.Color] || "", size: cols[ix.Size] || "" }, { normIndex, styleByCode, rowsByStyle }); fbCache.set(itemNumber, fb); }
+        if (fb.sku) { sku = fb.sku; tier = fb.tier; fallbackSkus.add(sku); }
+      }
+    }
+    tierCount[tier] = (tierCount[tier] || 0) + 1;
+    if (!sku) { unresolvedU += q; continue; }
+    const store = (cols[ix.StoreName] || "").trim(); if (store) snapCells.push({ sku, store, qty: q });
+    const loc = STORE_TO_LOC_CODE[store]; if (!loc) continue;
+    const k = `${sku}|${loc}`; target.set(k, (target.get(k) || 0) + q);
+  }
 }
+// Fallback-resolved SKUs join the spine-managed set: their layers get trued and
+// their snapshot rows pruned/superseded exactly like UPC/PL items. Sold-through
+// items ABSENT from today's feed are never fallback-resolved (nothing to key on)
+// and stay with scripts/retire-soldthrough.mjs's grain-based retirement.
+for (const s of fallbackSkus) allowedSkus.add(s);
 // current layers by (item, loc): rest + native  (via Mgmt API, join location code)
 const curRows = await mgmt(`select l.item_id::text item, coalesce(loc.code,'?') loc, l.source_kind sk, round(sum(l.remaining_qty))::numeric q from inventory_layers l left join inventory_locations loc on loc.id=l.location_id where l.remaining_qty>0 group by l.item_id, loc.code, l.source_kind;`);
 const restByKey = new Map(), nativeByKey = new Map();
@@ -118,6 +168,7 @@ for (const k of keys) {
 const restTotalNow = [...restByKey.values()].reduce((s, v) => s + v, 0);
 console.log(`# Mode: ${APPLY ? "APPLY" : "DRY-RUN"} | CSV: ${newestCsv().split(/[\\/]/).pop()}`);
 console.log(`# spine skus=${spineSkus.size} | private-label skus=${plSkus.size} (ItemNumber-resolved) | current xoro_rest_size total=${Math.round(restTotalNow).toLocaleString()}`);
+console.log(`# resolution tiers (feed rows q>0): upc=${tierCount.upc.toLocaleString()} pl=${tierCount.pl.toLocaleString()} normcode=${tierCount.normcode.toLocaleString()} inseam-fallback=${tierCount.inseam.toLocaleString()} unresolved=${tierCount.unresolved.toLocaleString()} (${Math.round(unresolvedU).toLocaleString()} u left unmapped — coverage gaps, never invented) | fallback SKUs newly managed=${fallbackSkus.size}`);
 console.log(`\n# ===== SPINE ON-HAND SYNC PLAN (spine items, per store) =====`);
 console.log(`#   (sku,loc) cells changing: ${plan.length}`);
 console.log(`#   INCREASE: ${inc} cells / +${Math.round(incU).toLocaleString()} u  (receipts/replenish)`);
