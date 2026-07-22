@@ -24,7 +24,7 @@ import DateRangePresets from "./components/DateRangePresets";
 import { useSort } from "./hooks/useSort";
 import SortableTh from "./components/SortableTh";
 import { extractPpk } from "../shared/prepack";
-import { computeSizeCollapse } from "../shared/matrix";
+import { computeSizeCollapse, MatrixTotalsToggle, useHideEmptySizes, useTotalsOnly } from "../shared/matrix";
 import { compareSizes } from "../shared/sizeSort";
 import { MultiSelectDropdown } from "../inventory-planning/components/MultiSelectDropdown";
 import { groupPoLines, openQty, poHasReceipts, poFullyReceived, poBreakdownGrandTotalCents, deriveReceiptDateSummary, type PoBreakdownCell, type PoBreakdownLine, type ReceiptDatePoint } from "./lib/poLineBreakdown";
@@ -832,10 +832,16 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
   // the single qty-view line. Only offered when the PO has receipts.
   const [showBreakdown, setShowBreakdown] = useState(false);
   // Empty-size-column collapse, per style block (keyed by style code) — the same
-  // green-first-header behavior as the SO/PO grids + Inventory Matrix.
+  // green-first-header behavior as the SO/PO grids + Inventory Matrix. Each block's
+  // Set membership is an OVERRIDE on top of the shared default (DEFAULTS ON), so a
+  // block's green-header click flips only that block yet the default follows the
+  // shared, persisted cross-surface pref.
+  const [hideEmptyDefault] = useHideEmptySizes();
+  const [totalsOnly] = useTotalsOnly();
   const [collapsedStyles, setCollapsedStyles] = useState<Set<string>>(new Set());
   const toggleCollapsedStyle = (style: string) =>
     setCollapsedStyles((prev) => { const n = new Set(prev); n.has(style) ? n.delete(style) : n.add(style); return n; });
+  const styleCollapsedFor = (style: string) => (collapsedStyles.has(style) ? !hideEmptyDefault : hideEmptyDefault);
   useEffect(() => {
     let cancel = false;
     setLines(null); setErr(null);
@@ -902,6 +908,7 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
         {hasPpk && <span style={{ color: explode ? "#C4B5FD" : C.textMuted, fontSize: 10 }}>· {explode ? "units (PPK exploded)" : "packs"}</span>}
         {!showBreakdown && remainingView && <span style={{ color: "#14B8A6", fontSize: 10 }}>· remaining to ship</span>}
         {showBreakdown && <span style={{ color: C.textMuted, fontSize: 10 }}>· <span style={{ color: C.textSub }}>issued</span> / <span style={{ color: "#60A5FA" }}>received</span> / <span style={{ color: "#14B8A6" }}>open</span></span>}
+        <MatrixTotalsToggle style={{ marginLeft: "auto" }} />
         {hasReceipts && (
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
             {!showBreakdown && (
@@ -934,8 +941,8 @@ function PoRowDetail({ poId, explode, status }: { poId: string; explode: boolean
         const colTotals: Record<string, number> = {};
         for (const sz of sizes) colTotals[sz] = 0;
         for (const cm of s.colors.values()) for (const [sz, cell] of cm) colTotals[sz] += cell.ordered;
-        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: collapsedStyles.has(style) });
-        const vSizes = sizeCollapse.visibleSizes;
+        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: styleCollapsedFor(style) });
+        const vSizes = totalsOnly ? [] : sizeCollapse.visibleSizes;
         return (
           <div key={style} style={{ border: `1px solid ${C.cardBdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 10px", background: C.card }}>

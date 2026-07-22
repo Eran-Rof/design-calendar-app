@@ -4,10 +4,10 @@
 // without leaving the grid view. Read-only, dismisses on outside
 // click or Escape.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { itemQty, isLineClosed, normalizeSize, sizeSort, type XoroPO } from "../../utils/tandaTypes";
 import { extractPpk } from "../../shared/prepack";
-import { computeSizeCollapse } from "../../shared/matrix";
+import { computeSizeCollapse, MatrixTotalsToggle, useHideEmptySizes, useTotalsOnly } from "../../shared/matrix";
 
 export interface PoMatrixPopoverProps {
   po: XoroPO;
@@ -40,8 +40,9 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
   const ref = useRef<HTMLDivElement | null>(null);
   const explodePpk = readExplode();
   // Empty-size-column collapse — same SO/PO model (green first header, click to
-  // hide the all-zero leading/trailing size columns).
-  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // hide the all-zero leading/trailing size columns). Shared pref, DEFAULTS ON.
+  const [sizesCollapsed, setSizesCollapsed] = useHideEmptySizes();
+  const [totalsOnly] = useTotalsOnly();
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -98,7 +99,8 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
   for (const sz of sizeOrder) colTotals[sz] = 0;
   for (const base of bases) for (const row of byBase[base]) for (const sz of sizeOrder) colTotals[sz] += row.sizes[sz] || 0;
   const sizeCollapse = computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed });
-  const visibleSizes = sizeCollapse.visibleSizes;
+  // Totals-only drops the size columns (per-colorway totals view); Total column stays.
+  const visibleSizes = totalsOnly ? [] : sizeCollapse.visibleSizes;
 
   const totalPacks = parsed.reduce((s, p) => s + (p.closed ? 0 : (p.qty ?? 0)), 0);
   const totalUnits = parsed.reduce((s, p) => {
@@ -125,6 +127,7 @@ export function PoMatrixPopover({ po, x, y, onClose }: PoMatrixPopoverProps): Re
             )}
           </span>
         </span>
+        <MatrixTotalsToggle style={{ marginLeft: 8 }} />
       </div>
       <div style={{ overflow: "auto", maxHeight: "60vh" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>

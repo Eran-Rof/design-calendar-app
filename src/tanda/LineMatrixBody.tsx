@@ -20,7 +20,7 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import SearchableSelect from "./components/SearchableSelect";
-import { EditableSizeMatrix, matrixCellKey } from "../shared/matrix";
+import { EditableSizeMatrix, matrixCellKey, MatrixTotalsToggle } from "../shared/matrix";
 import type { EditableMatrixRow } from "../shared/matrix";
 import { fmtDateDisplay } from "../utils/tandaTypes";
 import { distributeByPack, hasUsablePack, isPartialCarton, ceilToCarton, CARTON, packForInseam, type SizePack, type NestedSizePack } from "../shared/sizeScale";
@@ -792,6 +792,9 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        {/* One shared "Totals only" toggle drives every style grid below (each
+            EditableSizeMatrix reads the same pref); its own chips are suppressed. */}
+        <MatrixTotalsToggle size="md" />
         <button onClick={toggleImages} style={showImages ? { ...btnSecondary, color: C.primary, borderColor: C.primary } : btnSecondary}
           title={showImages ? "Hide style images (and exclude them from downloads/print/email)" : "Show a style image on each line (also included in downloads, print and email)"}>
           {showImages ? "Hide images" : "Show images"}
@@ -1043,6 +1046,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
                 {/* Prepack PPKxx = inner pack × N = carton (from the Prepack Matrices). */}
                 {ppActive.has_matrix && !packCompHidden.has(s.id) && <PrepackCompositionView composition={ppActive.composition} />}
                 <EditableSizeMatrix
+                  hideTotalsToggle
                   rows={rows} sizes={[ppActive.pack_token]}
                   qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)}
                   unit={{
@@ -1096,6 +1100,7 @@ const LineMatrixBody = forwardRef<LineMatrixBodyHandle, LineMatrixBodyProps>(fun
             {s.payload && !ppActive && displaySizes.length === 0 && <div style={{ color: C.warn, fontSize: 13, padding: 8 }}>This style has no size scale — use “+ Add non-matrix line”.</div>}
             {s.payload && !ppActive && displaySizes.length > 0 && (
               <EditableSizeMatrix
+                hideTotalsToggle
                 rows={rows} sizes={displaySizes}
                 showRise={(s.payload.inseams?.length ?? 0) > 1} riseLabel="Inseam"
                 qty={s.qty} onQtyChange={(rk, sz, v) => setQty(s.id, rk, sz, v)} onHand={onHand}

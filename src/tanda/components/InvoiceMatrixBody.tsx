@@ -11,7 +11,7 @@
 // mounts — AR passes moneyLabel "Unit $", AP passes "Unit Cost $".
 
 import { useState } from "react";
-import { computeSizeCollapse } from "../../shared/matrix";
+import { computeSizeCollapse, MatrixTotalsToggle, useHideEmptySizes, useTotalsOnly } from "../../shared/matrix";
 import type { InvoiceMatrixModel } from "../lib/invoiceMatrixBody";
 
 const C = {
@@ -54,10 +54,16 @@ export default function InvoiceMatrixBody({
 }) {
   const { styles, flat } = model;
   // Empty-size-column collapse, per style block (keyed by style code) — same
-  // green first-size-header behavior as the SO/PO grids + Inventory Matrix.
+  // green first-size-header behavior as the SO/PO grids + Inventory Matrix. Each
+  // block's Set membership is an OVERRIDE on top of the shared default (DEFAULTS
+  // ON), so a block's green-header click flips only that block yet the default
+  // follows the shared, persisted cross-surface pref.
+  const [hideEmptyDefault] = useHideEmptySizes();
+  const [totalsOnly] = useTotalsOnly();
   const [collapsedStyles, setCollapsedStyles] = useState<Set<string>>(new Set());
   const toggleCollapsedStyle = (style: string) =>
     setCollapsedStyles((prev) => { const n = new Set(prev); n.has(style) ? n.delete(style) : n.add(style); return n; });
+  const styleCollapsedFor = (style: string) => (collapsedStyles.has(style) ? !hideEmptyDefault : hideEmptyDefault);
 
   if (styles.length === 0 && flat.length === 0) {
     return <div style={{ padding: "10px 14px", color: C.textMuted, fontSize: 12 }}>{emptyLabel}</div>;
@@ -65,8 +71,11 @@ export default function InvoiceMatrixBody({
 
   return (
     <div style={{ padding: "10px 14px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
-      {title && (
-        <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>{title}</span>
+      {(title || styles.length > 0) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {title && <span style={{ color: C.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>{title}</span>}
+          {styles.length > 0 && <MatrixTotalsToggle style={{ marginLeft: "auto" }} />}
+        </div>
       )}
 
       {header && header.length > 0 && (
@@ -85,8 +94,8 @@ export default function InvoiceMatrixBody({
         const colTotals: Record<string, number> = {};
         for (const sz of sizes) colTotals[sz] = 0;
         for (const cm of st.colors.values()) for (const [sz, cell] of cm) colTotals[sz] += cell.qty;
-        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: collapsedStyles.has(st.styleCode) });
-        const vSizes = sizeCollapse.visibleSizes;
+        const sizeCollapse = computeSizeCollapse(sizes, colTotals, { enabled: true, collapsed: styleCollapsedFor(st.styleCode) });
+        const vSizes = totalsOnly ? [] : sizeCollapse.visibleSizes;
         let styleQty = 0, styleExt = 0;
         for (const cm of st.colors.values()) for (const cell of cm.values()) { styleQty += cell.qty; styleExt += cell.extCents; }
         return (

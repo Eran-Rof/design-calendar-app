@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { itemQty, isLineClosed, lineDeliveryDate, fmtCurrency, fmtDate } from "../../utils/tandaTypes";
 import { extractPpk } from "../../shared/prepack";
 import { buildPoMatrix, rowExplodedTotal } from "../../shared/poMatrix";
-import { computeSizeCollapse } from "../../shared/matrix";
+import { computeSizeCollapse, MatrixTotalsToggle, useHideEmptySizes, useTotalsOnly } from "../../shared/matrix";
 import S from "../styles";
 import type { DetailPanelCtx } from "../detailPanel";
 
@@ -41,7 +41,10 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
   // Empty-size-column collapse — the SAME model the SO/PO entry grid + Inventory
   // Matrix use. Once any size column carries qty, the first VISIBLE size header
   // turns green + is clickable to hide the all-zero leading/trailing columns.
-  const [sizesCollapsed, setSizesCollapsed] = useState(false);
+  // Shared per-user pref, DEFAULTS ON (hidden), persisted across surfaces.
+  const [sizesCollapsed, setSizesCollapsed] = useHideEmptySizes();
+  // Totals-only — hide the size columns entirely, show per-colorway totals + money.
+  const [totalsOnly] = useTotalsOnly();
 
   if (!selected) return null;
   if (!(detailMode === "po" || detailMode === "all")) return null;
@@ -63,7 +66,9 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
   for (const sz of sizeOrder) colTotals[sz] = 0;
   for (const base of bases) for (const row of byBase[base]) for (const sz of sizeOrder) colTotals[sz] += row.sizes[sz] || 0;
   const sizeCollapse = computeSizeCollapse(sizeOrder, colTotals, { enabled: true, collapsed: sizesCollapsed });
-  const visibleSizes = sizeCollapse.visibleSizes;
+  // Totals-only drops every size column; the Total / cost columns (and the amber
+  // grand totals) still render, so the money math is untouched.
+  const visibleSizes = totalsOnly ? [] : sizeCollapse.visibleSizes;
 
   return (
     <>
@@ -83,6 +88,8 @@ export function PoMatrixTab({ ctx, total, totalQty }: { ctx: DetailPanelCtx; tot
               )}
             </span>
           </span>
+          {/* Totals-only toggle — hide the size grid, show per-colorway totals. */}
+          <MatrixTotalsToggle />
           {/* EXPLODE PPK toggle. Stop propagation so clicking the
               chip doesn't also toggle the matrix collapsed state. */}
           <label
