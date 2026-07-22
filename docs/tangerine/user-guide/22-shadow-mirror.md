@@ -244,6 +244,10 @@ The stale-baseline suppression in §22.12.2 was a safety net for a real problem:
 
 Guardrails: `--apply` is required to write (a plain run prints the upsert/prune **counts** and touches nothing); every count (upserted, pruned-superseded, pruned-sold-through) is logged to stdout so `run_daily`'s tee captures it. The old `ingest-size-onhand.mjs --batch` block was removed from `rof_xoro_project/scripts/run_daily.ps1` so there is exactly **one** writer.
 
+### 22.12.5 PPK pack stock is its own bucket in the accuracy monitor (2026-07-22)
+
+PPK (prepack) styles hold real pack-grain stock that the by-size REST world deliberately excludes — the feed reports them under inseam-embedded BasePartNumbers the ingest skips, so those SKUs have layers but no by-size reference. The reconcile view used to class them as **material divergence priced at pack costs** (~$237k of phantom exposure). They are now severity **pack_grain**: excluded from the $-exposure, |units| and divergent-SKU headlines, and reported separately as pack_grain_skus / pack_grain_units / pack_grain_value_cents in the accuracy summary (and therefore in the Cutover Reconciliation inventory tie-out, which reuses it). Real divergence on PPK styles that DO have by-size coverage still classes normally.
+
 **Net effect on §22.12.2:** the accuracy monitor's baseline now goes fresh every business day, so the stale-baseline suppression becomes a **dormant safety net** — full $-exposure and phantom alerting is active again, and the suppression only ever kicks in if the spine itself stops running (a real break worth its own investigation).
 
 ### 22.12.4 On-hand layers carry real cost — tiered resolution (2026-07-21)
