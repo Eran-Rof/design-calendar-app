@@ -335,6 +335,7 @@ const TANDA_MENU: MenuKey[] = [
   { key: "tanda/admin/onboarding",           label: "Onboarding",          app: "tanda", route: "/tangerine?m=onboarding",        group: "Admin", icon: "🚀" },
   { key: "tanda/admin/api-keys",             label: "API Keys",            app: "tanda", route: "/tangerine?m=api_keys",         group: "Admin", icon: "🔑" },
   { key: "tanda/admin/sync-health",          label: "Sync Health",         app: "tanda", route: "/tangerine?m=sync_health",      group: "Admin", icon: "🩺" },
+  { key: "tanda/admin/cutover-recon",        label: "Cutover Reconciliation", app: "tanda", route: "/tangerine?m=cutover_recon",  group: "Admin", icon: "🧮" },
 ];
 
 // ─── Tech Packs ────────────────────────────────────────────────────────────

@@ -304,4 +304,34 @@ This is a **different pipeline** from the SO/PO order importer that was fixed ea
 
 ---
 
+## 22.17 Cutover Reconciliation — "do the numbers TIE?" (2026-07-21)
+
+Sync Health (22.12) proves the feeds **flow**. **Cutover Reconciliation** proves the numbers **tie**. It is the go/no-go dashboard for the Xoro → Tangerine cutover: one read-only screen that ties Tangerine's operational tables to the Xoro mirror across **six domains**, runnable any day so you can watch each gap burn to zero before go-live.
+
+**Where:** NavDrawer → **Admin → Cutover Reconciliation** (`/tangerine?m=cutover_recon`), next to Sync Health. Read-only; no posting, no edits.
+
+**How to read it.** A **PASS/FAIL card** sits at the top for each domain:
+- **✓ green** — the domain's gaps have reached zero (tied).
+- **✕ red** — variances remain; the count and headline are on the card. This is expected today and burns down as data is corrected.
+- **◐ amber (mirror-limited)** — the Xoro mirror does not carry the data needed for a full dollar tie, so the section reconciles what it *can* (counts / status / control totals) and prints a note saying so. Not a failure — an honest limitation.
+
+Click a card to jump to its detail table. Each section shows headline metric chips, the mirror-limitation note (if any), and a variance table (top 200 by size, with the true total). Every table has an **Export** button (xlsx).
+
+**The six domains and what each ties:**
+
+| Domain | Tangerine (native) | Xoro mirror | Tie |
+| --- | --- | --- | --- |
+| **Inventory** | `inventory_layers` (remaining) units + value at cost | REST by-size truth (`tangerine_size_onhand`, latest snapshot) | Units both sides; **$ is one-sided** (REST is units-only, so the $ is the Tangerine layer valuation and exposure is the unit divergence valued at cost). Reuses the on-hand accuracy reconcile. |
+| **Sales Orders** | open `sales_orders` (confirmed, fulfilling) | active `tanda_sos` (Released, Partially Shipped) | Count + Σ qty per SO. A native-open SO that Xoro has cancelled shows the Xoro status. |
+| **Purchase Orders** | inbound `purchase_orders` (issued, partially received) | inbound `tanda_pos` (Released, Open, Partially Received) | Count + Σ qty per PO. Mirror status lag is the usual gap. |
+| **AR** | open `ar_invoices` (unpaid / partial) | `ar_xoro_payment_state` **Open flag** | **Count/status only** — the Xoro AR mirror is a paid/open flag with no per-invoice dollar balance. Native open $ shown for context. |
+| **AP** | open vendor bills (`invoices`, `vendor_bill`, approved, open) | Xoro AP control feed (`xoro_gl_transactions`, A/P) | **Control-total + overlap** — the AP feed is a stale snapshot with no per-bill open balance; only bills inside its range are amount-compared. AP control residual shown for context. |
+| **GL** | trial balance from `journal_entries` | Xoro account balances | **Mirror fidelity** — Tangerine GL is ~99.9% Xoro-mirrored, so a raw TB tie nets to zero; the burn-down target is each account's **unexplained residual** (variance net of intentional channel reclasses and known-unmirrored Xoro txns), reusing `v_xoro_tangerine_tb_recon`. |
+
+**Why several domains read "mirror-limited."** The Xoro feeds were built for *operations*, not for a dollar-perfect close: the AR mirror stores a status flag, the AP mirror is a periodic GL snapshot, and REST on-hand is units-only. Rather than fake a dollar tie, those sections reconcile the strongest comparison the mirror actually supports and label it plainly. As the real per-invoice / per-bill feeds land, the ties tighten.
+
+**Under the hood.** `GET /api/internal/cutover-recon` runs one bounded, set-based jsonb tie-out per domain (`cutover_recon_*()` SQL functions, migration `20267700000000`), each returning the full-set counts plus a capped (≤200) variance sample. Classification (missing-in-Tangerine / missing-in-Xoro / amount-differs / status-differs / tied) and the PASS/FAIL decision live in unit-tested JS (`api/_lib/cutoverRecon.js`). Nothing here writes.
+
+---
+
 Pairs with: chapter 13 (AP), chapter 16 (AR), chapter 17 (Bank Recon), chapter 19 (Revenue Ops), chapter 27 (Sales Orders). Strategic context: `docs/tangerine/XORO-DECOM-MAP.md`.

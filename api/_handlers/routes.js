@@ -268,6 +268,7 @@ import r_internal_customer_locations_index from "./internal/customer-locations/i
 import r_internal_customer_master_id from "./internal/customer-master/[id].js";
 import r_internal_customer_master_index from "./internal/customer-master/index.js";
 import r_internal_customer_scorecard_index from "./internal/customer-scorecard/index.js";
+import r_internal_cutover_recon from "./internal/cutover-recon.js";
 import r_internal_data_freshness from "./internal/data-freshness.js";
 import r_internal_date_presets_id from "./internal/date-presets/[id].js";
 import r_internal_date_presets_index from "./internal/date-presets/index.js";
@@ -1403,6 +1404,7 @@ export const ROUTES = [
   { pattern: "/api/internal/balance-sheet", handler: r_internal_balance_sheet_index },
   { pattern: "/api/internal/bank-accounts", handler: r_internal_bank_accounts_index },
   { pattern: "/api/internal/client-errors", handler: r_internal_client_errors },
+  { pattern: "/api/internal/cutover-recon", handler: r_internal_cutover_recon },
   { pattern: "/api/internal/global-search", handler: r_internal_global_search_index },
   { pattern: "/api/internal/notifications", handler: r_internal_notifications_index },
   { pattern: "/api/internal/payment-terms", handler: r_internal_payment_terms_index },
