@@ -169,6 +169,41 @@ export function NavDrawer({
   const [userOpen, setUserOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // ── auto-close on mouse-off (pointer-driven sessions only) ─────────────
+  // CEO ask: when the drawer is OPEN (expanded), collapse it once the pointer
+  // leaves the panel — after a short grace delay so travel between the trigger
+  // and the panel doesn't slam it shut, and cancelled if the pointer re-enters.
+  // Guardrails:
+  //   • Only armed AFTER a mouseenter (a real pointer session). Touch / keyboard
+  //     users never generate a mouseenter, so they are never stranded.
+  //   • Never fires while a flyout / popover owns the pointer (Apps switcher or
+  //     the user menu), since those render outside the drawer's own bounds.
+  //   • Only collapses when currently open; the accordion / favorites state is
+  //     untouched, so re-opening restores exactly what was expanded.
+  const AUTO_CLOSE_MS = 350;
+  const closeTimer   = useRef<number | null>(null);
+  const pointerInside = useRef(false);
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimer.current != null) { window.clearTimeout(closeTimer.current); closeTimer.current = null; }
+  }, []);
+  const onDrawerEnter = useCallback(() => {
+    pointerInside.current = true;   // a genuine pointer session — auto-close now armed
+    clearCloseTimer();
+  }, [clearCloseTimer]);
+  const onDrawerLeave = useCallback(() => {
+    const wasInside = pointerInside.current;
+    pointerInside.current = false;
+    if (!wasInside) return;                       // no prior mouseenter → don't arm (touch/keyboard)
+    if (collapsed || appsOpen || userOpen) return; // nothing to close / a flyout owns the pointer
+    clearCloseTimer();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      onToggleCollapsed();                        // drawer is open here → collapse it
+    }, AUTO_CLOSE_MS);
+  }, [collapsed, appsOpen, userOpen, clearCloseTimer, onToggleCollapsed]);
+  // Drop any pending timer on unmount.
+  useEffect(() => clearCloseTimer, [clearCloseTimer]);
   // When a Favorite is clicked we navigate but DON'T auto-expand the module's
   // section in the menu below — the favorite IS the selection. This ref tells
   // the auto-open effect to skip the next activeModule change.
@@ -351,6 +386,8 @@ export function NavDrawer({
         zIndex: 200, overflowX: "hidden", overflowY: "hidden",
       }}
       onClick={() => userOpen && setUserOpen(false)}
+      onMouseEnter={onDrawerEnter}
+      onMouseLeave={onDrawerLeave}
     >
       {/* ── Logo / collapse ───────────────────────────────────────── */}
       {/* Header height pinned to TOPBAR_H so the app-name row lines up exactly

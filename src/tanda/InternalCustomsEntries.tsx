@@ -13,6 +13,8 @@ import { useEffect, useMemo, useState } from "react";
 import { notify, confirmDialog } from "../shared/ui/warn";
 import ExportButton from "./exports/ExportButton";
 import type { ExportColumn } from "./exports/useTableExport";
+import { useSort } from "./hooks/useSort";
+import SortableTh from "./components/SortableTh";
 
 const C = {
   bg: "#0F172A", card: "#1E293B", cardBdr: "#334155",
@@ -100,6 +102,17 @@ export default function InternalCustomsEntries() {
       `${r.entry_number} ${r.port_of_entry || ""} ${r.broker_name || ""} ${r.importer_of_record || ""}`.toLowerCase().includes(q));
   }, [rows, search]);
 
+  // Client-side column sort (shared useSort hook). Date sorts by real value;
+  // cents (stored number|string) are coerced numeric. Additive — click to sort.
+  const { sorted: sortedRows, sortKey, sortDir, onHeaderClick } = useSort(filtered, {
+    persistKey: "tanda.customs_entries.sort",
+    accessors: {
+      entry_date: (r) => (r.entry_date ? new Date(r.entry_date) : null),
+      total_entered_value_cents: (r) => Number(r.total_entered_value_cents ?? 0),
+      total_duty_cents: (r) => Number(r.total_duty_cents ?? 0),
+    },
+  });
+
   const exportRows = useMemo(() => filtered.map((r) => ({
     entry_number: r.entry_number,
     entry_date: r.entry_date,
@@ -131,13 +144,16 @@ export default function InternalCustomsEntries() {
       <div style={{ background: C.card, border: `1px solid ${C.cardBdr}`, borderRadius: 10, overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 240px)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={th}>Entry #</th><th style={th}>Date</th><th style={th}>Port</th>
-            <th style={{ ...th, textAlign: "right" }}>Entered value</th><th style={{ ...th, textAlign: "right" }}>Duty</th>
+            <SortableTh label="Entry #" sortKey="entry_number" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Date" sortKey="entry_date" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Port" sortKey="port_of_entry" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} />
+            <SortableTh label="Entered value" sortKey="total_entered_value_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
+            <SortableTh label="Duty" sortKey="total_duty_cents" activeKey={sortKey} dir={sortDir} onSort={onHeaderClick} style={th} cellStyle={{ textAlign: "right" }} />
           </tr></thead>
           <tbody>
             {loading && <tr><td style={td} colSpan={5}>Loading…</td></tr>}
             {!loading && filtered.length === 0 && <tr><td style={{ ...td, color: C.textMuted }} colSpan={5}>No customs entries.</td></tr>}
-            {filtered.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.id} style={{ cursor: "pointer" }} onClick={() => { setEditing(r); setModalOpen(true); }}>
                 <td style={{ ...td, fontFamily: "SFMono-Regular, Menlo, monospace" }}>{r.entry_number}</td>
                 <td style={td}>{r.entry_date}</td>
