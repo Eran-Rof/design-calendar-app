@@ -32,6 +32,14 @@ const LETTER_SIZE_CANON = {
   XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
   XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
   XXXL: "3XLARGE", "3X": "3XLARGE", "3XL": "3XLARGE", "3XLARGE": "3XLARGE",
+  // Infant month sizes — Xoro SKUs spell them "12MO"/"18MO" while the size
+  // scales (e.g. Toddler Girl SCALE-00010) carry "12M"/"18M". Without this
+  // alias the matrix renders an EMPTY scale column ("12M") NEXT TO the SKU
+  // column ("12MO") for the same physical size, and scale-coverage checks
+  // false-flag the size as missing (2026-07-21, CEO toddler-scale finding).
+  // Canonical = the scale spelling ("12M").
+  "6M": "6M", "6MO": "6M", "9M": "9M", "9MO": "9M",
+  "12M": "12M", "12MO": "12M", "18M": "18M", "18MO": "18M", "24M": "24M", "24MO": "24M",
 };
 export function normalizeSize(raw) {
   if (raw == null) return raw;
