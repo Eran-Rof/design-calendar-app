@@ -35,10 +35,22 @@ const TODAY = new Date().toISOString().slice(0, 10);
 const labelStyle: React.CSSProperties = { color: PAL.textMuted, fontSize: 11 };
 const sel: React.CSSProperties = { ...S.select, fontSize: 12, padding: "5px 8px" };
 
+// The report picker — one card per report on the selection page.
+const REPORTS: Array<{ key: TabKey; label: string; desc: string }> = [
+  { key: "sales", label: "Sales Performance", desc: "Wholesale sales by grain, YoY, ABC" },
+  { key: "inventory", label: "Inventory Health", desc: "On-hand value, weeks of supply, stockout / excess" },
+  { key: "accuracy", label: "Forecast Accuracy", desc: "MAPE & bias, system vs final (per run)" },
+  { key: "buy", label: "Buy Plan & Supply", desc: "Buy recs + open-PO coverage (per run)" },
+  { key: "buyerVsLy", label: "Buyer vs LY", desc: "Buyer quantities vs same-period-last-year, per customer" },
+  { key: "buyVsLy", label: "Buy vs LY", desc: "Buy quantities vs same-period-last-year, per customer" },
+];
+
 export default function ReportsWorkbench() {
   const [ctx, setCtx] = useState<LookupCtx | null>(null);
   const [runs, setRuns] = useState<RepRun[]>([]);
-  const [tab, setTab] = useState<TabKey>("sales");
+  // null = the report selection page. Picking a report opens it; its Close
+  // button returns here.
+  const [tab, setTab] = useState<TabKey | null>(null);
   const [bootErr, setBootErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,35 +68,65 @@ export default function ReportsWorkbench() {
     })();
   }, []);
 
+  const active = REPORTS.find((r) => r.key === tab) ?? null;
+
   return (
     <div style={S.app}>
       <div style={S.content}>
         {bootErr && <div style={{ color: PAL.red, marginBottom: 12 }}>Load failed — {bootErr}</div>}
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
-          <TabButton active={tab === "sales"} onClick={() => setTab("sales")}>Sales Performance</TabButton>
-          <TabButton active={tab === "inventory"} onClick={() => setTab("inventory")}>Inventory Health</TabButton>
-          <TabButton active={tab === "accuracy"} onClick={() => setTab("accuracy")}>Forecast Accuracy</TabButton>
-          <TabButton active={tab === "buy"} onClick={() => setTab("buy")}>Buy Plan & Supply</TabButton>
-          <TabButton active={tab === "buyerVsLy"} onClick={() => setTab("buyerVsLy")}>Buyer vs LY</TabButton>
-          <TabButton active={tab === "buyVsLy"} onClick={() => setTab("buyVsLy")}>Buy vs LY</TabButton>
-        </div>
-
-        {/* The Buyer/Buy vs LY tabs build directly from the planning run's grid
-            rows and don't need the shared masters context, so they render even
-            while `ctx` is still loading. */}
-        {tab === "buyerVsLy" ? (
-          <BuyerVsLyPanel metric="buyer" />
-        ) : tab === "buyVsLy" ? (
-          <BuyerVsLyPanel metric="buy" />
-        ) : !ctx ? (
-          <div style={{ ...S.card, padding: 32, textAlign: "center", color: PAL.textMuted }}>Loading masters…</div>
+        {tab === null ? (
+          /* Report selection page — pick a report to open. */
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: PAL.text, marginBottom: 12 }}>Reports</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+              {REPORTS.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => setTab(r.key)}
+                  style={{ ...S.card, textAlign: "left", cursor: "pointer", padding: 16, border: `1px solid ${PAL.border}`, background: PAL.panel, fontFamily: "inherit" }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700, color: PAL.accent, marginBottom: 4 }}>{r.label}</div>
+                  <div style={{ fontSize: 12, color: PAL.textMuted }}>{r.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <>
-            {tab === "sales" && <SalesPanel ctx={ctx} />}
-            {tab === "inventory" && <InventoryPanel ctx={ctx} />}
-            {tab === "accuracy" && <AccuracyPanel ctx={ctx} runs={runs} />}
-            {tab === "buy" && <BuyPanel ctx={ctx} runs={runs} />}
+            {/* Close bar — ✕ and Close return to the selection page. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setTab(null)}
+                title="Close this report and go back to the report list"
+                style={{ background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+              >✕</button>
+              <div style={{ flex: 1, fontSize: 15, fontWeight: 700, color: PAL.text }}>{active?.label}</div>
+              <button
+                type="button"
+                onClick={() => setTab(null)}
+                style={{ background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+              >Close</button>
+            </div>
+
+            {/* The Buyer/Buy vs LY reports build directly from the planning run's
+                grid rows and don't need the shared masters context. */}
+            {tab === "buyerVsLy" ? (
+              <BuyerVsLyPanel metric="buyer" />
+            ) : tab === "buyVsLy" ? (
+              <BuyerVsLyPanel metric="buy" />
+            ) : !ctx ? (
+              <div style={{ ...S.card, padding: 32, textAlign: "center", color: PAL.textMuted }}>Loading masters…</div>
+            ) : (
+              <>
+                {tab === "sales" && <SalesPanel ctx={ctx} />}
+                {tab === "inventory" && <InventoryPanel ctx={ctx} />}
+                {tab === "accuracy" && <AccuracyPanel ctx={ctx} runs={runs} />}
+                {tab === "buy" && <BuyPanel ctx={ctx} runs={runs} />}
+              </>
+            )}
           </>
         )}
       </div>

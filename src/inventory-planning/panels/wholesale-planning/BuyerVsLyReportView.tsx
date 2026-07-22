@@ -29,6 +29,11 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
   const hasScope = !!scopedRows && scopedRows !== fullRows;
   const [scope, setScope] = useState<"filtered" | "full">(hasScope ? "filtered" : "full");
   const [hideZero, setHideZero] = useState(false);
+  // SP/LY base style: show the base garment style (RYB0412) in the Last-Year
+  // block — that's where last-year sales actually happened — while This-Year /
+  // Comparison keep the (possibly PPK) style being planned. Off by default;
+  // only meaningful for PPK-only builds where the two labels differ.
+  const [lyBaseStyle, setLyBaseStyle] = useState(false);
   const meta = reportMetricMeta(metric);
   const rows = scope === "full" || !scopedRows ? fullRows : scopedRows;
   const built = useMemo(() => buildBuyerVsLyReport(rows, metric), [rows, metric]);
@@ -61,9 +66,11 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
         <tbody>
           {styles.map((sty) => sty.colors.map((c, ci) => {
             const arr = block === "ly" ? c.ly : c.ty;
+            // SP/LY-base-style: the Last-Year block labels with the base garment.
+            const styleLabel = block === "ly" && lyBaseStyle ? sty.baseStyle : sty.style;
             return (
               <tr key={`${sty.style}|${c.color}`}>
-                <td style={tdL}>{ci === 0 ? sty.style : ""}</td>
+                <td style={tdL}>{ci === 0 ? styleLabel : ""}</td>
                 <td style={tdL}>{c.color}</td>
                 {arr.map((v, i) => <td key={i} style={td}>{qfmt(v)}</td>)}
                 <td style={{ ...td, fontWeight: 700 }}>{qfmt(block === "ly" ? c.lyTotal : c.tyTotal)}</td>
@@ -152,8 +159,14 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
           onClick={() => setHideZero((v) => !v)}
           title={`Hide rows where both last year and this year's ${meta.noun} are zero across every month`}
         >{hideZero ? "Zero rows: hidden" : "Hide zero rows"}</button>
-        <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel, hideZero, metric }); }}>Download Excel</button>
-        <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel, hideZero, metric })}>Download PDF</button>
+        <button
+          type="button"
+          style={seg(lyBaseStyle)}
+          onClick={() => setLyBaseStyle((v) => !v)}
+          title="Show the base garment style (e.g. RYB0412) in the SP/LY block — where last-year sales actually happened — while This Year keeps the style you're planning (e.g. RYB0412PPK)."
+        >{lyBaseStyle ? "SP/LY base style: on" : "SP/LY base style"}</button>
+        <button type="button" style={btn} onClick={() => { void exportBuyerVsLyExcel(report, { runName, scopeLabel, hideZero, metric, lyBaseStyle }); }}>Download Excel</button>
+        <button type="button" style={btn} onClick={() => exportBuyerVsLyPdf(report, { runName, scopeLabel, hideZero, metric, lyBaseStyle })}>Download PDF</button>
       </div>
       <div style={{ overflow: "auto", padding: 16 }}>
         {report.customers.length === 0 ? (

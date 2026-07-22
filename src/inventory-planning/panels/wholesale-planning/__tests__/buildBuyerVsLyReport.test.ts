@@ -213,3 +213,26 @@ describe("buildBuyerVsLyReport — family display label (PPK-only build shows th
     expect(rep.customers[0].lyTotal).toBe(4112);
   });
 });
+
+
+describe("buildBuyerVsLyReport — baseStyle for the SP/LY-base-style toggle", () => {
+  it("PPK-only group: style = RYB0412PPK, baseStyle = RYB0412", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-BLKCAMO", sku_color: "Black Camo", period_code: "2027-04", is_tbd: true, ly_reference_qty: 4112, buyer_request_qty: 500 } as Partial<IpPlanningGridRow>),
+    ]);
+    const sty = rep.customers[0].styles[0];
+    expect(sty.style).toBe("RYB0412PPK");
+    expect(sty.baseStyle).toBe("RYB0412");
+    expect(sty.colors[0].style).toBe("RYB0412PPK");
+    expect(sty.colors[0].baseStyle).toBe("RYB0412");
+  });
+
+  it("base/mixed group: style and baseStyle are both the base", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ sku_style: "RYB0412", sku_code: "RYB0412-BLACK", sku_color: "Black", period_code: "2027-04", ly_reference_qty: 4112 }),
+    ]);
+    const sty = rep.customers[0].styles[0];
+    expect(sty.style).toBe("RYB0412");
+    expect(sty.baseStyle).toBe("RYB0412");
+  });
+});

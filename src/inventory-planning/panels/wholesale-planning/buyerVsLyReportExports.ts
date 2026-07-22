@@ -8,7 +8,7 @@ import { reportComp, reportPct, filterStylesForBlock, reportMetricMeta, type Buy
 
 // Export options. `metric` selects Buyer vs Buy labels/filenames (defaults to
 // "buyer" so any pre-existing caller keeps its behavior).
-interface ExportOpts { runName: string; scopeLabel: string; hideZero?: boolean; metric?: ReportMetric }
+interface ExportOpts { runName: string; scopeLabel: string; hideZero?: boolean; metric?: ReportMetric; lyBaseStyle?: boolean }
 
 function fileStem(runName: string, metric: ReportMetric): string {
   return `${reportMetricMeta(metric).fileStem}-${(runName || "run").replace(/[^\w.-]+/g, "_")}`;
@@ -22,6 +22,7 @@ const bz = (n: number): number | string => (n === 0 ? "" : n);
 export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: ExportOpts): void {
   const { periods } = report;
   const hz = !!opts.hideZero;
+  const lyBase = !!opts.lyBaseStyle;
   const meta = reportMetricMeta(opts.metric ?? "buyer");
   const sections: PdfSection[] = [];
 
@@ -37,7 +38,7 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: ExportOpts): v
     sections.push({
       heading: `${cust.customer} — SP/LY (Last Year)`,
       columns: qtyCols("lyLabel"),
-      rows: [...qtyRows(cust, "ly", codes, hz), totalRow(cust, "ly", codes)],
+      rows: [...qtyRows(cust, "ly", codes, hz, lyBase), totalRow(cust, "ly", codes)],
     });
     // TY block (Buyer or Buy)
     sections.push({
@@ -71,13 +72,14 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: ExportOpts): v
   });
 }
 
-function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[], hideZero = false): Record<string, unknown>[] {
+function qtyRows(cust: ReportCustomer, block: "ly" | "ty", codes: string[], hideZero = false, lyBaseStyle = false): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const sty of (hideZero ? filterStylesForBlock(cust, block) : cust.styles)) {
     for (const c of sty.colors) {
       const arr = block === "ly" ? c.ly : c.ty;
       const tot = block === "ly" ? c.lyTotal : c.tyTotal;
-      const o: Record<string, unknown> = { label: `${c.style} · ${c.color}`, total: bz(tot) };
+      const label = block === "ly" && lyBaseStyle ? c.baseStyle : c.style;
+      const o: Record<string, unknown> = { label: `${label} · ${c.color}`, total: bz(tot) };
       codes.forEach((code, i) => { o[code] = bz(arr[i]); });
       out.push(o);
     }
@@ -141,6 +143,7 @@ const pctCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? 
 export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: ExportOpts): Promise<void> {
   const { periods } = report;
   const hz = !!opts.hideZero;
+  const lyBase = !!opts.lyBaseStyle;
   const meta = reportMetricMeta(opts.metric ?? "buyer");
   const nP = periods.length;
   const maxCols = Math.max(nP + 3, nP * 2 + 4); // comparison block is widest
@@ -160,7 +163,8 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: Export
       for (const sty of (hz ? filterStylesForBlock(cust, pick) : cust.styles)) {
         for (const c of sty.colors) {
           const arr = pick === "ly" ? c.ly : c.ty;
-          aoa.push([{ v: c.style, s: S_KEY }, { v: c.color, s: S_BODY("left") },
+          const keyLabel = pick === "ly" && lyBase ? c.baseStyle : c.style;
+          aoa.push([{ v: keyLabel, s: S_KEY }, { v: c.color, s: S_BODY("left") },
             ...arr.map((v) => qtyCell(v, S_BODY("right"))), qtyCell(pick === "ly" ? c.lyTotal : c.tyTotal, { ...S_BODY("right"), font: { bold: true, sz: 10, color: { rgb: XLP.BODY_TEXT } } })]);
         }
       }
