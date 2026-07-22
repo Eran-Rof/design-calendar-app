@@ -59,6 +59,7 @@ import {
   baseColorKey,
   buildPoEachCostByBaseColor,
   buildPoEachCostByStyle,
+  familyStyleOf,
   resolvePackSize,
   styleKey,
   type PlanningCostMaps,
@@ -997,37 +998,60 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
   const t3ForPeriod = (customerId: string, skuId: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } =>
     windowsFor(histByPairMonth.get(`${customerId}:${skuId}`), periodStart);
 
-  // FAMILY-grain history twin, keyed (customer, baseColorKey). A planner-added
-  // TBD stock-buy row resolves the PACK sku (RYB0412PPK-BLACK) while the
-  // customer's history is recorded on the each-grain family SKUs
-  // (RYB0412-BLACK …) — the exact-sku map would report 0 for a style the
-  // customer buys thousands of. Aggregating by base color (size + PPK token
-  // stripped, same key the cost cascade uses) lets the TBD row surface the
-  // whole (style, color) family's Hist T3/6/9/12 and SP/LY.
+  // FAMILY key = base style (PPK token stripped) + the RESOLVED display color,
+  // squished to alphanumerics. Crucial: PPK and base SKUs encode the color
+  // DIFFERENTLY in their sku_code (pack `RYB0412PPK-BLKCAMO` vs each-grain
+  // `RYB0412-BLACK-CAMO-30`), so a sku_code-derived key (baseColorKey) does
+  // NOT reconcile them. resolveVariantColorWithProvenance normalizes both to
+  // the same display color ("Black Camo"), so keying on it lets a prepack row
+  // find the each-grain family's Hist T3/6/9/12, SP/LY and demand.
+  const normColor = (c: string | null | undefined): string => (c ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const famColorKeyOf = (skuId: string | undefined, styleFallback?: string | null, colorFallback?: string | null): string => {
+    const it = skuId ? itemById.get(skuId) : undefined;
+    const style = it?.style_code ?? styleFallback ?? "";
+    if (!style) return "";
+    const rawColor = it ? resolveVariantColorWithProvenance(it.color, it.sku_code, it.style_code).color : colorFallback;
+    const col = normColor(rawColor ?? colorFallback);
+    if (!col) return "";
+    return `${familyStyleOf(style)}|${col}`;
+  };
+  // FAMILY-grain history twin, keyed (customer, familyColorKey). A planner-added
+  // TBD stock-buy row resolves the PACK sku while the customer's history is on
+  // the each-grain family SKUs — this lets it surface the whole family's sales.
+  // Two grains: per-(customer, family) for real-customer rows, and per-family
+  // across ALL customers for the synthetic (Supply Only) rows — a prepack that
+  // built as a stock line (no customer of its own) inherits the family's total
+  // demand/history across the run's customers.
+  // The run's REAL customers (those it forecasts, excluding the supply
+  // placeholder) — the all-family history for Supply-Only prepack rows is
+  // scoped to these so a customer-filtered run doesn't pull in demand from
+  // customers outside the run.
+  const runCustomers = new Set(forecast.map((f) => f.customer_id).filter((c) => c && c !== supplyPlaceholderId));
   const histByCustFamilyMonth = new Map<string, Map<string, number>>();
+  const histByFamilyMonth = new Map<string, Map<string, number>>();
+  const bump = (map: Map<string, Map<string, number>>, key: string, ym: string, qty: number) => {
+    let byMonth = map.get(key);
+    if (!byMonth) { byMonth = new Map(); map.set(key, byMonth); }
+    byMonth.set(ym, (byMonth.get(ym) ?? 0) + qty);
+  };
   for (const s of sales) {
     if (!s.customer_id) continue;
-    const fam = baseColorKey(itemById.get(s.sku_id)?.sku_code);
+    const fam = famColorKeyOf(s.sku_id);
     if (!fam) continue;
-    const key = `${s.customer_id}:${fam}`;
+    const qty = Number(s.qty_units ?? s.qty ?? 0);
     const ym = s.txn_date.slice(0, 7);
-    let byMonth = histByCustFamilyMonth.get(key);
-    if (!byMonth) { byMonth = new Map(); histByCustFamilyMonth.set(key, byMonth); }
-    byMonth.set(ym, (byMonth.get(ym) ?? 0) + Number(s.qty_units ?? s.qty ?? 0));
+    bump(histByCustFamilyMonth, `${s.customer_id}:${fam}`, ym, qty);
+    if (runCustomers.has(s.customer_id)) bump(histByFamilyMonth, fam, ym, qty);
   }
-  // Family key for a TBD row: prefer the resolved real SKU's base color;
-  // fall back to style+color text (glued PPK stripped, color squished to
-  // the catalog's alphanumeric form) when the colorway isn't in the master
-  // yet (a NEW-color row).
-  const tbdFamilyKey = (skuId: string | undefined, style: string, color: string | null | undefined): string => {
-    const fromSku = skuId ? baseColorKey(itemById.get(skuId)?.sku_code) : "";
-    if (fromSku) return fromSku;
-    const colorPart = (color ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    if (!colorPart) return "";
-    return `${styleKey(style)}-${colorPart}`;
-  };
-  const familyT3ForPeriod = (customerId: string, famKey: string, periodStart: string): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } =>
-    windowsFor(famKey ? histByCustFamilyMonth.get(`${customerId}:${famKey}`) : undefined, periodStart);
+  // Family key for a TBD row: resolved SKU's family+color, else style+typed color.
+  const tbdFamilyKey = (skuId: string | undefined, style: string, color: string | null | undefined): string =>
+    famColorKeyOf(skuId, style, color);
+  // allCust=true reads the family's total across every customer (Supply Only).
+  const familyT3ForPeriod = (customerId: string, famKey: string, periodStart: string, allCust = false): { windows: Record<number, number>; breakdown: Array<{ month: string; qty: number }> } =>
+    windowsFor(
+      famKey ? (allCust ? histByFamilyMonth.get(famKey) : histByCustFamilyMonth.get(`${customerId}:${famKey}`)) : undefined,
+      periodStart,
+    );
 
   // ABC / XYZ classification per SKU, using the full 12-month window.
   // Stamped on every row (TBD + forecast) below so the grid can render
@@ -1173,6 +1197,65 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     }
   }
 
+  // ── PPK-inherit reference (CEO: PPK rows should show the base garment's
+  // demand/history so a prepack can be planned against real sales) ──────────
+  // Base-family demand from this run's BASE each-grain forecast rows (non-PPK),
+  // summed across sizes per (customer, base-color, period). A prepack row's
+  // ppk_base_ref draws system/final from here when the base is in the run; the
+  // family SALES HISTORY (familyT3ForPeriod) supplies Hist T3/6/9/12 + SP/LY
+  // and the fallback demand, so the reference is populated even for a build
+  // that selected ONLY the PPK styles (no base rows present).
+  const baseFamilyDemand = new Map<string, { system: number; final: number }>();       // per (customer, family, period)
+  const baseFamilyDemandAll = new Map<string, { system: number; final: number }>();    // per (family, period), all customers
+  for (const f of forecast) {
+    const it = itemById.get(f.sku_id);
+    const styleCode = it?.style_code ?? "";
+    if (!styleCode || familyStyleOf(styleCode) !== styleCode) continue; // base garment only
+    if (f.customer_id === supplyPlaceholderId) continue;               // real-customer demand only
+    const fam = famColorKeyOf(f.sku_id);
+    if (!fam) continue;
+    const sys = Number(f.system_forecast_qty_override ?? f.system_forecast_qty ?? 0);
+    const fin = Number(f.final_forecast_qty ?? 0);
+    for (const [map, key] of [
+      [baseFamilyDemand, `${f.customer_id}:${fam}:${f.period_start}`] as const,
+      [baseFamilyDemandAll, `${fam}:${f.period_start}`] as const,
+    ]) {
+      const acc = map.get(key) ?? { system: 0, final: 0 };
+      acc.system += sys; acc.final += fin;
+      map.set(key, acc);
+    }
+  }
+  // Build the reference for a prepack row. Returns null for a non-PPK row. A
+  // synthetic (Supply Only) prepack — a stock line with no customer demand of
+  // its own — inherits the family's TOTAL across the run's customers; a
+  // real-customer prepack inherits that customer's family demand.
+  const ppkBaseRefFor = (
+    skuId: string,
+    styleCode: string | null | undefined,
+    customerId: string,
+    periodStart: string,
+    famOverride?: string,
+  ): IpPlanningGridRow["ppk_base_ref"] => {
+    if (!styleCode || familyStyleOf(styleCode) === styleCode) return null; // not a prepack row
+    const fam = famOverride || famColorKeyOf(skuId);
+    if (!fam) return null;
+    const allCust = customerId === supplyPlaceholderId;
+    const hist = familyT3ForPeriod(customerId, fam, periodStart, allCust);
+    const ly = hist.breakdown[hist.breakdown.length - 1]?.qty ?? 0; // M−12 = SP/LY
+    const base = (allCust ? baseFamilyDemandAll : baseFamilyDemand).get(`${allCust ? "" : `${customerId}:`}${fam}:${periodStart}`);
+    // System/Final from the base forecast rows when the run has them; else the
+    // last-year demand as the ly_sales-basis proxy (pure-PPK build).
+    const system = base ? base.system : ly;
+    const final = base ? base.final : ly;
+    return {
+      system_forecast_qty: system,
+      final_forecast_qty: final,
+      ly_reference_qty: ly,
+      historical_trailing_qty: hist.windows[3],
+      historical_trailing_windows: hist.windows,
+    };
+  };
+
   const rows: IpPlanningGridRow[] = forecast.map((f) => {
     const item = itemById.get(f.sku_id);
     const customer = customerById.get(f.customer_id);
@@ -1243,6 +1326,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       period_end: f.period_end,
       historical_trailing_qty: t3.windows[3],
       historical_trailing_windows: t3.windows,
+      ppk_base_ref: ppkBaseRefFor(f.sku_id, item?.style_code, f.customer_id, f.period_start),
       historical_margin_pct: f.historical_margin_pct ?? null,
       historical_trailing_breakdown: t3.breakdown.some((b) => b.qty > 0) ? t3.breakdown : null,
       abc_class: classBySku.get(f.sku_id)?.abc,
@@ -1579,6 +1663,9 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       const tFam = tbdFamilyKey(tSkuId, sp.style_code, t.color);
       const tHist = familyT3ForPeriod(t.customer_id, tFam, sp.period_start);
       const tLy = tHist.breakdown[tHist.breakdown.length - 1]?.qty ?? 0;
+      // PPK-inherit reference on a prepack stock-buy row — same family demand
+      // the grid's toggle surfaces on forecast prepack rows.
+      const tPpkRef = ppkBaseRefFor(tSkuId ?? "", sp.style_code, t.customer_id, sp.period_start, tFam);
       tbdGridRows.push({
         forecast_id: `tbd:${t.id}`,
         planning_run_id: run.id,
@@ -1614,6 +1701,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         period_end: sp.period_end as IpIsoDate,
         historical_trailing_qty: tHist.windows[3],
         historical_trailing_windows: tHist.windows,
+        ppk_base_ref: tPpkRef,
         historical_trailing_breakdown: tHist.breakdown.some((b) => b.qty > 0) ? tHist.breakdown : null,
         system_forecast_qty: 0,
         system_forecast_qty_original: 0,

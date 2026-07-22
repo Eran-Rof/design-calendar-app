@@ -282,6 +282,19 @@ export interface IpPlanningGridRow {
   // Optional — TBD rows and SKUs with no sales history don't carry one.
   abc_class?: "A" | "B" | "C";
   xyz_class?: "X" | "Y" | "Z";
+  // PPK-inherit reference: on a prepack (PPK) row, the base garment family's
+  // demand/history for this (customer, family-color, period) — sourced from
+  // the base each-grain forecast rows when the run has them, else from the
+  // family's sales history (so it's populated even for a PPK-only build).
+  // The grid's "PPK inherits base" toggle displays these on PPK rows; null on
+  // non-PPK rows and when there's no family signal. See wholesaleForecastService.
+  ppk_base_ref?: {
+    system_forecast_qty: number;
+    final_forecast_qty: number;
+    ly_reference_qty: number;
+    historical_trailing_qty: number;
+    historical_trailing_windows?: Record<number, number>;
+  } | null;
   system_forecast_qty: number;
   // Original computed system value before any override. Equal to
   // system_forecast_qty when no override is set; otherwise carries

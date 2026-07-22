@@ -351,6 +351,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // / planned_buy) are entered in selling units always and don't
   // multiply either way.
   const [explodePpk, setExplodePpk] = usePersistedBool("explodePpk", true);
+  // PPK inherits base — when ON, prepack (PPK) rows display the base garment
+  // family's demand + history (System / Final / SP·LY / Hist T3-12) so a
+  // prepack can be planned against real sales even when the PPK grain has no
+  // history of its own (default OFF = today's behavior). Column totals dedupe
+  // by family so showing the demand on both grains never doubles it.
+  const [ppkInherit, setPpkInherit] = usePersistedBool("ppkInheritBase", false);
   // Carton qty — rounds every quantity on a NON-prepack row UP to the next
   // whole carton (default 24) so the plan stays orderable in full cartons.
   // PPK styles keep rounding to their own pack size (that wins); a carton
@@ -514,7 +520,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortSig, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortSig, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk, ppkInherit]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -856,14 +862,39 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // once, up front — every downstream consumer (filter, sort, cell, column
   // totals) reads historical_trailing_qty, so this single swap makes them all
   // reflect the toggle without touching the cell/sort/aggregate code.
+  // PPK-inherit transform (upstream of everything else so the trailing-window
+  // remap, filters, cells, sort and totals all read the inherited values).
+  // When the toggle is on, a prepack row with a base-family reference shows
+  // the base garment's System / SP·LY / Hist windows; Final recomputes from
+  // the inherited System plus the planner's own Buyer/Override on the PPK row.
+  // A System the planner explicitly typed on the PPK row wins over inheritance.
+  const inheritedRows = useMemo(() => {
+    if (!ppkInherit) return rows;
+    return rows.map((r) => {
+      const ref = r.ppk_base_ref;
+      if (!ref) return r;
+      const ownSystem = r.system_forecast_qty ?? 0;
+      const system = ownSystem !== 0 ? ownSystem : ref.system_forecast_qty;
+      return {
+        ...r,
+        system_forecast_qty: system,
+        system_forecast_qty_original: system,
+        final_forecast_qty: Math.max(0, system + (r.buyer_request_qty ?? 0) + (r.override_qty ?? 0)),
+        ly_reference_qty: ref.ly_reference_qty,
+        historical_trailing_qty: ref.historical_trailing_qty,
+        historical_trailing_windows: ref.historical_trailing_windows ?? r.historical_trailing_windows,
+      };
+    });
+  }, [rows, ppkInherit]);
+
   const windowedRows = useMemo(() => {
-    if (trailingWindow === 3) return rows;
-    return rows.map((r) => (
+    if (trailingWindow === 3) return inheritedRows;
+    return inheritedRows.map((r) => (
       r.historical_trailing_windows
         ? { ...r, historical_trailing_qty: r.historical_trailing_windows[trailingWindow] ?? r.historical_trailing_qty }
         : r
     ));
-  }, [rows, trailingWindow]);
+  }, [inheritedRows, trailingWindow]);
 
   const mutedRows = useMemo(() => {
     const q = deferredSearch.trim().toUpperCase();
@@ -1722,8 +1753,9 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     () => computeTotals(mutedRows, skuPeriodMath, {
       atsTotal: endingAtsTotal(filtered, (r) => rollGroupKeyFor(r, collapse)),
       onHandTotal: endingOnHandTotal(filtered, (r) => rollGroupKeyFor(r, collapse)),
+      ppkInherit,
     }),
-    [mutedRows, skuPeriodMath, filtered, collapse],
+    [mutedRows, skuPeriodMath, filtered, collapse, ppkInherit],
   );
   // Column total to pass to a Th header (undefined = totals toggle off, no row).
   const ct = (key: string): number | undefined => (showColumnTotals ? (totals.columns[key] ?? 0) : undefined);
@@ -2317,6 +2349,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           active={!explodePpk}
           onToggle={() => setExplodePpk(!explodePpk)}
         />
+        <div title="Show the base garment family's demand + history (System / Final / SP·LY / Hist T3-12) on prepack (PPK) rows, so a prepack can be planned against real sales — even when the run built PPK only. Column totals dedupe by family so nothing double-counts.">
+          <CollapseToggle
+            label={ppkInherit ? "PPK inherits base: ON" : "PPK inherits base: OFF"}
+            active={ppkInherit}
+            onToggle={() => setPpkInherit(!ppkInherit)}
+          />
+        </div>
         {/* Carton qty — rounds every quantity on a NON-prepack row up to the
             next whole carton (default 24). Prepack styles keep their own pack
             size. Set to 0/1 to disable. */}

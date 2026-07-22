@@ -34,6 +34,14 @@ import { resolveCost } from "../../shared/costResolution";
 const POSITIVE = (n: number | null | undefined): n is number =>
   typeof n === "number" && Number.isFinite(n) && n > 0;
 
+// Collapse a style code to its base family — strip a trailing PPK token
+// (RYB0412PPK → RYB0412). A style and its prepack sibling are the same
+// garment; this is the shared key the report, the grid's PPK-inherit
+// toggle, and the family cost/history logic all group by.
+export function familyStyleOf(style: string): string {
+  return style.replace(/PPK\d*$/i, "") || style;
+}
+
 // Canonical BASE-COLOR key: strip the trailing size suffix (incl. a
 // `-PPK24`-style suffix) AND any glued `PPK`/`PPK<n>` token in the style
 // portion, leaving `<style>-<color>`. Groups a PO on `RYB0412PPK-BLACK`

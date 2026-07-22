@@ -10,6 +10,10 @@
 // consume the returned shape.
 
 import type { IpPlanningGridRow } from "../../types/wholesale";
+import { familyStyleOf } from "../../utils/poCostFallback";
+
+// Re-export so existing importers of familyStyleOf from this module keep working.
+export { familyStyleOf };
 
 // Which "this year" quantity the TY block reports.
 export type ReportMetric = "buyer" | "buy";
@@ -75,16 +79,6 @@ function labelFor(periodCode: string, yearDelta: number): string {
   if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return periodCode;
   const yy = String(((y + yearDelta) % 100 + 100) % 100).padStart(2, "0");
   return `${MONTHS[m - 1]}-${yy}`;
-}
-
-// Collapse a style and its prepack sibling to ONE family — RYB0412 and
-// RYB0412PPK are the same garment (PPK is just the pack packaging), so the
-// report must present them as a single style row. Without this the same
-// last-year sales appear under both codes and the customer total
-// double-counts them (a PPK stock-buy row carries the same base-family LY
-// its each-grain forecast twin does — see the ly resolution below).
-export function familyStyleOf(style: string): string {
-  return style.replace(/PPK\d*$/i, "") || style;
 }
 
 const sumArr = (a: number[]): number => a.reduce((s, v) => s + v, 0);
