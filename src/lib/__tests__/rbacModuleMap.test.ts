@@ -6,7 +6,8 @@ import {
   TANGERINE_MODULE_RBAC,
 } from "../rbacModuleMap";
 
-// The valid P14-1 module_keys (mirrors the seed in the chunk-1 migration).
+// The valid P14-1 module_keys (mirrors the seed in the chunk-1 migration,
+// plus keys registered by later migrations — beta_data: 20266100000000).
 const MODULE_KEYS = new Set([
   "style_master", "product_master", "vendor_master", "customer_master", "coa",
   "gl_periods", "je_entry", "je_post", "ar_invoices", "ar_receipts", "ap_invoices",
@@ -14,6 +15,7 @@ const MODULE_KEYS = new Set([
   "sales_comps", "costing", "gs1", "tech_pack", "shopify", "marketplaces",
   "parallel_run", "workflows", "notifications", "users_access", "audit_log",
   "analytics", "compliance", "sourcing", "finance_misc", "tenancy_admin",
+  "beta_data",
 ]);
 
 describe("rbacModuleMap", () => {

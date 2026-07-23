@@ -818,4 +818,6 @@ export default [
   ["/api/internal/tax/filings"                               , "./internal/tax/filings.js"],
   ["/api/internal/tax/drill"                                 , "./internal/tax/drill.js"],
   ["/api/internal/tax"                                       , "./internal/tax/index.js"],
+  // Beta guardrails chunk C - Beta Data admin screen (window toggle + tagged-doc review + safe cleanup).
+  ["/api/internal/beta-data"                                 , "./internal/beta-data/index.js"],
 ];

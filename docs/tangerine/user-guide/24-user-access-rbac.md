@@ -116,6 +116,38 @@ Every change to a role assignment or override is written to the **T11 universal 
 
 ---
 
+## Beta users & the Beta Data screen
+
+Beta testers work on the **live production database** — three guardrails make that safe:
+
+- **The `beta` role.** Assign it in User Access like any other role. It grants read/write/export
+  across the app but **never post or void** — a beta user can draft invoices, orders and masters,
+  but nothing they do can reach the GL. (Requires `RBAC_MODE=enforce`, which is live.)
+- **The beta window + tagging registry.** An admin opens a "beta window" before the beta starts;
+  while it is open, every document or master row created anywhere in the suite is automatically
+  recorded in a registry (`beta_created_docs`) with who created it and when. Closing the window
+  stops the tagging. Beta users should transact against the **ZZ-BETA** sandbox customer/vendor/style
+  records, which are permanent fixtures.
+- **The Beta Data screen** (Admin → **Beta Data**, admin-only) drives the whole lifecycle:
+  1. **Beta window card** — status, started/ended timestamps, Start/End with confirmation.
+     Record a PITR restore point in the Supabase dashboard *before* starting (the confirm
+     dialog reminds you; full checklist in `docs/tangerine/BETA-RUNBOOK.md`).
+  2. **Registry summary** — per-table counts: total tagged, cleaned, outstanding.
+  3. **Outstanding documents** — every tagged row still live, each with a **dry-run eligibility
+     verdict** computed against current data: `deletable` (unposted, unpaid, unreferenced),
+     `refused` with the reason (`posted — reverse instead`, `has payments`, `has receipts`,
+     `has shipments/allocations`, `still referenced`), or `already gone`. Tick rows and
+     **Clean up selected**; the confirm dialog lists exactly what will delete vs refuse, and the
+     engine re-checks each row at delete time.
+
+Safety rules baked into the cleanup engine: posted documents are **reversed through their own
+module (with a reason), never deleted**; journal-entry lines, GL tables and inventory ledgers are
+never touched; deletes never cascade beyond a document's own lines; every removal is stamped on
+the registry (`cleaned_at`, `cleanup_note`) as the audit trail. Operator walkthrough:
+`docs/tangerine/BETA-RUNBOOK.md`.
+
+---
+
 ## API surface (for integrators)
 
 | Method | Route | Purpose |
@@ -139,3 +171,5 @@ Validation rejects unknown roles, non-members, unknown modules, and any action a
 - Admin handlers: `api/_handlers/internal/users-access/` (`index.js`, `override.js`)
 - Panel: `src/tanda/InternalUserAccess.tsx` (P14-3b-2)
 - Arch doc: `docs/tangerine/P14-rbac-architecture.md`
+- Beta guardrails: `src/tanda/InternalBetaData.tsx`, `api/_handlers/internal/beta-data/index.js`,
+  `api/_lib/betaData.js`, `docs/tangerine/BETA-RUNBOOK.md`

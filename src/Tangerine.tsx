@@ -136,6 +136,8 @@ import InternalMarketplaceStatus      from "./tanda/InternalMarketplaceStatus";
 import InternalAuditLog                from "./tanda/InternalAuditLog";
 // P14-3b — RBAC User Access admin panel (🔐 Admin nav group).
 import InternalUserAccess              from "./tanda/InternalUserAccess";
+// Beta guardrails chunk C — Beta Data admin screen (window toggle + registry + cleanup).
+import InternalBetaData                from "./tanda/InternalBetaData";
 // P14-4 — client menu hide driven by the caller's effective permissions.
 import { useEffectivePermissions } from "./hooks/useEffectivePermissions";
 import { rbacModuleForTangerine } from "./lib/rbacModuleMap";
@@ -768,6 +770,8 @@ export default function Tangerine() {
         {activeModule === "customer_scorecard"    && <InternalCustomerScorecard />}
         {/* P14-3b — RBAC User Access admin panel */}
         {activeModule === "user_access"            && <InternalUserAccess />}
+        {/* Beta guardrails chunk C — Beta Data admin screen */}
+        {activeModule === "beta_data"              && <InternalBetaData />}
         {/* #983 — Treasury */}
         {activeModule === "payments"               && <InternalPayments />}
         {activeModule === "recon_dashboard"        && <InternalReconciliationDashboard />}

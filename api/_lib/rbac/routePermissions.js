@@ -29,6 +29,10 @@ export const MODULE_ACTIONS = {
   shopify: RX, marketplaces: RX, parallel_run: RX, workflows: RW, notifications: RW,
   users_access: RW, audit_log: RX, analytics: RX, compliance: RW, sourcing: RW,
   finance_misc: RW, tenancy_admin: RW,
+  // Beta guardrails chunk C — Beta Data admin screen (window toggle, registry
+  // review, cleanup). Admin-only via the module_keys admin-derivation; the
+  // `beta` role is never granted this module.
+  beta_data: RW,
 };
 
 // Second path segment under /api/internal/ → module_key. Longest-prefix wins
@@ -96,6 +100,9 @@ const SEGMENT_MODULE = {
   "tax": "finance_misc", "scf": "finance_misc", "virtual-cards": "finance_misc",
   "discount-offers": "finance_misc", "contracts": "finance_misc",
   "entities": "tenancy_admin",
+  // Beta Data admin screen — GET (review) = read, POSTs (window toggle +
+  // cleanup) = write.
+  "beta-data": "beta_data",
 };
 
 /**
