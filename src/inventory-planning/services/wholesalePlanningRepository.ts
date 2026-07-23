@@ -352,20 +352,23 @@ export const wholesaleRepo = {
   },
 
   // Tangerine Style Master taxonomy — the categorization TRUTH (planning
-  // "Category" = style_master.category_name, "Sub cat" = sub_category_name).
+  // "Category" = style_master.category_name, "Sub cat" = sub_category_name,
+  // "Gender" = gender_code — fully populated by the #1907 prefix trigger,
+  // unlike Xoro attrs where 16k+ items carry no gender at all).
   // Returned as a Map keyed by UPPER style_code; empty Map on any failure so
   // the grid never blocks on it (items then keep their Xoro-attr fallback).
-  async listTangerineTaxonomy(): Promise<Map<string, { category_name: string | null; sub_category_name: string | null }>> {
-    const out = new Map<string, { category_name: string | null; sub_category_name: string | null }>();
+  async listTangerineTaxonomy(): Promise<Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null }>> {
+    const out = new Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null }>();
     try {
-      type Row = { style_code: string | null; category_name: string | null; sub_category_name: string | null };
-      const rows = await sbGetAll<Row>("style_master?select=style_code,category_name,sub_category_name");
+      type Row = { style_code: string | null; category_name: string | null; sub_category_name: string | null; gender_code: string | null };
+      const rows = await sbGetAll<Row>("style_master?select=style_code,category_name,sub_category_name,gender_code&deleted_at=is.null");
       for (const r of rows) {
         const key = (r.style_code ?? "").trim().toUpperCase();
         if (!key || out.has(key)) continue;
         out.set(key, {
           category_name: r.category_name?.trim() || null,
           sub_category_name: r.sub_category_name?.trim() || null,
+          gender_code: r.gender_code?.trim() || null,
         });
       }
     } catch (e) {
@@ -373,19 +376,21 @@ export const wholesaleRepo = {
     }
     return out;
   },
-  // Distinct (style_code, group_name, sub_category_name) tuples from the
-  // active item master. Used by the TBD style + color pickers so the planner
-  // can pick a sibling style in the same category even when that sibling has
-  // no demand pairs in the current run (and therefore no rows in
-  // buildGridRows). Taxonomy overlaid from style_master (Tangerine truth),
-  // Xoro attrs as fallback — same convention as buildGridRows.
-  async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>> {
+  // Distinct (style_code, group_name, sub_category_name, gender) tuples from
+  // the active item master. Used by the TBD style + color pickers so the
+  // planner can pick a sibling style in the same category even when that
+  // sibling has no demand pairs in the current run (and therefore no rows in
+  // buildGridRows), and by the grid's filter dropdowns so the full catalog
+  // taxonomy is pickable pre-build. Taxonomy overlaid from style_master
+  // (Tangerine truth), Xoro attrs as fallback — same convention as
+  // buildGridRows.
+  async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>> {
     type RawItem = { style_code: string | null; sku_code: string; attributes: Record<string, unknown> | null; active: boolean };
     const [rows, tax] = await Promise.all([
       sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,attributes,active&active=eq.true"),
       wholesaleRepo.listTangerineTaxonomy(),
     ]);
-    const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null }>();
+    const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>();
     for (const r of rows) {
       const style = r.style_code ?? r.sku_code;
       if (!style || out.has(style)) continue;
@@ -393,7 +398,8 @@ export const wholesaleRepo = {
       const t = tax.get(style.trim().toUpperCase());
       const group = t?.category_name ?? (typeof attrs.group_name === "string" ? attrs.group_name.trim() || null : null);
       const sub = t?.sub_category_name ?? (typeof attrs.category_name === "string" ? attrs.category_name.trim() || null : null);
-      out.set(style, { style_code: style, group_name: group, sub_category_name: sub });
+      const gender = t?.gender_code ?? (typeof attrs.gender === "string" ? attrs.gender.trim() || null : null);
+      out.set(style, { style_code: style, group_name: group, sub_category_name: sub, gender });
     }
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
   },

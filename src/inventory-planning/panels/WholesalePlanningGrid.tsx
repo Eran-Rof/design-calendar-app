@@ -140,10 +140,10 @@ export interface WholesalePlanningGridProps {
   // "new for this style but exists elsewhere" (green badge) from
   // "truly new, not in master at all" (orange badge).
   masterColorsByStyleLower?: Map<string, Set<string>>;
-  // (style_code, group_name, sub_category_name) tuples from item
+  // (style_code, group_name, sub_category_name, gender) tuples from item
   // master. Drives the TBD style picker's category-wide list AND lets
-  // the Category / Sub Cat filters populate before a build.
-  masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>;
+  // the Category / Sub Cat / Gender filters populate before a build.
+  masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>;
   // Units-per-pack per PPK style_code (lowercased) from Tangerine's Prepack
   // Matrix. Supplements the SKU/size "PPKn" token when resolving the pack size
   // for the Explode-PPK eaches ⇄ packs conversion.
@@ -639,17 +639,24 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }
   }, [filterCategory, subCategoryNames, filterSubCat]);
 
-  // Gender values pulled from item-master attributes (Xoro export's
-  // GenderCode column). No grid column is rendered — gender is purely
-  // a filter dimension. Empty/null gender SKUs land under "—".
+  // Gender values from the run's rows UNION the full item master —
+  // (style_master.gender_code overlaid at the repo boundary, Xoro attrs
+  // as fallback). The master union matters: 16k+ items carry no gender
+  // in their Xoro attributes, so a rows-only pool could offer just one
+  // or two codes even though Tangerine has the full M/W/B/C/G domain.
+  // No grid column is rendered — gender is purely a filter dimension.
   const genders = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
       const g = (r.gender ?? "").trim();
       if (g) s.add(g);
     }
+    for (const m of masterStyles ?? []) {
+      const g = (m.gender ?? "").trim();
+      if (g) s.add(g);
+    }
     return Array.from(s).sort();
-  }, [rows]);
+  }, [rows, masterStyles]);
 
   // Friendly labels for the dropdown — Xoro's GenderCode column stores
   // single-letter codes (M, C, B, WMS, G). Filtering still uses the raw
