@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   __setCacheForTest,
   clearItemMasterCache,
+  getAllMasterStyles,
   resolveStyle,
 } from "../itemMasterLookup";
 import type { ItemMasterRecord } from "../itemMasterLookup";
@@ -363,5 +364,49 @@ describe("itemMasterLookup.resolveStyle", () => {
     const mixed = resolveStyle("PTYG0003lstd - whatever", "PTYG0003lstd");
     expect(mixed.match_source).toBe("style");
     expect(mixed.style).toBe("PTYG0003LSTD");
+  });
+});
+
+describe("itemMasterLookup.getAllMasterStyles", () => {
+  beforeEach(() => {
+    clearItemMasterCache();
+  });
+
+  it("returns [] before the cache loads", () => {
+    expect(getAllMasterStyles()).toEqual([]);
+  });
+
+  it("enumerates distinct style codes with clean style-level descriptions (variants + whitespace aliases collapse)", () => {
+    __setCacheForTest([
+      // Style-level row carries the clean description.
+      makeRecord({
+        id: "s1",
+        sku_code: "RYB1893",
+        style_code: "RYB1893",
+        description: "La Virgen",
+        attributes: { group_name: "SHORTS", category_name: "DENIM SHORTS" },
+      }),
+      // Variant rows of the same style must NOT create extra entries.
+      makeRecord({
+        id: "v1",
+        sku_code: "RYB189312-WAVECREST-MEDWASHWTINT",
+        style_code: "RYB1893",
+        color: "Wavecrest - Medium Wash W Tint",
+        description: "dirty composite RYB189312-Wavecrest-32",
+      }),
+      // A style whose code contains whitespace — buildIndexes stores a
+      // space-stripped alias key; the enumeration must not emit it twice.
+      makeRecord({
+        id: "s2",
+        sku_code: "AB 100",
+        style_code: "AB 100",
+        description: "Spaced Style",
+      }),
+    ]);
+
+    const styles = getAllMasterStyles();
+    const codes = styles.map(s => s.code).sort();
+    expect(codes).toEqual(["AB 100", "RYB1893"]);
+    expect(styles.find(s => s.code === "RYB1893")?.description).toBe("La Virgen");
   });
 });

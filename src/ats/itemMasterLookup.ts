@@ -545,6 +545,31 @@ export function getMatchingItemMasterIds(filters: {
   return out;
 }
 
+/**
+ * Every distinct style code known to the item master, with its clean
+ * style-level description. Used by the Sales Comps Style filter so
+ * sold-out styles — which have no ATS grid row and therefore never
+ * appear in the grid-derived option list — are still selectable when
+ * scoping a sales report. Returns [] until loadItemMasterCache() has
+ * completed (callers union with the grid-derived list, so the report
+ * degrades to grid-only options rather than breaking).
+ */
+export function getAllMasterStyles(): Array<{ code: string; description: string | null }> {
+  if (!byStyleCode) return [];
+  // Dedupe on the record's own style_code — byStyleCode also stores
+  // whitespace-alias keys pointing at the same record, and iterating
+  // raw keys would emit those aliases as phantom styles.
+  const seen = new Set<string>();
+  const out: Array<{ code: string; description: string | null }> = [];
+  for (const rec of byStyleCode.values()) {
+    const code = rec.style_code?.trim().toUpperCase();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push({ code, description: resolveCleanDescription(rec) });
+  }
+  return out;
+}
+
 /** Visible for tests — inject a pre-built cache without hitting
  *  Supabase. Sets `cachePromise` to a resolved Promise so subsequent
  *  `loadItemMasterCache()` calls become no-ops. */

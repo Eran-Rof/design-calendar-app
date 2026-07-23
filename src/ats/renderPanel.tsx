@@ -462,13 +462,6 @@ export function atsRenderPanel(ctx: ATSRenderCtx): React.ReactElement {
         aiSetters={aiSetters}
         filteredCount={filtered.length}
         lastSync={lastSync}
-        // Grid's TY window — start = grid `startDate`, end = last day
-        // actually rendered (see `dates` useMemo in ATS.tsx, matches
-        // the same convention used by the sales-history fetch URL on
-        // line 607). Forwarded so Sales Comps opens on the same window
-        // the operator is looking at.
-        gridStart={startDate}
-        gridEnd={dates.length > 0 ? dates[dates.length - 1] : undefined}
       />
       <UnmatchedBanner
         unmatchedRows={unmatchedRows}
