@@ -5,6 +5,7 @@
 // Services above it orchestrate compute + persistence.
 
 import { SB_HEADERS, SB_URL } from "../../utils/supabase";
+import { applyTangerineTaxonomy } from "../utils/tangerineTaxonomy";
 import type {
   IpCategory,
   IpCustomer,
@@ -350,21 +351,48 @@ export const wholesaleRepo = {
     return out;
   },
 
-  // Distinct (style_code, color, group_name, sub_category_name) tuples
-  // from the active item master. Used by the TBD style + color
-  // pickers so the planner can pick a sibling style in the same
-  // category even when that sibling has no demand pairs in the
-  // current run (and therefore no rows in buildGridRows).
+  // Tangerine Style Master taxonomy — the categorization TRUTH (planning
+  // "Category" = style_master.category_name, "Sub cat" = sub_category_name).
+  // Returned as a Map keyed by UPPER style_code; empty Map on any failure so
+  // the grid never blocks on it (items then keep their Xoro-attr fallback).
+  async listTangerineTaxonomy(): Promise<Map<string, { category_name: string | null; sub_category_name: string | null }>> {
+    const out = new Map<string, { category_name: string | null; sub_category_name: string | null }>();
+    try {
+      type Row = { style_code: string | null; category_name: string | null; sub_category_name: string | null };
+      const rows = await sbGetAll<Row>("style_master?select=style_code,category_name,sub_category_name");
+      for (const r of rows) {
+        const key = (r.style_code ?? "").trim().toUpperCase();
+        if (!key || out.has(key)) continue;
+        out.set(key, {
+          category_name: r.category_name?.trim() || null,
+          sub_category_name: r.sub_category_name?.trim() || null,
+        });
+      }
+    } catch (e) {
+      console.warn("[planning] style_master taxonomy fetch failed — falling back to item attributes", e);
+    }
+    return out;
+  },
+  // Distinct (style_code, group_name, sub_category_name) tuples from the
+  // active item master. Used by the TBD style + color pickers so the planner
+  // can pick a sibling style in the same category even when that sibling has
+  // no demand pairs in the current run (and therefore no rows in
+  // buildGridRows). Taxonomy overlaid from style_master (Tangerine truth),
+  // Xoro attrs as fallback — same convention as buildGridRows.
   async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>> {
     type RawItem = { style_code: string | null; sku_code: string; attributes: Record<string, unknown> | null; active: boolean };
-    const rows = await sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,attributes,active&active=eq.true");
+    const [rows, tax] = await Promise.all([
+      sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,attributes,active&active=eq.true"),
+      wholesaleRepo.listTangerineTaxonomy(),
+    ]);
     const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null }>();
     for (const r of rows) {
       const style = r.style_code ?? r.sku_code;
       if (!style || out.has(style)) continue;
       const attrs = r.attributes ?? {};
-      const group = typeof attrs.group_name === "string" ? attrs.group_name.trim() || null : null;
-      const sub = typeof attrs.category_name === "string" ? attrs.category_name.trim() || null : null;
+      const t = tax.get(style.trim().toUpperCase());
+      const group = t?.category_name ?? (typeof attrs.group_name === "string" ? attrs.group_name.trim() || null : null);
+      const sub = t?.sub_category_name ?? (typeof attrs.category_name === "string" ? attrs.category_name.trim() || null : null);
       out.set(style, { style_code: style, group_name: group, sub_category_name: sub });
     }
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
@@ -435,7 +463,12 @@ export const wholesaleRepo = {
       if (chunk.length < PAGE) break;
       lastSku = chunk[chunk.length - 1].sku_code;
     }
-    return out;
+    // Overlay Tangerine style_master taxonomy (categorization truth) onto
+    // every item's attributes at the repo boundary so ALL consumers —
+    // planning grid, forecast pass, supply reconciliation — read the same
+    // corrected Category/Sub-cat. Xoro attrs stay as fallback for styles
+    // absent from style_master. See utils/tangerineTaxonomy.ts.
+    return applyTangerineTaxonomy(out, await wholesaleRepo.listTangerineTaxonomy());
   },
   // Canonical avg cost per SKU — fed by Xoro/Excel ingest. Covers SKUs
   // not currently in ATS inventory. Returns an empty map (not an error)
