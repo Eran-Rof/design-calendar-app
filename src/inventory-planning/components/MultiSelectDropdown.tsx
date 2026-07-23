@@ -27,6 +27,47 @@ export interface MultiSelectDropdownProps {
   closeOnMouseLeave?: boolean;
 }
 
+// Where the popover goes relative to the trigger rect. Exactly one of
+// top/bottom is set: `top` when the popover opens BELOW the trigger,
+// `bottom` (a distance from the viewport bottom) when it flips ABOVE —
+// bottom-anchoring makes a SHORT list hug the trigger and grow upward.
+// The previous flip set `top = trigger.top − maxHeight`, which pinned the
+// popover a full maxHeight (380px) above the trigger even when the list
+// was only two options tall — the panel floated mid-page, far from the
+// control, and read as "the dropdown didn't populate" (CEO, gender filter:
+// bottom filter row + 2 options = worst case).
+export interface PopoverAnchor {
+  top?: number;
+  bottom?: number;
+  left: number;
+  minWidth: number;
+  maxHeight: number;
+}
+
+// Pure positioning math (unit-tested): clamp to the viewport, prefer
+// below the trigger, flip above (bottom-anchored) when below lacks room.
+export function computePopoverAnchor(
+  r: { top: number; bottom: number; left: number; width: number },
+  vw: number,
+  vh: number,
+): PopoverAnchor {
+  const PAD = 8;
+  const GAP = 4;
+  const ABS_MAX_H = 380;
+  const MIN_USABLE_H = 180;
+  const popMinW = Math.min(Math.max(r.width, 260), vw - 2 * PAD);
+  let left = r.left;
+  if (left + popMinW > vw - PAD) left = Math.max(PAD, vw - popMinW - PAD);
+  const spaceBelow = vh - r.bottom - GAP - PAD;
+  const spaceAbove = r.top - GAP - PAD;
+  if (spaceBelow >= MIN_USABLE_H || spaceBelow >= spaceAbove) {
+    return { top: r.bottom + GAP, left, minWidth: popMinW, maxHeight: Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceBelow)) };
+  }
+  const maxHeight = Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceAbove));
+  // Bottom-anchored: the popover's bottom edge sits just above the trigger.
+  return { bottom: vh - r.top + GAP, left, minWidth: popMinW, maxHeight };
+}
+
 export function MultiSelectDropdown({
   selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, compact = false, singleSelect = false, closeOnMouseLeave = false,
 }: MultiSelectDropdownProps) {
@@ -36,7 +77,7 @@ export function MultiSelectDropdown({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; left: number; minWidth: number; maxHeight: number } | null>(null);
+  const [anchor, setAnchor] = useState<PopoverAnchor | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
@@ -89,38 +130,7 @@ export function MultiSelectDropdown({
       const t = triggerRef.current;
       if (!t) return;
       const r = t.getBoundingClientRect();
-      const PAD = 8;
-      const GAP = 4;
-      const ABS_MAX_H = 380;
-      const MIN_USABLE_H = 180;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      // Cap min-width to fit the viewport so a small/zoomed-out
-      // browser can't push the popover off-screen horizontally.
-      // Without the cap the popover stayed at 260px even on a 240px
-      // viewport and silently extended past the right edge.
-      const popMinW = Math.min(Math.max(r.width, 260), vw - 2 * PAD);
-
-      // Horizontal: prefer left-aligned with trigger; shift left when
-      // the popover would overflow the right edge. Floor at PAD so it
-      // doesn't disappear off the left edge on tiny viewports.
-      let left = r.left;
-      if (left + popMinW > vw - PAD) left = Math.max(PAD, vw - popMinW - PAD);
-
-      // Vertical: prefer below; flip above when below has less room
-      // than what's needed (ABS_MAX_H or MIN_USABLE_H minimum).
-      const spaceBelow = vh - r.bottom - GAP - PAD;
-      const spaceAbove = r.top - GAP - PAD;
-      let top: number;
-      let maxHeight: number;
-      if (spaceBelow >= MIN_USABLE_H || spaceBelow >= spaceAbove) {
-        top = r.bottom + GAP;
-        maxHeight = Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceBelow));
-      } else {
-        maxHeight = Math.max(MIN_USABLE_H, Math.min(ABS_MAX_H, spaceAbove));
-        top = Math.max(PAD, r.top - GAP - maxHeight);
-      }
-      setAnchor({ top, left, minWidth: popMinW, maxHeight });
+      setAnchor(computePopoverAnchor(r, window.innerWidth, window.innerHeight));
     };
     update();
     window.addEventListener("scroll", update, true);
@@ -221,6 +231,7 @@ export function MultiSelectDropdown({
           style={{
             position: "fixed",
             top: anchor.top,
+            bottom: anchor.bottom,
             left: anchor.left,
             zIndex: 1000,
             background: PAL.panel,
