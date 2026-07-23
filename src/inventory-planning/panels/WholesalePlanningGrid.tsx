@@ -639,24 +639,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }
   }, [filterCategory, subCategoryNames, filterSubCat]);
 
-  // Gender values from the run's rows UNION the full item master —
-  // (style_master.gender_code overlaid at the repo boundary, Xoro attrs
-  // as fallback). The master union matters: 16k+ items carry no gender
-  // in their Xoro attributes, so a rows-only pool could offer just one
-  // or two codes even though Tangerine has the full M/W/B/C/G domain.
-  // No grid column is rendered — gender is purely a filter dimension.
+  // Gender values pulled from the run's rows (attributes carry
+  // style_master.gender_code via the repo-boundary overlay, Xoro attrs
+  // as fallback). Options reflect the data actually in the build —
+  // same free-filter behavior as before; the #1913 full-catalog union
+  // was reverted on CEO direction (2026-07-23). No grid column is
+  // rendered — gender is purely a filter dimension.
   const genders = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
       const g = (r.gender ?? "").trim();
       if (g) s.add(g);
     }
-    for (const m of masterStyles ?? []) {
-      const g = (m.gender ?? "").trim();
-      if (g) s.add(g);
-    }
     return Array.from(s).sort();
-  }, [rows, masterStyles]);
+  }, [rows]);
 
   // Friendly labels for the dropdown — Xoro's GenderCode column stores
   // single-letter codes (M, C, B, WMS, G). Filtering still uses the raw

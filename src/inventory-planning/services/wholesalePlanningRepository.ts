@@ -376,30 +376,40 @@ export const wholesaleRepo = {
     }
     return out;
   },
-  // Distinct (style_code, group_name, sub_category_name, gender) tuples from
-  // the active item master. Used by the TBD style + color pickers so the
-  // planner can pick a sibling style in the same category even when that
-  // sibling has no demand pairs in the current run (and therefore no rows in
-  // buildGridRows), and by the grid's filter dropdowns so the full catalog
-  // taxonomy is pickable pre-build. Taxonomy overlaid from style_master
-  // (Tangerine truth), Xoro attrs as fallback — same convention as
-  // buildGridRows.
+  // Distinct (style_code, group_name, sub_category_name, gender) tuples.
+  // Used by the TBD style + color pickers so the planner can pick a sibling
+  // style in the same category even when that sibling has no demand pairs in
+  // the current run, and by the grid's filter dropdowns so the full taxonomy
+  // is pickable pre-build.
+  //
+  // Source of truth = Tangerine's style_master DIRECTLY (2026-07-23, CEO:
+  // "all data should conform to Tangerine"): every non-deleted Style Master
+  // row contributes its exact (Category, Sub Category, Gender) tuple, so the
+  // filter option domains mirror the Style Master screen 1:1 — including
+  // styles that haven't reached the Xoro item master yet. Item-master styles
+  // ABSENT from the Style Master stay pickable by code but contribute NO
+  // taxonomy (their stale Xoro attrs previously leaked retired names like
+  // "GAUZE SHORT" into the dropdowns).
   async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>> {
-    type RawItem = { style_code: string | null; sku_code: string; attributes: Record<string, unknown> | null; active: boolean };
+    type RawItem = { style_code: string | null; sku_code: string; active: boolean };
     const [rows, tax] = await Promise.all([
-      sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,attributes,active&active=eq.true"),
+      sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,active&active=eq.true"),
       wholesaleRepo.listTangerineTaxonomy(),
     ]);
     const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>();
+    for (const [styleKey, t] of tax) {
+      out.set(styleKey, {
+        style_code: styleKey,
+        group_name: t.category_name,
+        sub_category_name: t.sub_category_name,
+        gender: t.gender_code,
+      });
+    }
     for (const r of rows) {
-      const style = r.style_code ?? r.sku_code;
-      if (!style || out.has(style)) continue;
-      const attrs = r.attributes ?? {};
-      const t = tax.get(style.trim().toUpperCase());
-      const group = t?.category_name ?? (typeof attrs.group_name === "string" ? attrs.group_name.trim() || null : null);
-      const sub = t?.sub_category_name ?? (typeof attrs.category_name === "string" ? attrs.category_name.trim() || null : null);
-      const gender = t?.gender_code ?? (typeof attrs.gender === "string" ? attrs.gender.trim() || null : null);
-      out.set(style, { style_code: style, group_name: group, sub_category_name: sub, gender });
+      const style = (r.style_code ?? r.sku_code)?.trim();
+      if (!style) continue;
+      const key = style.toUpperCase();
+      if (!out.has(key)) out.set(key, { style_code: style, group_name: null, sub_category_name: null, gender: null });
     }
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
   },
