@@ -12,6 +12,7 @@ import {
   cmpStr,
   cmpNum,
   rollByLogicalChain,
+  findStaleFilterSelections,
 } from "../gridUtils";
 import { NO_COLLAPSE } from "../constants";
 import type { IpPlanningGridRow } from "../../../types/wholesale";
@@ -223,5 +224,45 @@ describe("rollByLogicalChain", () => {
 
   it("empty input returns empty output", () => {
     expect(rollByLogicalChain([], key, roller)).toEqual([]);
+  });
+});
+
+
+// --- findStaleFilterSelections: stale persisted filters vs the run's rows ---
+// CEO outage-read (2026-07-22): saved Category "DENIM" / Sub-cat "DENIM SHORTS"
+// filters silently matched zero rows after the catalog was re-categorized to
+// SHORTS / CARGO+TWILL SHORTS -- the grid must NAME the stale selections.
+describe("findStaleFilterSelections", () => {
+  const rows = [
+    row({ forecast_id: "a", group_name: "SHORTS", sub_category_name: "CARGO SHORTS", customer_id: "c1" } as Partial<IpPlanningGridRow>),
+    row({ forecast_id: "b", group_name: "SHORTS", sub_category_name: "TWILL SHORTS", customer_id: "c1" } as Partial<IpPlanningGridRow>),
+  ];
+  const dims = (over: Partial<{ cat: string[]; sub: string[]; cust: string[] }> = {}) => [
+    { dim: "category", label: "Category", selected: over.cat ?? [], valueOf: (r: IpPlanningGridRow) => r.group_name ?? "-" },
+    { dim: "subCat", label: "Sub-cat", selected: over.sub ?? [], valueOf: (r: IpPlanningGridRow) => r.sub_category_name ?? "-" },
+    { dim: "customer", label: "Customer", selected: over.cust ?? [], valueOf: (r: IpPlanningGridRow) => r.customer_id, opaque: true },
+  ];
+
+  it("flags selections that exist in no row (the DENIM case)", () => {
+    const out = findStaleFilterSelections(rows, dims({ cat: ["DENIM"], sub: ["DENIM SHORTS"] }));
+    expect(out).toEqual([
+      { dim: "category", label: "Category", stale: ["DENIM"], opaque: false },
+      { dim: "subCat", label: "Sub-cat", stale: ["DENIM SHORTS"], opaque: false },
+    ]);
+  });
+
+  it("keeps valid selections out of the stale list (mixed valid+stale)", () => {
+    const out = findStaleFilterSelections(rows, dims({ cat: ["SHORTS", "DENIM"] }));
+    expect(out).toEqual([{ dim: "category", label: "Category", stale: ["DENIM"], opaque: false }]);
+  });
+
+  it("empty selections and fully-valid selections produce nothing", () => {
+    expect(findStaleFilterSelections(rows, dims())).toEqual([]);
+    expect(findStaleFilterSelections(rows, dims({ cat: ["SHORTS"], sub: ["CARGO SHORTS"] }))).toEqual([]);
+  });
+
+  it("marks opaque dims (ids) so the UI shows a count, never the raw value", () => {
+    const out = findStaleFilterSelections(rows, dims({ cust: ["dead-customer-id"] }));
+    expect(out).toEqual([{ dim: "customer", label: "Customer", stale: ["dead-customer-id"], opaque: true }]);
   });
 });
