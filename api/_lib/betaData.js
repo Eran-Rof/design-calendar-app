@@ -339,21 +339,26 @@ export async function cleanupRegistryRows(admin, regRows, { actorLabel = "operat
       continue;
     }
 
-    // Deletable → children first (only the doc's own lines table), then header.
-    const rule = TABLE_RULES[reg.table_name];
-    if (rule?.lineTable) {
-      const { error: lineErr } = await admin.from(rule.lineTable).delete().eq(rule.lineFk, reg.row_id);
-      if (lineErr) {
-        results.push({
-          id: reg.id, table_name: reg.table_name, outcome: "refused",
-          reason: `lines: ${fkRefusalReason(lineErr)}`,
-        });
-        continue;
-      }
-    }
-    const { error: delErr } = await admin.from(reg.table_name).delete().eq("id", reg.row_id);
+    // Deletable → beta_cleanup_delete() RPC: lines + header in ONE transaction
+    // (migration 20266100000000). Two sequential PostgREST deletes would leave
+    // a header-without-lines document if the header delete refused on an
+    // EXTERNAL FK after the lines were already gone; the plpgsql function rolls
+    // both back together on any violation. (TABLE_RULES stays exported as the
+    // documented mirror of the function's internal line-table allowlist.)
+    const { data: rpcOut, error: delErr } = await admin.rpc("beta_cleanup_delete", {
+      p_table: reg.table_name,
+      p_row_id: reg.row_id,
+    });
     if (delErr) {
       results.push({ id: reg.id, table_name: reg.table_name, outcome: "refused", reason: fkRefusalReason(delErr) });
+      continue;
+    }
+    if (rpcOut === "not_found") {
+      const goneErr = await markCleaned(admin, reg.id, `already gone — marked cleaned by ${actorLabel} ${stamp}`);
+      results.push({
+        id: reg.id, table_name: reg.table_name, outcome: "already_gone",
+        reason: goneErr ? `row gone but registry update failed: ${goneErr}` : "row no longer exists",
+      });
       continue;
     }
     const err = await markCleaned(admin, reg.id, `deleted by ${actorLabel} ${stamp}`);
