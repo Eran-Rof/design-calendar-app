@@ -502,7 +502,17 @@ async function planInvoice(num) {
     sql += `DELETE FROM ip_sales_history_wholesale WHERE id IN (${ishDeletes.map((r) => val(r.id)).join(",")});\n`;
     const ishIns = ishInserts.map((r) => {
       const cr = r.colorRow;
-      return `(${val(r.sku_id)}, ${val(cr.customer_id)}, ${val(cr.category_id)}, ${val(cr.channel_id)}, ${val(cr.order_number)}, ${val(cr.invoice_number)}, ${val(cr.txn_type)}, ${val(cr.txn_date)}, ${r.qty}, ${r.unit_price == null ? "NULL" : r.unit_price}, ${r.gross_amount == null ? "NULL" : r.gross_amount}, ${cr.discount_amount == null ? "NULL" : cr.discount_amount}, ${r.net_amount == null ? "NULL" : r.net_amount}, ${val(cr.currency)}, ${val(cr.source)}, ${val(cr.raw_payload_id)}, ${sqlLit(r.source_line_key)}, ${val(cr.qty_grain)}, ${cr.qty_units == null ? "NULL" : cr.qty_units}, ${cr.unit_cost_at_sale == null ? "NULL" : cr.unit_cost_at_sale}, NULL, NULL, ${cr.cogs_amount == null ? "NULL" : cr.cogs_amount}, ${val(cr.brand_id)})`;
+      // qty_units on a CHILD row must be the child's own eaches, NOT the parent
+      // colour total: planning reads qty_units first, so parent-copy multiplied
+      // history by the size count (33,233 rows / 15.3M phantom units repaired
+      // 2026-07-22 — detector: no garment child may have qty_units <> qty).
+      // Allocate proportionally so pack-grain parents (qty_units = qty x pack)
+      // stay correct: ratio 1 for garment rows -> qty_units = r.qty.
+      const parentQty = Number(cr.qty) || 0;
+      const childUnits = cr.qty_units == null ? null
+        : parentQty > 0 ? Math.round(Number(r.qty) * Number(cr.qty_units) / parentQty)
+        : Number(r.qty);
+      return `(${val(r.sku_id)}, ${val(cr.customer_id)}, ${val(cr.category_id)}, ${val(cr.channel_id)}, ${val(cr.order_number)}, ${val(cr.invoice_number)}, ${val(cr.txn_type)}, ${val(cr.txn_date)}, ${r.qty}, ${r.unit_price == null ? "NULL" : r.unit_price}, ${r.gross_amount == null ? "NULL" : r.gross_amount}, ${cr.discount_amount == null ? "NULL" : cr.discount_amount}, ${r.net_amount == null ? "NULL" : r.net_amount}, ${val(cr.currency)}, ${val(cr.source)}, ${val(cr.raw_payload_id)}, ${sqlLit(r.source_line_key)}, ${val(cr.qty_grain)}, ${childUnits == null ? "NULL" : childUnits}, ${cr.unit_cost_at_sale == null ? "NULL" : cr.unit_cost_at_sale}, NULL, NULL, ${cr.cogs_amount == null ? "NULL" : cr.cogs_amount}, ${val(cr.brand_id)})`;
     }).join(",\n");
     sql += `INSERT INTO ip_sales_history_wholesale (sku_id, customer_id, category_id, channel_id, order_number, invoice_number, txn_type, txn_date, qty, unit_price, gross_amount, discount_amount, net_amount, currency, source, raw_payload_id, source_line_key, qty_grain, qty_units, unit_cost_at_sale, margin_amount, margin_pct, cogs_amount, brand_id) VALUES\n${ishIns};\n`;
   }
