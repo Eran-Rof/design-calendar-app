@@ -27,3 +27,6 @@ export function readSubCategoryName(item: AttrBag): string | null {
 export function readGender(item: AttrBag): string | null {
   return readStringAttr(item, "gender");
 }
+export function readSeason(item: AttrBag): string | null {
+  return readStringAttr(item, "season");
+}

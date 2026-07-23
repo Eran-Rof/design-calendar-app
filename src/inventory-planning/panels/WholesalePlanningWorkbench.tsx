@@ -103,7 +103,7 @@ export default function WholesalePlanningWorkbench() {
   // Distinct (style_code, group_name, sub_category_name, gender) tuples
   // from the master. Drives the TBD style picker's category-wide list and
   // the grid's pre-build filter domains.
-  const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>>([]);
+  const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null; season: string | null }>>([]);
   // Units-per-pack for PPK styles from Tangerine's Prepack Matrix, keyed by
   // lowercased style_code. Supplements the SKU/size "PPKn" token so a
   // digit-less prepack style (e.g. RYB0412PPK) still converts eaches ⇄ packs
@@ -981,6 +981,7 @@ export default function WholesalePlanningWorkbench() {
         group_name: args.group_name,
         sub_category_name: args.sub_category_name,
         gender: null,
+        season: null,
         sku_id: `tbd:${args.style_code}`,
         sku_code: `${args.style_code}-TBD`,
         sku_description: args.notes ?? null,

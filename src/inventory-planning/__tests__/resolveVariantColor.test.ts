@@ -129,6 +129,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
     group_name: null,
     sub_category_name: null,
     gender: null,
+    season: null,
     sku_id: "sku-1",
     sku_code: "RYB0412-GREY",
     sku_description: null,

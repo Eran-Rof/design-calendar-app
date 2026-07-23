@@ -357,11 +357,11 @@ export const wholesaleRepo = {
   // unlike Xoro attrs where 16k+ items carry no gender at all).
   // Returned as a Map keyed by UPPER style_code; empty Map on any failure so
   // the grid never blocks on it (items then keep their Xoro-attr fallback).
-  async listTangerineTaxonomy(): Promise<Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null }>> {
-    const out = new Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null }>();
+  async listTangerineTaxonomy(): Promise<Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null; season: string | null }>> {
+    const out = new Map<string, { category_name: string | null; sub_category_name: string | null; gender_code: string | null; season: string | null }>();
     try {
-      type Row = { style_code: string | null; category_name: string | null; sub_category_name: string | null; gender_code: string | null };
-      const rows = await sbGetAll<Row>("style_master?select=style_code,category_name,sub_category_name,gender_code&deleted_at=is.null");
+      type Row = { style_code: string | null; category_name: string | null; sub_category_name: string | null; gender_code: string | null; season: string | null };
+      const rows = await sbGetAll<Row>("style_master?select=style_code,category_name,sub_category_name,gender_code,season&deleted_at=is.null");
       for (const r of rows) {
         const key = (r.style_code ?? "").trim().toUpperCase();
         if (!key || out.has(key)) continue;
@@ -369,6 +369,7 @@ export const wholesaleRepo = {
           category_name: r.category_name?.trim() || null,
           sub_category_name: r.sub_category_name?.trim() || null,
           gender_code: r.gender_code?.trim() || null,
+          season: r.season?.trim() || null,
         });
       }
     } catch (e) {
@@ -390,26 +391,27 @@ export const wholesaleRepo = {
   // ABSENT from the Style Master stay pickable by code but contribute NO
   // taxonomy (their stale Xoro attrs previously leaked retired names like
   // "GAUZE SHORT" into the dropdowns).
-  async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>> {
+  async listMasterStyles(): Promise<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null; season: string | null }>> {
     type RawItem = { style_code: string | null; sku_code: string; active: boolean };
     const [rows, tax] = await Promise.all([
       sbGetAll<RawItem>("ip_item_master?select=style_code,sku_code,active&active=eq.true"),
       wholesaleRepo.listTangerineTaxonomy(),
     ]);
-    const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>();
+    const out = new Map<string, { style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null; season: string | null }>();
     for (const [styleKey, t] of tax) {
       out.set(styleKey, {
         style_code: styleKey,
         group_name: t.category_name,
         sub_category_name: t.sub_category_name,
         gender: t.gender_code,
+        season: t.season,
       });
     }
     for (const r of rows) {
       const style = (r.style_code ?? r.sku_code)?.trim();
       if (!style) continue;
       const key = style.toUpperCase();
-      if (!out.has(key)) out.set(key, { style_code: style, group_name: null, sub_category_name: null, gender: null });
+      if (!out.has(key)) out.set(key, { style_code: style, group_name: null, sub_category_name: null, gender: null, season: null });
     }
     return Array.from(out.values()).sort((a, b) => a.style_code.localeCompare(b.style_code));
   },

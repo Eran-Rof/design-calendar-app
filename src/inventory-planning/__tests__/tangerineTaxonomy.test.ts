@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { applyTangerineTaxonomy, taxonomyKey, type TangerineTaxonomy } from "../utils/tangerineTaxonomy";
 
-function tax(entries: Array<[string, { category_name: string | null; sub_category_name: string | null; gender_code?: string | null }]>): TangerineTaxonomy {
-  return new Map(entries.map(([k, v]) => [k, { gender_code: null, ...v }]));
+function tax(entries: Array<[string, { category_name: string | null; sub_category_name: string | null; gender_code?: string | null; season?: string | null }]>): TangerineTaxonomy {
+  return new Map(entries.map(([k, v]) => [k, { gender_code: null, season: null, ...v }]));
 }
 
 describe("applyTangerineTaxonomy", () => {

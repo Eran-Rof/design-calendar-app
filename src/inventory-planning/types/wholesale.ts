@@ -192,6 +192,9 @@ export interface IpPlanningGridRow {
   sub_category_name: string | null;
   // Item-master GenderCode. Filter-only — no grid column rendered.
   gender: string | null;
+  // Style Master season (attributes.season via the Tangerine overlay).
+  // Filter-only — no grid column rendered. Sparsely populated today.
+  season: string | null;
   sku_id: string;
   sku_code: string;
   sku_description: string | null;
