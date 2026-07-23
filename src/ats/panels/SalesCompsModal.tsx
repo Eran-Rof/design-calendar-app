@@ -233,6 +233,20 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
     // Match against the formatted label (e.g. "RYB1416 — ARENA Loose Relaxed")
     // so the operator can find a style by its description, not just its code.
     : options.filter(o => fmt(o).toLowerCase().includes(search.toLowerCase()));
+  // Cap the rendered rows. The Style list now spans the FULL item master
+  // (~3k options) and rendering every row made each open/keystroke/click
+  // re-render thousands of labels — the popover felt frozen and clicks
+  // appeared to toggle on/off (operator report, 2026-07-22). Selected
+  // options are always pinned first so a choice never disappears behind
+  // the cap; the footer tells the operator to type to narrow.
+  const MAX_VISIBLE = 250;
+  const selectedSet = new Set(value);
+  const selectedVisible = filtered.filter(o => selectedSet.has(o));
+  const unselected = filtered.filter(o => !selectedSet.has(o));
+  const visible = selectedVisible.concat(
+    unselected.slice(0, Math.max(0, MAX_VISIBLE - selectedVisible.length)),
+  );
+  const hiddenCount = filtered.length - visible.length;
   const summary = value.length === 0 ? "All" : value.length <= 2 ? value.map(fmt).join(", ") : `${value.length} selected`;
   const toggle = (o: T) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
 
@@ -296,12 +310,17 @@ function SelectField<T extends string>({ label, value, options, onChange, multi,
           />
           <div style={{ overflowY: "auto", flex: 1 }}>
             {filtered.length === 0 && <div style={{ fontSize: 11, color: C.textDim, padding: 6 }}>No matches</div>}
-            {filtered.map(o => (
+            {visible.map(o => (
               <label key={o} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", cursor: "pointer", fontSize: 12, color: C.text, borderRadius: 4 }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(16,185,129,0.10)")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                 <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} />
                 <span style={{ whiteSpace: "normal", wordBreak: "break-word" }}>{fmt(o)}</span>
               </label>
             ))}
+            {hiddenCount > 0 && (
+              <div style={{ fontSize: 11, color: C.textDim, padding: 6 }}>
+                …{hiddenCount.toLocaleString()} more — keep typing to narrow
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -508,6 +527,13 @@ export const SalesCompsModal: React.FC<Props> = ({
   const poWeightedAvgByStyle = useMemo<Map<string, number>>(() => {
     const m = new Map<string, number>();
     if (!excelData) return m;
+    // Results-step only: this loop resolves EVERY PO line through the
+    // item master, which is expensive — and it used to re-run on every
+    // Style/filter click while the operator was still filling in the
+    // form, freezing the picker (operator report, 2026-07-22). Skip
+    // until a run has produced a result (or failed — the SO view still
+    // renders open SOs on a failed fetch, so `error` computes too).
+    if (!result && !error) return m;
     // Decide whether to enforce the date window. If NO PO in the
     // file carries a usable date string, an in-window filter would
     // produce an empty map and silently drop the fallback chain.
@@ -545,7 +571,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       if (a.qty > 0) m.set(style, a.qtyCost / a.qty);
     }
     return m;
-  }, [excelData, start, end, selStyles]);
+  }, [excelData, start, end, selStyles, result, error]);
 
   // Pre-bind the cost-source inputs into one object that's reused
   // across every estimator call in this render — keeps the per-row
@@ -585,6 +611,10 @@ export const SalesCompsModal: React.FC<Props> = ({
     const byCustomerSku = new Map<string, Map<string, { qty: number; rev: number; mrgn: number }>>();
     const coverage = { contributing: 0, costResolved: 0, costMissing: 0 };
     if (!excelData) return { byCustomer, bySkuCode, byCustomerSku, coverage };
+    // Results-step only — same reasoning as poWeightedAvgByStyle above:
+    // this loop resolves + margin-estimates every open SO and was
+    // re-running on every form click before the report even ran.
+    if (!result && !error) return { byCustomer, bySkuCode, byCustomerSku, coverage };
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     for (const s of excelData.sos) {
       const filterDate = s.cancelDate || s.date;
@@ -647,7 +677,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       }
     }
     return { byCustomer, bySkuCode, byCustomerSku, coverage };
-  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, soCostInputs]);
+  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, soCostInputs, result, error]);
 
   // Raw per-SKU aggregate, keyed by sku_code (BASE-COLOR). qty stays
   // in master's native grain (packs for PPK-grain SKUs, eaches for
@@ -783,11 +813,15 @@ export const SalesCompsModal: React.FC<Props> = ({
   // A grand-total row closes every variant.
   const soRows = useMemo<SoRow[]>(() => {
     // SO view is built primarily from excelData.sos (open SOs). The
-    // fetch result is only needed for the LY column. Don't gate on
-    // `result` being truthy — even when the fetch returns empty or
-    // fails, the operator still expects to see their open SOs.
+    // fetch result is only needed for the LY column — even when the
+    // fetch returns empty or FAILS the operator still expects their
+    // open SOs, which is why the gate below accepts `error` too. It
+    // must not compute while the operator is still filling the form
+    // (pre-run: result AND error both null) — the per-SO master
+    // resolution froze the pickers on every click.
     if (!excelData) return [];
     if (!viewBy.includes("so")) return [];
+    if (!result && !error) return [];
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     // Resolve each open SO's master_style + master_category + master_sub_category
     // up front so we can apply scope filters without doing the lookup
@@ -1017,7 +1051,7 @@ export const SalesCompsModal: React.FC<Props> = ({
     if (catchall) out.push(catchall);
 
     return out;
-  }, [excelData, result, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle, soCostInputs]);
+  }, [excelData, result, error, viewBy, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, lyRevByStyle, soCostInputs]);
 
   // Parallel diagnostic — same filter chain as soRows, but counts how
   // many open SOs make it past each step. Surfaced above the SO table
@@ -1028,6 +1062,9 @@ export const SalesCompsModal: React.FC<Props> = ({
   // staring at an empty table wondering why.
   const soDiag = useMemo(() => {
     if (!excelData) return null;
+    // Results-step only — resolves every open SO through the master;
+    // don't re-run it on every form click before the report runs.
+    if (!result && !error) return null;
     const want = (set: string[], v: string | null | undefined) => set.length === 0 || (v != null && set.includes(v));
     let total = 0, afterDate = 0, afterStore = 0, afterCustomer = 0, afterScope = 0;
     for (const s of excelData.sos) {
@@ -1057,7 +1094,7 @@ export const SalesCompsModal: React.FC<Props> = ({
       afterScope++;
     }
     return { total, afterDate, afterStore, afterCustomer, afterScope };
-  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end]);
+  }, [excelData, customer, selStores, selCategories, selSubCategories, selStyles, selGenders, start, end, result, error]);
 
   // Per-(customer, sku) raw aggregates for the Customer dim view.
   // Replaces the old "one row per customer" rollup with per-SKU detail
