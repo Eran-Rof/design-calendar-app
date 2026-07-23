@@ -41,7 +41,8 @@ export interface ReportPeriod {
 }
 
 export interface ReportColorRow {
-  style: string;
+  style: string;         // display style — base if present, else PPK (#1896)
+  baseStyle: string;     // the base garment style (PPK token stripped)
   color: string;
   ly: number[];          // SP/LY qty per period (index-aligned to periods)
   ty: number[];          // TY/Buyer qty per period
@@ -50,7 +51,8 @@ export interface ReportColorRow {
 }
 
 export interface ReportStyle {
-  style: string;
+  style: string;         // display style — base if present, else PPK (#1896)
+  baseStyle: string;     // the base garment style; the SP/LY-base-style toggle shows this in the LY block
   colors: ReportColorRow[];
   lyTotals: number[];
   tyTotals: number[];
@@ -226,10 +228,10 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
             .map(([color, cell]) => {
               const ly = cellLy(cell);
               for (let i = 0; i < nP; i++) { styLy[i] += ly[i]; styTy[i] += cell.ty[i]; }
-              return { style: displayStyle, color, ly, ty: cell.ty, lyTotal: sumArr(ly), tyTotal: sumArr(cell.ty) };
+              return { style: displayStyle, baseStyle: style, color, ly, ty: cell.ty, lyTotal: sumArr(ly), tyTotal: sumArr(cell.ty) };
             });
           for (let i = 0; i < nP; i++) { custLy[i] += styLy[i]; custTy[i] += styTy[i]; }
-          return { style: displayStyle, colors, lyTotals: styLy, tyTotals: styTy, lyTotal: sumArr(styLy), tyTotal: sumArr(styTy) };
+          return { style: displayStyle, baseStyle: style, colors, lyTotals: styLy, tyTotals: styTy, lyTotal: sumArr(styLy), tyTotal: sumArr(styTy) };
         });
       return { customer, styles, lyTotals: custLy, tyTotals: custTy, lyTotal: sumArr(custLy), tyTotal: sumArr(custTy) };
     });
