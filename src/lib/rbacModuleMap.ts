@@ -85,6 +85,8 @@ export const TANGERINE_MODULE_RBAC: Record<string, string> = {
   // Admin
   audit_log: "audit_log",
   user_access: "users_access",
+  // Beta guardrails chunk C — Beta Data admin screen (admin-only module).
+  beta_data: "beta_data",
 };
 
 // ── Vendor app (src/TandA.tsx View) → module_key ────────────────────────────

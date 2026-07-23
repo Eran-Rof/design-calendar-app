@@ -236,6 +236,8 @@ const KEYS = [
   "tanda/admin/onboarding",
   "tanda/admin/api-keys",
   "tanda/admin/sync-health",
+  // Beta guardrails chunk C — Beta Data admin screen.
+  "tanda/admin/beta-data",
   // Tech Packs (T4-5 close-out)
   "techpack/dashboard",
   "techpack/list",

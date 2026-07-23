@@ -165,7 +165,9 @@ export type ModuleKey =
   | "entities"
   | "onboarding"
   // M15 — External / Partner API key admin.
-  | "api_keys";
+  | "api_keys"
+  // Beta guardrails chunk C — Beta Data admin screen (window + registry + cleanup).
+  | "beta_data";
 
 export type GroupKey = "Today" | "Master Data" | "EDI" | "Accounting" | "Treasury" | "Vendors" | "Procurement" | "Sales" | "Pricing" | "CRM" | "Customers" | "Customers – Accts Rec" | "Reports" | "ESG & Compliance" | "Workflow" | "Approvals" | "Notifications" | "HR" | "Inventory" | "Manufacturing" | "Customer Service" | "Shadow Mirror" | "Shopify" | "Marketplaces" | "Audit" | "Admin";
 
@@ -444,6 +446,8 @@ export const MODULES: ModuleDef[] = [
   // M15 — External / Partner API key admin.
   { key: "api_keys",            label: "API Keys",           emoji: "🔑", group: "Admin" },
   { key: "sync_health",         label: "Sync Health",        emoji: "🩺", group: "Admin" },
+  // Beta guardrails chunk C — beta window toggle + tagged-doc registry + safe cleanup.
+  { key: "beta_data",           label: "Beta Data",          emoji: "🧪", group: "Admin" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -166,6 +166,7 @@ import r_internal_bank_transactions_ignore from "./internal/bank-transactions/ig
 import r_internal_bank_transactions_index from "./internal/bank-transactions/index.js";
 import r_internal_bank_transactions_match_candidates from "./internal/bank-transactions/match-candidates.js";
 import r_internal_bank_transactions_unmatch from "./internal/bank-transactions/unmatch.js";
+import r_internal_beta_data_index from "./internal/beta-data/index.js";
 import r_internal_brands_index from "./internal/brands/index.js";
 import r_internal_budget_range_index from "./internal/budget-range/index.js";
 import r_internal_budgets_index from "./internal/budgets/index.js";
@@ -1489,6 +1490,7 @@ export const ROUTES = [
   { pattern: "/api/shopify/collections", handler: r_shopify_collections },
   { pattern: "/api/cron/push-delivery", handler: r_cron_push_delivery },
   { pattern: "/api/internal/anomalies", handler: r_internal_anomalies_index },
+  { pattern: "/api/internal/beta-data", handler: r_internal_beta_data_index },
   { pattern: "/api/internal/cash-flow", handler: r_internal_cash_flow_index },
   { pattern: "/api/internal/contracts", handler: r_internal_contracts_index },
   { pattern: "/api/internal/countries", handler: r_internal_countries_index },
