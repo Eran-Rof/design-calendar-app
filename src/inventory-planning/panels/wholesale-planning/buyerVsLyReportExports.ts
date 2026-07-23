@@ -50,10 +50,10 @@ export function exportBuyerVsLyPdf(report: BuyerVsLyReport, opts: ExportOpts): v
     const compCols: PdfColumn[] = [
       { header: "Style / Color", key: "label" },
       ...periods.flatMap((p) => [
-        { header: `${p.tyLabel} Δ`, key: `d_${p.period_code}`, format: "qty" as const },
+        { header: `${p.tyLabel} Diff`, key: `d_${p.period_code}`, format: "qty" as const },
         { header: "%", key: `p_${p.period_code}`, format: "pct" as const },
       ]),
-      { header: "Total Δ", key: "total_d", format: "qty" as const },
+      { header: "Total Diff", key: "total_d", format: "qty" as const },
       { header: "Total %", key: "total_p", format: "pct" as const },
     ];
     sections.push({
@@ -179,8 +179,8 @@ export async function exportBuyerVsLyExcel(report: BuyerVsLyReport, opts: Export
     // Comparison block (Δ + %).
     heading("Comparison — TY − LY", S_SUBHEAD);
     aoa.push([{ v: "Style", s: S_HEADER("left") }, { v: "Color", s: S_HEADER("left") },
-      ...periods.flatMap((p) => [{ v: `${p.tyLabel} Δ`, s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]),
-      { v: "Total Δ", s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]);
+      ...periods.flatMap((p) => [{ v: `${p.tyLabel} Diff`, s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]),
+      { v: "Total Diff", s: S_HEADER("right") }, { v: "%", s: S_HEADER("right") }]);
     const dCell = (ty: number, ly: number): AoaCell => { const d = reportComp(ty, ly); return d === 0 ? { v: "", s: S_BODY("right") } : { v: d, s: d < 0 ? S_NEG : S_BODY("right"), z: NUMFMT.QTY }; };
     const dTotCell = (d: number): AoaCell => (d === 0 ? { v: "", s: S_TOTAL("right") } : { v: d, s: S_TOTAL("right"), z: NUMFMT.QTY });
     const pTotCell = (frac: number | null): AoaCell => (frac == null || frac === 0 ? { v: "", s: S_TOTAL("right") } : { v: frac, s: S_TOTAL("right"), z: NUMFMT.PCT });
