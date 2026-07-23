@@ -222,3 +222,38 @@ export function rollByLogicalChain(
   }
   return out;
 }
+
+
+// ---------------------------------------------------------------------------
+// Stale persisted-filter detection. Filters live in localStorage and survive
+// catalog changes -- when the item master is re-categorized (e.g. group
+// "DENIM" renamed to "SHORTS"), a saved Category filter silently matches
+// ZERO rows and the grid reads as broken ("none of the builds are loading").
+// Given the run's FULL row set and the active selections, return, per filter
+// dimension, the selected values that no longer exist anywhere in the run so
+// the empty state can NAME them and offer a one-click removal.
+export interface ActiveFilterDim {
+  dim: string;                                  // machine key ("category", ...)
+  label: string;                                // human label ("Category")
+  selected: string[];                           // current selections
+  valueOf: (r: IpPlanningGridRow) => string;    // MUST mirror the filter predicate
+  // When true the raw values are ids (never show them -- no-UUID rule);
+  // the empty state reports a count instead.
+  opaque?: boolean;
+}
+export interface StaleFilterSelection { dim: string; label: string; stale: string[]; opaque: boolean }
+
+export function findStaleFilterSelections(
+  rows: IpPlanningGridRow[],
+  dims: ActiveFilterDim[],
+): StaleFilterSelection[] {
+  const out: StaleFilterSelection[] = [];
+  for (const { dim, label, selected, valueOf, opaque } of dims) {
+    if (selected.length === 0) continue;
+    const domain = new Set<string>();
+    for (const r of rows) domain.add(valueOf(r));
+    const stale = selected.filter((v) => !domain.has(v));
+    if (stale.length > 0) out.push({ dim, label, stale, opaque: !!opaque });
+  }
+  return out;
+}

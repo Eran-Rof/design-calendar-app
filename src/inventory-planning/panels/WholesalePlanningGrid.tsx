@@ -34,6 +34,7 @@ import {
   cmpNum,
   cmpMulti,
   rollByLogicalChain,
+  findStaleFilterSelections,
 } from "./wholesale-planning/gridUtils";
 import { Th } from "./wholesale-planning/Th";
 import {
@@ -1763,6 +1764,48 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }),
     [mutedRows, skuPeriodMath, filtered, collapse, ppkInherit],
   );
+
+  // Stale persisted-filter detection — only evaluated when the view is EMPTY
+  // but the run has rows: name the saved selections that no longer exist in
+  // this run (e.g. a Category filter from before a catalog re-categorization)
+  // so an over-filtered grid never reads as "the build didn't load".
+  const staleFilters = useMemo(() => {
+    if (rows.length === 0 || filtered.length > 0) return [];
+    return findStaleFilterSelections(rows, [
+      { dim: "customer", label: "Customer", selected: filterCustomer, valueOf: (r) => r.customer_id, opaque: true },
+      { dim: "category", label: "Category", selected: filterCategory, valueOf: (r) => r.group_name ?? "—" },
+      { dim: "subCat", label: "Sub-cat", selected: filterSubCat, valueOf: (r) => r.sub_category_name ?? "—" },
+      { dim: "gender", label: "Gender", selected: filterGender, valueOf: (r) => r.gender ?? "—" },
+      { dim: "period", label: "Period", selected: filterPeriod, valueOf: (r) => r.period_code },
+      { dim: "style", label: "Style", selected: filterStyle, valueOf: (r) => r.sku_style ?? r.sku_code },
+      { dim: "color", label: "Color", selected: filterColor, valueOf: (r) => (r.sku_color ?? "").trim() },
+      { dim: "action", label: "Action", selected: filterAction, valueOf: (r) => r.recommended_action },
+      { dim: "confidence", label: "Confidence", selected: filterConfidence, valueOf: (r) => r.confidence_level },
+      { dim: "method", label: "Method", selected: filterMethod, valueOf: (r) => r.forecast_method },
+    ]);
+  }, [rows, filtered.length, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod]);
+
+  // Remove ONLY the stale values from each affected filter (valid ones stay).
+  const clearStaleFilters = () => {
+    const setters: Record<string, [string[], (v: string[]) => void]> = {
+      customer: [filterCustomer, setFilterCustomer],
+      category: [filterCategory, setFilterCategory],
+      subCat: [filterSubCat, setFilterSubCat],
+      gender: [filterGender, setFilterGender],
+      period: [filterPeriod, setFilterPeriod],
+      style: [filterStyle, setFilterStyle],
+      color: [filterColor, setFilterColor],
+      action: [filterAction, setFilterAction],
+      confidence: [filterConfidence, setFilterConfidence],
+      method: [filterMethod, setFilterMethod],
+    };
+    for (const s of staleFilters) {
+      const entry = setters[s.dim];
+      if (!entry) continue;
+      const [cur, set] = entry;
+      set(cur.filter((v) => !s.stale.includes(v)));
+    }
+  };
   // Column total to pass to a Th header (undefined = totals toggle off, no row).
   const ct = (key: string): number | undefined => (showColumnTotals ? (totals.columns[key] ?? 0) : undefined);
 
@@ -2982,7 +3025,30 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
               <tr><td colSpan={28} style={{ ...S.td, textAlign: "center", color: PAL.textMuted, padding: 40 }}>
                 {rows.length === 0
                   ? "No forecast rows yet. Click \"Build forecast\" above to populate the grid."
-                  : "No rows match your filters."}
+                  : (
+                    <div>
+                      <div>No rows match your filters.</div>
+                      {staleFilters.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ color: PAL.yellow, marginBottom: 8 }}>
+                            These saved selections no longer exist in this run
+                            {": "}
+                            {staleFilters.map((s) =>
+                              s.opaque
+                                ? `${s.label} (${s.stale.length} selection${s.stale.length === 1 ? "" : "s"})`
+                                : `${s.label} ${s.stale.map((v) => `"${v}"`).join(", ")}`,
+                            ).join(" · ")}
+                            {" — the catalog may have been re-categorized since they were saved."}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearStaleFilters}
+                            style={{ background: "transparent", border: `1px solid ${PAL.accent}`, color: PAL.accent, borderRadius: 8, padding: "6px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+                          >Remove stale filters</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
               </td></tr>
             )}
             {loading && (

@@ -134,6 +134,8 @@ Each row is a customer × style × color × period demand line. Columns can be s
 
 > **PPK inherits base toggle.** A prepack (PPK) style has no sales of its own — all the demand and history live on the base garment (e.g. RYB0412's sales, not RYB0412PPK's), so a plain build leaves the PPK rows empty. Turn **PPK inherits base: ON** (button above the grid, default OFF) and every prepack row shows the **base garment family's** System / Final / SP·LY / Hist T3-12 for the same color and period — so you can plan a prepack buy against real demand. It works even when a run was built with **only** the PPK styles selected (the reference comes from the family's sales, not from base rows being present). Both the base and the PPK rows stay visible, and the column **totals dedupe by family** so seeing the demand on both grains never doubles the total — the total still reflects the real (base) demand once, and you enter your prepack **Buyer / Buy** on the PPK rows as usual. Flip it off any time to return to the plain view.
 
+> **"No rows match your filters" with stale selections.** Your filters are remembered per browser — if the catalog is re-categorized after you saved them (e.g. a Category renamed), a saved selection can suddenly match nothing and the grid comes up empty. When that happens the empty state now **names the stale selections** (e.g. `Category "DENIM"`) and offers **Remove stale filters**, which strips only the outdated values and keeps the rest of your filters.
+
 > Overrides are remembered per row. A normal **Rebuild (preserve edits)** keeps your Buyer / Override / Buy / Unit Cost edits on rows that get recomputed. Only a **Wipe + rebuild** discards them (see below).
 
 ### TBD stock-buy rows
