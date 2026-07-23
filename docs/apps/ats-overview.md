@@ -158,6 +158,18 @@ cross-grid extras machinery reports their history fine. Master descriptions
 also backfill the picker's *code — description* labels for styles with no
 grid row.
 
+**Picker perf hardening (follow-up):** the full-master list (~3k options)
+made the multi-select popover render thousands of label rows on every
+open / keystroke / click, and each selection click ALSO re-ran the modal's
+heavy pre-run memos — `poWeightedAvgByStyle` (resolves every PO line),
+`openSoAggregates` + `soDiag` + `soRows` (resolve + margin-estimate every
+open SO) — freezing the picker so clicks appeared to toggle on/off. Fixes:
+(1) `SelectField` renders at most 250 rows (selected options pinned first
+so a choice never hides behind the cap) with a "…N more — keep typing to
+narrow" footer; (2) those four memos short-circuit until a run has produced
+`result` (or `error` — the SO view still renders open SOs after a failed
+fetch). Regression tests: `__tests__/salesCompsStylePicker.test.tsx`.
+
 ## See also
 - [po-wip-overview.md](po-wip-overview.md) — the PO data ATS pulls in
 - [inventory-planning-overview.md](inventory-planning-overview.md) — downstream consumer
