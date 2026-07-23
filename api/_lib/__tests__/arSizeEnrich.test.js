@@ -4,7 +4,7 @@ import {
   parseMoneyCents, parseNum, parseCsv, parseInvoiceDetailCsv, usDateToIso,
   csvLineGroupKey, groupInvoiceCsvLines, aggregateGroupKey, distributeInt,
   verifyColorGroup, buildSizeLines, buildIshSizeRows,
-  sizeKeyOf, alignSizeGrain, buildRelinkLines,
+  sizeKeyOf, alignSizeGrain, buildRelinkLines, buildRepriceLines,
 } from "../arSizeEnrich.js";
 
 describe("parseMoneyCents", () => {
@@ -236,6 +236,34 @@ describe("Case B: alignSizeGrain + buildRelinkLines", () => {
     expect(sizeKeyOf("S")).toBe("SMALL");
     expect(sizeKeyOf("30")).toBe("30");
     expect(sizeKeyOf("S/8")).toBe("S/8");
+  });
+});
+
+describe("buildRepriceLines prices to the CSV total", () => {
+  const csv = [
+    { qty: 1, amountCents: 1400, description: "A" },
+    { qty: 1, amountCents: 1401, description: "B" },
+    { qty: 1, amountCents: 2336, description: "C" },
+    { qty: 1, amountCents: 2676, description: "D" },
+  ];
+  const defaults = { totalCogsCents: 800, brand_id: "b", channel_id: "c", source: "manual", revenue_account_id: null };
+  it("sum of line amounts equals the CSV total (=$78.13)", () => {
+    const ids = csv.map((_, i) => `it${i}`);
+    const { lines, sumCents } = buildRepriceLines(csv, ids, defaults, 1);
+    expect(sumCents).toBe(7813);
+    expect(lines.length).toBe(4);
+    // qty 1 → divisible → unit = amount, trigger reproduces line_total
+    expect(lines[0].unit_price_cents).toBe(1400);
+    expect(lines[0].line_total_cents).toBe(1400);
+    expect(lines.reduce((a, l) => a + l.cogs_cents, 0)).toBe(800);
+  });
+  it("indivisible amount → unit null, explicit line_total keeps it exact", () => {
+    const c2 = [{ qty: 3, amountCents: 1000, description: "X" }]; // 1000/3 not integer
+    const { lines, sumCents } = buildRepriceLines(c2, ["z"], { totalCogsCents: null }, 1);
+    expect(sumCents).toBe(1000);
+    expect(lines[0].unit_price_cents).toBeNull();
+    expect(lines[0].line_total_cents).toBe(1000);
+    expect(lines[0].cogs_cents).toBeNull();
   });
 });
 
