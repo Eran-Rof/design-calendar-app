@@ -45,6 +45,7 @@ import {
   genderLabel,
   type FreezeKey,
 } from "./wholesale-planning/columns";
+import { buildGenderOptions } from "./wholesale-planning/genderFilterOptions";
 import { computeTotals, endingAtsTotal, endingOnHandTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
@@ -639,20 +640,20 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }
   }, [filterCategory, subCategoryNames, filterSubCat]);
 
-  // Gender values pulled from the run's rows (attributes carry
-  // style_master.gender_code via the repo-boundary overlay, Xoro attrs
-  // as fallback). Options reflect the data actually in the build —
-  // same free-filter behavior as before; the #1913 full-catalog union
-  // was reverted on CEO direction (2026-07-23). No grid column is
-  // rendered — gender is purely a filter dimension.
-  const genders = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) {
-      const g = (r.gender ?? "").trim();
-      if (g) s.add(g);
-    }
-    return Array.from(s).sort();
-  }, [rows]);
+  // Gender is a free, CASCADING filter — exactly like Sub Cat cascades
+  // under Category. Options = the genders present under the currently
+  // selected Category + Sub Cat, drawn from the build's rows AND the
+  // master styles (style_master gender_code, Tangerine truth). Merging
+  // master styles is what makes it work PRE-BUILD (an unbuilt run has no
+  // rows, so a rows-only pool showed "No matches" even though Category /
+  // Sub Cat populated from the master — the 2026-07-23 report). It is NOT
+  // "all genders all the time" (the #1913 mistake): with SHORTS / DENIM
+  // SHORTS chosen it offers only M / B / G, the genders Tangerine files
+  // under that scope. No grid column is rendered — gender is filter-only.
+  const genders = useMemo(
+    () => buildGenderOptions(rows, masterStyles, filterCategory, filterSubCat),
+    [rows, masterStyles, filterCategory, filterSubCat],
+  );
 
   // Friendly labels for the dropdown — Xoro's GenderCode column stores
   // single-letter codes (M, C, B, WMS, G). Filtering still uses the raw
