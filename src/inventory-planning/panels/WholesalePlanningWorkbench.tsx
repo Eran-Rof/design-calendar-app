@@ -100,9 +100,10 @@ export default function WholesalePlanningWorkbench() {
   //   - color exists for other styles  → green "NEW for style"
   //   - color not in master anywhere   → orange "NEW COLOR"
   const [masterColorsByStyleLower, setMasterColorsByStyleLower] = useState<Map<string, Set<string>>>(new Map());
-  // Distinct (style_code, group_name, sub_category_name) tuples from
-  // the master. Drives the TBD style picker's category-wide list.
-  const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null }>>([]);
+  // Distinct (style_code, group_name, sub_category_name, gender) tuples
+  // from the master. Drives the TBD style picker's category-wide list and
+  // the grid's pre-build filter domains.
+  const [masterStyles, setMasterStyles] = useState<Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>>([]);
   // Units-per-pack for PPK styles from Tangerine's Prepack Matrix, keyed by
   // lowercased style_code. Supplements the SKU/size "PPKn" token so a
   // digit-less prepack style (e.g. RYB0412PPK) still converts eaches ⇄ packs

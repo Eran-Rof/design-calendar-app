@@ -33,7 +33,8 @@ export const GENDER_LABELS: Record<string, string> = {
   M:   "Mens",
   C:   "Child",
   B:   "Boys",
-  WMS: "Womens",
+  W:   "Womens", // style_master.gender_code spelling (#1907 prefix trigger)
+  WMS: "Womens", // legacy Xoro-attr spelling
   G:   "Girls",
 };
 
