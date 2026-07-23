@@ -25,6 +25,15 @@
    (pick the user, set Role = `beta`). The role is read/write/export
    everywhere and **never post/void** — a beta user cannot put anything into
    the GL. Do NOT hand out admin or accountant to beta users.
+   ⚠️ **Legacy-role caveat:** the auth provisioning flow (`auth/provision.js`)
+   stamps every newly provisioned user with the LEGACY role `admin`
+   (`entity_users.role` — a separate, older field from the RBAC role above).
+   A handful of legacy handlers still guard on that field, so after a beta
+   user first signs in, set their legacy role to a non-admin value (e.g.
+   `staff`) in User Management. The known exploitable combination
+   (legacy-admin + gl-periods reopen) was closed in chunk B by making
+   gl-periods close/reopen post-grade, but keep beta users off legacy admin
+   as defense in depth.
 3. **Verify `RBAC_MODE=enforce`** is set in the Vercel production environment
    (it has been live since 2026-07-08 — just confirm nobody flipped it). With
    enforcement off, the `beta` role's post/void denial is not applied.
