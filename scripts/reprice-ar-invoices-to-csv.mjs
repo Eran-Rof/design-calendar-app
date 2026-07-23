@@ -12,7 +12,13 @@
  *                a DISCOUNTED amount (subledger > CSV).
  *   • FILL     — an under-captured invoice whose historical aggregate is MISSING
  *                styles the CSV carries (subledger < CSV).
- * Both are handled by REBUILDING the invoice's lines to exactly the CSV, priced at
+ *   • FILL-EQUAL (--fill-equal) — an aggregate-only invoice (zero sized lines,
+ *                e.g. a single styleless "Historical line") whose booked total
+ *                ALREADY equals the CSV and the GL. The default pass skips these
+ *                as "already correct"; #1898's enrichment skipped them because the
+ *                aggregate has no style/colour to group-match. This mode rebuilds
+ *                ONLY such invoices — content changes, header total does NOT.
+ * All are handled by REBUILDING the invoice's lines to exactly the CSV, priced at
  * the CSV amount, so the post-fix total == CSV total.
  *
  * GL-LINKAGE PRE-CHECK (established 2026-07-22; see project memory):
@@ -32,6 +38,7 @@
  *   node scripts/reprice-ar-invoices-to-csv.mjs                         # dry-run all
  *   node scripts/reprice-ar-invoices-to-csv.mjs --invoice PT-I004445    # one
  *   node scripts/reprice-ar-invoices-to-csv.mjs --apply                 # WRITE PROD
+ *   node scripts/reprice-ar-invoices-to-csv.mjs --fill-equal [--apply]  # equal-total aggregate-only fill
  *
  * Reads VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (JWT) + SUPABASE_PAT.
  */
@@ -58,9 +65,14 @@ const CSV_FILES = [
 const MANIFEST_DIR = "C:/Users/Eran.RINGOFFIRE/code/rof_xoro_project/.launchd-logs/ar-size-enrichment-2026-07-22";
 const TOL_CENTS = 5;                    // GL/CSV equality tolerance
 const REPRICE_TAG = "[ar-size-reprice 2026-07-22]";
+const FILL_EQUAL_TAG = "[ar-size-fill-equal 2026-07-22]";
 
 const args = process.argv.slice(2);
 const APPLY = args.includes("--apply");
+const FILL_EQUAL = args.includes("--fill-equal");
+const NOTES_TAG = FILL_EQUAL ? FILL_EQUAL_TAG : REPRICE_TAG;
+const ISH_KEY_KIND = FILL_EQUAL ? "fillequal" : "reprice";
+const FILE_PREFIX = FILL_EQUAL ? "fillequal" : "reprice";
 const argVal = (n) => { const i = args.indexOf(n); return i >= 0 && i + 1 < args.length ? args[i + 1] : null; };
 const ONLY_INVOICE = argVal("--invoice");
 const LIMIT = argVal("--limit") ? Number(argVal("--limit")) : null;
@@ -97,12 +109,12 @@ async function inChunks(ids, fn, size = 100) { const out = []; for (let i = 0; i
 mkdirSync(MANIFEST_DIR, { recursive: true });
 const STAMP = new Date().toISOString().replace(/[:.]/g, "-");
 const MODE = APPLY ? "apply" : "dryrun";
-const preimagePath = join(MANIFEST_DIR, `reprice-preimage-${MODE}-${STAMP}.jsonl`);
-const itemizePath = join(MANIFEST_DIR, `reprice-itemize-${MODE}-${STAMP}.jsonl`);
-const summaryPath = join(MANIFEST_DIR, `reprice-summary-${MODE}-${STAMP}.json`);
+const preimagePath = join(MANIFEST_DIR, `${FILE_PREFIX}-preimage-${MODE}-${STAMP}.jsonl`);
+const itemizePath = join(MANIFEST_DIR, `${FILE_PREFIX}-itemize-${MODE}-${STAMP}.jsonl`);
+const summaryPath = join(MANIFEST_DIR, `${FILE_PREFIX}-summary-${MODE}-${STAMP}.json`);
 const appendJsonl = (p, o) => appendFileSync(p, JSON.stringify(o) + "\n", "utf8");
 
-console.log(`# AR REPRICE/FILL to CSV — ${APPLY ? "APPLY (PROD WRITES)" : "DRY-RUN"}`);
+console.log(`# AR ${FILL_EQUAL ? "FILL-EQUAL (aggregate-only, total unchanged)" : "REPRICE/FILL"} to CSV — ${APPLY ? "APPLY (PROD WRITES)" : "DRY-RUN"}`);
 console.log(`# GL gate: rebuild only when |CSV − GL AR| <= ${TOL_CENTS}c (SHIP/ecom + mismatch itemized)`);
 
 // ── 1. parse CSVs → per-invoice line sets (dedupe across files by most-lines) ─
@@ -118,11 +130,18 @@ const csvTotalCents = (inv) => (csvByInvoice.get(inv) || []).reduce((a, l) => a 
 console.log(`# CSV invoices: ${csvByInvoice.size}`);
 
 // ── 2. target selection: in-range wholesale invoices + GL AR / merch / ship ──
+// --fill-equal only targets aggregate-only invoices (zero size-grain lines); the
+// filter is essential — without it every already-enriched invoice (equal totals
+// by construction) would be pointlessly rebuilt.
+const unsizedFilter = FILL_EQUAL ? `
+    AND NOT EXISTS (
+      SELECT 1 FROM ar_invoice_lines sl JOIN ip_item_master sim ON sim.id = sl.inventory_item_id
+      WHERE sl.ar_invoice_id = i.id AND sim.size IS NOT NULL)` : "";
 const selSql = `
 WITH inv AS (
   SELECT i.id, i.invoice_number, to_char(i.invoice_date,'YYYY-MM') period, i.invoice_date::text idate, i.total_amount_cents, i.accrual_je_id
   FROM ar_invoices i WHERE i.entity_id='${ROF_ENTITY_ID}'
-    AND i.invoice_number NOT ILIKE '%ECOM%' AND i.invoice_date BETWEEN '${DATE_LO}' AND '${DATE_HI}')
+    AND i.invoice_number NOT ILIKE '%ECOM%' AND i.invoice_date BETWEEN '${DATE_LO}' AND '${DATE_HI}'${unsizedFilter})
 SELECT inv.id, inv.invoice_number, inv.period, inv.idate, inv.total_amount_cents,
   round(coalesce((SELECT sum(l.debit) FROM journal_entry_lines l JOIN gl_accounts a ON a.id=l.account_id WHERE l.journal_entry_id=inv.accrual_je_id AND a.name ILIKE '%Accounts Receivable%'),0)*100)::bigint gl_ar,
   round(coalesce((SELECT sum(l.credit) FROM journal_entry_lines l JOIN gl_accounts a ON a.id=l.account_id WHERE l.journal_entry_id=inv.accrual_je_id AND a.account_type='revenue' AND a.name ILIKE '%Sales Revenue%'),0)*100)::bigint gl_merch,
@@ -139,7 +158,9 @@ for (const r of invRows) {
   const csvLs = csvByInvoice.get(r.invoice_number);
   if (!csvLs) continue;
   const csv = csvTotalCents(r.invoice_number);
-  if (Math.abs(cur - csv) <= TOL_CENTS) continue;               // already correct
+  // default: fix invoices whose total DISAGREES with CSV; --fill-equal: the
+  // opposite — rebuild content only where the total already agrees.
+  if (FILL_EQUAL ? Math.abs(cur - csv) > TOL_CENTS : Math.abs(cur - csv) <= TOL_CENTS) continue;
   if (Math.abs(csv - glAr) <= TOL_CENTS) { target.push(r); }    // CLEAN: CSV == GL receivable
   else {
     const kind = Math.abs(csv - glMerch) <= TOL_CENTS && glAr > csv ? "ship_ecom" : "mismatch";
@@ -242,7 +263,7 @@ async function planInvoice(num) {
   let seq = 0;
   for (let i = 0; i < orderedCsv.length; i++) {
     const l = orderedCsv[i]; const skuId = itemIds[i]; const amt = l.amountCents / 100;
-    ishInserts.push({ sku_id: skuId, customer_id: t?.customer_id ?? null, category_id: t?.category_id ?? null, channel_id: t?.channel_id ?? null, order_number: t?.order_number ?? null, invoice_number: num, txn_type: t?.txn_type || "invoice", txn_date: t?.txn_date || r.idate, qty: l.qty, unit_price: l.qty ? amt / l.qty : null, gross_amount: amt, discount_amount: null, net_amount: amt, currency: t?.currency ?? null, source: t?.source || "excel", raw_payload_id: t?.raw_payload_id ?? null, source_line_key: `${t?.source || "excel"}:reprice:${num}:${skuId}:${seq++}`, qty_grain: t?.qty_grain || "unit", brand_id: t?.brand_id ?? defaults.brand_id });
+    ishInserts.push({ sku_id: skuId, customer_id: t?.customer_id ?? null, category_id: t?.category_id ?? null, channel_id: t?.channel_id ?? null, order_number: t?.order_number ?? null, invoice_number: num, txn_type: t?.txn_type || "invoice", txn_date: t?.txn_date || r.idate, qty: l.qty, unit_price: l.qty ? amt / l.qty : null, gross_amount: amt, discount_amount: null, net_amount: amt, currency: t?.currency ?? null, source: t?.source || "excel", raw_payload_id: t?.raw_payload_id ?? null, source_line_key: `${t?.source || "excel"}:${ISH_KEY_KIND}:${num}:${skuId}:${seq++}`, qty_grain: t?.qty_grain || "unit", brand_id: t?.brand_id ?? defaults.brand_id });
   }
 
   const delta = built.sumCents - Number(r.total_amount_cents);
@@ -255,7 +276,7 @@ async function planInvoice(num) {
   stats.rebuilt++; stats.linesWritten += built.lines.length; stats.ishWritten += ishInserts.length;
   if (!APPLY) return;
 
-  const arIns = built.lines.map((l) => `(${val(r.id)}, ${l.line_number}, ${val(l.description)}, ${val(l.inventory_item_id)}, ${l.quantity}, ${l.unit_price_cents == null ? "NULL" : l.unit_price_cents}, ${l.line_total_cents}, ${l.tax_amount_cents}, ${l.cogs_cents == null ? "NULL" : l.cogs_cents}, ${val(l.revenue_account_id)}, ${val(l.cogs_account_id)}, ${val(l.brand_id)}, ${val(l.channel_id)}, ${val(l.source)}, ${sqlLit(REPRICE_TAG)})`).join(",\n");
+  const arIns = built.lines.map((l) => `(${val(r.id)}, ${l.line_number}, ${val(l.description)}, ${val(l.inventory_item_id)}, ${l.quantity}, ${l.unit_price_cents == null ? "NULL" : l.unit_price_cents}, ${l.line_total_cents}, ${l.tax_amount_cents}, ${l.cogs_cents == null ? "NULL" : l.cogs_cents}, ${val(l.revenue_account_id)}, ${val(l.cogs_account_id)}, ${val(l.brand_id)}, ${val(l.channel_id)}, ${val(l.source)}, ${sqlLit(NOTES_TAG)})`).join(",\n");
   let sql = `-- ${num}\nDELETE FROM ar_invoice_lines WHERE ar_invoice_id = ${val(r.id)};\n`;
   sql += `INSERT INTO ar_invoice_lines (ar_invoice_id, line_number, description, inventory_item_id, quantity, unit_price_cents, line_total_cents, tax_amount_cents, cogs_cents, revenue_account_id, cogs_account_id, brand_id, channel_id, source, notes) VALUES\n${arIns};\n`;
   if (ishCur.length) sql += `DELETE FROM ip_sales_history_wholesale WHERE id IN (${ishCur.map((x) => val(x.id)).join(",")});\n`;
@@ -281,7 +302,7 @@ for (const num of targetNums) { await planInvoice(num); await flush(false); if (
 await flush(true);
 process.stdout.write("\n");
 
-const summary = { mode: MODE, stamp: STAMP, csv_invoices: csvByInvoice.size, clean_targets: target.length, itemized: itemize.length, itemize_breakdown: itemize.reduce((m, i) => ((m[i.kind] = (m[i.kind] || 0) + 1), m), {}), ...stats, by_period_delta: Object.fromEntries(Object.entries(byPeriodDelta).map(([k, v]) => [k, { n: v.n, closed: v.closed, delta_dollars: (v.delta_cents / 100).toFixed(2) }])), manifests: { preimage: preimagePath, itemize: itemizePath } };
+const summary = { mode: MODE, fill_equal: FILL_EQUAL, stamp: STAMP, csv_invoices: csvByInvoice.size, clean_targets: target.length, itemized: itemize.length, itemize_breakdown: itemize.reduce((m, i) => ((m[i.kind] = (m[i.kind] || 0) + 1), m), {}), ...stats, by_period_delta: Object.fromEntries(Object.entries(byPeriodDelta).map(([k, v]) => [k, { n: v.n, closed: v.closed, delta_dollars: (v.delta_cents / 100).toFixed(2) }])), manifests: { preimage: preimagePath, itemize: itemizePath } };
 writeFileSync(summaryPath, JSON.stringify(summary, null, 2), "utf8");
 console.log("\n══════════ REPRICE/FILL SUMMARY (" + MODE + ") ══════════");
 console.log(`CLEAN targets ......... ${target.length}`);

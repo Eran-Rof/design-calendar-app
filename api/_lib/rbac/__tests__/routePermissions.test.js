@@ -19,6 +19,17 @@ describe("routePermissionFor", () => {
     expect(routePermissionFor("/api/internal/ap-invoices/abc/pay", "POST")).toEqual({ module: "ap_invoices", action: "post" });
   });
 
+  it("treats period close/reopen as post-grade on BOTH close surfaces", () => {
+    // month-end-close already mapped close/reopen → post; the legacy gl-periods
+    // segment used to fall through to write, letting a write-only role (beta)
+    // close a GL period. Both must be post-grade.
+    expect(routePermissionFor("/api/internal/gl-periods/2026-06/close", "POST")).toEqual({ module: "gl_periods", action: "post" });
+    expect(routePermissionFor("/api/internal/gl-periods/2026-06/reopen", "POST")).toEqual({ module: "gl_periods", action: "post" });
+    expect(routePermissionFor("/api/internal/month-end-close/2026-06/close", "POST")).toEqual({ module: "gl_periods", action: "post" });
+    expect(routePermissionFor("/api/internal/gl-periods", "GET")).toEqual({ module: "gl_periods", action: "read" });
+    expect(routePermissionFor("/api/internal/gl-periods", "POST")).toEqual({ module: "gl_periods", action: "write" });
+  });
+
   it("routes JE post/void to je_post, drafts to je_entry", () => {
     expect(routePermissionFor("/api/internal/journal-entries", "GET")).toEqual({ module: "je_entry", action: "read" });
     expect(routePermissionFor("/api/internal/journal-entries", "POST")).toEqual({ module: "je_entry", action: "write" });

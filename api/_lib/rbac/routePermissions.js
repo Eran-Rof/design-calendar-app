@@ -125,7 +125,7 @@ export function routePermissionFor(pathname, method) {
   if (m === "GET" || m === "HEAD") action = "read";
   else if (/\/void(\/|$)/.test(pathname)) action = "void";
   else if (/\/(post|pay|approve|fund|settle)(\/|$)/.test(pathname)) action = "post";
-  else if (seg === "month-end-close" && /\/(close|reopen)(\/|$)/.test(pathname)) action = "post"; // period lock/unlock = post-grade
+  else if ((seg === "month-end-close" || seg === "gl-periods") && /\/(close|reopen)(\/|$)/.test(pathname)) action = "post"; // period lock/unlock = post-grade (both close surfaces)
   else action = "write"; // POST/PUT/PATCH/DELETE create/update
 
   // JE draft vs posting split: the journal-entries surface covers both, but
